@@ -45,47 +45,21 @@ export default function Hero() {
           </div>
         </motion.div>
 
-        {/* High-Fidelity Mockup Preview */}
         <motion.div 
           initial={{ opacity: 0, y: 60 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
           className="relative max-w-6xl mx-auto"
         >
-          <div className="relative glass p-2 rounded-[2.5rem] shadow-2xl border-white/50">
-            <div className="bg-brand-dark rounded-[2rem] overflow-hidden aspect-[16/9] relative">
-              {/* Mock Dashboard UI */}
-              <div className="absolute inset-0 flex">
-                <div className="w-1/4 border-r border-white/10 p-6 space-y-6">
-                  <div className="h-8 w-32 bg-white/10 rounded-lg" />
-                  <div className="space-y-3">
-                    {[1, 2, 3, 4, 5].map(i => (
-                      <div key={i} className="h-4 w-full bg-white/5 rounded" />
-                    ))}
-                  </div>
-                </div>
-                <div className="flex-1 p-8">
-                  <div className="flex justify-between mb-12">
-                    <div className="h-10 w-48 bg-white/10 rounded-xl" />
-                    <div className="flex gap-4">
-                      <div className="h-10 w-10 bg-white/10 rounded-full" />
-                      <div className="h-10 w-10 bg-white/10 rounded-full" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-6">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="h-40 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl border border-white/10 p-6">
-                        <div className="h-4 w-24 bg-white/20 rounded mb-4" />
-                        <div className="h-8 w-32 bg-white/40 rounded" />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-8 h-48 bg-white/5 rounded-2xl border border-white/5" />
-                </div>
-              </div>
-              
+          <div className="relative glass p-4 rounded-[2.5rem] shadow-2xl border-white/50">
+            <div className="rounded-[2rem] overflow-hidden aspect-[16/9] relative shadow-2xl">
+              <img 
+                src="/src/assets/hero_dashboard_mockup.png" 
+                alt="24/7 GBS Unified Dashboard" 
+                className="w-full h-full object-cover"
+              />
               {/* Overlay Glow */}
-              <div className="absolute inset-0 bg-gradient-to-t from-brand-dark via-transparent to-transparent opacity-60" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-60" />
             </div>
           </div>
 

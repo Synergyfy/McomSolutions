@@ -1,11 +1,10 @@
-import React from 'react';
+import ProductSuite from '../components/ProductSuite';
+import FeatureShowcase from '../components/FeatureShowcase';
 import Hero from '../components/Hero';
-import ProductCard from '../components/ProductCard';
 import BentoGrid from '../components/BentoGrid';
 import Testimonials from '../components/Testimonials';
 import GlobalNetwork from '../components/GlobalNetwork';
 import IntegrationFlow from '../components/IntegrationFlow';
-import { PRODUCTS } from '../constants';
 import { motion } from 'motion/react';
 import { ArrowRight, Sparkles } from 'lucide-react';
 
@@ -14,37 +13,9 @@ export default function LandingPage() {
     <main>
       <Hero />
       
-      <section className="py-24 bg-white relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-20">
-            <motion.h2 
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              className="text-4xl md:text-6xl font-bold text-gray-900 mb-6 tracking-tight"
-            >
-              The Unified <span className="text-gradient">Ecosystem.</span>
-            </motion.h2>
-            <motion.p 
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.1 }}
-              className="text-xl text-gray-600 max-w-2xl mx-auto"
-            >
-              Six powerful tools, one seamless experience. Built to scale 
-              with your global ambitions.
-            </motion.p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {PRODUCTS.map((product, index) => (
-              <ProductCard key={product.id} product={product} index={index} />
-            ))}
-          </div>
-        </div>
-      </section>
+      <ProductSuite />
+
+      <FeatureShowcase />
 
       <BentoGrid />
 
@@ -83,7 +54,7 @@ export default function LandingPage() {
             <div className="w-full lg:w-96 space-y-4">
               <div className="p-6 bg-white rounded-3xl border border-gray-100 shadow-xl">
                 <div className="text-sm font-bold text-gray-400 uppercase mb-4">Professional</div>
-                <div className="text-4xl font-bold mb-2">$199<span className="text-lg text-gray-400">/mo</span></div>
+                <div className="text-4xl font-bold mb-2">£199<span className="text-lg text-gray-400">/mo</span></div>
                 <div className="h-1.5 w-full bg-blue-50 rounded-full overflow-hidden">
                   <div className="h-full w-3/4 bg-brand-blue" />
                 </div>

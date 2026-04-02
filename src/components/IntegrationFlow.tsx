@@ -1,6 +1,6 @@
-import React from 'react';
 import { motion } from 'motion/react';
 import { Link2, Zap, ArrowRight, Database, Share2, Shield } from 'lucide-react';
+import { cn } from '../lib/utils';
 
 export default function IntegrationFlow() {
   return (
@@ -15,55 +15,43 @@ export default function IntegrationFlow() {
           </p>
         </div>
 
-        <div className="relative">
-          {/* Connection Lines (SVG) */}
-          <svg className="absolute inset-0 w-full h-full -z-10 opacity-20" viewBox="0 0 1000 400">
-            <motion.path
-              d="M 200 200 Q 500 50 800 200"
-              fill="none"
-              stroke="#0A84FF"
-              strokeWidth="2"
-              strokeDasharray="10 10"
-              initial={{ pathLength: 0 }}
-              whileInView={{ pathLength: 1 }}
-              transition={{ duration: 2, repeat: Infinity }}
+        <div className="relative group p-4 glass rounded-[3rem] overflow-hidden shadow-2xl">
+          <div className="aspect-[21/9] relative rounded-[2.5rem] overflow-hidden">
+            <img 
+              src="/src/assets/global_connectivity_mockup.png" 
+              alt="Global Data Ecosystem Connectivity" 
+              className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"
             />
-            <motion.path
-              d="M 200 200 Q 500 350 800 200"
-              fill="none"
-              stroke="#00D1FF"
-              strokeWidth="2"
-              strokeDasharray="10 10"
-              initial={{ pathLength: 0 }}
-              whileInView={{ pathLength: 1 }}
-              transition={{ duration: 2, repeat: Infinity, delay: 1 }}
-            />
-          </svg>
+            {/* Glossy Overlay with Content */}
+            <div className="absolute inset-0 bg-blue-900/40 backdrop-blur-[2px] flex items-center justify-center">
+              <div className="flex flex-col md:flex-row items-center gap-12 lg:gap-24">
+                <IntegrationCard 
+                  icon={Database} 
+                  title="GBS Core" 
+                  desc="Enterprise source of truth." 
+                  color="bg-blue-500"
+                  mini
+                />
+                
+                <div className="flex flex-col items-center gap-6">
+                  <div className="w-20 h-20 bg-white/20 backdrop-blur-xl text-white rounded-full flex items-center justify-center border border-white/30 shadow-glow-lg animate-pulse z-10">
+                    <Link2 className="w-10 h-10" />
+                  </div>
+                  <div className="text-center z-10">
+                    <div className="font-bold text-white text-xl">McomQ Link</div>
+                    <div className="text-xs text-blue-200 font-bold uppercase tracking-[0.2em]">The Universal Bridge</div>
+                  </div>
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12 items-center">
-            <IntegrationCard 
-              icon={Database} 
-              title="GBS Core" 
-              desc="Your enterprise source of truth for loyalty and auditing." 
-              color="bg-blue-500"
-            />
-            
-            <div className="flex flex-col items-center gap-6">
-              <div className="w-20 h-20 bg-brand-blue text-white rounded-full flex items-center justify-center shadow-glow-lg animate-pulse">
-                <Link2 className="w-10 h-10" />
-              </div>
-              <div className="text-center">
-                <div className="font-bold text-gray-900">McomQ Link</div>
-                <div className="text-xs text-brand-blue font-bold uppercase tracking-widest">The Bridge</div>
+                <IntegrationCard 
+                  icon={Share2} 
+                  title="Mcom Suite" 
+                  desc="Consumer commerce tools." 
+                  color="bg-cyan-500"
+                  mini
+                />
               </div>
             </div>
-
-            <IntegrationCard 
-              icon={Share2} 
-              title="Mcom Suite" 
-              desc="Consumer-facing marketplaces and reward engines." 
-              color="bg-cyan-500"
-            />
           </div>
         </div>
 
@@ -89,14 +77,20 @@ export default function IntegrationFlow() {
   );
 }
 
-function IntegrationCard({ icon: Icon, title, desc, color }: any) {
+function IntegrationCard({ icon: Icon, title, desc, color, mini = false }: any) {
   return (
-    <div className="p-10 glass rounded-[3rem] text-center group hover:-translate-y-2 transition-all duration-500">
-      <div className={`w-16 h-16 ${color} text-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg group-hover:scale-110 transition-transform`}>
-        <Icon className="w-8 h-8" />
+    <div className={cn(
+      "p-10 rounded-[3rem] text-center group transition-all duration-500",
+      mini ? "p-6 bg-white/10 backdrop-blur-md border border-white/20 text-white w-64" : "glass text-gray-900 hover:-translate-y-2 shadow-2xl"
+    )}>
+      <div className={cn(
+        "w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg group-hover:scale-110 transition-transform",
+        color
+      )}>
+        <Icon className="w-8 h-8 text-white" />
       </div>
-      <h4 className="text-2xl font-bold mb-4">{title}</h4>
-      <p className="text-gray-500 leading-relaxed">{desc}</p>
+      <h4 className={cn("text-2xl font-bold mb-4", mini ? "text-white" : "text-gray-900")}>{title}</h4>
+      <p className={cn("leading-relaxed", mini ? "text-blue-100 text-sm" : "text-gray-500")}>{desc}</p>
     </div>
   );
 }

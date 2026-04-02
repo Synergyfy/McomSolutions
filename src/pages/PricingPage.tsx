@@ -48,7 +48,7 @@ function PricingCard({ title, price, description, features, featured = false }: 
       <p className={cn("mb-8", featured ? "text-blue-100" : "text-gray-500")}>{description}</p>
       
       <div className="mb-8">
-        <span className="text-5xl font-bold">{price === 'Custom' ? price : `$${price}`}</span>
+        <span className="text-5xl font-bold">{price === 'Custom' ? price : `£${price}`}</span>
         {price !== 'Custom' && <span className={cn("text-lg", featured ? "text-blue-200" : "text-gray-400")}>/mo</span>}
       </div>
 
