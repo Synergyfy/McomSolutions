@@ -7,6 +7,7 @@ import ProductDetail from './pages/ProductDetail';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import PricingManager from './pages/PricingManager';
+import AllBusinesses from './pages/AllBusinesses';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
 import LoginPage from './pages/LoginPage';
@@ -76,6 +77,14 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <PricingManager />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/admin/businesses" 
+            element={
+              <PageWrapper>
+                <AllBusinesses />
               </PageWrapper>
             } 
           />

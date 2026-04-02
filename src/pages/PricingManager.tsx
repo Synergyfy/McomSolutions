@@ -102,12 +102,9 @@ export default function PricingManager() {
             <NavItem icon={LayoutGrid} label="Admin Overview" />
           </Link>
           <NavItem icon={CreditCard} label="Pricing Manager" active />
-          <NavItem icon={Building2} label="All Businesses" />
-          <NavItem icon={Target} label="Campaigns" />
-          <div className="pt-8 pb-4 px-4">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest hidden lg:block">System Control</span>
-          </div>
-          <NavItem icon={Settings} label="Global Settings" />
+          <Link to="/admin/businesses" className="w-full">
+            <NavItem icon={Building2} label="All Businesses" />
+          </Link>
         </nav>
 
         <div className="p-6">
