@@ -5,10 +5,14 @@ import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import ProductDetail from './pages/ProductDetail';
 import Dashboard from './pages/Dashboard';
+import AdminDashboard from './pages/AdminDashboard';
+import PricingManager from './pages/PricingManager';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
 import LoginPage from './pages/LoginPage';
 import { AnimatePresence, motion } from 'motion/react';
+import { PricingProvider } from './context/PricingContext';
+import { BusinessProvider } from './context/BusinessContext';
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -26,8 +30,9 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 function AnimatedRoutes() {
   const location = useLocation();
   const isDashboard = location.pathname === '/dashboard';
+  const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
-  const hideNavFooter = isDashboard || isLogin;
+  const hideNavFooter = isDashboard || isLogin || isAdmin;
 
   return (
     <>
@@ -55,6 +60,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <Dashboard />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/admin" 
+            element={
+              <PageWrapper>
+                <AdminDashboard />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/admin/pricing" 
+            element={
+              <PageWrapper>
+                <PricingManager />
               </PageWrapper>
             } 
           />
@@ -91,8 +112,12 @@ function AnimatedRoutes() {
 
 export default function App() {
   return (
-    <Router>
-      <AnimatedRoutes />
-    </Router>
+    <PricingProvider>
+      <BusinessProvider>
+        <Router>
+          <AnimatedRoutes />
+        </Router>
+      </BusinessProvider>
+    </PricingProvider>
   );
 }
