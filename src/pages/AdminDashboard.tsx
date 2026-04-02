@@ -123,8 +123,8 @@ export default function AdminDashboard() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-            <StatCard label="Total Members" value={businesses.length.toLocaleString()} change="+4" />
-            <StatCard label="Monthly Revenue" value="£842.1k" change="+18%" />
+            <StatCard label="Total Merchants" value={businesses.length.toLocaleString()} change="+4" />
+            <StatCard label="Total Subscriptions" value={businesses.filter(b => b.membership !== 'None').length.toString()} change="+12%" />
             <StatCard label="Live Campaigns" value="12" change="+2" />
             <StatCard label="Pending Audits" value="8" change="Stable" />
           </div>
