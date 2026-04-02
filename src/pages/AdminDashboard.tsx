@@ -151,7 +151,7 @@ export default function AdminDashboard() {
                   <tr className="bg-gray-50/50">
                     <th className="px-8 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Business Name</th>
                     <th className="px-8 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Membership</th>
-                    <th className="px-8 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Growth Metric</th>
+                    <th className="px-8 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-left">Ecosystem Status</th>
                     <th className="px-8 py-4 text-xs font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
                   </tr>
                 </thead>
@@ -186,8 +186,11 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td className="px-8 py-6">
-                        <div className="text-sm font-bold text-gray-900">{b.revenue}</div>
-                        <div className="text-[10px] text-green-500 font-bold">+12.4% MoM</div>
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                            <span className="text-sm font-bold text-gray-900">Active & Ready</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase mt-1">Direct Billing: Enabled</div>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex justify-center gap-3">

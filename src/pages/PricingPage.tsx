@@ -19,10 +19,52 @@ import { PRODUCTS } from '../constants';
 
 import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
 
+function ModularProductCard({ product }: any) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="group relative bg-white border border-gray-100 rounded-[2.5rem] p-8 hover:border-brand-blue/20 hover:shadow-xl transition-all duration-500"
+    >
+      <div className="flex items-center justify-between mb-6">
+        <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center p-2.5 text-white shadow-sm group-hover:scale-110 transition-transform duration-500", product.color)}>
+          <product.icon className="w-full h-full" />
+        </div>
+        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{product.type} MODULE</div>
+      </div>
+
+      <div className="mb-8">
+        <h3 className="font-bold text-gray-900 group-hover:text-brand-blue transition-colors mb-2">{product.name}</h3>
+        <p className="text-xs text-gray-500 font-medium line-clamp-2 leading-relaxed">{product.tagline}</p>
+      </div>
+
+      <div className="flex items-end gap-1 mb-8">
+        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-gray-400 uppercase tracking-widest mb-1">Starting</div>
+        <div className="text-2xl font-bold text-gray-900">
+          {product.name.includes('Mall') ? '£40' : 
+           product.name.includes('Loyalty') ? '£25' : 
+           product.name.includes('Rewards') ? '£15' : '£20'}
+        </div>
+        <div className="text-gray-400 font-bold mb-1 text-xs">/mo</div>
+      </div>
+
+      <Link 
+        to={`/product/${product.id}`}
+        className="w-full py-3.5 border border-brand-blue/10 rounded-xl text-xs font-bold text-brand-blue hover:bg-brand-blue hover:text-white transition-all flex items-center justify-center gap-2"
+      >
+        Pricing Details <ArrowRight className="w-3 h-3" />
+      </Link>
+    </motion.div>
+  );
+}
+
 export default function PricingPage() {
   const { plans } = usePricing();
   const [selectedSubTier, setSelectedSubTier] = useState<SubTier>('Normal');
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [showComparison, setShowComparison] = useState(false);
+  const [showGBSModular, setShowGBSModular] = useState(false);
+  const [showMCOMModular, setShowMCOMModular] = useState(false);
 
   const discount = 0.2; // 20% discount for yearly
 
@@ -99,28 +141,62 @@ export default function PricingPage() {
           ))}
         </div>
 
-        {/* Comparison Table */}
+        {/* Comparison Table Section (Collapsible) */}
         <div className="mb-32">
-          <h2 className="text-4xl font-semibold text-center mb-12">Compare Memberships</h2>
-          <div className="overflow-x-auto glass rounded-[2.5rem] border-gray-100 p-8">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="pb-6 pt-2 font-bold text-gray-500 uppercase tracking-widest text-xs">Features</th>
-                  {plans.map(p => (
-                    <th key={p.id} className="pb-6 pt-2 font-bold text-center">{p.name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                <ComparisonRow label="Visibility Range" values={['Starter', 'Enhanced', 'Regional', 'Global Priority']} />
-                <ComparisonRow label="Campaign Access" values={['Basic', 'Limited', 'Full', 'Exclusive']} />
-                <ComparisonRow label="Growth Tools" values={['Basic', 'Advanced', 'Full Suite', 'Custom Suite']} />
-                <ComparisonRow label="Dedicated Support" values={['None', 'Business Hours', 'Priority', 'White Glove']} />
-                <ComparisonRow label="Multi-location" values={[false, false, true, true]} />
-              </tbody>
-            </table>
-          </div>
+          <button 
+            onClick={() => setShowComparison(!showComparison)}
+            className="w-full flex items-center justify-between p-8 bg-gray-50 rounded-[2.5rem] border border-gray-100 hover:border-brand-blue/20 transition-all group shadow-sm"
+          >
+            <div className="flex items-center gap-6">
+              <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-brand-blue border border-blue-50">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div className="text-left">
+                 <h3 className="text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight">Compare Memberships</h3>
+                 <p className="text-sm text-gray-400 font-medium">Deep dive into specific tier differences</p>
+              </div>
+            </div>
+            <div className={cn(
+               "w-10 h-10 rounded-full bg-white text-gray-400 flex items-center justify-center transition-all group-hover:bg-brand-blue group-hover:text-white shadow-sm border border-gray-100",
+               showComparison ? "rotate-180" : ""
+            )}>
+              <ChevronDown className="w-5 h-5" />
+            </div>
+          </button>
+
+          <AnimatePresence>
+            {showComparison && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.5 }}
+                className="overflow-hidden"
+              >
+                <div className="pt-12 px-2">
+                  <div className="overflow-x-auto glass rounded-[2.5rem] border-gray-100 p-8">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-gray-100">
+                          <th className="pb-6 pt-2 font-bold text-gray-500 uppercase tracking-widest text-xs">Features</th>
+                          {plans.map(p => (
+                            <th key={p.id} className="pb-6 pt-2 font-bold text-center">{p.name}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        <ComparisonRow label="Visibility Range" values={['Starter', 'Enhanced', 'Regional', 'Global Priority']} />
+                        <ComparisonRow label="Campaign Access" values={['Basic', 'Limited', 'Full', 'Exclusive']} />
+                        <ComparisonRow label="Growth Tools" values={['Basic', 'Advanced', 'Full Suite', 'Custom Suite']} />
+                        <ComparisonRow label="Dedicated Support" values={['None', 'Business Hours', 'Priority', 'White Glove']} />
+                        <ComparisonRow label="Multi-location" values={[false, false, true, true]} />
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Trust Points */}
@@ -148,59 +224,96 @@ export default function PricingPage() {
           </div>
         </div>
 
-        {/* Individual Product Access */}
-        <div className="mb-32">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold mb-4 tracking-tight">Prefer a Modular Approach?</h2>
-            <p className="text-gray-500 font-medium">
-              Subscribe to individual tools and build your own custom suite.
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {plans.slice(0, 0).concat(PRODUCTS.map(p => ({
-              ...p,
-              startingPrice: p.type === 'GBS' ? '£25' : '£20' // Placeholder logic for starting prices
-            }))).map((product, i) => (
-              <motion.div
-                key={product.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.05 }}
-                className="group relative bg-white border border-gray-100 rounded-[3rem] p-10 hover:border-brand-blue/20 hover:shadow-2xl transition-all duration-500"
+
+
+        {/* Modular Product Access (Independently Collapsible Sections) */}
+        <div className="mb-32 space-y-8">
+           <div className="text-center mb-16">
+              <h2 className="text-3xl font-bold mb-4 tracking-tight">Modular Product Access</h2>
+              <p className="text-gray-500 font-medium">
+                Want to mix and match? Access individual products outside of the core membership.
+              </p>
+           </div>
+
+           {/* GBS Modular Section */}
+           <div className="bg-white rounded-[3rem] border border-gray-100 overflow-hidden transition-all hover:border-brand-blue/10">
+              <button 
+                onClick={() => setShowGBSModular(!showGBSModular)}
+                className="w-full p-8 flex items-center justify-between text-left group bg-gray-50/50"
               >
-                <div className="flex items-center justify-between mb-8">
-                  <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center p-3 text-white shadow-lg group-hover:scale-110 transition-transform duration-500", product.color)}>
-                    <product.icon className="w-full h-full" />
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-blue text-white shadow-glow flex items-center justify-center">
+                    <Shield className="w-6 h-6" />
                   </div>
-                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{product.type} MODULE</div>
-                </div>
-
-                <div className="mb-10">
-                  <h3 className="text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors mb-2">{product.name}</h3>
-                  <p className="text-sm text-gray-500 font-medium line-clamp-2 leading-relaxed">{product.tagline}</p>
-                </div>
-
-                <div className="flex items-end gap-1 mb-10">
-                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Starting at</div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {product.name.includes('Mall') ? '£40' : 
-                     product.name.includes('Loyalty') ? '£25' : 
-                     product.name.includes('Rewards') ? '£15' : '£20'}
+                  <div>
+                    <h4 className="text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors">24/7 GBS Enterprise Tools</h4>
+                    <p className="text-sm text-gray-400 font-medium">Loyalty, Audit, and Expo Management</p>
                   </div>
-                  <div className="text-gray-400 font-bold mb-1">/mo</div>
                 </div>
+                <div className={cn(
+                  "w-10 h-10 rounded-full bg-white text-brand-blue flex items-center justify-center transition-all group-hover:bg-brand-blue group-hover:text-white shadow-sm border border-gray-100",
+                  showGBSModular ? "rotate-180" : ""
+                )}>
+                  <ChevronDown className="w-5 h-5" />
+                </div>
+              </button>
+              <AnimatePresence>
+                {showGBSModular && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.4 }}
+                  >
+                    <div className="p-10 grid md:grid-cols-2 lg:grid-cols-3 gap-8 bg-white border-t border-gray-100">
+                      {PRODUCTS.filter(p => p.type === 'GBS').map((product, i) => (
+                        <ModularProductCard key={product.id} product={product} />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+           </div>
 
-                <Link 
-                  to={`/product/${product.id}`}
-                  className="w-full py-4 border-2 border-brand-blue/10 rounded-2xl text-sm font-bold text-brand-blue hover:bg-brand-blue hover:text-white transition-all flex items-center justify-center gap-2"
-                >
-                  View Product Pricing <ArrowRight className="w-4 h-4" />
-                </Link>
-              </motion.div>
-            ))}
-          </div>
+           {/* MCOM Modular Section */}
+           <div className="bg-white rounded-[3rem] border border-gray-100 overflow-hidden transition-all hover:border-brand-blue/10">
+              <button 
+                onClick={() => setShowMCOMModular(!showMCOMModular)}
+                className="w-full p-8 flex items-center justify-between text-left group bg-gray-50/50"
+              >
+                <div className="flex items-center gap-6">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-dark text-white shadow-lg flex items-center justify-center">
+                    <Building2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors">MCOM Digital Commerce Suite</h4>
+                    <p className="text-sm text-gray-400 font-medium">Mall, Rewards, and Universal Links</p>
+                  </div>
+                </div>
+                <div className={cn(
+                  "w-10 h-10 rounded-full bg-white text-brand-dark flex items-center justify-center transition-all group-hover:bg-brand-blue group-hover:text-white shadow-sm border border-gray-100",
+                  showMCOMModular ? "rotate-180" : ""
+                )}>
+                  <ChevronDown className="w-5 h-5" />
+                </div>
+              </button>
+              <AnimatePresence>
+                {showMCOMModular && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.4 }}
+                  >
+                    <div className="p-10 grid md:grid-cols-2 lg:grid-cols-3 gap-8 bg-white border-t border-gray-100">
+                      {PRODUCTS.filter(p => p.type === 'Mcom').map((product, i) => (
+                        <ModularProductCard key={product.id} product={product} />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+           </div>
         </div>
 
         {/* Final CTA */}
@@ -269,12 +382,6 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
   const basePrice = plan.price[tier];
   const finalPrice = cycle === 'yearly' ? Math.floor(basePrice * (1 - discount)) : basePrice;
 
-  const tierFeatures: Record<SubTier, string[]> = {
-    'Normal': ['Basic visibility', 'Standard tools'],
-    'Pro': ['Enhanced visibility', 'Growth analytics', 'Priority tools'],
-    'Pro+': ['Maximum priority', 'Full data suite', 'Beta access']
-  };
-
   const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP];
 
   return (
@@ -327,7 +434,7 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
         <div className={cn("h-px w-8 my-4", isGold ? "bg-white/10" : "bg-gray-100")} />
         
         <div className={cn("text-xs font-bold uppercase tracking-widest", isGold ? "text-blue-200/60" : "text-gray-400")}>{tier} Benefits</div>
-        {tierFeatures[tier as SubTier].map((f: string, i: number) => (
+        {(plan.tierFeatures?.[tier as SubTier] || []).map((f: string, i: number) => (
           <div key={i} className="flex items-center gap-3">
             <Zap className={cn("w-4 h-4", isGold ? "text-amber-300" : "text-amber-500")} />
             <span className={cn("text-sm font-bold", isGold ? "text-white" : "text-gray-900")}>{f}</span>

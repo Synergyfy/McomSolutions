@@ -20,7 +20,9 @@ import {
   RefreshCw,
   Edit3,
   CheckCircle2,
-  X
+  X,
+  Layers,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
@@ -36,28 +38,50 @@ export default function PricingManager() {
     setTimeout(() => setShowSavedToast(false), 3000);
   };
 
-  const handleFeatureAdd = (planId: Membership) => {
+  const handleFeatureAdd = (planId: Membership, tier?: SubTier) => {
     const plan = plans.find(p => p.id === planId);
-    if (plan) {
-      updatePlan(planId, { features: [...plan.features, 'New Feature'] });
+    if (!plan) return;
+
+    if (tier) {
+        const newTierFeatures = { ...plan.tierFeatures };
+        newTierFeatures[tier] = [...(newTierFeatures[tier] || []), 'New Benefit'];
+        updatePlan(planId, { tierFeatures: newTierFeatures });
+    } else {
+        updatePlan(planId, { features: [...plan.features, 'New Global Feature'] });
     }
   };
 
-  const handleFeatureRemove = (planId: Membership, index: number) => {
+  const handleFeatureRemove = (planId: Membership, index: number, tier?: SubTier) => {
     const plan = plans.find(p => p.id === planId);
-    if (plan) {
-      const newFeatures = [...plan.features];
-      newFeatures.splice(index, 1);
-      updatePlan(planId, { features: newFeatures });
+    if (!plan) return;
+
+    if (tier) {
+        const newTierFeatures = { ...plan.tierFeatures };
+        const updated = [...newTierFeatures[tier]];
+        updated.splice(index, 1);
+        newTierFeatures[tier] = updated;
+        updatePlan(planId, { tierFeatures: newTierFeatures });
+    } else {
+        const newFeatures = [...plan.features];
+        newFeatures.splice(index, 1);
+        updatePlan(planId, { features: newFeatures });
     }
   };
 
-  const handleFeatureChange = (planId: Membership, index: number, value: string) => {
+  const handleFeatureChange = (planId: Membership, index: number, value: string, tier?: SubTier) => {
     const plan = plans.find(p => p.id === planId);
-    if (plan) {
-      const newFeatures = [...plan.features];
-      newFeatures[index] = value;
-      updatePlan(planId, { features: newFeatures });
+    if (!plan) return;
+
+    if (tier) {
+        const newTierFeatures = { ...plan.tierFeatures };
+        const updated = [...newTierFeatures[tier]];
+        updated[index] = value;
+        newTierFeatures[tier] = updated;
+        updatePlan(planId, { tierFeatures: newTierFeatures });
+    } else {
+        const newFeatures = [...plan.features];
+        newFeatures[index] = value;
+        updatePlan(planId, { features: newFeatures });
     }
   };
 
@@ -134,9 +158,9 @@ export default function PricingManager() {
             <div className="space-y-12">
               <div className="max-w-4xl">
                 <h1 className="text-4xl font-bold mb-4 tracking-tight">Configure Membership Tiers</h1>
-                <p className="text-lg text-gray-500 font-medium leading-relaxed font-medium">
+                <p className="text-lg text-gray-500 font-medium leading-relaxed">
                   Select a membership card below to edit its specific details including pricing, 
-                  features, and presentation.
+                  features, and tier-specific benefits.
                 </p>
               </div>
 
@@ -172,33 +196,25 @@ export default function PricingManager() {
                     </div>
 
                     <div className="space-y-3 mb-8 flex-1">
-                      <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Key Inclusions</div>
-                      {plan.features.slice(0, 3).map((f, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <BadgeCheck className="w-4 h-4 text-brand-blue" />
-                          <span className="text-sm font-semibold truncate">{f}</span>
-                        </div>
-                      ))}
-                      {plan.features.length > 3 && <div className="text-xs text-gray-400 font-semibold opacity-70">+{plan.features.length - 3} more features</div>}
+                      <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Tier Options</div>
+                      <div className="space-y-2">
+                        {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map(t => (
+                            <div key={t} className="flex items-center justify-between text-xs font-bold p-2 bg-gray-50 rounded-xl">
+                                <span className="text-gray-400">{t}</span>
+                                <span className="text-brand-blue">£{plan.price[t]}</span>
+                            </div>
+                        ))}
+                      </div>
                     </div>
 
                     <button 
                          onClick={() => setEditingId(plan.id)}
                         className="w-full py-4 border-2 border-brand-blue/10 rounded-2xl text-sm font-bold text-brand-blue hover:bg-brand-blue hover:text-white transition-all shadow-sm"
                     >
-                        Detailed Edit
+                        Advanced Editor
                     </button>
                   </div>
                 ))}
-              </div>
-
-               <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm p-12 max-w-4xl">
-                <h3 className="text-2xl font-bold mb-8 tracking-tight">Active Ecosystem Settings</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                  <SettingStat label="Global Curreny" value="GBP (£)" />
-                  <SettingStat label="Tax Calculation" value="Inclusive" />
-                  <SettingStat label="Checkout Mode" value="Live" />
-                </div>
               </div>
             </div>
           )}
@@ -225,13 +241,16 @@ export default function PricingManager() {
 }
 
 function EditPanel({ plan, onClose, updatePlan, onFeatureRemove, onFeatureAdd, onFeatureChange }: any) {
+    const [activeTab, setActiveTab] = useState<'Global' | SubTier>('Global');
+
     return (
         <motion.div 
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="grid grid-cols-1 lg:grid-cols-3 gap-8"
+            className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-20"
         >
             <div className="lg:col-span-2 space-y-8">
+                {/* Header Section */}
                 <div className="bg-white rounded-[3rem] p-12 border border-blue-100 shadow-xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-12 opacity-5 translate-x-1/4 -translate-y-1/4">
                         <PlanIcon name={plan.iconName} className="w-64 h-64" />
@@ -242,54 +261,91 @@ function EditPanel({ plan, onClose, updatePlan, onFeatureRemove, onFeatureAdd, o
                             <PlanIcon name={plan.iconName} className="w-full h-full text-white" />
                          </div>
                          <div>
-                            <h2 className="text-4xl font-bold">{plan.name} Tier</h2>
-                            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Customizing Base Configuration</p>
+                            <h2 className="text-4xl font-bold">{plan.name} Membership</h2>
+                            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Full Advanced Configuration</p>
                          </div>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-8 mb-12">
                         <InputGroup 
-                            label="Tier Name" 
+                            label="Membership Heading" 
                             value={plan.name} 
                             onChange={(v: string) => updatePlan(plan.id, { name: v })} 
                         />
                         <InputGroup 
-                            label="Target Audience" 
+                            label="Target Segment" 
                             value={plan.whoItIsFor} 
                             onChange={(v: string) => updatePlan(plan.id, { whoItIsFor: v })} 
                         />
                     </div>
 
-                    <div className="mb-12">
-                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-4">Core Description</label>
-                        <textarea 
-                            className="w-full bg-gray-50 border-transparent rounded-3xl p-6 focus:bg-white focus:ring-4 focus:ring-brand-blue/5 transition-all font-medium text-lg min-h-[120px]"
-                            value={plan.description}
-                            onChange={(e) => updatePlan(plan.id, { description: e.target.value })}
-                        />
+                    <div>
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-4 ml-2">Tier Price Scaling</label>
+                        <div className="grid grid-cols-3 gap-4">
+                            {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map(tier => (
+                                <div key={tier} className="bg-gray-50 p-4 rounded-2xl border border-transparent hover:border-brand-blue/10">
+                                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-2 text-center">{tier}</div>
+                                    <div className="flex items-center justify-center gap-1">
+                                        <span className="font-bold text-gray-400">£</span>
+                                        <input 
+                                            type="number"
+                                            className="bg-transparent border-none focus:ring-0 w-full text-center font-bold text-xl"
+                                            value={plan.price[tier]}
+                                            onChange={(e) => updatePlan(plan.id, { price: { ...plan.price, [tier]: parseInt(e.target.value) } })}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Advanced Features Editor */}
+                <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="p-1 border-b border-gray-100 flex gap-1 bg-gray-50/50">
+                        {(['Global', 'Normal', 'Pro', 'Pro+'] as const).map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={cn(
+                                    "flex-1 py-6 text-xs font-bold uppercase tracking-widest transition-all",
+                                    activeTab === tab ? "bg-white text-brand-blue shadow-sm border-b-2 border-brand-blue" : "text-gray-400 hover:text-gray-600"
+                                )}
+                            >
+                                {tab === 'Global' ? 'Core Features' : `${tab} Benefits`}
+                            </button>
+                        ))}
                     </div>
 
-                    <div>
-                        <div className="flex items-center justify-between mb-6">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Inclusions & Features</label>
+                    <div className="p-12">
+                        <div className="flex items-center justify-between mb-10">
+                            <div>
+                                <h3 className="text-2xl font-bold tracking-tight mb-1">
+                                    {activeTab === 'Global' ? 'Standard Inclusions' : `${activeTab} Specific Benefits`}
+                                </h3>
+                                <p className="text-sm text-gray-400 font-medium">
+                                    {activeTab === 'Global' ? "Applied to all tiers regardless of user's choice." : `These benefits only appear when the user selects the ${activeTab} sub-tier.`}
+                                </p>
+                            </div>
                             <button 
-                                onClick={() => onFeatureAdd(plan.id)}
-                                className="text-brand-blue font-bold text-sm flex items-center gap-2 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all"
+                                onClick={() => onFeatureAdd(plan.id, activeTab === 'Global' ? undefined : activeTab)}
+                                className="px-6 py-3 bg-brand-blue text-white rounded-xl font-bold text-sm shadow-glow flex items-center gap-2 hover:bg-blue-600 transition-all"
                             >
-                                <Plus className="w-4 h-4" /> Add Feature
+                                <Plus className="w-4 h-4" /> Add Item
                             </button>
                         </div>
+
                         <div className="grid md:grid-cols-2 gap-4">
-                            {plan.features.map((f: string, i: number) => (
-                                <div key={i} className="flex items-center gap-3 bg-gray-50 p-2 pl-4 rounded-2xl group border border-transparent hover:border-brand-blue/20 hover:bg-white transition-all">
+                            {(activeTab === 'Global' ? plan.features : (plan.tierFeatures?.[activeTab] || [])).map((f: string, i: number) => (
+                                <div key={i} className="flex items-center gap-3 bg-gray-50 p-2 pl-6 rounded-2xl group border border-transparent hover:border-brand-blue/20 hover:bg-white transition-all shadow-sm">
                                     <input 
-                                        className="flex-1 bg-transparent border-none focus:ring-0 font-semibold text-sm"
+                                        className="flex-1 bg-transparent border-none focus:ring-0 font-bold text-sm"
                                         value={f}
-                                        onChange={(e) => onFeatureChange(plan.id, i, e.target.value)}
+                                        onChange={(e) => onFeatureChange(plan.id, i, e.target.value, activeTab === 'Global' ? undefined : activeTab)}
                                     />
                                     <button 
-                                        onClick={() => onFeatureRemove(plan.id, i)}
-                                        className="p-3 text-gray-300 hover:text-red-500 transition-colors"
+                                        onClick={() => onFeatureRemove(plan.id, i, activeTab === 'Global' ? undefined : activeTab)}
+                                        className="p-4 text-gray-300 hover:text-red-500 transition-colors"
                                     >
                                         <Trash2 className="w-4 h-4" />
                                     </button>
@@ -298,37 +354,23 @@ function EditPanel({ plan, onClose, updatePlan, onFeatureRemove, onFeatureAdd, o
                         </div>
                     </div>
                 </div>
-
-                <div className="bg-white rounded-[3rem] p-12 border border-gray-100 shadow-sm">
-                    <h3 className="text-2xl font-bold mb-8 tracking-tight">Price Configuration Matrix</h3>
-                    <div className="grid md:grid-cols-3 gap-8">
-                        {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map(tier => (
-                            <EditablePrice 
-                                key={tier}
-                                tier={tier}
-                                value={plan.price[tier]}
-                                onChange={(val: number) => updatePlan(plan.id, { price: { ...plan.price, [tier]: val } })}
-                            />
-                        ))}
-                    </div>
-                </div>
             </div>
 
             <div className="space-y-8">
-                 <div className="bg-brand-dark text-white rounded-[3rem] p-10 flex flex-col h-fit sticky top-24">
+                 <div className="bg-brand-dark text-white rounded-[3rem] p-10 flex flex-col h-fit sticky top-24 shadow-2xl">
                     <h4 className="text-xl font-bold mb-6 flex items-center gap-3">
-                        <BadgeCheck className="w-6 h-6 text-brand-blue shadow-glow" /> Quick Actions
+                        <BadgeCheck className="w-6 h-6 text-brand-blue shadow-glow" /> Plan Actions
                     </h4>
                     <div className="space-y-4 mb-10">
-                        <ActionButton label="Clone Plan" />
-                        <ActionButton label="Archive Tier" variant="danger" />
-                        <ActionButton label="View Public Page" />
+                        <ActionButton icon={Plus} label="Duplicate Tier" />
+                        <ActionButton icon={Trash2} label="Remove Permanent" variant="danger" />
+                        <ActionButton icon={ChevronRight} label="Preview Layout" />
                     </div>
                     <button 
                         onClick={onClose}
-                        className="w-full py-5 bg-white text-brand-dark rounded-2xl font-black text-lg hover:bg-gray-100 transition-all active:scale-95"
+                        className="w-full py-5 bg-white text-brand-dark rounded-2xl font-black text-xl hover:bg-gray-100 transition-all active:scale-95 shadow-glow"
                     >
-                        Finish Editing
+                        Save & Exit
                     </button>
                 </div>
             </div>
@@ -336,34 +378,17 @@ function EditPanel({ plan, onClose, updatePlan, onFeatureRemove, onFeatureAdd, o
     );
 }
 
-function EditablePrice({ tier, value, onChange }: any) {
-    return (
-        <div className="bg-gray-50 p-6 rounded-[2rem] border border-transparent hover:border-brand-blue/20 transition-all">
-            <div className={cn(
-                "w-full py-1 text-center font-bold text-[10px] uppercase tracking-widest mb-4 rounded-full",
-                tier === 'Pro+' ? "bg-brand-blue text-white" : "bg-gray-200 text-gray-400"
-            )}>{tier} Tier</div>
-            <div className="flex items-center justify-center gap-1">
-                <span className="text-2xl font-bold text-gray-400">£</span>
-                <input 
-                    type="number" 
-                    value={value} 
-                    onChange={(e) => onChange(parseInt(e.target.value))}
-                    className="w-full text-center bg-transparent border-none text-3xl font-bold focus:ring-0 tracking-tight"
-                />
-            </div>
-        </div>
-    );
-}
-
-function ActionButton({ label, variant = 'default' }: any) {
+function ActionButton({ label, variant = 'default', icon: Icon }: any) {
     return (
         <button className={cn(
-            "w-full p-4 rounded-2xl text-left font-bold transition-all flex items-center justify-between group",
-            variant === 'danger' ? "hover:bg-red-500/10 text-red-400" : "hover:bg-white/10 text-gray-400 hover:text-white"
+            "w-full p-5 rounded-2xl text-left font-bold transition-all flex items-center justify-between group",
+            variant === 'danger' ? "hover:bg-red-500/10 text-red-400 border border-red-500/20" : "hover:bg-white/10 text-gray-400 hover:text-white border border-white/5"
         )}>
-            {label}
-            <ArrowLeft className="w-4 h-4 rotate-180 opacity-0 group-hover:opacity-100 translate-x-[-10px] group-hover:translate-x-0 transition-all" />
+            <div className="flex items-center gap-3">
+                {Icon && <Icon className="w-4 h-4" />}
+                {label}
+            </div>
+            <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 translate-x-[-10px] group-hover:translate-x-0 transition-all" />
         </button>
     );
 }
@@ -371,9 +396,9 @@ function ActionButton({ label, variant = 'default' }: any) {
 function InputGroup({ label, value, onChange }: any) {
     return (
         <div className="space-y-2">
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block pl-2">{label}</label>
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block pl-4">{label}</label>
             <input 
-                className="w-full bg-gray-50 border-transparent rounded-2xl px-6 py-4 focus:bg-white focus:ring-4 focus:ring-brand-blue/5 transition-all font-bold text-lg"
+                className="w-full bg-gray-50 border-transparent rounded-3xl px-8 py-5 focus:bg-white focus:ring-4 focus:ring-brand-blue/5 transition-all font-bold text-lg border border-gray-100"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
             />
@@ -384,15 +409,6 @@ function InputGroup({ label, value, onChange }: any) {
 function PlanIcon({ name, ...props }: any) {
   const Icon = ICON_MAP[name as keyof typeof ICON_MAP];
   return <Icon {...props} />;
-}
-
-function SettingStat({ label, value }: any) {
-    return (
-        <div>
-            <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">{label}</div>
-            <div className="text-2xl font-bold text-gray-900">{value}</div>
-        </div>
-    );
 }
 
 function NavItem({ icon: Icon, label, active = false }: { icon: any, label: string, active?: boolean }) {
