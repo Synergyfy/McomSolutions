@@ -54,7 +54,7 @@ export default function Hero() {
           <div className="relative glass p-4 rounded-[2.5rem] shadow-2xl border-white/50">
             <div className="rounded-[2rem] overflow-hidden aspect-[16/9] relative shadow-2xl">
               <img 
-                src="/src/assets/hero_dashboard_mockup.png" 
+                src="/hero_dashboard_mockup.png" 
                 alt="24/7 GBS Unified Dashboard" 
                 className="w-full h-full object-cover"
               />

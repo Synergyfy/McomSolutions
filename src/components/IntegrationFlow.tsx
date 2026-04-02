@@ -18,7 +18,7 @@ export default function IntegrationFlow() {
         <div className="relative group p-4 glass rounded-[3rem] overflow-hidden shadow-2xl">
           <div className="aspect-[21/9] relative rounded-[2.5rem] overflow-hidden">
             <img 
-              src="/src/assets/global_connectivity_mockup.png" 
+              src="/global_connectivity_mockup.png" 
               alt="Global Data Ecosystem Connectivity" 
               className="w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"
             />

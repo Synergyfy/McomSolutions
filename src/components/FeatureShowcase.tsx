@@ -53,7 +53,7 @@ export default function FeatureShowcase() {
             <div className="glass p-3 rounded-[3rem] shadow-2xl relative z-10">
               <div className="rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
-                  src="/src/assets/loyalty_app_mockup.png" 
+                  src="/loyalty_app_mockup.png" 
                   alt="GBS Loyalty Interface" 
                   className="w-full h-full object-cover"
                 />
@@ -111,7 +111,7 @@ export default function FeatureShowcase() {
             <div className="glass p-3 rounded-[3rem] shadow-2xl relative z-10">
               <div className="rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
-                  src="/src/assets/mall_app_mockup.png" 
+                  src="/mall_app_mockup.png" 
                   alt="Mcom Mall Interface" 
                   className="w-full h-full object-cover"
                 />
