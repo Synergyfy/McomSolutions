@@ -11,6 +11,9 @@ import AllBusinesses from './pages/AllBusinesses';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
 import LoginPage from './pages/LoginPage';
+import RegistrationEntry from './pages/RegistrationEntry';
+import BusinessRegistration from './pages/BusinessRegistration';
+import CustomerRegistration from './pages/CustomerRegistration';
 import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
@@ -33,7 +36,8 @@ function AnimatedRoutes() {
   const isDashboard = location.pathname === '/dashboard';
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
-  const hideNavFooter = isDashboard || isLogin || isAdmin;
+  const isRegister = location.pathname.startsWith('/register');
+  const hideNavFooter = isDashboard || isLogin || isAdmin || isRegister;
 
   return (
     <>
@@ -109,6 +113,30 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <LoginPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register" 
+            element={
+              <PageWrapper>
+                <RegistrationEntry />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register/business" 
+            element={
+              <PageWrapper>
+                <BusinessRegistration />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register/customer" 
+            element={
+              <PageWrapper>
+                <CustomerRegistration />
               </PageWrapper>
             } 
           />

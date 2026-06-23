@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'motion/react';
 import { 
   Search, 
   Bell, 
@@ -7,23 +6,31 @@ import {
   Grid, 
   LogOut, 
   User,
-  ArrowUpRight,
   Zap,
   Clock,
   LayoutDashboard,
   Plus,
-  HelpCircle
+  HelpCircle,
+  CreditCard,
+  PackageOpen,
+  Wallet,
+  Building2,
+  ShieldCheck
 } from 'lucide-react';
-import { PRODUCTS } from '../constants';
 import { cn } from '../lib/utils';
-import { Link } from 'react-router-dom';
+import DashboardMemberships from '../components/DashboardMemberships';
+import DashboardPackages from '../components/DashboardPackages';
+import DashboardOverview from '../components/DashboardOverview';
+import DashboardAllProducts from '../components/DashboardAllProducts';
+import DashboardBilling from '../components/DashboardBilling';
+import DashboardBusinessProfile from '../components/DashboardBusinessProfile';
+import DashboardAccess from '../components/DashboardAccess';
+import DashboardNotifications from '../components/DashboardNotifications';
+import DashboardSupport from '../components/DashboardSupport';
+import DashboardSettings from '../components/DashboardSettings';
 
 export default function Dashboard() {
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  const filteredProducts = PRODUCTS.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [activeTab, setActiveTab] = useState('overview');
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex text-gray-900">
@@ -37,16 +44,23 @@ export default function Dashboard() {
           </div>
         </div>
         
-        <nav className="flex-1 px-4 py-8 space-y-2">
-          <NavItem icon={LayoutDashboard} label="Overview" active />
-          <NavItem icon={Grid} label="All Products" />
-          <NavItem icon={Zap} label="Automations" />
-          <NavItem icon={Clock} label="Activity Log" />
+        <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto scrollbar-hide">
+          <NavItem icon={LayoutDashboard} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+          <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => setActiveTab('all-products')} />
+          <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => setActiveTab('access')} />
+          <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+          <div className="pt-8 pb-4 px-4">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:block">Billing & Plans</span>
+          </div>
+          <NavItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => setActiveTab('memberships')} />
+          <NavItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => setActiveTab('packages')} />
           <div className="pt-8 pb-4 px-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:block">Account</span>
           </div>
-          <NavItem icon={User} label="Team Members" />
-          <NavItem icon={Settings} label="Settings" />
+          <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => setActiveTab('billing')} />
+          <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => setActiveTab('business-profile')} />
+          <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => setActiveTab('support')} />
+          <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
         </nav>
 
         <div className="p-6 space-y-4">
@@ -73,9 +87,7 @@ export default function Dashboard() {
             <input 
               type="text" 
               placeholder="Search ecosystem..."
-              className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:bg-white transition-all text-sm"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all text-sm"
             />
           </div>
           
@@ -95,7 +107,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
               <div className="text-right hidden sm:block">
                 <div className="text-sm font-bold text-gray-900">Frank Emesinwa</div>
-                <div className="text-[10px] text-gray-500 font-bold uppercase">Admin</div>
+                <div className="text-[10px] text-gray-500 font-bold uppercase">Business</div>
               </div>
               <div className="w-10 h-10 bg-gradient-to-br from-brand-blue to-brand-accent rounded-xl flex items-center justify-center text-white font-black shadow-glow">
                 FE
@@ -105,77 +117,27 @@ export default function Dashboard() {
         </header>
 
         <div className="p-12">
-          <div className="mb-12">
-            <h2 className="text-4xl font-bold mb-2">Good morning, Frank</h2>
-            <p className="text-gray-500">Here's what's happening across your 24/7 GBS tools today.</p>
-          </div>
-
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-            <StatCard label="Active Users" value="12,402" change="+12%" />
-            <StatCard label="Total Revenue" value="$482.5k" change="+8%" />
-            <StatCard label="Audit Score" value="98/100" change="Stable" />
-            <StatCard label="API Requests" value="1.2M" change="+24%" />
-          </div>
-
-          {/* App Grid */}
-          <div className="mb-8 flex items-center justify-between">
-            <h3 className="text-xl font-bold">Your Ecosystem</h3>
-            <button className="text-sm font-bold text-brand-blue hover:underline">View All</button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredProducts.map((product, i) => (
-              <motion.div
-                key={product.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="bg-white p-8 rounded-[2rem] border border-gray-100 hover:border-brand-blue/30 hover:shadow-xl transition-all group relative overflow-hidden"
-              >
-                <div className="absolute -right-8 -top-8 w-32 h-32 bg-brand-blue/5 blur-[60px] group-hover:bg-brand-blue/10 transition-all" />
-                
-                <div className="flex items-start justify-between mb-8">
-                  <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-2xl", product.color)}>
-                    <product.icon className="w-8 h-8" />
-                  </div>
-                  <Link to={`/product/${product.id}`} className="p-2 text-gray-400 hover:text-brand-blue transition-colors">
-                    <ArrowUpRight className="w-6 h-6" />
-                  </Link>
-                </div>
-                
-                <h3 className="text-2xl font-bold mb-2 text-gray-900">{product.name}</h3>
-                <p className="text-gray-500 text-sm mb-8 line-clamp-2 leading-relaxed">{product.tagline}</p>
-                
-                <div className="flex items-center justify-between">
-                  <div className="flex -space-x-2">
-                    {[1, 2, 3].map(i => (
-                      <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">
-                        U{i}
-                      </div>
-                    ))}
-                    <div className="w-8 h-8 rounded-full border-2 border-white bg-brand-blue flex items-center justify-center text-[10px] font-bold text-white">
-                      +8
-                    </div>
-                  </div>
-                  <button className="bg-gray-900 text-white px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-brand-blue transition-all active:scale-95">
-                    Launch
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+          {activeTab === 'overview' && <DashboardOverview onNavigate={setActiveTab} />}
+          {activeTab === 'all-products' && <DashboardAllProducts />}
+          {activeTab === 'access' && <DashboardAccess />}
+          {activeTab === 'notifications' && <DashboardNotifications />}
+          {activeTab === 'memberships' && <DashboardMemberships />}
+          {activeTab === 'packages' && <DashboardPackages />}
+          {activeTab === 'billing' && <DashboardBilling />}
+          {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+          {activeTab === 'support' && <DashboardSupport />}
+          {activeTab === 'settings' && <DashboardSettings />}
         </div>
       </main>
     </div>
   );
 }
 
-function NavItem({ icon: Icon, label, active = false }: { icon: any, label: string, active?: boolean }) {
+function NavItem({ icon: Icon, label, active = false, onClick }: { icon: any, label: string, active?: boolean, onClick?: () => void }) {
   return (
-    <button className={cn(
+    <button onClick={onClick} className={cn(
       "w-full flex items-center gap-4 p-4 rounded-2xl transition-all group",
-      active ? "bg-brand-blue text-white shadow-glow" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+      active ? "bg-orange-500 text-white shadow-glow" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
     )}>
       <Icon className={cn("w-5 h-5", active ? "text-white" : "text-gray-400 group-hover:text-gray-900")} />
       <span className="font-bold text-sm hidden lg:block">{label}</span>
