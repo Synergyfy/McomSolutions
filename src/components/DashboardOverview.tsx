@@ -1,0 +1,223 @@
+import React from 'react';
+import { motion } from 'motion/react';
+import {
+  Crown, PackageOpen, LayoutGrid, Activity, Bell,
+  CheckCircle2, Zap, CreditCard, HeadphonesIcon,
+  ArrowUpRight, Gift, Dices, Store, FileSearch, UsersRound, Link2, AlertCircle, TrendingUp
+} from 'lucide-react';
+
+const myPlatforms = [
+  { name: 'MCOM Rewards', icon: Gift, color: 'bg-orange-500' },
+  { name: 'MCOM Spin', icon: Dices, color: 'bg-amber-500' },
+  { name: 'MCOM Mall', icon: Store, color: 'bg-sky-500' },
+];
+
+const recentActivity = [
+  { action: 'Invoice paid', detail: 'Silver Membership — £99/mo', time: '2 hours ago', type: 'success' },
+  { action: 'New lead captured', detail: 'Via MCOM Spin campaign', time: '5 hours ago', type: 'info' },
+  { action: 'Package upgraded', detail: 'MCOM Rewards → Standard', time: 'Yesterday', type: 'success' },
+  { action: 'Login detected', detail: 'New device — London, UK', time: 'Yesterday', type: 'warning' },
+  { action: 'Spin wheel ran', detail: '1,204 spins this week', time: '2 days ago', type: 'info' },
+];
+
+const notifications = [
+  { message: 'Your Silver membership renews in 7 days', type: 'warning' },
+  { message: 'MCOM Expo launches Q3 2026 — join waitlist', type: 'info' },
+  { message: 'Your MCOM Mall store crossed 500 products', type: 'success' },
+];
+
+const quickActions = [
+  { label: 'Upgrade Plan', icon: Crown, variant: 'primary' },
+  { label: 'Manage Billing', icon: CreditCard, variant: 'secondary' },
+  { label: 'Add Package', icon: PackageOpen, variant: 'secondary' },
+  { label: 'Get Support', icon: HeadphonesIcon, variant: 'secondary' },
+];
+
+export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: string) => void }) {
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="mb-4">
+        <h2 className="text-3xl font-bold text-gray-900 mb-1">Good morning, Frank 👋</h2>
+        <p className="text-gray-500">Here's your ecosystem at a glance.</p>
+      </div>
+
+      {/* Bento Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* My Membership - Large Card */}
+        <div className="lg:col-span-2 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl shadow-orange-500/20">
+          <div className="absolute -right-10 -top-10 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
+          <div className="absolute -right-4 bottom-0 w-32 h-32 bg-white/5 rounded-full" />
+          <div className="relative z-10">
+            <div className="flex items-start justify-between mb-8">
+              <div>
+                <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-2">My Membership</p>
+                <h3 className="text-4xl font-black mb-1">Silver</h3>
+                <p className="text-orange-200 text-sm font-medium">Renews July 23, 2026</p>
+              </div>
+              <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
+                <Crown className="w-8 h-8 text-white" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex gap-6">
+                <div><div className="text-2xl font-black">3</div><div className="text-orange-200 text-xs font-bold">Active Packages</div></div>
+                <div><div className="text-2xl font-black">£99</div><div className="text-orange-200 text-xs font-bold">Per Month</div></div>
+              </div>
+              <button
+                onClick={() => onNavigate?.('memberships')}
+                className="bg-white text-orange-600 px-6 py-3 rounded-full font-bold text-sm hover:bg-orange-50 transition-colors flex items-center gap-2 shadow-md"
+              >
+                Manage <ArrowUpRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Subscription Status */}
+        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-6">Subscription Status</p>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between p-4 bg-green-50 rounded-2xl">
+              <span className="text-sm font-bold text-gray-700">Membership</span>
+              <span className="flex items-center gap-1.5 text-green-600 font-bold text-sm"><CheckCircle2 className="w-4 h-4" /> Active</span>
+            </div>
+            <div className="flex items-center justify-between p-4 bg-green-50 rounded-2xl">
+              <span className="text-sm font-bold text-gray-700">Rewards</span>
+              <span className="flex items-center gap-1.5 text-green-600 font-bold text-sm"><CheckCircle2 className="w-4 h-4" /> Active</span>
+            </div>
+            <div className="flex items-center justify-between p-4 bg-amber-50 rounded-2xl">
+              <span className="text-sm font-bold text-gray-700">Mall</span>
+              <span className="flex items-center gap-1.5 text-amber-600 font-bold text-sm"><AlertCircle className="w-4 h-4" /> Renewing</span>
+            </div>
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+              <span className="text-sm font-bold text-gray-700">Spin</span>
+              <span className="flex items-center gap-1.5 text-green-600 font-bold text-sm"><CheckCircle2 className="w-4 h-4" /> Active</span>
+            </div>
+          </div>
+        </div>
+
+        {/* My Platforms */}
+        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">My Platforms</p>
+            <button onClick={() => onNavigate?.('all-products')} className="text-orange-500 text-xs font-bold hover:underline flex items-center gap-1">View All <ArrowUpRight className="w-3 h-3" /></button>
+          </div>
+          <div className="space-y-4">
+            {myPlatforms.map((p) => {
+              const Icon = p.icon;
+              return (
+                <div key={p.name} className="flex items-center gap-4 p-3 rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer group">
+                  <div className={`w-10 h-10 ${p.color} rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                    <Icon className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="font-bold text-gray-800 text-sm">{p.name}</span>
+                  <ArrowUpRight className="w-4 h-4 text-gray-300 ml-auto group-hover:text-orange-500 transition-colors" />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* My Packages */}
+        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">My Packages</p>
+            <button onClick={() => onNavigate?.('packages')} className="text-orange-500 text-xs font-bold hover:underline flex items-center gap-1">Manage <ArrowUpRight className="w-3 h-3" /></button>
+          </div>
+          <div className="space-y-4">
+            {[
+              { name: 'MCOM Rewards', tier: 'Standard', price: '£79/mo', color: 'bg-orange-100 text-orange-600' },
+              { name: 'MCOM Spin', tier: 'Starter', price: '£19/mo', color: 'bg-amber-100 text-amber-600' },
+              { name: 'MCOM Mall', tier: 'Standard', price: '£99/mo', color: 'bg-sky-100 text-sky-600' },
+            ].map((pkg) => (
+              <div key={pkg.name} className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors">
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">{pkg.name}</p>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pkg.color}`}>{pkg.tier}</span>
+                </div>
+                <span className="font-black text-gray-900 text-sm">{pkg.price}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-6">Quick Actions</p>
+          <div className="grid grid-cols-2 gap-3">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={action.label}
+                  onClick={() => action.label.includes('Plan') ? onNavigate?.('memberships') : action.label.includes('Package') ? onNavigate?.('packages') : null}
+                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 ${
+                    action.variant === 'primary'
+                      ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20'
+                      : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent Activity */}
+        <div className="lg:col-span-2 bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Recent Activity</p>
+            <TrendingUp className="w-5 h-5 text-gray-300" />
+          </div>
+          <div className="space-y-1">
+            {recentActivity.map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors"
+              >
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  item.type === 'success' ? 'bg-green-500' :
+                  item.type === 'warning' ? 'bg-amber-500' : 'bg-blue-400'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-800 text-sm">{item.action}</p>
+                  <p className="text-xs text-gray-400 truncate">{item.detail}</p>
+                </div>
+                <span className="text-xs text-gray-400 font-medium whitespace-nowrap">{item.time}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+
+        {/* Notifications */}
+        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Notifications</p>
+            <span className="bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">{notifications.length}</span>
+          </div>
+          <div className="space-y-4">
+            {notifications.map((n, i) => (
+              <div key={i} className={`flex items-start gap-3 p-4 rounded-2xl ${
+                n.type === 'success' ? 'bg-green-50' :
+                n.type === 'warning' ? 'bg-amber-50' : 'bg-blue-50'
+              }`}>
+                <Bell className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
+                  n.type === 'success' ? 'text-green-500' :
+                  n.type === 'warning' ? 'text-amber-500' : 'text-blue-400'
+                }`} />
+                <p className="text-sm font-medium text-gray-700">{n.message}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
