@@ -4,10 +4,10 @@ import { CheckCircle2, ArrowRight } from 'lucide-react';
 
 export default function FeatureShowcase() {
   return (
-    <section className="py-24 bg-gray-50 overflow-hidden">
+    <section className="py-16 md:py-24 bg-gray-50 overflow-hidden">
       <div className="max-w-7xl mx-auto px-6">
         {/* Loyalty Showcase */}
-        <div className="flex flex-col lg:flex-row items-center gap-16 mb-32">
+        <div className="flex flex-col lg:flex-row items-center gap-10 md:gap-16 mb-20 md:mb-32">
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -17,11 +17,11 @@ export default function FeatureShowcase() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-brand-blue text-sm font-bold mb-6">
               Core Product
             </div>
-            <h2 className="text-4xl md:text-5xl font-bold mb-8 leading-tight">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 md:mb-8 leading-tight">
               GBS Loyalty: <br />
               <span className="text-brand-blue">Retain at Scale.</span>
             </h2>
-            <p className="text-xl text-gray-600 mb-8 leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 md:mb-8 leading-relaxed">
               Transform your customer lifecycle with the world's most powerful 
               loyalty engine. Built for global retailers who demand 
               uncompromising performance and deep behavioral insights.
@@ -50,8 +50,8 @@ export default function FeatureShowcase() {
             viewport={{ once: true }}
             className="flex-1 relative"
           >
-            <div className="glass p-3 rounded-[3rem] shadow-2xl relative z-10">
-              <div className="rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
+            <div className="glass p-2 sm:p-3 rounded-[2rem] sm:rounded-[3rem] shadow-2xl relative z-10">
+              <div className="rounded-[1.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
                   src="/loyalty_app_mockup.png" 
                   alt="GBS Loyalty Interface" 
@@ -65,7 +65,7 @@ export default function FeatureShowcase() {
         </div>
 
         {/* Mall Showcase (Reversed) */}
-        <div className="flex flex-col lg:flex-row-reverse items-center gap-16">
+        <div className="flex flex-col lg:flex-row-reverse items-center gap-10 md:gap-16">
           <motion.div 
             initial={{ opacity: 0, x: 50 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -75,11 +75,11 @@ export default function FeatureShowcase() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-50 text-cyan-600 text-sm font-bold mb-6">
               Commerce Engine
             </div>
-            <h2 className="text-4xl md:text-5xl font-bold mb-8 leading-tight">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 md:mb-8 leading-tight">
               Mcom Mall: <br />
               <span className="text-cyan-600">The Modern Market.</span>
             </h2>
-            <p className="text-xl text-gray-600 mb-8 leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 md:mb-8 leading-relaxed">
               Launch and scale multi-vendor marketplaces in record time. 
               Mcom Mall provides the unified checkout and vendor management 
               tools that power today's digital economies.
@@ -108,8 +108,8 @@ export default function FeatureShowcase() {
             viewport={{ once: true }}
             className="flex-1 relative"
           >
-            <div className="glass p-3 rounded-[3rem] shadow-2xl relative z-10">
-              <div className="rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
+            <div className="glass p-2 sm:p-3 rounded-[2rem] sm:rounded-[3rem] shadow-2xl relative z-10">
+              <div className="rounded-[1.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
                   src="/mall_app_mockup.png" 
                   alt="Mcom Mall Interface" 

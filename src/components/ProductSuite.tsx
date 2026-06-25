@@ -6,15 +6,15 @@ import { Link } from 'react-router-dom';
 
 export default function ProductSuite() {
   return (
-    <section id="platforms" className="py-24 bg-white">
+    <section id="platforms" className="py-16 md:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
           <div className="max-w-2xl">
-            <h2 className="text-4xl md:text-5xl font-bold mb-6">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 md:mb-6">
               One Subscription. <br />
               <span className="text-brand-blue">Unlimited Potential.</span>
             </h2>
-            <p className="text-xl text-gray-600">
+            <p className="text-base sm:text-lg md:text-xl text-gray-600">
               The 24/7 GBS umbrella connects your entire business operations 
               under a single, high-performance ecosystem.
             </p>

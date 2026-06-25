@@ -10,7 +10,7 @@ export default function Footer() {
   return (
     <footer className="bg-gray-50 border-t border-gray-100 pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-12 mb-20">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 md:gap-12 mb-12 md:mb-20">
           <div className="col-span-2 lg:col-span-2 text-center md:text-left">
             <Link to="/" className="flex items-center gap-2 mb-8 justify-center md:justify-start">
               <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-lg">24</div>
