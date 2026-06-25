@@ -29,17 +29,17 @@ export default function LandingPage() {
       <Testimonials />
 
       {/* Membership Section */}
-      <section className="py-32 bg-gray-50">
+      <section className="py-20 md:py-32 bg-gray-50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-brand-blue text-sm font-semibold mb-6">
               <Sparkles className="w-4 h-4" />
               Membership Tiers
             </div>
-            <h2 className="text-4xl md:text-5xl font-semibold mb-6 leading-tight">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold mb-4 md:mb-6 leading-tight">
               Flexible plans for every scale.
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
               From startups to global conglomerates, our membership tiers scale 
               with your success. No hidden fees, just pure performance.
             </p>
@@ -97,11 +97,11 @@ export default function LandingPage() {
 
           {/* Pricing CTA */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <Link to="/pricing" className="bg-brand-blue text-white px-10 py-5 rounded-full font-semibold text-lg transition-all shadow-glow active:scale-95 hover:bg-blue-600 flex items-center gap-2">
+            <Link to="/pricing" className="bg-brand-blue text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-lg transition-all shadow-glow active:scale-95 hover:bg-blue-600 flex items-center gap-2">
               View Memberships
               <ArrowRight className="w-5 h-5" />
             </Link>
-            <Link to="/pricing" className="text-gray-900 px-10 py-5 rounded-full font-semibold text-lg hover:bg-gray-100 transition-all flex items-center gap-2 border border-gray-200">
+            <Link to="/pricing" className="text-gray-900 px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-lg hover:bg-gray-100 transition-all flex items-center gap-2 border border-gray-200">
               View Packages
               <ArrowRight className="w-5 h-5" />
             </Link>
@@ -110,33 +110,33 @@ export default function LandingPage() {
       </section>
 
       {/* Trust Section */}
-      <section className="py-24 bg-white border-t border-gray-100">
+      <section className="py-16 md:py-24 bg-white border-t border-gray-100">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h3 className="text-sm font-bold text-gray-400 uppercase tracking-[0.3em] mb-16">
             Powering the world's most ambitious brands
           </h3>
-          <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale hover:grayscale-0 transition-all duration-700">
+          <div className="flex flex-wrap justify-center items-center gap-8 sm:gap-12 md:gap-24 opacity-40 grayscale hover:grayscale-0 transition-all duration-700">
             {['Microsoft', 'Amazon', 'Google', 'Adobe', 'Salesforce', 'Apple', 'Meta'].map(brand => (
-              <span key={brand} className="text-2xl font-bold text-gray-400 tracking-tighter hover:text-brand-blue transition-colors cursor-default">{brand}</span>
+              <span key={brand} className="text-lg sm:text-2xl font-bold text-gray-400 tracking-tighter hover:text-brand-blue transition-colors cursor-default">{brand}</span>
             ))}
           </div>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section className="py-32 bg-brand-dark relative overflow-hidden">
+      <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full bg-mesh opacity-20" />
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10">
-          <h2 className="text-4xl md:text-6xl font-bold text-white mb-8">Ready to build the future?</h2>
-          <p className="text-xl text-gray-400 mb-12 leading-relaxed">
+          <h2 className="text-3xl sm:text-4xl md:text-6xl font-bold text-white mb-6 md:mb-8">Ready to build the future?</h2>
+          <p className="text-base sm:text-lg md:text-xl text-gray-400 mb-8 md:mb-12 leading-relaxed">
             Join thousands of enterprises already scaling with 24/7 GBS. 
             Start your 14-day free trial today. No credit card required.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <button className="w-full sm:w-auto bg-brand-blue text-white px-10 py-5 rounded-full font-semibold text-xl hover:bg-blue-600 transition-all shadow-glow-lg active:scale-95">
+            <button className="w-full sm:w-auto bg-brand-blue text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-xl hover:bg-blue-600 transition-all shadow-glow-lg active:scale-95">
               Get Started Now
             </button>
-            <button className="w-full sm:w-auto bg-white/10 text-white px-10 py-5 rounded-full font-semibold text-xl hover:bg-white/20 transition-all border border-white/10 active:scale-95">
+            <button className="w-full sm:w-auto bg-white/10 text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-xl hover:bg-white/20 transition-all border border-white/10 active:scale-95">
               Contact Sales
             </button>
           </div>

@@ -72,23 +72,23 @@ export default function DashboardBilling() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-8 text-white shadow-xl shadow-orange-500/20 relative overflow-hidden">
+        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-5 md:p-8 text-white shadow-xl shadow-orange-500/20 relative overflow-hidden">
           <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
           <Wallet className="w-8 h-8 text-orange-200 mb-4" />
           <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-1">Total Spend</p>
-          <p className="text-4xl font-black">£{totalSpend.toFixed(0)}</p>
+          <p className="text-3xl md:text-4xl font-black">£{totalSpend.toFixed(0)}</p>
           <p className="text-orange-300 text-xs font-semibold mt-1">Lifetime</p>
         </div>
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
           <CheckCircle2 className="w-8 h-8 text-green-500 mb-4" />
           <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Active Subscriptions</p>
-          <p className="text-4xl font-black text-gray-900">{SUBSCRIPTIONS.filter(s => s.status === 'active').length}</p>
+          <p className="text-3xl md:text-4xl font-black text-gray-900">{SUBSCRIPTIONS.filter(s => s.status === 'active').length}</p>
           <p className="text-gray-400 text-xs font-semibold mt-1">Auto-renewing</p>
         </div>
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
           <Clock className="w-8 h-8 text-amber-500 mb-4" />
           <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Next Due Date</p>
-          <p className="text-4xl font-black text-gray-900">23 Jul</p>
+          <p className="text-3xl md:text-4xl font-black text-gray-900">23 Jul</p>
           <p className="text-gray-400 text-xs font-semibold mt-1">2026 · £296/mo total</p>
         </div>
       </div>
@@ -122,7 +122,7 @@ export default function DashboardBilling() {
         {activeTab === 'transactions' && (
           <motion.div key="tx" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-8 border-b border-gray-100 flex items-center justify-between">
+              <div className="p-5 md:p-8 border-b border-gray-100 flex items-center justify-between">
                 <h3 className="text-lg font-bold text-gray-900">Transaction History</h3>
                 <button className="flex items-center gap-2 text-orange-500 font-bold text-sm hover:underline">
                   <Download className="w-4 h-4" /> Export All
@@ -135,7 +135,7 @@ export default function DashboardBilling() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className="flex items-center gap-4 px-8 py-5 hover:bg-gray-50/70 transition-colors"
+                    className="flex items-center gap-3 md:gap-4 px-4 md:px-8 py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
                   >
                     <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center flex-shrink-0">
                       <FileText className="w-5 h-5 text-gray-500" />
@@ -162,7 +162,7 @@ export default function DashboardBilling() {
         {activeTab === 'subscriptions' && (
           <motion.div key="subs" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-8 border-b border-gray-100">
+              <div className="p-5 md:p-8 border-b border-gray-100">
                 <h3 className="text-lg font-bold text-gray-900">Active Subscriptions</h3>
               </div>
               <div className="divide-y divide-gray-50">
@@ -172,7 +172,7 @@ export default function DashboardBilling() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.06 }}
-                    className="flex items-center gap-4 px-8 py-5 hover:bg-gray-50/70 transition-colors"
+                    className="flex items-center gap-3 md:gap-4 px-4 md:px-8 py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
                   >
                     <div className={`w-3 h-3 rounded-full flex-shrink-0 ${sub.status === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
                     <div className="flex-1 min-w-0">
@@ -203,7 +203,7 @@ export default function DashboardBilling() {
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.08 }}
-                  className={`bg-white rounded-3xl border p-8 flex items-center gap-6 ${card.primary ? 'border-orange-300 shadow-md' : 'border-gray-200'}`}
+                  className={`bg-white rounded-3xl border p-5 md:p-8 flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6 ${card.primary ? 'border-orange-300 shadow-md' : 'border-gray-200'}`}
                 >
                   <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg">
                     <CreditCard className="w-8 h-8 text-white" />
@@ -215,9 +215,9 @@ export default function DashboardBilling() {
                     </div>
                     <p className="text-gray-400 text-sm font-semibold mt-1">Expires {card.expiry}</p>
                   </div>
-                  <div className="flex gap-3">
-                    {!card.primary && <button className="px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 text-sm font-bold text-gray-600 transition-colors">Set Primary</button>}
-                    <button className="px-5 py-2.5 rounded-full border border-red-200 hover:bg-red-50 text-sm font-bold text-red-400 transition-colors">Remove</button>
+                  <div className="flex gap-2 md:gap-3">
+                    {!card.primary && <button className="px-3 md:px-5 py-2 md:py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 text-xs md:text-sm font-bold text-gray-600 transition-colors">Set Primary</button>}
+                    <button className="px-3 md:px-5 py-2 md:py-2.5 rounded-full border border-red-200 hover:bg-red-50 text-xs md:text-sm font-bold text-red-400 transition-colors">Remove</button>
                   </div>
                 </motion.div>
               ))}
@@ -248,7 +248,7 @@ export default function DashboardBilling() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-10 max-w-md w-full shadow-2xl"
+              className="bg-white rounded-3xl p-6 md:p-10 max-w-md w-full shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
               {modal === 'pay-now' && (

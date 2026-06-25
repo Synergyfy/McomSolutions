@@ -55,11 +55,11 @@ const BENEFITS = [
 
 export default function BentoGrid() {
   return (
-    <section className="py-24 bg-white">
+    <section className="py-16 md:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-sm font-bold text-brand-blue uppercase tracking-[0.2em] mb-4">Why MCOM?</h2>
-          <p className="text-4xl md:text-5xl font-bold text-gray-900 tracking-tight">
+          <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 tracking-tight">
             Everything you need. <br className="hidden md:block" />
             All in one place.
           </p>

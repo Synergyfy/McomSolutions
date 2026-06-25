@@ -1,11 +1,38 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, ChevronRight, Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+const slides = [
+  {
+    image: '/mcomall.png',
+    name: 'Mcom Mall',
+    type: 'Mcom',
+  },
+  {
+    image: '/mcom-reward.png',
+    name: 'Mcom Rewards',
+    type: 'Mcom',
+  },
+  {
+    image: '/mcom-spin.png',
+    name: 'Mcom Spin',
+    type: 'Mcom',
+  },
+];
+
 export default function Hero() {
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentSlide(prev => (prev + 1) % slides.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <section className="relative pt-32 pb-20 overflow-hidden bg-white">
+    <section className="relative pt-24 sm:pt-32 pb-16 md:pb-20 overflow-hidden bg-white">
       {/* Background Glows */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-orange-100/50 blur-[120px] rounded-full animate-pulse" />
@@ -23,35 +50,66 @@ export default function Hero() {
             <span className="text-gray-900">Rated #1 Enterprise Suite 2026</span>
           </div>
           
-          <h1 className="text-6xl md:text-8xl font-bold tracking-tight text-gray-900 mb-8 leading-[1.05]">
+          <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight text-gray-900 mb-6 md:mb-8 leading-[1.05]">
             One Login. <br />
             One Membership. <br />
             <span className="text-gradient">One Ecosystem.</span>
           </h1>
           
-          <p className="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto mb-12 leading-relaxed font-medium">
-            Access MCOM Mall, Rewards &amp; Loyalty, MCOM Spin, Audit, Expo and future 
-            MCOM platforms from one central account.
+          <p className="text-lg sm:text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-8 md:mb-12 leading-relaxed font-medium">
+            MCOM Mall, MCOM Rewards, MCOM Spin, MCOMQ Link — plus 24/7 GBS Loyalty, 
+            24/7 GBS Audit, 24/7 GBS Expo — and future MCOM &amp; 24/7 GBS platforms, 
+            all from one central account.
           </p>
 
           <motion.div 
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="relative max-w-6xl mx-auto mb-16"
+            className="relative max-w-6xl mx-auto mb-10 md:mb-16"
           >
-            <div className="relative glass p-4 rounded-[2.5rem] shadow-2xl border-white/50">
-              <div className="rounded-[2rem] overflow-hidden aspect-[16/9] relative shadow-2xl bg-gray-900 flex items-center justify-center">
-                <iframe 
-                  className="w-full h-full"
-                  src="https://www.youtube.com/embed/jfKfPfyJRdk?autoplay=1&mute=1&controls=0&loop=1&playlist=jfKfPfyJRdk" 
-                  title="24/7 GBS Ecosystem" 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                ></iframe>
-                {/* Overlay Glow */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-60 pointer-events-none" />
+            <div className="relative glass p-2 sm:p-4 rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl border-white/50">
+              <div className="rounded-[2rem] overflow-hidden aspect-[16/9] relative shadow-2xl bg-gray-900">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentSlide}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.7 }}
+                    className="absolute inset-0"
+                  >
+                    <img 
+                      src={slides[currentSlide].image} 
+                      alt={slides[currentSlide].name}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                    
+                    <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 flex items-center gap-2 sm:gap-3">
+                      <span className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-white/20 backdrop-blur-md rounded-full text-white text-xs sm:text-sm font-bold border border-white/30">
+                        {slides[currentSlide].type}
+                      </span>
+                      <span className="px-3 py-1 sm:px-4 sm:py-1.5 bg-white/20 backdrop-blur-md rounded-full text-white text-xs sm:text-sm font-bold border border-white/30">
+                        {slides[currentSlide].name}
+                      </span>
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              <div className="flex justify-center gap-1.5 md:gap-2 mt-3 sm:mt-4">
+                {slides.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentSlide(i)}
+                    className={`h-2 rounded-full transition-all duration-300 ${
+                      i === currentSlide 
+                        ? 'bg-brand-blue w-5 md:w-6' 
+                        : 'bg-gray-300 hover:bg-gray-400 w-2'
+                    }`}
+                  />
+                ))}
               </div>
             </div>
 
@@ -84,10 +142,10 @@ export default function Hero() {
                 <ArrowRight className="ml-2 w-5 h-5" />
               </motion.button>
             </Link>
-            <Link to="/login" className="w-full sm:w-auto bg-white text-gray-900 px-12 py-6 rounded-full font-semibold text-xl shadow-lg border border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-gray-50">
+            <Link to="/login" className="w-full sm:w-auto bg-white text-gray-900 px-8 sm:px-12 py-3 sm:py-6 rounded-full font-semibold text-base sm:text-xl shadow-lg border border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-gray-50">
               Login
             </Link>
-            <a href="#platforms" className="w-full sm:w-auto text-orange-500 px-12 py-6 rounded-full font-semibold text-xl flex items-center justify-center gap-2 hover:bg-orange-50 transition-all active:scale-95">
+            <a href="#platforms" className="w-full sm:w-auto text-orange-500 px-8 sm:px-12 py-3 sm:py-6 rounded-full font-semibold text-base sm:text-xl flex items-center justify-center gap-2 hover:bg-orange-50 transition-all active:scale-95">
               View Platforms
               <ChevronRight className="w-5 h-5" />
             </a>
