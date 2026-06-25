@@ -93,7 +93,42 @@ export default function Navbar() {
           </div>
 
           <Link to="/about" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">About</Link>
-          <Link to="/pricing" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Pricing</Link>
+          <div className="relative group" 
+               onMouseEnter={() => setActiveDropdown('pricing')}
+               onMouseLeave={() => setActiveDropdown(null)}>
+            <button className="flex items-center gap-1 font-medium text-gray-600 hover:text-brand-blue transition-colors py-2">
+              Pricing <ChevronDown className={cn("w-4 h-4 transition-transform", activeDropdown === 'pricing' && "rotate-180")} />
+            </button>
+            <AnimatePresence>
+              {activeDropdown === 'pricing' && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute top-full left-1/2 -translate-x-1/2 w-56 glass rounded-2xl shadow-2xl p-3 mt-2"
+                >
+                  <Link to="/membership" className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
+                    <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
+                      <LayoutGrid className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">Membership</div>
+                      <div className="text-xs text-gray-500">Plans & subscriptions</div>
+                    </div>
+                  </Link>
+                  <Link to="/packages" className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
+                    <div className="p-2 rounded-lg bg-amber-100 text-amber-600">
+                      <LayoutGrid className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">Packages</div>
+                      <div className="text-xs text-gray-500">Platform-specific add-ons</div>
+                    </div>
+                  </Link>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <Link to="/contact" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Contact</Link>
         </div>
 
@@ -133,7 +168,19 @@ export default function Navbar() {
               </div>
               <hr />
               <Link to="/about" className="font-medium">About</Link>
-              <Link to="/pricing" className="font-medium">Pricing</Link>
+              <div>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Pricing</h3>
+                <div className="space-y-2">
+                  <Link to="/membership" className="flex items-center gap-3 font-medium">
+                    <div className="p-1.5 rounded-lg bg-purple-100 text-purple-600"><LayoutGrid className="w-4 h-4" /></div>
+                    Membership
+                  </Link>
+                  <Link to="/packages" className="flex items-center gap-3 font-medium">
+                    <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600"><LayoutGrid className="w-4 h-4" /></div>
+                    Packages
+                  </Link>
+                </div>
+              </div>
               <Link to="/login" className="font-medium">Sign In</Link>
               <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
                 Get Started

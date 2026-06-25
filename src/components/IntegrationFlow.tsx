@@ -4,18 +4,18 @@ import { cn } from '../lib/utils';
 
 export default function IntegrationFlow() {
   return (
-    <section className="py-32 bg-white overflow-hidden">
+    <section className="py-20 md:py-32 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto px-6">
         <div className="text-center mb-20">
           <h2 className="text-sm font-bold text-brand-blue uppercase tracking-[0.3em] mb-4">Seamless Connectivity</h2>
-          <h3 className="text-4xl md:text-6xl font-bold text-gray-900 mb-8">One Ecosystem. <br />Infinite Possibilities.</h3>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          <h3 className="text-3xl sm:text-4xl md:text-6xl font-bold text-gray-900 mb-6 md:mb-8">One Ecosystem. <br />Infinite Possibilities.</h3>
+          <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
             Our proprietary integration layer ensures that data flows effortlessly 
             between every tool in the 24/7 GBS and Mcom suites.
           </p>
         </div>
 
-        <div className="relative group p-4 glass rounded-[3rem] overflow-hidden shadow-2xl">
+        <div className="relative group p-2 sm:p-4 glass rounded-[2rem] sm:rounded-[3rem] overflow-hidden shadow-2xl">
           <div className="aspect-[21/9] relative rounded-[2.5rem] overflow-hidden">
             <img 
               src="/global_connectivity_mockup.png" 
@@ -24,7 +24,7 @@ export default function IntegrationFlow() {
             />
             {/* Glossy Overlay with Content */}
             <div className="absolute inset-0 bg-blue-900/40 backdrop-blur-[2px] flex items-center justify-center">
-              <div className="flex flex-col md:flex-row items-center gap-12 lg:gap-24">
+              <div className="flex flex-col md:flex-row items-center gap-8 md:gap-12 lg:gap-24">
                 <IntegrationCard 
                   icon={Database} 
                   title="GBS Core" 
@@ -55,8 +55,8 @@ export default function IntegrationFlow() {
           </div>
         </div>
 
-        <div className="mt-24 grid md:grid-cols-3 gap-8">
-          <div className="p-8 glass rounded-3xl border-transparent hover:border-brand-blue/20 transition-all">
+        <div className="mt-16 md:mt-24 grid md:grid-cols-3 gap-6 md:gap-8">
+          <div className="p-6 md:p-8 glass rounded-3xl border-transparent hover:border-brand-blue/20 transition-all">
             <Zap className="w-8 h-8 text-brand-blue mb-4" />
             <h4 className="font-bold mb-2">Instant Sync</h4>
             <p className="text-sm text-gray-500">Real-time data propagation across all connected modules.</p>

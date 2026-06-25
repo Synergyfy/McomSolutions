@@ -147,7 +147,7 @@ export default function DashboardAllProducts() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.07 }}
-              className={`relative bg-white rounded-[2rem] border p-8 flex flex-col transition-all duration-200 ${
+              className={`relative bg-white rounded-[2rem] border p-5 md:p-8 flex flex-col transition-all duration-200 ${
                 platform.comingSoon
                   ? 'border-dashed border-gray-300 opacity-70'
                   : platform.owned

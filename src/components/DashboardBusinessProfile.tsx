@@ -61,7 +61,7 @@ export default function DashboardBusinessProfile() {
       </div>
 
       {/* Profile Hero */}
-      <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-10">
+      <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-10">
         <div className="flex flex-col md:flex-row items-start gap-8">
           {/* Logo Upload */}
           <div className="relative flex-shrink-0">
@@ -111,7 +111,7 @@ export default function DashboardBusinessProfile() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Business Information */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Building2 className="w-5 h-5 text-orange-500" /> Business Information
           </h3>
@@ -141,7 +141,7 @@ export default function DashboardBusinessProfile() {
         </div>
 
         {/* Contact Details */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Phone className="w-5 h-5 text-orange-500" /> Contact Details
           </h3>
@@ -193,7 +193,7 @@ export default function DashboardBusinessProfile() {
         </div>
 
         {/* Google Business Status */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Globe className="w-5 h-5 text-orange-500" /> Google Business Status
           </h3>
@@ -215,7 +215,7 @@ export default function DashboardBusinessProfile() {
         </div>
 
         {/* Locations */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <MapPin className="w-5 h-5 text-orange-500" /> Locations

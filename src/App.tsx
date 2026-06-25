@@ -10,6 +10,8 @@ import PricingManager from './pages/PricingManager';
 import AllBusinesses from './pages/AllBusinesses';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
+import MembershipPage from './pages/MembershipPage';
+import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
@@ -105,6 +107,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <PricingPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/membership" 
+            element={
+              <PageWrapper>
+                <MembershipPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/packages" 
+            element={
+              <PageWrapper>
+                <PackagesPage />
               </PageWrapper>
             } 
           />

@@ -26,7 +26,7 @@ export default function DashboardSettings() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Personal Information */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <User className="w-5 h-5 text-orange-500" /> Personal Information
           </h3>
@@ -48,7 +48,7 @@ export default function DashboardSettings() {
         </div>
 
         {/* Security & Passwords */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-orange-500" /> Security
           </h3>
@@ -84,7 +84,7 @@ export default function DashboardSettings() {
         </div>
 
         {/* Notifications Preferences */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Bell className="w-5 h-5 text-orange-500" /> Notification Preferences
           </h3>
@@ -124,7 +124,7 @@ export default function DashboardSettings() {
         </div>
 
         {/* Connected Accounts */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-8">
+        <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Lock className="w-5 h-5 text-orange-500" /> Connected Accounts
           </h3>

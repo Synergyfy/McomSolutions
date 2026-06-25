@@ -164,7 +164,7 @@ export default function DashboardPackages() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: i * 0.07 }}
-                className={`bg-white rounded-[2rem] border p-8 flex flex-col transition-all ${
+                className={`bg-white rounded-[2rem] border p-5 md:p-8 flex flex-col transition-all ${
                   pkg.status === 'expired' ? 'border-red-200 opacity-80' :
                   pkg.status === 'pending' ? 'border-amber-200' :
                   'border-gray-200 hover:border-orange-300 hover:shadow-lg'
@@ -248,7 +248,7 @@ export default function DashboardPackages() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-10 max-w-md w-full shadow-2xl"
+              className="bg-white rounded-3xl p-6 md:p-10 max-w-md w-full shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
               {modal === 'upgrade' && selectedPkg && (
