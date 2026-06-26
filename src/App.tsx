@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
@@ -14,9 +14,39 @@ import LoginPage from './pages/LoginPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
+import AffiliateRoleSelection from './pages/AffiliateRoleSelection';
+import CustomerLandingPage from './pages/CustomerLandingPage';
+import GetStartedRoleSelect from './pages/getstarted/GetStartedRoleSelect';
+import BusinessOnboarding from './pages/getstarted/BusinessOnboarding';
+import BusinessOnboardingUX from './pages/section/ui/ux/page';
+import HighStreetExplanationUX from './pages/section/ui/ux/high-street/page';
 import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import AffiliateSignup from './pages/AffiliateSignup';
+import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
+import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
+
+const queryClient = new QueryClient();
+
+function SignupRedirect() {
+  const [searchParams] = useSearchParams();
+  const role = searchParams.get('role');
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    if (role === 'customer') {
+      navigate('/register/customer', { replace: true });
+    } else if (role === 'business') {
+      navigate('/getstarted/business', { replace: true });
+    } else {
+      navigate('/register', { replace: true });
+    }
+  }, [role, navigate]);
+
+  return null;
+}
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
@@ -37,7 +67,8 @@ function AnimatedRoutes() {
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
   const isRegister = location.pathname.startsWith('/register');
-  const hideNavFooter = isDashboard || isLogin || isAdmin || isRegister;
+  const isGetStarted = location.pathname.startsWith('/getstarted') || location.pathname.startsWith('/section/ui/ux') || location.pathname.startsWith('/signup');
+  const hideNavFooter = isDashboard || isLogin || isAdmin || isRegister || isGetStarted;
 
   return (
     <>
@@ -117,6 +148,22 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
+            path="/customer" 
+            element={
+              <PageWrapper>
+                <CustomerLandingPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/signup" 
+            element={
+              <PageWrapper>
+                <SignupRedirect />
+              </PageWrapper>
+            } 
+          />
+          <Route 
             path="/register" 
             element={
               <PageWrapper>
@@ -140,6 +187,78 @@ function AnimatedRoutes() {
               </PageWrapper>
             } 
           />
+          <Route 
+            path="/register/affiliate" 
+            element={
+              <PageWrapper>
+                <AffiliateRoleSelection />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register/affiliate/signup" 
+            element={
+              <PageWrapper>
+                <AffiliateSignup />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register/affiliate/check-email" 
+            element={
+              <PageWrapper>
+                <AffiliateCheckEmail />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/register/affiliate/verify-email" 
+            element={
+              <PageWrapper>
+                <AffiliateVerifyEmail />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/getstarted" 
+            element={
+              <PageWrapper>
+                <GetStartedRoleSelect />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/getstarted/business" 
+            element={
+              <PageWrapper>
+                <BusinessOnboarding />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/getstarted/business/high-street" 
+            element={
+              <PageWrapper>
+                <HighStreetExplanationUX />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/section/ui/ux" 
+            element={
+              <PageWrapper>
+                <BusinessOnboardingUX />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/section/ui/ux/high-street" 
+            element={
+              <PageWrapper>
+                <HighStreetExplanationUX />
+              </PageWrapper>
+            } 
+          />
         </Routes>
       </AnimatePresence>
       {!hideNavFooter && <Footer />}
@@ -149,12 +268,14 @@ function AnimatedRoutes() {
 
 export default function App() {
   return (
-    <PricingProvider>
-      <BusinessProvider>
-        <Router>
-          <AnimatedRoutes />
-        </Router>
-      </BusinessProvider>
-    </PricingProvider>
+    <QueryClientProvider client={queryClient}>
+      <PricingProvider>
+        <BusinessProvider>
+          <Router>
+            <AnimatedRoutes />
+          </Router>
+        </BusinessProvider>
+      </PricingProvider>
+    </QueryClientProvider>
   );
 }

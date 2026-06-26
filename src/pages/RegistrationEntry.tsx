@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, Users, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Building2, User, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function RegistrationEntry() {
@@ -10,15 +10,16 @@ export default function RegistrationEntry() {
   const roles = [
     { id: 'business', title: 'Business', description: 'Register your company and set up your storefront', icon: Building2 },
     { id: 'customer', title: 'Customer', description: 'Create a personal account for the MCOM ecosystem', icon: User },
-    { id: 'partner', title: 'Partner', description: 'Join as a strategic or technology partner', icon: Users },
-    { id: 'agent', title: 'Agent', description: 'Register as an affiliate or sales agent', icon: Briefcase },
+    { id: 'affiliate', title: 'Affiliate', description: 'Register as an affiliate or sales agent', icon: Briefcase },
   ];
 
   const handleContinue = () => {
     if (selectedRole === 'business') {
-      navigate('/register/business');
+      navigate('/getstarted/business');
     } else if (selectedRole === 'customer') {
       navigate('/register/customer');
+    } else if (selectedRole === 'affiliate') {
+      navigate('/register/affiliate');
     } else {
       alert('This registration flow is coming soon!');
     }
