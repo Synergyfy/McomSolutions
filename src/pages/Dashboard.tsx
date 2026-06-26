@@ -1,21 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Search, 
-  Bell, 
-  Settings, 
-  Grid, 
-  LogOut, 
-  User,
-  Zap,
-  Clock,
-  LayoutDashboard,
-  Plus,
-  HelpCircle,
-  CreditCard,
-  PackageOpen,
-  Wallet,
-  Building2,
-  ShieldCheck
+  Search, Bell, Settings, Grid, LogOut, Menu, X,
+  LayoutDashboard, HelpCircle, CreditCard,
+  PackageOpen, Wallet, Building2, ShieldCheck,
+  User, ChevronDown, ExternalLink
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import DashboardMemberships from '../components/DashboardMemberships';
@@ -31,72 +20,108 @@ import DashboardSettings from '../components/DashboardSettings';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleNav = (tab: string) => {
+    setActiveTab(tab);
+    setSidebarOpen(false);
+  };
+
+  const handleLogout = () => {
+    setUserMenuOpen(false);
+    navigate('/');
+  };
 
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex text-gray-900">
-      {/* Sidebar - Light & Premium */}
-      <aside className="w-20 lg:w-72 bg-white border-r border-gray-200 flex flex-col fixed h-full z-20">
-        <div className="p-8 flex items-center gap-4">
-          <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">24</div>
-          <div className="hidden lg:block">
-            <div className="font-black text-xl tracking-tighter text-gray-900">GBS HUB</div>
-            <div className="text-[10px] font-bold text-brand-blue uppercase tracking-widest">Enterprise</div>
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-gray-200 flex flex-col",
+        "transition-transform duration-300 ease-in-out",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0"
+      )}>
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">24</div>
+            <div>
+              <div className="font-black text-xl tracking-tighter text-gray-900">GBS HUB</div>
+              <div className="text-[10px] font-bold text-brand-blue uppercase tracking-widest">Enterprise</div>
+            </div>
           </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
         
-        <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto scrollbar-hide">
-          <NavItem icon={LayoutDashboard} label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-          <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => setActiveTab('all-products')} />
-          <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => setActiveTab('access')} />
-          <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto scrollbar-hide">
+          <NavItem icon={LayoutDashboard} label="Overview" active={activeTab === 'overview'} onClick={() => handleNav('overview')} />
+          <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => handleNav('all-products')} />
+          <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => handleNav('access')} />
+          <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
           <div className="pt-8 pb-4 px-4">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:block">Billing & Plans</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Billing & Plans</span>
           </div>
-          <NavItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => setActiveTab('memberships')} />
-          <NavItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => setActiveTab('packages')} />
+          <NavItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
+          <NavItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => handleNav('packages')} />
           <div className="pt-8 pb-4 px-4">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hidden lg:block">Account</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Account</span>
           </div>
-          <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => setActiveTab('billing')} />
-          <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => setActiveTab('business-profile')} />
-          <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => setActiveTab('support')} />
-          <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
+          <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+          <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => handleNav('support')} />
+          <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
         </nav>
 
         <div className="p-6 space-y-4">
-          <div className="hidden lg:block p-4 bg-gray-50 rounded-2xl border border-gray-100">
+          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
             <div className="text-xs font-bold text-gray-400 mb-2">Storage Usage</div>
             <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
               <div className="h-full w-2/3 bg-brand-blue" />
             </div>
             <div className="mt-2 text-[10px] text-gray-500">64.2 GB of 100 GB used</div>
           </div>
-          <button className="w-full flex items-center gap-3 p-4 text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-2xl transition-all group">
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 p-4 text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-2xl transition-all group">
             <LogOut className="w-5 h-5 group-hover:rotate-180 transition-transform" />
-            <span className="font-bold text-sm hidden lg:block">Sign Out</span>
+            <span className="font-bold text-sm">Sign Out</span>
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ml-20 lg:ml-72 bg-mesh min-h-screen">
-        {/* Top Header */}
-        <header className="sticky top-0 z-10 px-12 py-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-gray-200">
-          <div className="relative w-96 hidden md:block">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input 
-              type="text" 
-              placeholder="Search ecosystem..."
-              className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all text-sm"
-            />
+      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen">
+        <header className="sticky top-0 z-10 px-4 sm:px-6 lg:px-12 py-3 md:py-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-gray-200">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="relative w-full max-w-xs hidden sm:block">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input 
+                type="text" 
+                placeholder="Search ecosystem..."
+                className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all text-sm"
+              />
+            </div>
           </div>
           
-          <div className="flex items-center gap-6">
-            <button className="flex items-center gap-2 px-4 py-2 bg-brand-blue rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-glow">
-              <Plus className="w-4 h-4" />
-              New Project
-            </button>
-            <div className="h-6 w-px bg-gray-200" />
+          <div className="flex items-center gap-3 md:gap-6">
             <button className="p-2 text-gray-400 hover:text-gray-600 relative">
               <Bell className="w-5 h-5" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-brand-blue rounded-full" />
@@ -104,19 +129,73 @@ export default function Dashboard() {
             <button className="p-2 text-gray-400 hover:text-gray-600">
               <HelpCircle className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-              <div className="text-right hidden sm:block">
-                <div className="text-sm font-bold text-gray-900">Frank Emesinwa</div>
-                <div className="text-[10px] text-gray-500 font-bold uppercase">Business</div>
-              </div>
-              <div className="w-10 h-10 bg-gradient-to-br from-brand-blue to-brand-accent rounded-xl flex items-center justify-center text-white font-black shadow-glow">
-                FE
-              </div>
+
+            {/* User Menu Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 md:gap-3 pl-2 md:pl-4 border-l border-gray-200 group"
+              >
+                <div className="text-right hidden sm:block">
+                  <div className="text-sm font-bold text-gray-900 group-hover:text-brand-blue transition-colors">Frank Emesinwa</div>
+                  <div className="text-[10px] text-gray-500 font-bold uppercase">Business</div>
+                </div>
+                <div className="w-9 h-9 md:w-10 md:h-10 bg-gradient-to-br from-brand-blue to-brand-accent rounded-xl flex items-center justify-center text-white font-black shadow-glow">
+                  FE
+                </div>
+                <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform hidden sm:block", userMenuOpen && "rotate-180")} />
+              </button>
+
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3 z-50">
+                    <div className="px-3 py-3 border-b border-gray-100 mb-2">
+                      <div className="font-bold text-gray-900 text-sm">Frank Emesinwa</div>
+                      <div className="text-xs text-gray-500">frank@mcomsolutions.co.uk</div>
+                    </div>
+
+                    <button onClick={() => { setUserMenuOpen(false); handleNav('business-profile'); }} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                      <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><Building2 className="w-4 h-4" /></div>
+                      <div className="text-left">
+                        <div className="font-semibold text-gray-900 text-sm group-hover:text-brand-blue transition-colors">Business Profile</div>
+                        <div className="text-xs text-gray-500">Manage your company info</div>
+                      </div>
+                    </button>
+
+                    <button onClick={() => { setUserMenuOpen(false); handleNav('settings'); }} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                      <div className="p-1.5 rounded-lg bg-gray-100 text-gray-600"><Settings className="w-4 h-4" /></div>
+                      <div className="text-left">
+                        <div className="font-semibold text-gray-900 text-sm group-hover:text-brand-blue transition-colors">Settings</div>
+                        <div className="text-xs text-gray-500">Account & preferences</div>
+                      </div>
+                    </button>
+
+                    <button onClick={() => { setUserMenuOpen(false); handleNav('billing'); }} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                      <div className="p-1.5 rounded-lg bg-green-50 text-green-600"><Wallet className="w-4 h-4" /></div>
+                      <div className="text-left">
+                        <div className="font-semibold text-gray-900 text-sm group-hover:text-brand-blue transition-colors">Billing</div>
+                        <div className="text-xs text-gray-500">Invoices & payments</div>
+                      </div>
+                    </button>
+
+                    <div className="border-t border-gray-100 mt-2 pt-2">
+                      <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-red-50 transition-colors group">
+                        <div className="p-1.5 rounded-lg bg-red-50 text-red-500"><LogOut className="w-4 h-4" /></div>
+                        <div className="text-left">
+                          <div className="font-semibold text-red-600 text-sm">Sign Out</div>
+                          <div className="text-xs text-gray-500">Return to homepage</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </header>
 
-        <div className="p-12">
+        <div className="p-4 sm:p-6 lg:p-12">
           {activeTab === 'overview' && <DashboardOverview onNavigate={setActiveTab} />}
           {activeTab === 'all-products' && <DashboardAllProducts />}
           {activeTab === 'access' && <DashboardAccess />}
@@ -140,24 +219,7 @@ function NavItem({ icon: Icon, label, active = false, onClick }: { icon: any, la
       active ? "bg-orange-500 text-white shadow-glow" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
     )}>
       <Icon className={cn("w-5 h-5", active ? "text-white" : "text-gray-400 group-hover:text-gray-900")} />
-      <span className="font-bold text-sm hidden lg:block">{label}</span>
+      <span className="font-bold text-sm">{label}</span>
     </button>
-  );
-}
-
-function StatCard({ label, value, change }: { label: string, value: string, change: string }) {
-  return (
-    <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-      <div className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">{label}</div>
-      <div className="flex items-end justify-between">
-        <div className="text-2xl font-bold text-gray-900">{value}</div>
-        <div className={cn(
-          "text-xs font-bold px-2 py-1 rounded-lg",
-          change.startsWith('+') ? "bg-green-500/10 text-green-500" : "bg-blue-500/10 text-blue-500"
-        )}>
-          {change}
-        </div>
-      </div>
-    </div>
   );
 }

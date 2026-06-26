@@ -23,11 +23,11 @@ export default function DashboardSupport() {
     <div className="space-y-8 animate-in fade-in duration-500">
       
       {/* Header with Search */}
-      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-[2.5rem] p-12 text-white relative overflow-hidden shadow-xl">
+      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-[2.5rem] p-6 md:p-12 text-white relative overflow-hidden shadow-xl">
         <div className="absolute right-0 top-0 w-96 h-96 bg-orange-500/20 rounded-full blur-[80px]" />
         <div className="relative z-10 max-w-2xl">
-          <h2 className="text-4xl font-black mb-4">How can we help you today?</h2>
-          <p className="text-gray-300 text-lg mb-8">Search our knowledge base or get in touch with our support team.</p>
+          <h2 className="text-3xl md:text-4xl font-black mb-3 md:mb-4">How can we help you today?</h2>
+          <p className="text-gray-300 text-base md:text-lg mb-6 md:mb-8">Search our knowledge base or get in touch with our support team.</p>
           
           <div className="relative">
             <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-400" />
@@ -36,7 +36,7 @@ export default function DashboardSupport() {
               placeholder="Search for articles, guides, or FAQs..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/10 border border-white/20 text-white placeholder:text-gray-400 rounded-full py-5 pl-16 pr-6 focus:outline-none focus:ring-2 focus:ring-orange-500 backdrop-blur-md text-lg transition-all"
+              className="w-full bg-white/10 border border-white/20 text-white placeholder:text-gray-400 rounded-full py-4 md:py-5 pl-14 md:pl-16 pr-6 focus:outline-none focus:ring-2 focus:ring-orange-500 backdrop-blur-md text-base md:text-lg transition-all"
             />
           </div>
         </div>
@@ -46,7 +46,7 @@ export default function DashboardSupport() {
         
         {/* Contact Options */}
         <div className="xl:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow group cursor-pointer">
+          <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow group cursor-pointer">
             <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
               <MessageCircle className="w-7 h-7 text-orange-500" />
             </div>
@@ -57,7 +57,7 @@ export default function DashboardSupport() {
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow group cursor-pointer">
+          <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow group cursor-pointer">
             <div className="w-14 h-14 bg-sky-100 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
               <Ticket className="w-7 h-7 text-sky-500" />
             </div>
@@ -69,7 +69,7 @@ export default function DashboardSupport() {
           </div>
 
           {/* Recent Tickets */}
-          <div className="md:col-span-2 bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
+          <div className="md:col-span-2 bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-bold text-gray-900">Recent Tickets</h3>
               <button className="text-sm font-bold text-orange-500 hover:underline">View All</button>
@@ -95,8 +95,8 @@ export default function DashboardSupport() {
 
         {/* Knowledge Base Sidebar */}
         <div className="space-y-6">
-          <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-            <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+          <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 md:mb-6 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-orange-500" /> Quick Guides
             </h3>
             <div className="space-y-4">
@@ -124,8 +124,8 @@ export default function DashboardSupport() {
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-            <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+          <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 md:mb-6 flex items-center gap-2">
               <HelpCircle className="w-5 h-5 text-orange-500" /> Top FAQs
             </h3>
             <div className="space-y-6">

@@ -25,11 +25,11 @@ const TESTIMONIALS = [
 
 export default function Testimonials() {
   return (
-    <section className="py-24 bg-gray-50">
+    <section className="py-16 md:py-24 bg-gray-50">
       <div className="max-w-7xl mx-auto px-6">
         <div className="text-center mb-16">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">Loved by Industry Leaders</h2>
-          <p className="text-xl text-gray-600">See why the world's best companies choose 24/7 GBS.</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3 md:mb-4">Loved by Industry Leaders</h2>
+          <p className="text-base md:text-xl text-gray-600">See why the world's best companies choose 24/7 GBS.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -40,7 +40,7 @@ export default function Testimonials() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: i * 0.1 }}
-              className="glass p-10 rounded-[2.5rem] flex flex-col justify-between"
+              className="glass p-6 md:p-10 rounded-[2rem] md:rounded-[2.5rem] flex flex-col justify-between"
             >
               <div>
                 <Quote className="w-10 h-10 text-brand-blue/20 mb-6" />

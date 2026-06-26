@@ -6,10 +6,11 @@ import LandingPage from './pages/LandingPage';
 import ProductDetail from './pages/ProductDetail';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
-import PricingManager from './pages/PricingManager';
-import AllBusinesses from './pages/AllBusinesses';
+import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
+import MembershipPage from './pages/MembershipPage';
+import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
@@ -61,6 +62,14 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAdminAuth();
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 function AnimatedRoutes() {
   const location = useLocation();
   const isDashboard = location.pathname === '/dashboard';
@@ -100,28 +109,30 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/admin" 
+            path="/admin/login" 
             element={
               <PageWrapper>
-                <AdminDashboard />
+                <AdminLogin />
               </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedAdminRoute>
+                <PageWrapper>
+                  <AdminDashboard />
+                </PageWrapper>
+              </ProtectedAdminRoute>
             } 
           />
           <Route 
             path="/admin/pricing" 
-            element={
-              <PageWrapper>
-                <PricingManager />
-              </PageWrapper>
-            } 
+            element={<Navigate to="/admin" replace />} 
           />
           <Route 
             path="/admin/businesses" 
-            element={
-              <PageWrapper>
-                <AllBusinesses />
-              </PageWrapper>
-            } 
+            element={<Navigate to="/admin" replace />} 
           />
           <Route 
             path="/about" 
@@ -136,6 +147,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <PricingPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/membership" 
+            element={
+              <PageWrapper>
+                <MembershipPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/packages" 
+            element={
+              <PageWrapper>
+                <PackagesPage />
               </PageWrapper>
             } 
           />
