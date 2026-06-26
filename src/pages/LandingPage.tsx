@@ -133,10 +133,10 @@ export default function LandingPage() {
             Start your 14-day free trial today. No credit card required.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <button className="w-full sm:w-auto bg-brand-blue text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-xl hover:bg-blue-600 transition-all shadow-glow-lg active:scale-95">
+            <Link to="/getstarted" className="w-full sm:w-auto bg-brand-blue text-white px-10 py-5 rounded-full font-semibold text-xl hover:bg-blue-600 transition-all text-center shadow-glow-lg active:scale-95">
               Get Started Now
-            </button>
-            <button className="w-full sm:w-auto bg-white/10 text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-xl hover:bg-white/20 transition-all border border-white/10 active:scale-95">
+            </Link>
+            <button className="w-full sm:w-auto bg-white/10 text-white px-10 py-5 rounded-full font-semibold text-xl hover:bg-white/20 transition-all border border-white/10 active:scale-95">
               Contact Sales
             </button>
           </div>
