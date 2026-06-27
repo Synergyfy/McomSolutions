@@ -15,7 +15,7 @@ export default function LandingPage() {
   return (
     <main>
       <Hero />
-      
+
       <ProductSuite />
 
       <FeatureShowcase />
@@ -25,7 +25,7 @@ export default function LandingPage() {
       <IntegrationFlow />
 
       <GlobalNetwork />
-      
+
       <Testimonials />
 
       {/* Membership Section */}
@@ -40,7 +40,7 @@ export default function LandingPage() {
               Flexible plans for every scale.
             </h2>
             <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
-              From startups to global conglomerates, our membership tiers scale 
+              From startups to global conglomerates, our membership tiers scale
               with your success. No hidden fees, just pure performance.
             </p>
           </div>
@@ -55,11 +55,10 @@ export default function LandingPage() {
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: index * 0.1 }}
-                  className={`relative p-8 rounded-3xl border transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl ${
-                    isPlatinum 
-                      ? 'bg-brand-dark text-white border-white/10 shadow-2xl' 
+                  className={`relative p-8 rounded-3xl border transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl ${isPlatinum
+                      ? 'bg-brand-dark text-white border-white/10 shadow-2xl'
                       : 'bg-white border-gray-100 shadow-xl'
-                  }`}
+                    }`}
                 >
                   {isPlatinum && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-brand-blue text-white text-xs font-bold rounded-full uppercase tracking-wider shadow-glow">
@@ -77,8 +76,8 @@ export default function LandingPage() {
                     {plan.description}
                   </p>
                   <div className={`h-1.5 w-full rounded-full overflow-hidden mb-6 ${isPlatinum ? 'bg-white/10' : 'bg-blue-50'}`}>
-                    <div 
-                      className={`h-full bg-brand-blue ${isPlatinum ? 'shadow-glow' : ''}`} 
+                    <div
+                      className={`h-full bg-brand-blue ${isPlatinum ? 'shadow-glow' : ''}`}
                       style={{ width: `${25 + index * 25}%` }}
                     />
                   </div>
@@ -129,7 +128,7 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10">
           <h2 className="text-3xl sm:text-4xl md:text-6xl font-bold text-white mb-6 md:mb-8">Ready to build the future?</h2>
           <p className="text-base sm:text-lg md:text-xl text-gray-400 mb-8 md:mb-12 leading-relaxed">
-            Join thousands of enterprises already scaling with 24/7 GBS. 
+            Join thousands of enterprises already scaling with 24/7 GBS.
             Start your 14-day free trial today. No credit card required.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
