@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
@@ -26,6 +26,7 @@ import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AffiliateSignup from './pages/AffiliateSignup';
+import { useAdminAuth } from './context/AdminAuthContext';
 import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
 import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
 
