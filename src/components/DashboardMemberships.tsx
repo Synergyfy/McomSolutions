@@ -78,7 +78,7 @@ export default function DashboardMemberships() {
       </div>
 
       {/* Current Membership Hero Card */}
-      <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-[2rem] p-10 text-white relative overflow-hidden shadow-2xl shadow-orange-500/20">
+      <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-[2rem] p-6 md:p-10 text-white relative overflow-hidden shadow-2xl shadow-orange-500/20">
         <div className="absolute -right-12 -top-12 w-56 h-56 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute -left-8 bottom-0 w-40 h-40 bg-white/5 rounded-full" />
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
@@ -88,19 +88,19 @@ export default function DashboardMemberships() {
             </div>
             <div>
               <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-1">Current Plan</p>
-              <h3 className="text-5xl font-black mb-1">{currentTier.name}</h3>
+              <h3 className="text-4xl md:text-5xl font-black mb-1">{currentTier.name}</h3>
               <p className="text-orange-200 font-semibold">{currentTier.price}<span className="text-orange-300 text-sm">{currentTier.period}</span></p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-4">
-            <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-5 flex items-center gap-3">
+          <div className="flex flex-wrap gap-3 md:gap-4">
+            <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-3 md:p-5 flex items-center gap-3">
               <CalendarDays className="w-5 h-5 text-orange-200" />
               <div>
                 <p className="text-orange-200 text-xs font-bold">Next Renewal</p>
-                <p className="text-white font-black text-lg">23 Jul 2026</p>
+                <p className="text-white font-black text-sm md:text-lg">23 Jul 2026</p>
               </div>
             </div>
-            <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-5 flex items-center gap-3">
+            <div className="bg-white/15 backdrop-blur-sm rounded-2xl p-3 md:p-5 flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-green-300" />
               <div>
                 <p className="text-orange-200 text-xs font-bold">Status</p>
@@ -125,7 +125,7 @@ export default function DashboardMemberships() {
       </div>
 
       {/* Membership Benefits */}
-      <div className="bg-white rounded-[2rem] border border-gray-200 p-10 shadow-sm">
+      <div className="bg-white rounded-[2rem] border border-gray-200 p-5 md:p-10 shadow-sm">
         <h3 className="text-xl font-bold text-gray-900 mb-6">Your {currentTier.name} Benefits</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {currentTier.features.map((f, i) => (
@@ -152,7 +152,7 @@ export default function DashboardMemberships() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.08 }}
-                className="bg-white rounded-3xl border border-gray-200 hover:border-orange-300 hover:shadow-lg p-8 flex flex-col transition-all"
+                className="bg-white rounded-3xl border border-gray-200 hover:border-orange-300 hover:shadow-lg p-5 md:p-8 flex flex-col transition-all"
               >
                 <div className={`w-12 h-12 ${tier.color} rounded-xl flex items-center justify-center mb-4 shadow-sm`}>
                   <Icon className="w-6 h-6 text-white" />
@@ -177,7 +177,7 @@ export default function DashboardMemberships() {
       </div>
 
       {/* Membership History */}
-      <div className="bg-white rounded-[2rem] border border-gray-200 p-10 shadow-sm">
+      <div className="bg-white rounded-[2rem] border border-gray-200 p-5 md:p-10 shadow-sm">
         <h3 className="text-xl font-bold text-gray-900 mb-8">Membership History</h3>
         <div className="space-y-2">
           {HISTORY.map((item, i) => (
@@ -212,7 +212,7 @@ export default function DashboardMemberships() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-10 max-w-md w-full shadow-2xl"
+              className="bg-white rounded-3xl p-6 md:p-10 max-w-md w-full shadow-2xl"
               onClick={e => e.stopPropagation()}
             >
               {modal === 'upgrade' && (

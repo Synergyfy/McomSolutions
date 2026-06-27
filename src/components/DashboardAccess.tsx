@@ -32,7 +32,7 @@ export default function DashboardAccess() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Top Summary */}
-        <div className="lg:col-span-3 bg-white rounded-[2rem] border border-gray-200 p-8 shadow-sm flex flex-col md:flex-row items-center gap-8">
+        <div className="lg:col-span-3 bg-white rounded-[2rem] border border-gray-200 p-5 md:p-8 shadow-sm flex flex-col md:flex-row items-center gap-6 md:gap-8">
           <div className="w-20 h-20 bg-orange-100 rounded-3xl flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-10 h-10 text-orange-500" />
           </div>
@@ -59,7 +59,7 @@ export default function DashboardAccess() {
         </div>
 
         {/* Platform Access Matrix */}
-        <div className="lg:col-span-2 bg-white rounded-[2rem] border border-gray-200 p-8 shadow-sm">
+        <div className="lg:col-span-2 bg-white rounded-[2rem] border border-gray-200 p-5 md:p-8 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <Unlock className="w-5 h-5 text-orange-500" /> Platform Access Rights
           </h3>
@@ -95,7 +95,7 @@ export default function DashboardAccess() {
         </div>
 
         {/* Feature Limits */}
-        <div className="bg-white rounded-[2rem] border border-gray-200 p-8 shadow-sm">
+        <div className="bg-white rounded-[2rem] border border-gray-200 p-5 md:p-8 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-orange-500" /> Feature Limits
           </h3>

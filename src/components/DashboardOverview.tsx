@@ -45,14 +45,14 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* My Membership - Large Card */}
-        <div className="lg:col-span-2 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl shadow-orange-500/20">
+        <div className="lg:col-span-2 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-6 md:p-8 text-white relative overflow-hidden shadow-xl shadow-orange-500/20">
           <div className="absolute -right-10 -top-10 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
           <div className="absolute -right-4 bottom-0 w-32 h-32 bg-white/5 rounded-full" />
           <div className="relative z-10">
             <div className="flex items-start justify-between mb-8">
               <div>
                 <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-2">My Membership</p>
-                <h3 className="text-4xl font-black mb-1">Silver</h3>
+                <h3 className="text-3xl md:text-4xl font-black mb-1">Silver</h3>
                 <p className="text-orange-200 text-sm font-medium">Renews July 23, 2026</p>
               </div>
               <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
@@ -60,9 +60,9 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               </div>
             </div>
             <div className="flex items-center justify-between">
-              <div className="flex gap-6">
-                <div><div className="text-2xl font-black">3</div><div className="text-orange-200 text-xs font-bold">Active Packages</div></div>
-                <div><div className="text-2xl font-black">£99</div><div className="text-orange-200 text-xs font-bold">Per Month</div></div>
+              <div className="flex gap-4 md:gap-6">
+                <div><div className="text-xl md:text-2xl font-black">3</div><div className="text-orange-200 text-xs font-bold">Active Packages</div></div>
+                <div><div className="text-xl md:text-2xl font-black">£99</div><div className="text-orange-200 text-xs font-bold">Per Month</div></div>
               </div>
               <button
                 onClick={() => onNavigate?.('memberships')}
@@ -75,8 +75,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* Subscription Status */}
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-6">Subscription Status</p>
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4 md:mb-6">Subscription Status</p>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between p-4 bg-green-50 rounded-2xl">
               <span className="text-sm font-bold text-gray-700">Membership</span>
@@ -98,8 +98,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* My Platforms */}
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
             <p className="text-xs font-bold uppercase tracking-widest text-gray-400">My Platforms</p>
             <button onClick={() => onNavigate?.('all-products')} className="text-orange-500 text-xs font-bold hover:underline flex items-center gap-1">View All <ArrowUpRight className="w-3 h-3" /></button>
           </div>
@@ -120,8 +120,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* My Packages */}
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
             <p className="text-xs font-bold uppercase tracking-widest text-gray-400">My Packages</p>
             <button onClick={() => onNavigate?.('packages')} className="text-orange-500 text-xs font-bold hover:underline flex items-center gap-1">Manage <ArrowUpRight className="w-3 h-3" /></button>
           </div>
@@ -143,8 +143,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-6">Quick Actions</p>
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4 md:mb-6">Quick Actions</p>
           <div className="grid grid-cols-2 gap-3">
             {quickActions.map((action) => {
               const Icon = action.icon;
@@ -167,8 +167,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* Recent Activity */}
-        <div className="lg:col-span-2 bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-2 bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
             <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Recent Activity</p>
             <TrendingUp className="w-5 h-5 text-gray-300" />
           </div>
@@ -196,8 +196,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* Notifications */}
-        <div className="bg-white rounded-3xl p-8 border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
             <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Notifications</p>
             <span className="bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">{notifications.length}</span>
           </div>
