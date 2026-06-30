@@ -1,0 +1,103 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  BUSINESS
+  CUSTOMER
+  ADMIN
+}
+
+model User {
+  id                 String           @id @default(uuid())
+  email              String           @unique
+  password           String
+  role               Role             @default(BUSINESS)
+  firstName          String?
+  lastName           String?
+  jobTitle           String?          @default("Managing Director")
+  twoFactorEnabled   Boolean          @default(false)
+  emailNotifications Boolean          @default(true)
+  smsNotifications   Boolean          @default(false)
+  registrationSource String?          @default("direct")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  businessProfile    BusinessProfile?
+}
+
+model BusinessProfile {
+  id               String            @id @default(uuid())
+  userId           String            @unique
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName     String
+  businessType     String
+  country          String
+  phone            String
+  email            String
+  isOnGoogle       Boolean           @default(false)
+  googlePlaceId    String?
+  address          String?
+  postcode         String?
+  industry         String?
+  category         String?
+  subCategory      String?
+  description      String?
+  website          String?
+  logoUrl          String?
+  openingHours     String?
+  socialMedia      String?
+  membershipLevel  String            @default("Bronze") // Bronze, Silver, Gold, Platinum
+  membershipTier   String            @default("Normal") // Normal, Pro, Pro+
+  membershipStatus String            @default("active") // active, inactive
+  apiKey           String?           @unique
+  localMallName    String?
+  localMallId      String?
+  proximityTier    String?           @default("national") // high_street, national
+  packages         PlatformPackage[]
+  transactions     BillingTransaction[]
+  notifications    Notification[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+model Notification {
+  id          String          @id @default(uuid())
+  businessId  String?
+  business    BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  type        String          // membership, package, update, payment, announcement
+  title       String
+  message     String
+  read        Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+
+model PlatformPackage {
+  id          String          @id @default(uuid())
+  businessId  String
+  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  platform    String          // Rewards, Spin, Mall, Audit, Expo
+  packageName String          // Starter, Standard, Enterprise
+  status      String          @default("active") // active, inactive
+  limits      Json?           // JSON holding keys like rewardsLimit, campaignsLimit, etc.
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([businessId, platform])
+}
+
+model BillingTransaction {
+  id          String          @id @default(uuid())
+  businessId  String
+  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  amount      Float
+  description String
+  status      String          @default("paid") // paid, pending, failed
+  createdAt   DateTime        @default(now())
+}
