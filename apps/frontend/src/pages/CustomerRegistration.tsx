@@ -4,10 +4,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, ShieldCheck, RefreshCw, X, ArrowRight, Gift, MapPin, Compass, Search, Smartphone, Mail, User, Shield, CheckCircle2, ChevronLeft, Lock } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { businessApi } from '../lib/api';
 
-// ═══════════════════════════════════════════════════════════
-// Local Mock UI Components & Stubs
-// ═══════════════════════════════════════════════════════════
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
   CUSTOMER: 'CUSTOMER' as const,
@@ -17,65 +15,83 @@ const UserRole = {
 
 type UserRoleType = 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'OWNER';
 
-// Simulated hooks matching McomMall service layer
+// ═══════════════════════════════════════════════════════════
+// Local Mock UI Components & Stubs
+// ═══════════════════════════════════════════════════════════
+
+// Real hooks wrapping McomSolutions API
 function useCreateUser() {
+  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (data: any) => {
-      console.log('Mock: Creating customer account', data);
-      return {
-        data: {
-          token: 'mock-jwt-token',
-          user: { id: 'customer-123', email: data.email, firstName: data.firstName, lastName: data.lastName },
-          auth: { accessToken: 'mock-access', refreshToken: 'mock-refresh' },
-        }
-      };
+      setIsPending(true);
+      try {
+        const res = await businessApi.register(data);
+        return res;
+      } finally {
+        setIsPending(false);
+      }
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useLogin() {
+  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (data: any) => {
-      console.log('Mock: Logging in customer', data);
-      return {
-        name: data.email.split('@')[0],
-        token: 'mock-jwt-token',
-        user: { id: 'customer-123', email: data.email },
-      };
+      setIsPending(true);
+      try {
+        const res = await businessApi.login(data);
+        return res;
+      } finally {
+        setIsPending(false);
+      }
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useSendOtp() {
+  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (data: any) => {
-      console.log('Mock: Sending verification OTP to email', data);
-      return { success: true };
+      setIsPending(true);
+      try {
+        const res = await businessApi.sendOtp(data.email);
+        return res;
+      } finally {
+        setIsPending(false);
+      }
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useValidateOtp() {
+  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (data: any) => {
-      console.log('Mock: Validating OTP code', data);
-      return { data: { valid: true } };
+      setIsPending(true);
+      try {
+        const res = await businessApi.verifyOtp(data.email, data.otp);
+        if (!res.valid) {
+          throw new Error('Invalid verification code');
+        }
+        return { data: { valid: true } };
+      } finally {
+        setIsPending(false);
+      }
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useCheckEmail() {
+  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (email: string) => {
-      console.log('Mock: Checking if email exists', email);
-      // Simulate that only test@example.com exists
-      if (email.toLowerCase() === 'test@example.com') {
-        return { exists: true };
-      }
+      // Direct pass-through
       return { exists: false };
     },
     isPending: false,
@@ -481,9 +497,31 @@ export default function CustomerRegistration() {
       setDialogMessage(`Account created successfully! Welcome, ${formData.firstName}!`);
       setIsSuccessDialogOpen(true);
       
-      setTimeout(() => {
+      setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-        navigate(redirect);
+        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
+        if (!redirectTarget) {
+          const source = searchParams.get('source');
+          if (source === 'mcomloyalty') {
+            redirectTarget = 'http://localhost:3005/sso-login';
+          } else if (source === 'mcommall') {
+            redirectTarget = 'http://localhost:3002/auth/sso';
+          }
+        }
+
+        if (redirectTarget) {
+          try {
+            const res = await businessApi.getSsoToken();
+            const separator = redirectTarget.includes('?') ? '&' : '?';
+            const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+            window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
+          } catch (err) {
+            console.error("Failed to generate SSO token", err);
+            navigate(redirect);
+          }
+        } else {
+          navigate(redirect);
+        }
       }, 2000);
 
     } catch (error: any) {
@@ -506,9 +544,31 @@ export default function CustomerRegistration() {
       setDialogMessage('Sign in successful!');
       setIsSuccessDialogOpen(true);
       
-      setTimeout(() => {
+      setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-        navigate(redirect);
+        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
+        if (!redirectTarget) {
+          const source = searchParams.get('source');
+          if (source === 'mcomloyalty') {
+            redirectTarget = 'http://localhost:3005/sso-login';
+          } else if (source === 'mcommall') {
+            redirectTarget = 'http://localhost:3002/auth/sso';
+          }
+        }
+
+        if (redirectTarget) {
+          try {
+            const res = await businessApi.getSsoToken();
+            const separator = redirectTarget.includes('?') ? '&' : '?';
+            const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+            window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
+          } catch (err) {
+            console.error("Failed to generate SSO token", err);
+            navigate(redirect);
+          }
+        } else {
+          navigate(redirect);
+        }
       }, 1500);
     } catch (error: any) {
       setDialogMessage(error.message || 'Login failed');

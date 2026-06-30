@@ -114,12 +114,18 @@ export default function DashboardAllProducts() {
   const [filter, setFilter] = useState<EcoKey>('all');
 
   const handleLaunch = async (platformId: string) => {
-    if (platformId === 'mall') {
+    if (platformId === 'mall' || platformId === 'rewards') {
       try {
         const res = await businessApi.getSsoToken();
-        const mcomMallUrl = import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002';
-        const launchUrl = `${mcomMallUrl}/auth/sso?sso_token=${res.ssoToken}`;
-        window.open(launchUrl, '_blank');
+        if (platformId === 'mall') {
+          const mcomMallUrl = import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002';
+          const launchUrl = `${mcomMallUrl}/auth/sso?sso_token=${res.ssoToken}`;
+          window.open(launchUrl, '_blank');
+        } else {
+          const mcomLoyaltyUrl = import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005';
+          const launchUrl = `${mcomLoyaltyUrl}/sso-login?token=${res.ssoToken}`;
+          window.open(launchUrl, '_blank');
+        }
       } catch (err) {
         console.error('Failed to generate SSO token', err);
         alert('SSO Handshake failed. Please try again.');

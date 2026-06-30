@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { businessApi } from '../lib/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,7 +18,30 @@ export default function LoginPage() {
     setError(null);
     try {
       await businessApi.login({ email, password });
-      navigate('/dashboard');
+      
+      let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
+      if (!redirectTarget) {
+        const source = searchParams.get('source');
+        if (source === 'mcomloyalty') {
+          redirectTarget = 'http://localhost:3005/sso-login';
+        } else if (source === 'mcommall') {
+          redirectTarget = 'http://localhost:3002/auth/sso';
+        }
+      }
+
+      if (redirectTarget) {
+        try {
+          const res = await businessApi.getSsoToken();
+          const separator = redirectTarget.includes('?') ? '&' : '?';
+          const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+          window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
+        } catch (err) {
+          console.error("Failed to generate SSO token", err);
+          navigate('/dashboard');
+        }
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
     } finally {
