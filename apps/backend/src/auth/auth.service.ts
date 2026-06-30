@@ -130,6 +130,32 @@ export class AuthService {
     return this.login(newUser);
   }
 
+  async registerCustomer(data: any) {
+    const email = data.email ? data.email.toLowerCase().trim() : '';
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existing) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const salt = await bcrypt.genSalt();
+    const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
+
+    const newUser = await this.prisma.user.create({
+      data: {
+        email,
+        password: passwordHash,
+        role: Role.CUSTOMER,
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
+      },
+    });
+
+    return this.login(newUser);
+  }
+
   async updateSettings(userId: string, updates: any) {
     return this.prisma.user.update({
       where: { id: userId },
