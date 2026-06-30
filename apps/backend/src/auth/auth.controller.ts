@@ -13,7 +13,9 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() registerDto: any) {
-    // Check if registering a business or generic
+    if (registerDto.role === 'CUSTOMER') {
+      return this.authService.registerCustomer(registerDto);
+    }
     return this.authService.registerBusiness(registerDto);
   }
 
