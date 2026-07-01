@@ -49,5 +49,15 @@ async function bootstrap() {
 
 export default async (req: any, res: any) => {
   const expressInstance = await bootstrap();
+  
+  // Normalize req.url to ensure NestJS always receives the expected "/api/v1" prefix
+  if (req.url) {
+    if (req.url.startsWith('/v1/')) {
+      req.url = '/api' + req.url;
+    } else if (!req.url.startsWith('/api/')) {
+      req.url = '/api/v1' + req.url;
+    }
+  }
+
   return expressInstance(req, res);
 };
