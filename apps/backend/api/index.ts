@@ -50,6 +50,10 @@ async function bootstrap() {
 export default async (req: any, res: any) => {
   const expressInstance = await bootstrap();
   
+  console.log(`[Vercel Serverless] Method: ${req.method} | Original req.url: ${req.url}`);
+  console.log(`[Vercel Serverless] x-forwarded-url header: ${req.headers['x-forwarded-url']}`);
+  console.log(`[Vercel Serverless] x-original-url header: ${req.headers['x-original-url']}`);
+  
   // Restore original URL from Vercel headers to prevent routing 404s
   const originalUrl = req.headers['x-forwarded-url'] || req.headers['x-original-url'];
   if (originalUrl) {
@@ -62,6 +66,8 @@ export default async (req: any, res: any) => {
       req.url = '/api/v1' + req.url;
     }
   }
+
+  console.log(`[Vercel Serverless] Normalized req.url passed to NestJS: ${req.url}`);
 
   return expressInstance(req, res);
 };
