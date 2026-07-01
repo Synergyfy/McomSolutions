@@ -53,9 +53,10 @@ export default async (req: any, res: any) => {
   console.log(`[Vercel Serverless] Method: ${req.method} | Original req.url: ${req.url}`);
   console.log(`[Vercel Serverless] x-forwarded-url header: ${req.headers['x-forwarded-url']}`);
   console.log(`[Vercel Serverless] x-original-url header: ${req.headers['x-original-url']}`);
+  console.log(`[Vercel Serverless] originalUrl query param: ${req.query?.originalUrl}`);
   
-  // Restore original URL from Vercel headers to prevent routing 404s
-  const originalUrl = req.headers['x-forwarded-url'] || req.headers['x-original-url'];
+  // Restore original URL from Vercel query or headers to prevent routing 404s
+  const originalUrl = req.query?.originalUrl || req.headers['x-forwarded-url'] || req.headers['x-original-url'];
   if (originalUrl) {
     req.url = originalUrl as string;
   } else if (req.url) {

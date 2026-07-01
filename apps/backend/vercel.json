@@ -8,11 +8,12 @@
   ],
   "routes": [
     {
+      "src": "/api/v1/(.*)",
+      "dest": "/api/index.ts?originalUrl=/api/v1/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/api/index.ts",
-      "headers": {
-        "x-original-url": "/$1"
-      }
+      "dest": "/api/index.ts?originalUrl=/$1"
     }
   ]
 }
