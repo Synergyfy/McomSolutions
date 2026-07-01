@@ -48,6 +48,17 @@ async function bootstrap() {
 }
 
 export default async (req: any, res: any) => {
+  // Manually intercept CORS preflight requests at the edge
+  res.setHeader('Access-Control-Allow-Origin', 'https://mcomsolutions.vercel.app');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
   const expressInstance = await bootstrap();
   
   console.log(`[Vercel Serverless] Method: ${req.method} | Original req.url: ${req.url}`);
