@@ -278,7 +278,8 @@ export class BusinessService {
 
     // Register new user & profile
     const salt = await bcrypt.genSalt();
-    const passwordHash = await bcrypt.hash('googleAuthTempPass123!', salt);
+    const password = data.password || 'googleAuthTempPass123!';
+    const passwordHash = await bcrypt.hash(password, salt);
 
     const newUser = await this.prisma.user.create({
       data: {
