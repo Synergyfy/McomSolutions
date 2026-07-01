@@ -14,6 +14,14 @@ const myPlatforms = [
   { name: 'MCOM Mall', icon: Store, color: 'bg-sky-500' },
 ];
 
+const platformStyles: Record<string, { name: string; color: string; price: string }> = {
+  Rewards: { name: 'MCOM Rewards', color: 'bg-orange-100 text-orange-600', price: '£79/mo' },
+  Spin: { name: 'MCOM Spin', color: 'bg-amber-100 text-amber-600', price: '£19/mo' },
+  Mall: { name: 'MCOM Mall', color: 'bg-sky-100 text-sky-600', price: '£99/mo' },
+  Audit: { name: 'GBS Audit', color: 'bg-emerald-100 text-emerald-600', price: '£49/mo' },
+  Expo: { name: 'GBS Expo', color: 'bg-purple-100 text-purple-600', price: '£149/mo' },
+};
+
 const recentActivity = [
   { action: 'Invoice paid', detail: 'Membership Active', time: 'Just now', type: 'success' },
   { action: 'Lead engine active', detail: 'Central platform link connected', time: 'Just now', type: 'info' },
@@ -172,19 +180,32 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             <button onClick={() => onNavigate?.('packages')} className="text-orange-500 text-xs font-bold hover:underline flex items-center gap-1">Manage <ArrowUpRight className="w-3 h-3" /></button>
           </div>
           <div className="space-y-4">
-            {[
-              { name: 'MCOM Rewards', tier: 'Standard', price: '£79/mo', color: 'bg-orange-100 text-orange-600' },
-              { name: 'MCOM Spin', tier: 'Starter', price: '£19/mo', color: 'bg-amber-100 text-amber-600' },
-              { name: 'MCOM Mall', tier: 'Standard', price: '£99/mo', color: 'bg-sky-100 text-sky-600' },
-            ].map((pkg) => (
-              <div key={pkg.name} className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors">
-                <div>
-                  <p className="font-bold text-gray-800 text-sm">{pkg.name}</p>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pkg.color}`}>{pkg.tier}</span>
-                </div>
-                <span className="font-black text-gray-900 text-sm">{pkg.price}</span>
+            {loading ? (
+              <p className="text-gray-400 text-xs py-4 text-center">Loading packages...</p>
+            ) : profile?.packages && profile.packages.length > 0 ? (
+              profile.packages.map((pkg: any) => {
+                const style = platformStyles[pkg.platform] || { name: `MCOM ${pkg.platform}`, color: 'bg-gray-100 text-gray-600', price: 'Free' };
+                return (
+                  <div key={pkg.id} className="flex items-center justify-between p-3 rounded-2xl hover:bg-gray-50 transition-colors">
+                    <div>
+                      <p className="font-bold text-gray-800 text-sm">{style.name}</p>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${style.color}`}>{pkg.packageName}</span>
+                    </div>
+                    <span className="font-black text-gray-900 text-sm">{style.price}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center py-6 border border-dashed border-gray-200 rounded-2xl">
+                <p className="text-gray-400 text-xs mb-3">No active packages</p>
+                <button
+                  onClick={() => onNavigate?.('packages')}
+                  className="text-xs font-bold bg-gray-50 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-xl transition-colors border border-gray-200"
+                >
+                  Activate Packages
+                </button>
               </div>
-            ))}
+            )}
           </div>
         </div>
 
