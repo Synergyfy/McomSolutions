@@ -1,17 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import express from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-
-const server = express();
 
 let app: any;
 
 async function bootstrap() {
   if (!app) {
-    app = await NestFactory.create(AppModule, new ExpressAdapter(server));
+    app = await NestFactory.create(AppModule);
     
     // Enable CORS
     app.enableCors({
@@ -44,7 +40,7 @@ async function bootstrap() {
 
     await app.init();
   }
-  return server;
+  return app.getHttpAdapter().getInstance();
 }
 
 export default async (req: any, res: any) => {
