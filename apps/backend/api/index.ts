@@ -50,8 +50,12 @@ async function bootstrap() {
 export default async (req: any, res: any) => {
   const expressInstance = await bootstrap();
   
-  // Normalize req.url to ensure NestJS always receives the expected "/api/v1" prefix
-  if (req.url) {
+  // Restore original URL from Vercel headers to prevent routing 404s
+  const originalUrl = req.headers['x-forwarded-url'] || req.headers['x-original-url'];
+  if (originalUrl) {
+    req.url = originalUrl as string;
+  } else if (req.url) {
+    // Fallback normalization
     if (req.url.startsWith('/v1/')) {
       req.url = '/api' + req.url;
     } else if (!req.url.startsWith('/api/')) {
