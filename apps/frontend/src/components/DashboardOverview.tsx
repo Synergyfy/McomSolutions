@@ -6,6 +6,8 @@ import {
   ArrowUpRight, Gift, Dices, Store, FileSearch, UsersRound, Link2, AlertCircle, TrendingUp
 } from 'lucide-react';
 
+import { businessApi } from '../lib/api';
+
 const myPlatforms = [
   { name: 'MCOM Rewards', icon: Gift, color: 'bg-orange-500' },
   { name: 'MCOM Spin', icon: Dices, color: 'bg-amber-500' },
@@ -13,17 +15,12 @@ const myPlatforms = [
 ];
 
 const recentActivity = [
-  { action: 'Invoice paid', detail: 'Silver Membership — £99/mo', time: '2 hours ago', type: 'success' },
-  { action: 'New lead captured', detail: 'Via MCOM Spin campaign', time: '5 hours ago', type: 'info' },
-  { action: 'Package upgraded', detail: 'MCOM Rewards → Standard', time: 'Yesterday', type: 'success' },
-  { action: 'Login detected', detail: 'New device — London, UK', time: 'Yesterday', type: 'warning' },
-  { action: 'Spin wheel ran', detail: '1,204 spins this week', time: '2 days ago', type: 'info' },
+  { action: 'Invoice paid', detail: 'Membership Active', time: 'Just now', type: 'success' },
+  { action: 'Lead engine active', detail: 'Central platform link connected', time: 'Just now', type: 'info' },
 ];
 
 const notifications = [
-  { message: 'Your Silver membership renews in 7 days', type: 'warning' },
-  { message: 'MCOM Expo launches Q3 2026 — join waitlist', type: 'info' },
-  { message: 'Your MCOM Mall store crossed 500 products', type: 'success' },
+  { message: 'Welcome to MCOM central hub — verify your packages', type: 'info' },
 ];
 
 const quickActions = [
@@ -45,6 +42,44 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     }
   }
 
+  const [profile, setProfile] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState<boolean>(true);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    businessApi.getProfile()
+      .then(data => {
+        if (isMounted) {
+          setProfile(data);
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching profile in DashboardOverview:', err);
+        if (isMounted) {
+          setLoading(false);
+        }
+      });
+    return () => { isMounted = false; };
+  }, []);
+
+  const membershipLevel = profile?.membershipLevel || 'Bronze';
+  const activePackagesCount = profile?.packages?.length || 0;
+  
+  const priceMap: Record<string, string> = {
+    Bronze: '£0',
+    Silver: '£99',
+    Gold: '£199',
+    Platinum: '£399',
+  };
+  const planPrice = priceMap[membershipLevel] || '£0';
+
+  const formatRenewalDate = () => {
+    const baseDate = profile?.createdAt ? new Date(profile.createdAt) : new Date();
+    baseDate.setMonth(baseDate.getMonth() + 1);
+    return baseDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="mb-4">
@@ -63,8 +98,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             <div className="flex items-start justify-between mb-8">
               <div>
                 <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-2">My Membership</p>
-                <h3 className="text-3xl md:text-4xl font-black mb-1">Silver</h3>
-                <p className="text-orange-200 text-sm font-medium">Renews July 23, 2026</p>
+                <h3 className="text-3xl md:text-4xl font-black mb-1">{loading ? '...' : membershipLevel}</h3>
+                <p className="text-orange-200 text-sm font-medium">Renews {loading ? '...' : formatRenewalDate()}</p>
               </div>
               <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
                 <Crown className="w-8 h-8 text-white" />
@@ -72,8 +107,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             </div>
             <div className="flex items-center justify-between">
               <div className="flex gap-4 md:gap-6">
-                <div><div className="text-xl md:text-2xl font-black">3</div><div className="text-orange-200 text-xs font-bold">Active Packages</div></div>
-                <div><div className="text-xl md:text-2xl font-black">£99</div><div className="text-orange-200 text-xs font-bold">Per Month</div></div>
+                <div><div className="text-xl md:text-2xl font-black">{loading ? '...' : activePackagesCount}</div><div className="text-orange-200 text-xs font-bold">Active Packages</div></div>
+                <div><div className="text-xl md:text-2xl font-black">{loading ? '...' : planPrice}</div><div className="text-orange-200 text-xs font-bold">Per Month</div></div>
               </div>
               <button
                 onClick={() => onNavigate?.('memberships')}
