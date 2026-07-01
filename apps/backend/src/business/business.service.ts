@@ -252,6 +252,17 @@ export class BusinessService {
                 category: data.category || 'Cafe',
                 subCategory: data.subCategory || '',
                 openingHours: data.openingHours || '',
+                membershipLevel: 'Platinum',
+                membershipTier: 'Normal',
+                packages: {
+                  create: [
+                    { platform: 'Rewards', packageName: 'Standard', status: 'active' },
+                    { platform: 'Spin', packageName: 'Starter', status: 'active' },
+                    { platform: 'Mall', packageName: 'Standard', status: 'active' },
+                    { platform: 'Audit', packageName: 'Starter', status: 'active' },
+                    { platform: 'Expo', packageName: 'Standard', status: 'active' },
+                  ]
+                }
               },
               update: {
                 businessName: data.businessName,
@@ -301,6 +312,17 @@ export class BusinessService {
             category: data.category || 'Cafe',
             subCategory: data.subCategory || '',
             openingHours: data.openingHours || '',
+            membershipLevel: 'Platinum',
+            membershipTier: 'Normal',
+            packages: {
+              create: [
+                { platform: 'Rewards', packageName: 'Standard', status: 'active' },
+                { platform: 'Spin', packageName: 'Starter', status: 'active' },
+                { platform: 'Mall', packageName: 'Standard', status: 'active' },
+                { platform: 'Audit', packageName: 'Starter', status: 'active' },
+                { platform: 'Expo', packageName: 'Standard', status: 'active' },
+              ]
+            }
           },
         },
       },
