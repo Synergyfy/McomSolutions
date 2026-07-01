@@ -1,13 +1,15 @@
 {
-  "cleanUrls": true,
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/api/v1/:path*",
-      "destination": "/api"
-    },
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/api"
+      "src": "/(.*)",
+      "dest": "/api/index.ts"
     }
   ]
 }
