@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +21,52 @@ export class AuthService {
     console.log('\n======================================');
     console.log(`[OTP Engine] 🔑 Verification Code for ${email}: ${code}`);
     console.log('======================================\n');
+
+    // Send email if SMTP is configured in environment variables
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = process.env.SMTP_PORT;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : undefined;
+    const smtpFrom = process.env.SMTP_FROM || 'no-reply@mcomsolutions.com';
+
+    if (smtpHost && smtpUser && smtpPass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: parseInt(smtpPort || '587'),
+          secure: parseInt(smtpPort || '587') === 465,
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+        });
+
+        await transporter.sendMail({
+          from: smtpFrom,
+          to: email,
+          subject: 'MCOM Solutions - Your Verification Code',
+          text: `Your verification code is: ${code}. It is valid for 10 minutes.`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+              <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">MCOM Solutions</h2>
+              <p>Hello,</p>
+              <p>We received a request to verify your email address. Please use the following verification code to continue your setup:</p>
+              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; border: 1px solid #e5e7eb;">
+                <span style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111827;">${code}</span>
+              </div>
+              <p style="color: #6b7280; font-size: 14px;">This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email.</p>
+              <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+              <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 MCOM Solutions. All rights reserved.</p>
+            </div>
+          `,
+        });
+        console.log(`[SMTP Mailer] ✉️ Verification email sent successfully to ${email}`);
+      } catch (err) {
+        console.error('[SMTP Mailer] ❌ Failed to send verification email:', err);
+      }
+    } else {
+      console.log('[SMTP Mailer] ⚠️ SMTP variables are missing. Falling back to local logging.');
+    }
     
     return true;
   }
