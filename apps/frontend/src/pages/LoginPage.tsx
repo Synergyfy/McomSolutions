@@ -23,9 +23,9 @@ export default function LoginPage() {
       if (!redirectTarget) {
         const source = searchParams.get('source');
         if (source === 'mcomloyalty') {
-          redirectTarget = 'http://localhost:3005/sso-login';
+          redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
         } else if (source === 'mcommall') {
-          redirectTarget = 'http://localhost:3002/auth/sso';
+          redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
         }
       }
 
