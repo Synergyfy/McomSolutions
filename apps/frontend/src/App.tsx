@@ -40,14 +40,15 @@ function SignupRedirect() {
   const navigate = useNavigate();
 
   React.useEffect(() => {
+    const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
     if (role === 'customer') {
-      navigate('/register/customer', { replace: true });
+      navigate(`/register/customer${searchStr}`, { replace: true });
     } else if (role === 'business') {
-      navigate('/getstarted/business', { replace: true });
+      navigate(`/getstarted/business${searchStr}`, { replace: true });
     } else {
-      navigate('/register', { replace: true });
+      navigate(`/register${searchStr}`, { replace: true });
     }
-  }, [role, navigate]);
+  }, [role, searchParams, navigate]);
 
   return null;
 }
