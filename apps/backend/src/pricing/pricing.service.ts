@@ -72,7 +72,13 @@ export class PricingService {
     return MEMBERSHIP_PLANS;
   }
 
-  async subscribeMembership(businessId: string, level: string, tier: string) {
+  async subscribeMembership(
+    businessId: string,
+    level: string,
+    tier: string,
+    billing: 'monthly' | 'yearly' = 'monthly',
+    isTrial = false,
+  ) {
     const business = await this.prisma.businessProfile.findUnique({
       where: { id: businessId },
     });
@@ -86,29 +92,35 @@ export class PricingService {
       throw new NotFoundException(`Plan level '${level}' does not exist`);
     }
 
-    const price = plan.price[tier] || 0;
+    const baseMonthlyPrice: number = (plan.price as any)[tier] ?? 0;
+    const price =
+      billing === 'yearly'
+        ? Math.floor(baseMonthlyPrice * 0.8) * 12
+        : baseMonthlyPrice;
 
-    // Update business profile
+    // Update business profile membership
     const updated = await this.prisma.businessProfile.update({
       where: { id: businessId },
       data: {
         membershipLevel: level,
         membershipTier: tier,
-        membershipStatus: 'active',
+        membershipStatus: isTrial ? 'trial' : 'active',
       },
     });
 
-    // Create billing transaction
+    // Record billing transaction
     await this.prisma.billingTransaction.create({
       data: {
         businessId,
-        amount: price,
-        description: `Ecosystem Membership subscription: ${level} - ${tier}`,
-        status: 'paid',
+        amount: isTrial ? 0 : price,
+        description: isTrial
+          ? `[TRIAL] ${level} ${tier} (${billing}) — 7-day free trial started`
+          : `Ecosystem Membership: ${level} ${tier} (${billing})`,
+        status: isTrial ? 'trial' : 'paid',
       },
     });
 
-    return updated;
+    return { ...updated, isTrial, billing, price: isTrial ? 0 : price };
   }
 
   async purchasePackage(businessId: string, platform: string, packageName: string) {

@@ -12,6 +12,8 @@ import PricingPage from './pages/PricingPage';
 import MembershipPage from './pages/MembershipPage';
 import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
+import CheckoutPage from './pages/CheckoutPage';
+import PayPalReturnPage from './pages/PayPalReturnPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
@@ -172,6 +174,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <LoginPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/checkout" 
+            element={
+              <PageWrapper>
+                <CheckoutPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/checkout/paypal-return" 
+            element={
+              <PageWrapper>
+                <PayPalReturnPage />
               </PageWrapper>
             } 
           />

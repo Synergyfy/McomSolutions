@@ -14,7 +14,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { PRODUCTS } from '../constants';
 
 import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
@@ -65,6 +65,11 @@ export default function PricingPage() {
   const [showComparison, setShowComparison] = useState(false);
   const [showGBSModular, setShowGBSModular] = useState(false);
   const [showMCOMModular, setShowMCOMModular] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  React.useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem('auth_token'));
+  }, []);
 
   const discount = 0.2; // 20% discount for yearly
 
@@ -317,21 +322,39 @@ export default function PricingPage() {
         </div>
 
         {/* Final CTA */}
-        <div className="relative glass rounded-[4rem] p-12 md:p-24 text-center overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-brand-blue/5 blur-[100px] rounded-full -z-10" />
-          <h2 className="text-4xl md:text-6xl font-bold mb-8">Start Growing Your Business Today</h2>
-          <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
-            Choose your membership and get started in minutes. Joins thousands of merchants already scaling within the 24/7 GBS ecosystem.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <button className="bg-brand-blue text-white px-10 py-5 rounded-full font-bold text-xl hover:bg-blue-600 transition-all shadow-glow-lg active:scale-95">
-              Get Started Now
-            </button>
-            <button className="text-gray-900 border border-gray-200 px-10 py-5 rounded-full font-bold text-xl hover:bg-gray-50 transition-all active:scale-95">
-              Compare All Plans
-            </button>
+        {!isLoggedIn ? (
+          <div className="relative glass rounded-[4rem] p-12 md:p-24 text-center overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-brand-blue/5 blur-[100px] rounded-full -z-10" />
+            <h2 className="text-4xl md:text-6xl font-bold mb-8">Start Growing Your Business Today</h2>
+            <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
+              Choose your membership and get started in minutes. Joins thousands of merchants already scaling within the 24/7 GBS ecosystem.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
+              <Link to="/getstarted" className="bg-brand-blue text-white px-10 py-5 rounded-full font-bold text-xl hover:bg-blue-600 transition-all shadow-glow-lg active:scale-95">
+                Get Started Now
+              </Link>
+              <button className="text-gray-900 border border-gray-200 px-10 py-5 rounded-full font-bold text-xl hover:bg-gray-50 transition-all active:scale-95">
+                Compare All Plans
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="relative glass rounded-[4rem] p-12 md:p-20 text-center overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-brand-blue/5 blur-[100px] rounded-full -z-10" />
+            <h2 className="text-3xl md:text-5xl font-bold mb-6">Need a Custom Enterprise Setup?</h2>
+            <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
+              You are signed in. If you want custom modular configurations or help with integration, contact our support team.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
+              <Link to="/dashboard" className="bg-brand-blue text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-600 transition-all shadow-glow active:scale-95">
+                Go to Dashboard
+              </Link>
+              <Link to="/contact" className="text-gray-900 border border-gray-200 px-8 py-4 rounded-full font-bold text-lg hover:bg-gray-50 transition-all active:scale-95">
+                Contact Support
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -379,6 +402,7 @@ function AccordionItem({ title, subtitle, price, children }: { title: string, su
 }
 
 function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
+  const navigate = useNavigate();
   const basePrice = plan.price[tier];
   const finalPrice = cycle === 'yearly' ? Math.floor(basePrice * (1 - discount)) : basePrice;
 
@@ -442,10 +466,15 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
         ))}
       </div>
 
-      <button className={cn(
-        "w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 shadow-lg",
-        isGold ? "bg-white text-brand-blue hover:bg-blue-50" : "bg-brand-blue text-white hover:bg-blue-600 shadow-blue-500/20"
-      )}>
+      <button 
+        onClick={() => {
+          navigate(`/checkout?plan=${encodeURIComponent(plan.id)}&tier=${encodeURIComponent(tier)}&billing=${cycle}&isTrial=true`);
+        }}
+        className={cn(
+          "w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 shadow-lg",
+          isGold ? "bg-white text-brand-blue hover:bg-blue-50" : "bg-brand-blue text-white hover:bg-blue-600 shadow-blue-500/20"
+        )}
+      >
         Choose {plan.name} {tier}
       </button>
 

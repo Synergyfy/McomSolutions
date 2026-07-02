@@ -4,6 +4,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { BusinessModule } from './business/business.module';
 import { PricingModule } from './pricing/pricing.module';
+import { PaymentModule } from './payment/payment.module';
 import { IntegrationModule } from './integration/integration.module';
 import { NotificationModule } from './notification/notification.module';
 
@@ -16,6 +17,7 @@ import { NotificationModule } from './notification/notification.module';
     AuthModule,
     BusinessModule,
     PricingModule,
+    PaymentModule,
     IntegrationModule,
     NotificationModule,
   ],
