@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import {
   Gift, Dices, Store, FileSearch, UsersRound, Link2,
   ShoppingBag, Users, ShieldCheck, LayoutGrid, Rocket, ArrowUpRight,
-  Sparkles, Lock
+  Sparkles, Lock, PackageOpen
 } from 'lucide-react';
 import { businessApi } from '../lib/api';
 
@@ -39,6 +39,18 @@ const ALL_PLATFORMS = [
     color: 'bg-sky-500',
     glow: 'shadow-sky-500/20',
     owned: true,
+  },
+  // Partner card – placed after Mall
+  {
+    id: 'partner',
+    name: 'Mcom Partner',
+    tagline: 'Access partner tools, manage referrals, and grow your business.',
+    icon: PackageOpen,
+    ecosystem: 'mcom',
+    color: 'bg-purple-500',
+    glow: 'shadow-purple-500/20',
+    owned: true,
+    custom: true,
   },
   {
     id: 'link',
@@ -171,7 +183,9 @@ export default function DashboardAllProducts() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.07 }}
               className={`relative bg-white rounded-[2rem] border p-5 md:p-8 flex flex-col transition-all duration-200 ${
-                platform.comingSoon
+                platform.custom
+                  ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-xl hover:shadow-2xl transition-shadow cursor-pointer'
+                  : platform.comingSoon
                   ? 'border-dashed border-gray-300 opacity-70'
                   : platform.owned
                   ? 'border-orange-200 hover:border-orange-400 hover:shadow-xl hover:shadow-orange-500/10'
@@ -179,22 +193,36 @@ export default function DashboardAllProducts() {
               }`}
             >
               {/* Owned badge */}
-              {platform.owned && !platform.comingSoon && (
+              {platform.owned && !platform.comingSoon && !platform.custom && (
                 <div className="absolute top-6 right-6 bg-green-100 text-green-600 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
                   Active
                 </div>
               )}
 
-              {/* Icon */}
-              <div className={`w-16 h-16 ${platform.comingSoon ? 'bg-gray-100' : platform.color} rounded-2xl flex items-center justify-center mb-6 shadow-lg ${platform.glow}`}>
-                <Icon className="w-8 h-8 text-white" />
-              </div>
+              {platform.custom ? (
+                  <>
+                    <h3 className="text-2xl font-bold mb-2">Mcom Partner</h3>
+                    <p className="text-purple-100 mb-4">Access partner tools, manage referrals, and grow your business.</p>
+                  </>
+                ) : (
+                  <div className={`w-16 h-16 ${platform.comingSoon ? 'bg-gray-100' : platform.color} rounded-2xl flex items-center justify-center mb-6 shadow-lg ${platform.glow}`}>
+                    <Icon className="w-8 h-8 text-white" />
+                  </div>
+                )}
 
-              <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
-              <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
+              {!platform.custom && (
+                <>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
+                  <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
+                </>
+              )}
 
               <div className="flex items-center gap-3 mt-auto">
-                {platform.comingSoon ? (
+                {platform.custom ? (
+                  <button className="bg-white text-purple-600 px-4 py-2 rounded-full font-semibold hover:bg-purple-50 transition-colors w-full">
+                    Go to Partner Portal
+                  </button>
+                ) : platform.comingSoon ? (
                   <button disabled className="flex-1 py-3 rounded-full bg-gray-100 text-gray-400 font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2">
                     <Sparkles className="w-4 h-4" /> Join Waitlist
                   </button>

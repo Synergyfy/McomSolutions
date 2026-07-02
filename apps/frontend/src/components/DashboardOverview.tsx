@@ -234,7 +234,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
         {/* Mcom Partner Card */}
-        <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-3xl p-6 text-white relative overflow-hidden shadow-xl hover:shadow-2xl transition-shadow cursor-pointer" onClick={() => onNavigate?.('partner')}>
+        // Partner card moved to DashboardAllProducts – removed from Overview
           <div className="absolute -right-8 -top-8 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
           <div className="relative z-10">
             <h3 className="text-2xl font-bold mb-2">Mcom Partner</h3>
@@ -297,6 +297,6 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
       </div>
-    </div>
+
   );
 }
