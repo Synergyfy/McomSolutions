@@ -9,7 +9,20 @@ import { businessApi } from '../lib/api';
 
 type EcoKey = 'all' | 'mcom' | 'gbs';
 
-const ALL_PLATFORMS = [
+interface Platform {
+  id: string;
+  name: string;
+  tagline: string;
+  icon: React.ForwardRefExoticComponent<any>;
+  ecosystem: string;
+  color: string;
+  glow: string;
+  owned: boolean;
+  comingSoon?: boolean;
+  custom?: boolean;
+}
+
+const ALL_PLATFORMS: Platform[] = [
   {
     id: 'rewards',
     name: 'MCOM Rewards',
@@ -50,7 +63,6 @@ const ALL_PLATFORMS = [
     color: 'bg-sky-500',
     glow: 'shadow-sky-500/20',
     owned: true,
-    custom: true,
   },
   {
     id: 'link',
@@ -178,7 +190,7 @@ export default function DashboardAllProducts() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {visible.map((platform, i) => {
+        {visible.map((platform: Platform, i) => {
           const Icon = platform.icon;
           return (
             <motion.div
@@ -187,9 +199,7 @@ export default function DashboardAllProducts() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.07 }}
               className={`relative bg-white rounded-[2rem] border p-5 md:p-8 flex flex-col transition-all duration-200 ${
-                platform.custom
-                  ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-xl hover:shadow-2xl transition-shadow cursor-pointer'
-                  : platform.comingSoon
+                platform.comingSoon
                   ? 'border-dashed border-gray-300 opacity-70'
                   : platform.owned
                   ? 'border-orange-200 hover:border-orange-400 hover:shadow-xl hover:shadow-orange-500/10'
@@ -203,33 +213,17 @@ export default function DashboardAllProducts() {
                 </div>
               )}
 
-              {platform.custom ? (
-                  <>
-                    <h3 className="text-2xl font-bold mb-2">Mcom Partner</h3>
-                    <p className="text-purple-100 mb-4">Access partner tools, manage referrals, and grow your business.</p>
-                  </>
-                ) : (
-                  <div className={`w-16 h-16 ${platform.comingSoon ? 'bg-gray-100' : platform.color} rounded-2xl flex items-center justify-center mb-6 shadow-lg ${platform.glow}`}>
-                    <Icon className="w-8 h-8 text-white" />
-                  </div>
-                )}
+              <div className={`w-16 h-16 ${platform.comingSoon ? 'bg-gray-100' : platform.color} rounded-2xl flex items-center justify-center mb-6 shadow-lg ${platform.glow}`}>
+                <Icon className="w-8 h-8 text-white" />
+              </div>
 
-              {!platform.custom && (
-                <>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
-                  <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
-                </>
-              )}
+              <>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
+                <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
+              </>
 
               <div className="flex items-center gap-3 mt-auto">
-                                {platform.custom ? (
-                  <button
-                    onClick={() => handleLaunch(platform.id)}
-                    className="flex-1 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors shadow-md shadow-orange-500/20 flex items-center justify-center gap-2"
-                  >
-                    <Rocket className="w-4 h-4" /> Launch
-                  </button>
-                ) : platform.comingSoon ? (
+                {platform.comingSoon ? (
                   <button disabled className="flex-1 py-3 rounded-full bg-gray-100 text-gray-400 font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2">
                     <Sparkles className="w-4 h-4" /> Join Waitlist
                   </button>
