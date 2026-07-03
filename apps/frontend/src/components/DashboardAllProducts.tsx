@@ -218,9 +218,12 @@ export default function DashboardAllProducts() {
               )}
 
               <div className="flex items-center gap-3 mt-auto">
-                {platform.custom ? (
-                  <button className="bg-white text-purple-600 px-4 py-2 rounded-full font-semibold hover:bg-purple-50 transition-colors w-full">
-                    Go to Partner Portal
+                                {platform.custom ? (
+                  <button
+                    onClick={() => handleLaunch(platform.id)}
+                    className="flex-1 py-3 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm transition-colors shadow-md shadow-orange-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Rocket className="w-4 h-4" /> Launch
                   </button>
                 ) : platform.comingSoon ? (
                   <button disabled className="flex-1 py-3 rounded-full bg-gray-100 text-gray-400 font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2">
