@@ -47,8 +47,8 @@ const ALL_PLATFORMS = [
     tagline: 'Access partner tools, manage referrals, and grow your business.',
     icon: PackageOpen,
     ecosystem: 'mcom',
-    color: 'bg-purple-500',
-    glow: 'shadow-purple-500/20',
+    color: 'bg-sky-500',
+    glow: 'shadow-sky-500/20',
     owned: true,
     custom: true,
   },
@@ -142,6 +142,10 @@ export default function DashboardAllProducts() {
         console.error('Failed to generate SSO token', err);
         alert('SSO Handshake failed. Please try again.');
       }
+    } else if (platformId === 'partner') {
+      // Direct launch for partner platform (no SSO required)
+      const partnerUrl = import.meta.env.VITE_MCOM_PARTNER_URL || 'http://localhost:3003';
+      window.open(partnerUrl, '_blank');
     } else {
       alert(`Launching ${platformId}... (Single Sign-On session active)`);
     }
