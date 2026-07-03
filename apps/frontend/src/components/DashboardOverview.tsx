@@ -73,7 +73,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
 
   const membershipLevel = profile?.membershipLevel || 'Bronze';
   const activePackagesCount = profile?.packages?.length || 0;
-  
+
   const priceMap: Record<string, string> = {
     Bronze: '£0',
     Silver: '£99',
@@ -219,11 +219,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 <button
                   key={action.label}
                   onClick={() => action.label.includes('Plan') ? onNavigate?.('memberships') : action.label.includes('Package') ? onNavigate?.('packages') : null}
-                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 ${
-                    action.variant === 'primary'
+                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl font-bold text-sm transition-all active:scale-95 ${action.variant === 'primary'
                       ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20'
                       : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-5 h-5" />
                   {action.label}
@@ -233,13 +232,16 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           </div>
         </div>
 
-        {/* Mcom Partner Card */}
-        // Partner card moved to DashboardAllProducts – removed from Overview
+
+        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
           <div className="absolute -right-8 -top-8 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
           <div className="relative z-10">
             <h3 className="text-2xl font-bold mb-2">Mcom Partner</h3>
             <p className="text-purple-100 mb-4">Access partner tools, manage referrals, and grow your business.</p>
-            <button className="bg-white text-purple-600 px-4 py-2 rounded-full font-semibold hover:bg-purple-50 transition-colors">
+            <button
+              onClick={() => onNavigate?.('partner')}
+              className="bg-white text-purple-600 px-4 py-2 rounded-full font-semibold hover:bg-purple-50 transition-colors"
+            >
               Go to Partner Portal
             </button>
           </div>
@@ -260,10 +262,9 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 transition={{ delay: i * 0.07 }}
                 className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors"
               >
-                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  item.type === 'success' ? 'bg-green-500' :
-                  item.type === 'warning' ? 'bg-amber-500' : 'bg-blue-400'
-                }`} />
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${item.type === 'success' ? 'bg-green-500' :
+                    item.type === 'warning' ? 'bg-amber-500' : 'bg-blue-400'
+                  }`} />
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-gray-800 text-sm">{item.action}</p>
                   <p className="text-xs text-gray-400 truncate">{item.detail}</p>
@@ -282,14 +283,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           </div>
           <div className="space-y-4">
             {notifications.map((n, i) => (
-              <div key={i} className={`flex items-start gap-3 p-4 rounded-2xl ${
-                n.type === 'success' ? 'bg-green-50' :
-                n.type === 'warning' ? 'bg-amber-50' : 'bg-blue-50'
-              }`}>
-                <Bell className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
-                  n.type === 'success' ? 'text-green-500' :
-                  n.type === 'warning' ? 'text-amber-500' : 'text-blue-400'
-                }`} />
+              <div key={i} className={`flex items-start gap-3 p-4 rounded-2xl ${n.type === 'success' ? 'bg-green-50' :
+                  n.type === 'warning' ? 'bg-amber-50' : 'bg-blue-50'
+                }`}>
+                <Bell className={`w-4 h-4 mt-0.5 flex-shrink-0 ${n.type === 'success' ? 'text-green-500' :
+                    n.type === 'warning' ? 'text-amber-500' : 'text-blue-400'
+                  }`} />
                 <p className="text-sm font-medium text-gray-700">{n.message}</p>
               </div>
             ))}
@@ -297,6 +296,6 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         </div>
 
       </div>
-
+    </div>
   );
 }
