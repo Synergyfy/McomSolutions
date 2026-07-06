@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { businessApi, apiClient, setSharedAuthCookies } from '../../lib/api';
+import PostRegistrationFlow from './PostRegistrationFlow';
 
 // ═══════════════════════════════════════════════════════════
 // Local UI Component & Router Adapters
@@ -844,8 +845,8 @@ function BusinessOnboardingInner() {
         address: selectedGoogleBranch.address,
       }));
 
-      // Complete
-      setShowComplete(true);
+      // Complete → go to post-registration flow
+      setShowAccountCreatedPage(true);
     } catch (err: any) {
       setSubmitError(err?.response?.data?.message || err?.message || 'Failed to claim business storefront.');
     } finally {
@@ -897,6 +898,16 @@ function BusinessOnboardingInner() {
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
+  // ─── Post-Registration Screens (6-10) ──────────────────
+  const [showAccountCreatedPage, setShowAccountCreatedPage] = useState(false);
+  const [showWelcomeProgrammePage, setShowWelcomeProgrammePage] = useState(false);
+  const [showMembershipPage, setShowMembershipPage] = useState(false);
+  const [showPaymentPage, setShowPaymentPage] = useState(false);
+  const [showMembershipActivatedPage, setShowMembershipActivatedPage] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<'Bronze' | 'Silver' | 'Gold' | 'Platinum'>('Bronze');
+  const [selectedSubTier, setSelectedSubTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
+  const [selectedAnnualPrice, setSelectedAnnualPrice] = useState(0);
+
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -932,6 +943,7 @@ function BusinessOnboardingInner() {
   const [showWelcomeChecklistPage, setShowWelcomeChecklistPage] = useState(false);
   const [storefrontLive, setStorefrontLive] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
   const [lockedFeatureAttempt, setLockedFeatureAttempt] = useState<string | null>(null);
   const [cobrandedTab, setCobrandedTab] = useState<'standard' | 'pro' | 'plus'>('standard');
@@ -1216,6 +1228,10 @@ function BusinessOnboardingInner() {
         setSubmitError('Passwords do not match.');
         return;
       }
+      if (!termsAccepted || !privacyAccepted) {
+        setSubmitError('Please accept the Terms of Service and Privacy Policy.');
+        return;
+      }
     }
 
     // ── Profile Step Validation ────────────────────────────
@@ -1424,7 +1440,7 @@ function BusinessOnboardingInner() {
         localStorage.removeItem('businessOnboardingStep');
         localStorage.removeItem('businessOnboardingCompleted');
 
-        setTimeout(() => setShowComplete(true), 500);
+        setShowAccountCreatedPage(true);
       } catch (err: unknown) {
         const e = err as { message?: string };
         setSubmitError(e?.message || 'Registration and profile creation failed. Please try again.');
@@ -3579,6 +3595,26 @@ function BusinessOnboardingInner() {
   }
 
   // ═══════════════════════════════════════════════════════
+  // Post-Registration Screens 6-10
+  // ═══════════════════════════════════════════════════════
+  if (showAccountCreatedPage) {
+    return (
+      <PostRegistrationFlow
+        businessName={formData.businessName}
+        businessEmail={formData.email}
+        onComplete={() => {
+          setShowAccountCreatedPage(false);
+          localStorage.removeItem('businessOnboarding');
+          localStorage.removeItem('businessOnboardingStep');
+          localStorage.removeItem('businessOnboardingCompleted');
+          localStorage.setItem('firstDashboardLogin', 'true');
+          router.push('/dashboard');
+        }}
+      />
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
   // Completion Screen
   // ═══════════════════════════════════════════════════════
   if (showComplete) {
@@ -5003,6 +5039,33 @@ function BusinessOnboardingInner() {
                         </div>
                       </div>
                     </div>
+
+                      <div className="space-y-3 pt-2">
+                        <label className="flex items-start gap-3 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={termsAccepted}
+                            onChange={(e) => setTermsAccepted(e.target.checked)}
+                            className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
+                          />
+                          <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                            I accept the{' '}
+                            <a href="/terms" target="_blank" className="text-orange-600 font-bold hover:underline">Terms of Service</a>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-3 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={privacyAccepted}
+                            onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                            className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
+                          />
+                          <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                            I accept the{' '}
+                            <a href="/privacy" target="_blank" className="text-orange-600 font-bold hover:underline">Privacy Policy</a>
+                          </span>
+                        </label>
+                      </div>
                   </div>
                 )}
 
