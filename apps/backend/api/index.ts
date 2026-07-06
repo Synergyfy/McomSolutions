@@ -7,6 +7,28 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 const server = express();
 
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://mcommall.vercel.app',
+  'https://mcomloyalty.vercel.app',
+  'https://mcom-solutions-backend.vercel.app',
+];
+
+server.use((req: any, res: any, next: any) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
+
 let app: any;
 
 async function bootstrap() {
@@ -15,9 +37,16 @@ async function bootstrap() {
     
     // Enable CORS
     app.enableCors({
-      origin: true,
+      origin: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://mcommall.vercel.app',
+        'https://mcomloyalty.vercel.app',
+        'https://mcom-solutions-backend.vercel.app',
+      ],
       credentials: true,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+      allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
     });
 
     // Global prefix

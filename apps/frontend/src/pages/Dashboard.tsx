@@ -18,12 +18,16 @@ import DashboardAccess from '../components/DashboardAccess';
 import DashboardNotifications from '../components/DashboardNotifications';
 import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
+import FirstDashboardWelcome from '../components/FirstDashboardWelcome';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [showFirstWelcome, setShowFirstWelcome] = useState(() => {
+    return localStorage.getItem('firstDashboardLogin') === 'true';
+  });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -217,16 +221,27 @@ export default function Dashboard() {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-12">
-          {activeTab === 'overview' && <DashboardOverview onNavigate={setActiveTab} />}
-          {activeTab === 'all-products' && <DashboardAllProducts />}
-          {activeTab === 'access' && <DashboardAccess />}
-          {activeTab === 'notifications' && <DashboardNotifications />}
-          {activeTab === 'memberships' && <DashboardMemberships />}
-          {activeTab === 'packages' && <DashboardPackages />}
-          {activeTab === 'billing' && <DashboardBilling />}
-          {activeTab === 'business-profile' && <DashboardBusinessProfile />}
-          {activeTab === 'support' && <DashboardSupport />}
-          {activeTab === 'settings' && <DashboardSettings />}
+          {showFirstWelcome ? (
+            <FirstDashboardWelcome
+              onDismiss={() => {
+                setShowFirstWelcome(false);
+                localStorage.removeItem('firstDashboardLogin');
+              }}
+            />
+          ) : (
+            <>
+              {activeTab === 'overview' && <DashboardOverview onNavigate={setActiveTab} />}
+              {activeTab === 'all-products' && <DashboardAllProducts />}
+              {activeTab === 'access' && <DashboardAccess />}
+              {activeTab === 'notifications' && <DashboardNotifications />}
+              {activeTab === 'memberships' && <DashboardMemberships />}
+              {activeTab === 'packages' && <DashboardPackages />}
+              {activeTab === 'billing' && <DashboardBilling />}
+              {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+              {activeTab === 'support' && <DashboardSupport />}
+              {activeTab === 'settings' && <DashboardSettings />}
+            </>
+          )}
         </div>
       </main>
     </div>

@@ -9,6 +9,7 @@ import {
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import PostRegistrationFlow from '../../../getstarted/PostRegistrationFlow';
 
 // ═══════════════════════════════════════════════════════════
 // Local UI Component & Router Adapters
@@ -963,8 +964,8 @@ function BusinessOnboardingInner() {
         address: selectedGoogleBranch.address,
       }));
 
-      // Complete
-      setShowComplete(true);
+      // Complete → go to post-registration flow
+      setShowAccountCreatedPage(true);
     } catch (err: any) {
       setSubmitError(err?.response?.data?.message || err?.message || 'Failed to claim business storefront.');
     } finally {
@@ -1016,6 +1017,16 @@ function BusinessOnboardingInner() {
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
+  // ─── Post-Registration Screens (6-10) ──────────────────
+  const [showAccountCreatedPage, setShowAccountCreatedPage] = useState(false);
+  const [showWelcomeProgrammePage, setShowWelcomeProgrammePage] = useState(false);
+  const [showMembershipPage, setShowMembershipPage] = useState(false);
+  const [showPaymentPage, setShowPaymentPage] = useState(false);
+  const [showMembershipActivatedPage, setShowMembershipActivatedPage] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<'Bronze' | 'Silver' | 'Gold' | 'Platinum'>('Bronze');
+  const [selectedSubTier, setSelectedSubTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
+  const [selectedAnnualPrice, setSelectedAnnualPrice] = useState(0);
+
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -1051,6 +1062,7 @@ function BusinessOnboardingInner() {
   const [showWelcomeChecklistPage, setShowWelcomeChecklistPage] = useState(false);
   const [storefrontLive, setStorefrontLive] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
   const [lockedFeatureAttempt, setLockedFeatureAttempt] = useState<string | null>(null);
   const [cobrandedTab, setCobrandedTab] = useState<'standard' | 'pro' | 'plus'>('standard');
@@ -1542,7 +1554,7 @@ function BusinessOnboardingInner() {
         localStorage.removeItem('businessOnboardingStep');
         localStorage.removeItem('businessOnboardingCompleted');
 
-        setTimeout(() => setShowComplete(true), 500);
+        setShowAccountCreatedPage(true);
       } catch (err: unknown) {
         const e = err as { message?: string };
         setSubmitError(e?.message || 'Registration and profile creation failed. Please try again.');
@@ -3078,7 +3090,7 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showReviewStorefrontPage) {
     const handleConfirm = async () => {
-      if (!termsAccepted) {
+      if (!termsAccepted || !privacyAccepted) {
         setTermsError(true);
         setTimeout(() => setTermsError(false), 500);
         return;
@@ -3326,7 +3338,7 @@ function BusinessOnboardingInner() {
             </section>
           </div>
 
-          {/* Terms Agreement */}
+          {/* Terms & Privacy Agreement */}
           <div className={`flex items-start gap-3 p-5 bg-white/50 border rounded-2xl transition-all duration-300 ${termsError ? 'border-red-500 bg-red-50/50 animate-shake' : 'border-gray-200'}`}>
             <input 
               className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 cursor-pointer" 
@@ -3337,6 +3349,19 @@ function BusinessOnboardingInner() {
             />
             <label className="text-sm font-medium text-gray-600 leading-relaxed cursor-pointer" htmlFor="terms">
               I confirm that all provided information is accurate and I agree to the MCOMMALL <a className="text-orange-600 font-bold hover:underline" href="#">Terms of Service</a> and <a className="text-orange-600 font-bold hover:underline" href="#">Community Guidelines</a>.
+            </label>
+          </div>
+          {/* Privacy Policy */}
+          <div className={`flex items-start gap-3 p-5 bg-white/50 border rounded-2xl transition-all duration-300 ${termsError ? 'border-red-500 bg-red-50/50 animate-shake' : 'border-gray-200'}`}>
+            <input
+              className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 cursor-pointer"
+              id="privacy"
+              type="checkbox"
+              checked={privacyAccepted}
+              onChange={(e) => setPrivacyAccepted(e.target.checked)}
+            />
+            <label className="text-sm font-medium text-gray-600 leading-relaxed cursor-pointer" htmlFor="privacy">
+              I have read and agree to the MCOMMALL <a className="text-orange-600 font-bold hover:underline" href="#">Privacy Policy</a>.
             </label>
           </div>
         </main>
@@ -3665,6 +3690,26 @@ function BusinessOnboardingInner() {
           )}
         </AnimatePresence>
       </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // Post-Registration Screens 6-10
+  // ═══════════════════════════════════════════════════════
+  if (showAccountCreatedPage) {
+    return (
+      <PostRegistrationFlow
+        businessName={formData.businessName}
+        businessEmail={formData.email}
+        onComplete={() => {
+          setShowAccountCreatedPage(false);
+          localStorage.removeItem('businessOnboarding');
+          localStorage.removeItem('businessOnboardingStep');
+          localStorage.removeItem('businessOnboardingCompleted');
+          localStorage.setItem('firstDashboardLogin', 'true');
+          router.push('/dashboard');
+        }}
+      />
     );
   }
 
