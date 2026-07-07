@@ -9,7 +9,8 @@ import {
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import PostRegistrationFlow from '../../../getstarted/PostRegistrationFlow';
+import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../../../data/sectors';
+
 
 // ═══════════════════════════════════════════════════════════
 // Local UI Component & Router Adapters
@@ -123,54 +124,21 @@ function useAddListing() {
 
 function useGetSectors() {
   return {
-    data: [
-      { id: 'sector-1', name: 'Retail' },
-      { id: 'sector-2', name: 'Food & Beverage' },
-      { id: 'sector-3', name: 'Services & Experience' },
-    ],
+    data: SECTORS,
     isLoading: false,
   };
 }
 
 function useGetCategoriesBySector(sectorId?: string) {
-  const categories: Record<string, Array<{ id: string; name: string }>> = {
-    'sector-1': [
-      { id: 'cat-1', name: 'Clothing & Accessories' },
-      { id: 'cat-2', name: 'Home & Living' },
-      { id: 'cat-3', name: 'Electronics & Gadgets' },
-    ],
-    'sector-2': [
-      { id: 'cat-4', name: 'Cafes & Coffee Shops' },
-      { id: 'cat-5', name: 'Restaurants & Eateries' },
-      { id: 'cat-6', name: 'Groceries & Delis' },
-    ],
-    'sector-3': [
-      { id: 'cat-7', name: 'Hair & Beauty Salons' },
-      { id: 'cat-8', name: 'Fitness & Wellness' },
-      { id: 'cat-9', name: 'Consulting & Professional' },
-    ],
-  };
   return {
-    data: sectorId ? (categories[sectorId] || []) : [],
+    data: sectorId ? CATEGORIES.filter(c => c.sectorId === sectorId) : [],
     isLoading: false,
   };
 }
 
 function useGetSubCategoriesByCategory(categoryId?: string) {
-  const subCategories: Record<string, Array<{ id: string; name: string }>> = {
-    'cat-1': [
-      { id: 'sub-1', name: 'Menswear' },
-      { id: 'sub-2', name: 'Womenswear' },
-      { id: 'sub-3', name: 'Footwear' },
-    ],
-    'cat-4': [
-      { id: 'sub-4', name: 'Specialty Coffee' },
-      { id: 'sub-5', name: 'Artisan Bakery' },
-      { id: 'sub-6', name: 'Tea Room' },
-    ],
-  };
   return {
-    data: categoryId ? (subCategories[categoryId] || []) : [],
+    data: categoryId ? SUBCATEGORIES.filter(sc => sc.categoryId === categoryId) : [],
     isLoading: false,
   };
 }
@@ -965,7 +933,7 @@ function BusinessOnboardingInner() {
       }));
 
       // Complete → go to post-registration flow
-      setShowAccountCreatedPage(true);
+      setShowInitialAssessment(true);
     } catch (err: any) {
       setSubmitError(err?.response?.data?.message || err?.message || 'Failed to claim business storefront.');
     } finally {
@@ -1017,15 +985,9 @@ function BusinessOnboardingInner() {
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
-  // ─── Post-Registration Screens (6-10) ──────────────────
-  const [showAccountCreatedPage, setShowAccountCreatedPage] = useState(false);
-  const [showWelcomeProgrammePage, setShowWelcomeProgrammePage] = useState(false);
-  const [showMembershipPage, setShowMembershipPage] = useState(false);
-  const [showPaymentPage, setShowPaymentPage] = useState(false);
-  const [showMembershipActivatedPage, setShowMembershipActivatedPage] = useState(false);
-  const [selectedTier, setSelectedTier] = useState<'Bronze' | 'Silver' | 'Gold' | 'Platinum'>('Bronze');
-  const [selectedSubTier, setSelectedSubTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
-  const [selectedAnnualPrice, setSelectedAnnualPrice] = useState(0);
+  // ─── Initial Business Assessment (Step 7) ─────────────
+  const [showInitialAssessment, setShowInitialAssessment] = useState(false);
+  const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -1112,9 +1074,22 @@ function BusinessOnboardingInner() {
           const data = await res.json();
           setSuggestions(data);
           setShowSuggestions(data.length > 0);
-        }
-      } catch (err) {
-        console.error('Error fetching suggestions:', err);
+        } else {
+        const mockAddresses = [
+          { displayName: '10 Downing Street, Westminster, London', line1: '10 Downing Street', line2: 'Westminster', city: 'London', postcode: formData.postcode, country: 'UK' },
+          { displayName: '221B Baker Street, Marylebone, London', line1: '221B Baker Street', line2: 'Marylebone', city: 'London', postcode: formData.postcode, country: 'UK' },
+        ];
+        setSuggestions(mockAddresses);
+        setShowSuggestions(true);
+      }
+    } catch (err) {
+      console.warn('[MOCK] Backend unreachable — using mock address suggestions');
+      const mockAddresses = [
+        { displayName: '10 Downing Street, Westminster, London', line1: '10 Downing Street', line2: 'Westminster', city: 'London', postcode: formData.postcode, country: 'UK' },
+        { displayName: '221B Baker Street, Marylebone, London', line1: '221B Baker Street', line2: 'Marylebone', city: 'London', postcode: formData.postcode, country: 'UK' },
+      ];
+        setSuggestions(mockAddresses);
+        setShowSuggestions(true);
       } finally {
         setLoadingSuggestions(false);
       }
@@ -1554,7 +1529,7 @@ function BusinessOnboardingInner() {
         localStorage.removeItem('businessOnboardingStep');
         localStorage.removeItem('businessOnboardingCompleted');
 
-        setShowAccountCreatedPage(true);
+        setShowInitialAssessment(true);
       } catch (err: unknown) {
         const e = err as { message?: string };
         setSubmitError(e?.message || 'Registration and profile creation failed. Please try again.');
@@ -3694,22 +3669,55 @@ function BusinessOnboardingInner() {
   }
 
   // ═══════════════════════════════════════════════════════
-  // Post-Registration Screens 6-10
+  // Step 7 — Initial Business Assessment
   // ═══════════════════════════════════════════════════════
-  if (showAccountCreatedPage) {
+  if (showInitialAssessment) {
+    const questions = [
+      { id: 'yearsInBusiness', question: 'How long has your business been operating?', options: ['Less than 1 year', '1–3 years', '3–5 years', '5+ years'] },
+      { id: 'employeeCount', question: 'How many employees does your business have?', options: ['Just me', '2–5', '6–20', '20+'] },
+      { id: 'onlinePresence', question: 'How would you rate your current online presence?', options: ['No online presence', 'Basic website only', 'Website + social media', 'Strong online presence'] },
+      { id: 'customerBase', question: 'Approximately how many active customers do you serve monthly?', options: ['0–50', '50–200', '200–1000', '1000+'] },
+      { id: 'mainGoal', question: 'What is your primary goal for the next 90 days?', options: ['Increase customer loyalty', 'Grow customer base', 'Improve online visibility', 'Launch marketing campaigns'] },
+      { id: 'marketingChannels', question: 'Which marketing channels do you currently use?', options: ['None', 'Social media only', 'Social media + email', 'Multiple channels'] },
+    ];
+    const answered = Object.keys(assessmentAnswers).length;
+    const allDone = answered === questions.length;
+    const pct = Math.round((answered / questions.length) * 100);
     return (
-      <PostRegistrationFlow
-        businessName={formData.businessName}
-        businessEmail={formData.email}
-        onComplete={() => {
-          setShowAccountCreatedPage(false);
-          localStorage.removeItem('businessOnboarding');
-          localStorage.removeItem('businessOnboardingStep');
-          localStorage.removeItem('businessOnboardingCompleted');
-          localStorage.setItem('firstDashboardLogin', 'true');
-          router.push('/dashboard');
-        }}
-      />
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-black text-gray-900 mb-2">Initial Business Assessment</h1>
+              <p className="text-gray-500 font-medium">Quick assessment (5 min) to determine your starting point.</p>
+            </div>
+            <div className="mb-8">
+              <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                <span className="text-gray-500">{answered} of {questions.length} answered</span>
+                <span className="text-orange-600">{pct}%</span>
+              </div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <motion.div animate={{ width: `${pct}%` }} className="h-full bg-orange-500 rounded-full" />
+              </div>
+            </div>
+            <div className="space-y-6 mb-8">
+              {questions.map((q, i) => (
+                <motion.div key={q.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm">
+                  <p className="font-bold text-gray-900 mb-3">{q.question}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {q.options.map((opt) => (
+                      <button key={opt} onClick={() => setAssessmentAnswers(prev => ({ ...prev, [q.id]: opt }))} className={`p-3 rounded-xl text-sm font-semibold text-left transition-all ${assessmentAnswers[q.id] === opt ? 'bg-orange-500 text-white shadow-lg' : 'bg-gray-50 text-gray-600 hover:bg-orange-50 border border-gray-200'}`}>{opt}</button>
+                    ))}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+            <button onClick={() => { localStorage.removeItem('businessOnboarding'); localStorage.setItem('firstDashboardLogin', 'true'); router.push('/dashboard'); }} disabled={!allDone} className={`w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${allDone ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+              Complete & Enter Dashboard <ArrowRight className="w-5 h-5" />
+            </button>
+          </motion.div>
+        </div>
+      </div>
     );
   }
 
