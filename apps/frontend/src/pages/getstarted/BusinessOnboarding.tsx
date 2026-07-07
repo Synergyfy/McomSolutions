@@ -789,6 +789,7 @@ function BusinessOnboardingInner() {
     try {
       const res = await api.post('google-business/complete-onboarding', {
         email: googleEmail,
+        password: formData.password,
         firstName: ownerFirstName,
         lastName: ownerLastName,
         businessType: ownerBusinessType,

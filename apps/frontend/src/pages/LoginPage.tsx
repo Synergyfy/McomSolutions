@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { businessApi } from '../lib/api';
 
@@ -23,9 +23,9 @@ export default function LoginPage() {
       if (!redirectTarget) {
         const source = searchParams.get('source');
         if (source === 'mcomloyalty') {
-          redirectTarget = 'http://localhost:3005/sso-login';
+          redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
         } else if (source === 'mcommall') {
-          redirectTarget = 'http://localhost:3002/auth/sso';
+          redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
         }
       }
 
@@ -111,6 +111,13 @@ export default function LoginPage() {
             {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
           </button>
         </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-brand-blue font-bold hover:underline">
+            Create Account
+          </Link>
+        </p>
 
         <div className="mt-10 pt-8 border-t border-gray-100 text-center">
           <p className="text-gray-500 mb-6">Or sign in with</p>

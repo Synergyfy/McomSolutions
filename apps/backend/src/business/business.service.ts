@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { Role } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import axios from 'axios';
 
 @Injectable()
@@ -252,6 +252,8 @@ export class BusinessService {
                 category: data.category || 'Cafe',
                 subCategory: data.subCategory || '',
                 openingHours: data.openingHours || '',
+                membershipLevel: 'Bronze',
+                membershipTier: 'Free',
               },
               update: {
                 businessName: data.businessName,
@@ -276,7 +278,8 @@ export class BusinessService {
 
     // Register new user & profile
     const salt = await bcrypt.genSalt();
-    const passwordHash = await bcrypt.hash('googleAuthTempPass123!', salt);
+    const password = data.password || 'googleAuthTempPass123!';
+    const passwordHash = await bcrypt.hash(password, salt);
 
     const newUser = await this.prisma.user.create({
       data: {
@@ -301,6 +304,8 @@ export class BusinessService {
             category: data.category || 'Cafe',
             subCategory: data.subCategory || '',
             openingHours: data.openingHours || '',
+            membershipLevel: 'Bronze',
+            membershipTier: 'Free',
           },
         },
       },

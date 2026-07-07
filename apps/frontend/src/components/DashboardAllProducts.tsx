@@ -3,13 +3,26 @@ import { motion } from 'motion/react';
 import {
   Gift, Dices, Store, FileSearch, UsersRound, Link2,
   ShoppingBag, Users, ShieldCheck, LayoutGrid, Rocket, ArrowUpRight,
-  Sparkles, Lock
+  Sparkles, Lock, PackageOpen
 } from 'lucide-react';
 import { businessApi } from '../lib/api';
 
 type EcoKey = 'all' | 'mcom' | 'gbs';
 
-const ALL_PLATFORMS = [
+interface Platform {
+  id: string;
+  name: string;
+  tagline: string;
+  icon: React.ForwardRefExoticComponent<any>;
+  ecosystem: string;
+  color: string;
+  glow: string;
+  owned: boolean;
+  comingSoon?: boolean;
+  custom?: boolean;
+}
+
+const ALL_PLATFORMS: Platform[] = [
   {
     id: 'rewards',
     name: 'MCOM Rewards',
@@ -35,6 +48,17 @@ const ALL_PLATFORMS = [
     name: 'MCOM Mall',
     tagline: 'A unified multi-vendor marketplace for modern commerce.',
     icon: Store,
+    ecosystem: 'mcom',
+    color: 'bg-sky-500',
+    glow: 'shadow-sky-500/20',
+    owned: true,
+  },
+  // Partner card – placed after Mall
+  {
+    id: 'partner',
+    name: 'Mcom Partner',
+    tagline: 'Access partner tools, manage referrals, and grow your business.',
+    icon: PackageOpen,
     ecosystem: 'mcom',
     color: 'bg-sky-500',
     glow: 'shadow-sky-500/20',
@@ -130,6 +154,10 @@ export default function DashboardAllProducts() {
         console.error('Failed to generate SSO token', err);
         alert('SSO Handshake failed. Please try again.');
       }
+    } else if (platformId === 'partner') {
+      // Direct launch for partner platform (no SSO required)
+      const partnerUrl = import.meta.env.VITE_MCOM_PARTNER_URL || 'http://localhost:3003';
+      window.open(partnerUrl, '_blank');
     } else {
       alert(`Launching ${platformId}... (Single Sign-On session active)`);
     }
@@ -162,7 +190,7 @@ export default function DashboardAllProducts() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {visible.map((platform, i) => {
+        {visible.map((platform: Platform, i) => {
           const Icon = platform.icon;
           return (
             <motion.div
@@ -179,19 +207,20 @@ export default function DashboardAllProducts() {
               }`}
             >
               {/* Owned badge */}
-              {platform.owned && !platform.comingSoon && (
+              {platform.owned && !platform.comingSoon && !platform.custom && (
                 <div className="absolute top-6 right-6 bg-green-100 text-green-600 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
                   Active
                 </div>
               )}
 
-              {/* Icon */}
               <div className={`w-16 h-16 ${platform.comingSoon ? 'bg-gray-100' : platform.color} rounded-2xl flex items-center justify-center mb-6 shadow-lg ${platform.glow}`}>
                 <Icon className="w-8 h-8 text-white" />
               </div>
 
-              <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
-              <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
+              <>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">{platform.name}</h3>
+                <p className="text-sm text-gray-500 mb-8 leading-relaxed flex-1">{platform.tagline}</p>
+              </>
 
               <div className="flex items-center gap-3 mt-auto">
                 {platform.comingSoon ? (

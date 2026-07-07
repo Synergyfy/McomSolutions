@@ -9,6 +9,7 @@ export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const location = useLocation();
 
   useEffect(() => {
@@ -20,6 +21,7 @@ export default function Navbar() {
   useEffect(() => {
     setIsOpen(false);
     setActiveDropdown(null);
+    setIsLoggedIn(!!localStorage.getItem('auth_token'));
   }, [location]);
 
   const gbsProducts = PRODUCTS.filter(p => p.type === 'GBS');
@@ -133,10 +135,18 @@ export default function Navbar() {
         </div>
 
         <div className="hidden md:flex items-center gap-4">
-          <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
-          <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
-            Get Started
-          </Link>
+          {isLoggedIn ? (
+            <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
+              <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+                Get Started
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile Toggle */}
@@ -181,10 +191,18 @@ export default function Navbar() {
                   </Link>
                 </div>
               </div>
-              <Link to="/login" className="font-medium">Sign In</Link>
-              <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
-                Get Started
-              </Link>
+              {isLoggedIn ? (
+                <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
+                  Dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link to="/login" className="font-medium">Sign In</Link>
+                  <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
+                    Get Started
+                  </Link>
+                </>
+              )}
             </div>
           </motion.div>
         )}

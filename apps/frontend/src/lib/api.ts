@@ -286,6 +286,28 @@ export const businessApi = {
     );
   },
 
+  // ─── Payment (Stripe & PayPal) ────────────────────────────────────────────
+
+  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean) => {
+    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial });
+    return res.data; // { clientSecret, type }
+  },
+
+  stripeConfirm: async (level: string, tier: string, billing: string, paymentIntentId: string, isTrial: boolean) => {
+    const res = await apiClient.post('/payment/stripe/confirm', { level, tier, billing, paymentIntentId, isTrial });
+    return res.data;
+  },
+
+  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean) => {
+    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial });
+    return res.data; // { orderId, approvalUrl }
+  },
+
+  paypalCapture: async (orderId: string) => {
+    const res = await apiClient.post('/payment/paypal/capture', { orderId });
+    return res.data;
+  },
+
   purchasePackage: async (platform: string, packageName: string) => {
     return withFallback(
       async () => { const res = await apiClient.post('/pricing/packages/purchase', { platform, packageName }); return res.data; },

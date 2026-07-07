@@ -145,7 +145,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 </div>
                 <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 transition-colors shrink-0" />
               </div>
-            ))}
+            )}
           </div>
         </motion.div>
 

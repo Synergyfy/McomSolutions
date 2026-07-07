@@ -12,6 +12,8 @@ import PricingPage from './pages/PricingPage';
 import MembershipPage from './pages/MembershipPage';
 import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
+import CheckoutPage from './pages/CheckoutPage';
+import PayPalReturnPage from './pages/PayPalReturnPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
@@ -38,14 +40,15 @@ function SignupRedirect() {
   const navigate = useNavigate();
 
   React.useEffect(() => {
+    const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
     if (role === 'customer') {
-      navigate('/register/customer', { replace: true });
+      navigate(`/register/customer${searchStr}`, { replace: true });
     } else if (role === 'business') {
-      navigate('/getstarted/business', { replace: true });
+      navigate(`/getstarted/business${searchStr}`, { replace: true });
     } else {
-      navigate('/register', { replace: true });
+      navigate(`/register${searchStr}`, { replace: true });
     }
-  }, [role, navigate]);
+  }, [role, searchParams, navigate]);
 
   return null;
 }
@@ -172,6 +175,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <LoginPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/checkout" 
+            element={
+              <PageWrapper>
+                <CheckoutPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/checkout/paypal-return" 
+            element={
+              <PageWrapper>
+                <PayPalReturnPage />
               </PageWrapper>
             } 
           />
