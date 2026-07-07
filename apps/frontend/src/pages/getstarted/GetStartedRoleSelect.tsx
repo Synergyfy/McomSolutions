@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ShoppingBag, Store, ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, TrendingUp, DollarSign, Users, Heart, Zap } from 'lucide-react';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -27,6 +27,14 @@ const itemVariants = {
   },
 };
 
+const benefits = [
+  { icon: TrendingUp, text: 'Increase Revenue' },
+  { icon: DollarSign, text: 'Reduce Costs' },
+  { icon: Users, text: 'Find New Customers' },
+  { icon: Heart, text: 'Build Customer Loyalty' },
+  { icon: Zap, text: 'Grow Smarter' },
+];
+
 export default function GetStartedRoleSelect() {
   const navigate = useNavigate();
 
@@ -43,100 +51,55 @@ export default function GetStartedRoleSelect() {
           variants={containerVariants}
           initial="hidden"
           animate="visible"
-          className="w-full max-w-7xl mx-auto flex flex-col items-center"
+          className="w-full max-w-4xl mx-auto flex flex-col items-center"
         >
           {/* Header */}
-          <motion.div variants={itemVariants} className="text-center mb-12 max-w-4xl">
+          <motion.div variants={itemVariants} className="text-center mb-10 max-w-4xl">
             <span className="inline-flex items-center gap-2 px-3 py-1.5 mb-6 text-xs font-bold tracking-wide text-orange-600 uppercase bg-orange-100 border border-orange-200 rounded-full shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-orange-500" />
-              Welcome to the Future of Commerce
+              Welcome to MCOM
             </span>
             <h1 className="text-3xl md:text-5xl font-black tracking-tighter mb-6 bg-clip-text text-transparent bg-gradient-to-br from-gray-900 via-orange-900 to-gray-800 drop-shadow-sm">
-              How do you want to <br className="hidden md:block" />
-              use <span className="text-orange-600 inline-block transform hover:scale-105 transition-transform duration-300 cursor-default filter drop-shadow-lg">McomMall</span>?
+              Helping Businesses <br className="hidden md:block" />
+              <span className="text-orange-600">Grow Smarter</span>
             </h1>
             <p className="text-base md:text-lg text-gray-600 max-w-3xl mx-auto leading-relaxed font-medium">
-              Join thousands of users building the next generation marketplace.
-              Select your role to get started with a tailored experience.
+              Increase revenue, reduce costs, find new customers, build customer loyalty — all from one platform.
             </p>
           </motion.div>
 
-          {/* Cards Container */}
-          <motion.div
-            variants={containerVariants}
-            className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl"
-          >
-            {/* Shopper Card */}
-            <div
-              onClick={() => navigate('/signup?role=customer')}
-              className="group w-full block h-full cursor-pointer"
-            >
-              <motion.div
-                variants={itemVariants}
-                whileHover={{
-                  y: -12,
-                  scale: 1.03,
-                  boxShadow: '0 25px 50px -12px rgba(249, 115, 22, 0.25)',
-                  borderColor: 'rgba(251, 146, 60, 0.8)',
-                  transition: { type: 'spring', stiffness: 300, damping: 20 }
-                }}
-                className="h-full relative overflow-hidden p-10 rounded-[2.5rem] bg-white border border-orange-100/50 shadow-xl shadow-orange-500/5 transition-all flex flex-col justify-between min-h-[380px]"
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-orange-50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+          {/* Benefits Pills */}
+          <motion.div variants={itemVariants} className="flex flex-wrap justify-center gap-3 mb-10 max-w-2xl">
+            {benefits.map((b, i) => {
+              const Icon = b.icon;
+              return (
+                <span key={i} className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-orange-100 rounded-full text-sm font-bold text-gray-700 shadow-sm">
+                  <Icon className="w-4 h-4 text-orange-500" />
+                  {b.text}
+                </span>
+              );
+            })}
+          </motion.div>
 
-                <div>
-                  <div className="w-16 h-16 mb-8 rounded-2xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/20 group-hover:scale-110 transition-transform duration-300 ring-1 ring-orange-100">
-                    <ShoppingBag className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-xl md:text-2xl font-bold text-gray-900 mb-2 tracking-tight group-hover:text-orange-600 transition-colors">I am a Customer</h3>
-                  <p className="text-gray-500 text-sm md:text-base leading-relaxed mb-6 font-medium group-hover:text-gray-600">
-                    Shop for unique products, enjoy secure transactions, and get the best deals from top-rated sellers.
-                  </p>
-                </div>
-
-                <div className="flex items-center text-orange-600 text-sm md:text-base font-bold group-hover:translate-x-2 transition-transform">
-                  Continue as Customer <ArrowRight className="ml-2 w-4 h-4" />
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Merchant Card */}
-            <div
+          {/* CTA Button */}
+          <motion.div variants={itemVariants} className="w-full max-w-md">
+            <button
               onClick={() => navigate('/getstarted/business')}
-              className="group w-full block h-full cursor-pointer"
+              className="group w-full relative overflow-hidden p-[2px] rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 shadow-2xl shadow-orange-500/25 hover:shadow-orange-500/40 transition-shadow"
             >
-              <motion.div
-                variants={itemVariants}
-                whileHover={{
-                  y: -12,
-                  scale: 1.03,
-                  boxShadow: '0 25px 50px -12px rgba(239, 68, 68, 0.25)',
-                  borderColor: 'rgba(248, 113, 113, 0.8)',
-                  transition: { type: 'spring', stiffness: 300, damping: 20 }
-                }}
-                className="h-full relative overflow-hidden p-10 rounded-[2.5rem] bg-white border border-red-100/50 shadow-xl shadow-red-500/5 transition-all flex flex-col justify-between min-h-[380px]"
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-red-50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-                <div>
-                  <div className="w-16 h-16 mb-8 rounded-2xl bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-lg shadow-red-500/20 group-hover:scale-110 transition-transform duration-300 ring-1 ring-red-100">
-                    <Store className="w-8 h-8 text-white" />
-                  </div>
-                  <h3 className="text-xl md:text-2xl font-bold text-gray-900 mb-2 tracking-tight group-hover:text-red-600 transition-colors">I am a Business</h3>
-                  <p className="text-gray-500 text-sm md:text-base leading-relaxed mb-6 font-medium group-hover:text-gray-600">
-                    Launch your store in minutes. Access powerful tools to scale your business.
-                  </p>
+              <div className="relative w-full bg-white rounded-2xl p-[2px]">
+                <div className="w-full bg-white rounded-xl py-5 px-8 flex items-center justify-between">
+                  <span className="text-xl font-black text-gray-900 group-hover:text-orange-600 transition-colors">
+                    Get Started as a Business
+                  </span>
+                  <ArrowRight className="w-6 h-6 text-orange-500 group-hover:translate-x-1 transition-transform" />
                 </div>
-
-                <div className="flex items-center text-red-600 text-sm md:text-base font-bold group-hover:translate-x-2 transition-transform">
-                  Create Business Profile <ArrowRight className="ml-2 w-4 h-4" />
-                </div>
-              </motion.div>
-            </div>
+              </div>
+            </button>
           </motion.div>
 
           {/* Footer Area */}
-          <motion.div variants={itemVariants} className="mt-16 text-center">
+          <motion.div variants={itemVariants} className="mt-12 text-center">
             <p className="text-gray-500 mb-4 text-sm md:text-base">
               Already have an account?{' '}
               <Link to="/login" className="text-orange-600 hover:text-orange-700 font-bold transition-colors">
