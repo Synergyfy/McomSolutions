@@ -20,6 +20,7 @@ export type AdminTab =
   | 'analytics' | 'reports'
   | 'notifications' | 'support'
   | 'audit-logs'
+  | 'programme'
   | 'system-settings' | 'developer-center' | 'super-admin';
 
 interface NavGroup {
@@ -88,6 +89,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'analytics', icon: BarChart3, label: 'Analytics Center' },
       { tab: 'reports', icon: FileText, label: 'Reporting' },
+    ],
+  },
+  {
+    label: 'Programme',
+    items: [
+      { tab: 'programme', icon: Rocket, label: '90-Day Programme' },
     ],
   },
   {
