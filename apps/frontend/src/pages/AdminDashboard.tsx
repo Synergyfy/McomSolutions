@@ -12,6 +12,7 @@ import IntegrationPanel from '../components/admin/IntegrationPanel';
 import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import CommunicationPanel from '../components/admin/CommunicationPanel';
 import SystemPanel from '../components/admin/SystemPanel';
+import ProgrammeManagementPanel from '../components/admin/ProgrammeManagementPanel';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -45,6 +46,7 @@ export default function AdminDashboard() {
       notifications: { title: 'Notification Management', subtitle: 'Create and manage ecosystem notifications' },
       support: { title: 'Support Management', subtitle: 'Manage support tickets and assignments' },
       'audit-logs': { title: 'Audit Logs', subtitle: 'Track all admin activity in the ecosystem' },
+      'programme': { title: '90-Day Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
       'super-admin': { title: 'Super Admin Control Center', subtitle: 'Highest-level administrative control' },
@@ -93,6 +95,8 @@ export default function AdminDashboard() {
       case 'notifications':
       case 'support':
         return <CommunicationPanel />;
+      case 'programme':
+        return <ProgrammeManagementPanel />;
       case 'audit-logs':
       case 'system-settings':
       case 'developer-center':

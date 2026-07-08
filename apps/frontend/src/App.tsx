@@ -26,6 +26,8 @@ import HighStreetExplanationUX from './pages/section/ui/ux/high-street/page';
 import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
+import { AdminAuthProvider } from './context/AdminAuthContext';
+import { AdminDataProvider } from './context/AdminDataContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AffiliateSignup from './pages/AffiliateSignup';
 import { useAdminAuth } from './context/AdminAuthContext';
@@ -318,9 +320,13 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <PricingProvider>
         <BusinessProvider>
-          <Router>
-            <AnimatedRoutes />
-          </Router>
+          <AdminAuthProvider>
+            <AdminDataProvider>
+              <Router>
+                <AnimatedRoutes />
+              </Router>
+            </AdminDataProvider>
+          </AdminAuthProvider>
         </BusinessProvider>
       </PricingProvider>
     </QueryClientProvider>
