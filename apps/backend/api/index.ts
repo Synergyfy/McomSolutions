@@ -32,7 +32,7 @@ let app: any;
 async function bootstrap() {
   if (!app) {
     app = await NestFactory.create(AppModule);
-    
+
     // Enable CORS
     app.enableCors({
       origin: [
@@ -41,6 +41,7 @@ async function bootstrap() {
         'https://mcommall.vercel.app',
         'https://mcomloyalty.vercel.app',
         'https://mcom-solutions-backend.vercel.app',
+        'https://mcomsolutions.vercel.app',
       ],
       credentials: true,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
@@ -87,12 +88,12 @@ export default async (req: any, res: any) => {
   }
 
   const expressInstance = await bootstrap();
-  
+
   console.log(`[Vercel Serverless] Method: ${req.method} | Original req.url: ${req.url}`);
   console.log(`[Vercel Serverless] x-forwarded-url header: ${req.headers['x-forwarded-url']}`);
   console.log(`[Vercel Serverless] x-original-url header: ${req.headers['x-original-url']}`);
   console.log(`[Vercel Serverless] originalUrl query param: ${req.query?.originalUrl}`);
-  
+
   // Restore original URL from Vercel query or headers to prevent routing 404s
   const originalUrl = req.query?.originalUrl || req.headers['x-forwarded-url'] || req.headers['x-original-url'];
   if (originalUrl) {
