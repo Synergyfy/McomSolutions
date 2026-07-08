@@ -41,7 +41,7 @@ async function bootstrap() {
         'https://mcommall.vercel.app',
         'https://mcomloyalty.vercel.app',
         'https://mcom-solutions-backend.vercel.app',
-        'https://mcomsolutions.vercel.app/',
+        'https://mcomsolutions.vercel.app',
       ],
       credentials: true,
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
