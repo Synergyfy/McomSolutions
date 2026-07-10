@@ -112,7 +112,7 @@ function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
                 <td className="px-6 py-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border bg-blue-50 text-blue-700 border-blue-200">{b.membership}</span></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", b.status === 'Active' ? 'bg-green-500' : b.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500')} /><span className="text-xs font-bold">{b.status}</span></div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{b.revenue}</td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(b)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(b.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
@@ -146,7 +146,7 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
                 </div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{c.loyaltyPoints.toLocaleString()}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-red-500')} /><span className="text-xs font-bold">{c.status}</span></div></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
@@ -180,7 +180,7 @@ function AgentTable({ data, onEdit, onDelete }: any) {
                 </div></td>
                 <td className="px-6 py-4"><div className="flex gap-1 flex-wrap">{a.permissions.map(p => <span key={p} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{p}</span>)}</div></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
@@ -214,7 +214,7 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
                 </div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-700">{c.specialisation}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{c.status}</span></div></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
@@ -248,7 +248,7 @@ function AccountManagerTable({ data, onEdit, onDelete }: any) {
                 </div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{a.assignedBusinesses}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>

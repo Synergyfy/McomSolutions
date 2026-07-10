@@ -9,7 +9,7 @@ import {
   User, HeadphonesIcon, Briefcase, ToggleLeft,
   GripVertical, ArrowUpDown, Download, Upload,
   FileText, Calendar, Target, Check, X, Lock,
-  ChevronLeft
+  ChevronLeft, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../../lib/programmeData';
 import type { ProgrammePhase, ProgrammeMission } from '../../lib/programmeData';
@@ -57,6 +57,185 @@ const DEFAULT_GATES: ReadinessGate[] = [
   { id: 'gate-advanced', name: 'Advanced Tools', minProgressPercent: 20, isEnabled: true },
 ];
 
+const INTERNAL_PLATFORMS = [
+  { id: 'mall', name: 'MCOM Mall' },
+  { id: 'rewards', name: 'MCOM Rewards' },
+  { id: 'spin', name: 'MCOM Spin' },
+  { id: 'hotspot', name: 'MCOM Hotspot' },
+  { id: 'qlinks', name: 'MCOM QLinks' },
+  { id: 'affiliates', name: '247GBS Affiliates' },
+  { id: 'expo', name: '247GBS Expo' },
+  { id: 'audit', name: '247GBS Audit' },
+  { id: 'central', name: 'MCOM Central' },
+];
+
+// ─── Business Action Types & Config ──────────────
+
+type BusinessAction = 'pause' | 'resume' | 'fastTrack' | 'extend' | 'skipPhase' | 'reset';
+
+const ACTION_CONFIGS: Record<BusinessAction, {
+  icon: any;
+  title: string;
+  description: (b: BusinessProgrammeRecord) => string;
+  inputType: 'none' | 'number';
+  inputLabel?: string;
+  inputPlaceholder?: string;
+  inputDefault?: number;
+  min?: number;
+  max?: number;
+  confirmLabel: string;
+  confirmColor: string;
+}> = {
+  pause: {
+    icon: PauseCircle,
+    title: 'Pause Programme',
+    description: (b) => `This will pause ${b.businessName}'s 90-day programme. The business will not be able to progress or complete tasks until resumed.`,
+    inputType: 'none',
+    confirmLabel: 'Pause Programme',
+    confirmColor: 'bg-amber-500 hover:bg-amber-600',
+  },
+  resume: {
+    icon: PlayCircle,
+    title: 'Resume Programme',
+    description: (b) => `${b.businessName} will continue their 90-day programme from Day ${b.currentDay} as normal.`,
+    inputType: 'none',
+    confirmLabel: 'Resume Programme',
+    confirmColor: 'bg-green-500 hover:bg-green-600',
+  },
+  fastTrack: {
+    icon: FastForward,
+    title: 'Fast-Track Business',
+    description: (b) => `Advance ${b.businessName} to a specific day. All missions up to that day will be marked as completed and their status updated accordingly.`,
+    inputType: 'number',
+    inputLabel: 'Target Day',
+    inputPlaceholder: 'e.g. 90',
+    inputDefault: 90,
+    min: 1,
+    max: 90,
+    confirmLabel: 'Fast-Track',
+    confirmColor: 'bg-blue-500 hover:bg-blue-600',
+  },
+  extend: {
+    icon: Clock,
+    title: 'Extend Programme',
+    description: (b) => `Extend ${b.businessName}'s programme beyond the standard 90 days. The business will have extra time to complete their remaining tasks.`,
+    inputType: 'number',
+    inputLabel: 'Extra Days',
+    inputPlaceholder: 'e.g. 30',
+    inputDefault: 30,
+    min: 1,
+    max: 365,
+    confirmLabel: 'Extend',
+    confirmColor: 'bg-orange-500 hover:bg-orange-600',
+  },
+  skipPhase: {
+    icon: SkipForward,
+    title: 'Skip Phase',
+    description: (b) => {
+      const current = getPhaseForDay(b.currentDay);
+      const next = PROGRAMME_PHASES.find(p => p.dayStart > (current?.dayStart || 0));
+      if (current && next) {
+        return `${b.businessName} will skip "${current.name}" and advance to "${next.name}" starting at Day ${next.dayStart}.`;
+      }
+      return `${b.businessName} will be advanced to the next phase.`;
+    },
+    inputType: 'none',
+    confirmLabel: 'Skip to Next Phase',
+    confirmColor: 'bg-purple-500 hover:bg-purple-600',
+  },
+  reset: {
+    icon: RefreshCw,
+    title: 'Reset Programme',
+    description: (b) => `This will completely reset ${b.businessName}'s programme back to Day 1. All progress, completed missions, and extensions will be permanently lost. This action cannot be undone.`,
+    inputType: 'none',
+    confirmLabel: 'Reset Programme',
+    confirmColor: 'bg-red-500 hover:bg-red-600',
+  },
+};
+
+function BusinessActionModal({
+  business,
+  actionType,
+  onClose,
+  onConfirm,
+}: {
+  business: BusinessProgrammeRecord | null;
+  actionType: BusinessAction | null;
+  onClose: () => void;
+  onConfirm: (action: BusinessAction, value?: number) => void;
+}) {
+  const [value, setValue] = useState<number | ''>('');
+
+  useEffect(() => {
+    if (actionType && ACTION_CONFIGS[actionType]?.inputDefault !== undefined) {
+      setValue(ACTION_CONFIGS[actionType].inputDefault!);
+    } else {
+      setValue('');
+    }
+  }, [actionType]);
+
+  if (!business || !actionType) return null;
+
+  const config = ACTION_CONFIGS[actionType];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+      >
+        <div className="flex items-start gap-4 px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+            <config.icon className="w-5 h-5 text-gray-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-bold text-gray-900">{config.title}</h3>
+            <p className="text-sm text-gray-500 truncate">{business.businessName}</p>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-colors shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5">
+          <p className="text-sm text-gray-600 leading-relaxed">{config.description(business)}</p>
+
+          {config.inputType === 'number' && (
+            <div className="mt-5 space-y-1.5">
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">{config.inputLabel}</label>
+              <input
+                type="number"
+                value={value}
+                onChange={e => setValue(e.target.value ? parseInt(e.target.value) : '')}
+                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 transition-all"
+                placeholder={config.inputPlaceholder}
+                min={config.min}
+                max={config.max}
+                autoFocus
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+          <button onClick={onClose} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
+            Cancel
+          </button>
+          <button
+            onClick={() => { onConfirm(actionType, value || undefined); onClose(); }}
+            className={`px-8 py-2.5 text-sm font-bold text-white rounded-xl transition-all shadow-lg ${config.confirmColor}`}
+          >
+            {config.confirmLabel}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 const MOCK_SUPPORT: SupportAgent[] = [
   { id: 'agent-1', name: 'John Smith', role: 'agent', email: 'john@mcom.com' },
   { id: 'agent-2', name: 'Sarah Jones', role: 'agent', email: 'sarah@mcom.com' },
@@ -74,7 +253,293 @@ const MOCK_BUSINESSES: BusinessProgrammeRecord[] = [
   { id: 'b5', businessName: 'Bright Smiles Dental', sector: 'Health & Wellness', currentDay: 90, status: 'completed', agentId: 'agent-1', agentName: 'John Smith', accountManagerId: null, accountManagerName: '', consultantId: null, consultantName: '', completedMissions: [], startedAt: '2026-03-01', extendedBy: 0 },
 ];
 
-// ─── Sub-Components ───────────────────────────────────────
+// ─── Task Editor Modal ──────────────────────────────
+
+const SUBMISSION_TYPES = [
+  { id: 'internal_platform', label: 'Internal Platform', description: 'Task completed within an MCOM platform' },
+  { id: 'external_link', label: 'External Link', description: 'Task completed via external URL' },
+  { id: 'image_upload', label: 'Image Upload', description: 'User uploads an image to complete' },
+  { id: 'text_input', label: 'Text Input', description: 'User enters text to complete' },
+  { id: 'digit_input', label: 'Digit Input', description: 'User enters digits to complete' },
+] as const;
+
+type SubmissionTypeId = typeof SUBMISSION_TYPES[number]['id'];
+
+interface TaskFormData {
+  id: string;
+  title: string;
+  description: string;
+  instructions: string;
+  estimatedMinutes: number;
+  reward: string;
+  submissionType: SubmissionTypeId;
+  system: string;
+  systemUrl: string;
+  ctaLabel: string;
+}
+
+const EMPTY_TASK: TaskFormData = {
+  id: '',
+  title: '',
+  description: '',
+  instructions: '',
+  estimatedMinutes: 10,
+  reward: '+50 points',
+  submissionType: 'internal_platform',
+  system: 'MCOM Central',
+  systemUrl: '',
+  ctaLabel: 'Continue',
+};
+
+function TaskEditorModal({
+  open,
+  formData,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  formData: TaskFormData;
+  onClose: () => void;
+  onSave: (data: TaskFormData) => void;
+}) {
+  const [local, setLocal] = useState<TaskFormData>(formData);
+  const [step, setStep] = useState(1);
+
+  useEffect(() => {
+    setLocal(formData);
+    setStep(1);
+  }, [formData, open]);
+
+  if (!open) return null;
+
+  const isValid = local.title.trim().length > 0;
+  const showPlatform = local.submissionType === 'internal_platform' || local.submissionType === 'external_link';
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 10 }}
+          onClick={e => e.stopPropagation()}
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">{local.id ? 'Edit Task' : 'New Task'}</h3>
+              <p className="text-sm text-gray-500 mt-0.5">Configure the task details and how it's completed.</p>
+            </div>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Step Indicator */}
+          <div className="flex items-center gap-3 px-6 pt-5 pb-2">
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === 1 ? 'bg-brand-blue text-white shadow-sm' : 'bg-gray-200 text-gray-400'}`}>1</div>
+              <span className={`text-xs font-bold transition-colors ${step === 1 ? 'text-brand-blue' : 'text-gray-400'}`}>Task Details</span>
+            </div>
+            <div className="w-10 h-px bg-gray-200" />
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === 2 ? 'bg-brand-blue text-white shadow-sm' : 'bg-gray-200 text-gray-400'}`}>2</div>
+              <span className={`text-xs font-bold transition-colors ${step === 2 ? 'text-brand-blue' : 'text-gray-400'}`}>Instructions</span>
+            </div>
+          </div>
+
+          {/* Step 1: Task Details */}
+          {step === 1 && (
+            <motion.div
+              key="step1"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="px-6 py-5 space-y-5"
+            >
+              {/* Task Name */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Task Name</label>
+                <input
+                  value={local.title}
+                  onChange={e => setLocal({ ...local, title: e.target.value })}
+                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300"
+                  placeholder="e.g. Complete Business Profile"
+                  autoFocus
+                />
+              </div>
+
+              {/* Short Description */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Short Description</label>
+                <p className="text-[11px] text-gray-400 -mt-1">A one-line summary shown in the task list.</p>
+                <input
+                  value={local.description}
+                  onChange={e => setLocal({ ...local, description: e.target.value })}
+                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300"
+                  placeholder="Brief description for the task list"
+                />
+              </div>
+
+              {/* Submission Type */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Submission Type</label>
+                <p className="text-[11px] text-gray-400 -mt-1">Determines how the business completes this task.</p>
+                <select
+                  value={local.submissionType}
+                  onChange={e => setLocal({ ...local, submissionType: e.target.value as SubmissionTypeId })}
+                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                >
+                  {SUBMISSION_TYPES.map(st => (
+                    <option key={st.id} value={st.id}>{st.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Conditional Platform / URL Fields */}
+              {showPlatform && (
+                <>
+                  <div className="border-t border-gray-100" />
+                  <div className="space-y-3">
+                    {local.submissionType === 'internal_platform' ? (
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Platform</label>
+                        <p className="text-[11px] text-gray-400 -mt-1">Select the internal MCOM platform for this task.</p>
+                        <select
+                          value={local.system}
+                          onChange={e => setLocal({ ...local, system: e.target.value })}
+                          className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
+                        >
+                          <option value="">Select a platform</option>
+                          {INTERNAL_PLATFORMS.map(p => (
+                            <option key={p.id} value={p.name}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">External Platform</label>
+                        <p className="text-[11px] text-gray-400 -mt-1">Enter the external URL where the task is completed.</p>
+                        <input
+                          value={local.systemUrl}
+                          onChange={e => setLocal({ ...local, systemUrl: e.target.value })}
+                          className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
+                          placeholder="https://example.com/tool"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* CTA Button Label */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">CTA Button Text</label>
+                <p className="text-[11px] text-gray-400 -mt-1">What the action button should say (e.g. "Continue", "Start", "Open Platform").</p>
+                <input
+                  value={local.ctaLabel}
+                  onChange={e => setLocal({ ...local, ctaLabel: e.target.value })}
+                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
+                  placeholder="Continue"
+                />
+              </div>
+
+              <div className="border-t border-gray-100" />
+
+              {/* Time & Reward */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Est. Time</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={local.estimatedMinutes}
+                      onChange={e => setLocal({ ...local, estimatedMinutes: parseInt(e.target.value) || 1 })}
+                      className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
+                      min="1"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-semibold">minutes</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Reward</label>
+                  <input
+                    value={local.reward}
+                    onChange={e => setLocal({ ...local, reward: e.target.value })}
+                    className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
+                    placeholder="+50 points"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Step 2: Instructions */}
+          {step === 2 && (
+            <motion.div
+              key="step2"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="px-6 py-5 space-y-5"
+            >
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Instructions</label>
+                <p className="text-[11px] text-gray-400 -mt-1">Explain step-by-step how the business should complete this task. This appears on the task detail screen.</p>
+                <textarea
+                  value={local.instructions}
+                  onChange={e => setLocal({ ...local, instructions: e.target.value })}
+                  rows={8}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300 resize-none"
+                  placeholder="Describe step-by-step how to complete this task..."
+                  autoFocus
+                />
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-amber-700">
+                  These instructions will be shown to the business when they open this task.
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Footer */}
+          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+            {step === 1 ? (
+              <>
+                <button onClick={onClose} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setStep(2)}
+                  disabled={!isValid}
+                  className="px-8 py-2.5 text-sm font-bold text-white bg-brand-blue rounded-xl hover:bg-brand-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-blue/20 flex items-center gap-2"
+                >
+                  Next: Instructions
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setStep(1)} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
+                  <ChevronLeft className="w-4 h-4" />
+                  Back
+                </button>
+                <button
+                  onClick={() => onSave(local)}
+                  className="px-8 py-2.5 text-sm font-bold text-white bg-brand-blue rounded-xl hover:bg-brand-dark transition-all shadow-lg shadow-brand-blue/20"
+                >
+                  {local.id ? 'Save Changes' : 'Add Task'}
+                </button>
+              </>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </>
+  );
+}
+
+// ─── Config Section ─────────────────────────────────
 
 function ConfigSection() {
   const [phases, setPhases] = useState<ProgrammePhase[]>(() => {
@@ -82,11 +547,15 @@ function ConfigSection() {
     return saved ? JSON.parse(saved) : PROGRAMME_PHASES;
   });
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
-  const [editingMission, setEditingMission] = useState<string | null>(null);
   const [gates, setGates] = useState<ReadinessGate[]>(() => {
     const saved = localStorage.getItem('adminReadinessGates');
     return saved ? JSON.parse(saved) : DEFAULT_GATES;
   });
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
+  const [taskFormData, setTaskFormData] = useState<TaskFormData>(EMPTY_TASK);
 
   useEffect(() => {
     localStorage.setItem('adminProgrammePhases', JSON.stringify(phases));
@@ -100,13 +569,6 @@ function ConfigSection() {
 
   const updatePhase = (id: string, field: string, value: any) => {
     setPhases(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-  };
-
-  const updateMission = (phaseId: string, missionId: string, field: string, value: any) => {
-    setPhases(prev => prev.map(p => p.id === phaseId ? {
-      ...p,
-      missions: p.missions.map(m => m.id === missionId ? { ...m, [field]: value } : m),
-    } : p));
   };
 
   const addPhase = () => {
@@ -129,22 +591,8 @@ function ConfigSection() {
     setPhases(prev => prev.filter(p => p.id !== id));
   };
 
-  const addMission = (phaseId: string) => {
-    const newMission: ProgrammeMission = {
-      id: `mission-${Date.now()}`,
-      title: 'New Task',
-      description: 'Describe this task',
-      estimatedMinutes: 10,
-      reward: '+50 points',
-    };
-    setPhases(prev => prev.map(p => p.id === phaseId ? {
-      ...p,
-      missions: [...p.missions, newMission],
-    } : p));
-    setEditingMission(newMission.id);
-  };
-
   const removeMission = (phaseId: string, missionId: string) => {
+    if (!confirm('Delete this task?')) return;
     setPhases(prev => prev.map(p => p.id === phaseId ? {
       ...p,
       missions: p.missions.filter(m => m.id !== missionId),
@@ -168,8 +616,67 @@ function ConfigSection() {
     setGates(DEFAULT_GATES);
   };
 
+  const openAddTask = (phaseId: string) => {
+    setActivePhaseId(phaseId);
+    setTaskFormData({ ...EMPTY_TASK, id: `mission-${Date.now()}` });
+    setModalOpen(true);
+  };
+
+  const openEditTask = (phaseId: string, mission: ProgrammeMission) => {
+    setActivePhaseId(phaseId);
+    setTaskFormData({
+      id: mission.id,
+      title: mission.title,
+      description: mission.description,
+      instructions: mission.instructions || '',
+      estimatedMinutes: mission.estimatedMinutes,
+      reward: mission.reward,
+      submissionType: mission.submissionType || 'internal_platform',
+      system: mission.system || '',
+      systemUrl: mission.systemUrl || '',
+      ctaLabel: mission.ctaLabel || 'Continue',
+    });
+    setModalOpen(true);
+  };
+
+  const saveTask = (data: TaskFormData) => {
+    if (!activePhaseId) return;
+    const mission: ProgrammeMission = {
+      id: data.id,
+      title: data.title,
+      description: data.description,
+      instructions: data.instructions,
+      estimatedMinutes: data.estimatedMinutes,
+      reward: data.reward,
+      submissionType: data.submissionType,
+      system: data.submissionType === 'internal_platform' ? data.system : undefined,
+      systemUrl: data.submissionType === 'external_link' ? data.systemUrl : undefined,
+      ctaLabel: data.ctaLabel,
+    };
+
+    setPhases(prev => prev.map(p => {
+      if (p.id !== activePhaseId) return p;
+      const exists = p.missions.find(m => m.id === data.id);
+      if (exists) {
+        return { ...p, missions: p.missions.map(m => m.id === data.id ? mission : m) };
+      }
+      return { ...p, missions: [...p.missions, mission] };
+    }));
+
+    setModalOpen(false);
+    setActivePhaseId(null);
+  };
+
   return (
     <div className="space-y-8">
+      {/* Task Editor Modal */}
+      <TaskEditorModal
+        open={modalOpen}
+        formData={taskFormData}
+        onClose={() => { setModalOpen(false); setActivePhaseId(null); }}
+        onSave={saveTask}
+      />
+
       {/* Summary Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
@@ -183,7 +690,7 @@ function ConfigSection() {
         <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
           <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Duration</p>
           <p className="text-2xl font-black text-brand-dark mt-1">
-            {phases.length > 0 ? `${phases[0].dayStart}–${phases[phases.length-1].dayEnd} days` : '—'}
+            {phases.length > 0 ? `${phases[0].dayStart}–${phases[phases.length - 1].dayEnd} days` : '—'}
           </p>
         </div>
         <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
@@ -243,7 +750,7 @@ function ConfigSection() {
                     <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   {!editingPhase && (
-                    <button onClick={() => addMission(phase.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-green-600 transition-colors" title="Add task">
+                    <button onClick={() => openAddTask(phase.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-green-600 transition-colors" title="Add task">
                       <Plus className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -257,40 +764,42 @@ function ConfigSection() {
               <div className="divide-y divide-gray-50">
                 {phase.missions.length === 0 && (
                   <div className="p-6 text-center">
-                    <p className="text-sm text-gray-400 font-medium">No tasks yet. Click <Plus className="w-3 h-3 inline" /> to add one.</p>
+                    <p className="text-sm text-gray-400 font-medium">No tasks yet.</p>
+                    <button onClick={() => openAddTask(phase.id)} className="mt-2 text-xs font-bold text-brand-blue hover:underline">+ Add your first task</button>
                   </div>
                 )}
                 {phase.missions.map((mission, mi) => (
-                  <div key={mission.id} className="flex items-center gap-3 p-3 pl-8 hover:bg-gray-50/50 group">
-                    {editingMission === mission.id ? (
-                      <div className="flex flex-wrap gap-2 items-center w-full">
-                        <input value={mission.title} onChange={e => updateMission(phase.id, mission.id, 'title', e.target.value)} className="px-2 py-1 text-sm font-semibold rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white flex-1 min-w-[150px]" placeholder="Task title" />
-                        <input value={mission.description} onChange={e => updateMission(phase.id, mission.id, 'description', e.target.value)} className="px-2 py-1 text-xs rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white flex-1 min-w-[150px]" placeholder="Description" />
-                        <div className="flex items-center gap-1 text-xs text-gray-400">
-                          <Clock className="w-3 h-3" />
-                          <input type="number" value={mission.estimatedMinutes} onChange={e => updateMission(phase.id, mission.id, 'estimatedMinutes', parseInt(e.target.value) || 1)} className="w-14 px-2 py-1 text-xs rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white text-center" />
-                          <span>min</span>
-                        </div>
-                        <input value={mission.reward} onChange={e => updateMission(phase.id, mission.id, 'reward', e.target.value)} className="w-24 px-2 py-1 text-xs rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white" placeholder="+50 points" />
-                        <button onClick={() => setEditingMission(null)} className="p-1 rounded-lg bg-green-100 text-green-600 hover:bg-green-200"><Check className="w-3 h-3" /></button>
+                  <div key={mission.id} className="flex items-center gap-3 p-3 pl-8 hover:bg-gray-50/50 group transition-colors">
+                    <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-400 shrink-0">{mi + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 text-sm">{mission.title}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="text-[10px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {mission.estimatedMinutes} min</span>
+                        <span className="text-[10px] text-amber-600 font-semibold">{mission.reward}</span>
+                        {mission.submissionType === 'internal_platform' && mission.system ? (
+                          <span className="text-[10px] text-sky-600 font-semibold">{mission.system}</span>
+                        ) : mission.submissionType === 'external_link' ? (
+                          <span className="text-[10px] text-purple-600 font-semibold">External Link</span>
+                        ) : mission.submissionType === 'image_upload' ? (
+                          <span className="text-[10px] text-green-600 font-semibold">Image Upload</span>
+                        ) : mission.submissionType === 'text_input' ? (
+                          <span className="text-[10px] text-orange-600 font-semibold">Text Input</span>
+                        ) : mission.submissionType === 'digit_input' ? (
+                          <span className="text-[10px] text-blue-600 font-semibold">Digit Input</span>
+                        ) : null}
+                        {mission.ctaLabel && mission.ctaLabel !== 'Continue' && (
+                          <span className="text-[10px] text-gray-400 font-mono">CTA: "{mission.ctaLabel}"</span>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-400 shrink-0">{mi + 1}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-800 text-sm">{mission.title}</p>
-                          <div className="flex items-center gap-3 mt-0.5">
-                            <span className="text-[10px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {mission.estimatedMinutes} min</span>
-                            <span className="text-[10px] text-amber-600 font-semibold">{mission.reward}</span>
-                            {mission.system && <span className="text-[10px] text-sky-600 font-semibold">{mission.system}</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => setEditingMission(editingMission === mission.id ? null : mission.id)} className="p-1 rounded hover:bg-white text-gray-400 hover:text-brand-blue"><Edit3 className="w-3 h-3" /></button>
-                          <button onClick={() => removeMission(phase.id, mission.id)} className="p-1 rounded hover:bg-white text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
-                        </div>
-                      </>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEditTask(phase.id, mission)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-brand-blue transition-colors" title="Edit task">
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => removeMission(phase.id, mission.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-red-500 transition-colors" title="Delete task">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -334,6 +843,7 @@ function BusinessesSection() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessProgrammeRecord | null>(null);
   const [showOverridePanel, setShowOverridePanel] = useState(false);
+  const [actionModal, setActionModal] = useState<{ type: BusinessAction; business: BusinessProgrammeRecord } | null>(null);
 
   useEffect(() => {
     localStorage.setItem('adminBusinessProgrammes', JSON.stringify(businesses));
@@ -351,31 +861,22 @@ function BusinessesSection() {
     updateBusiness(b.id, { status: b.status === 'paused' ? 'active' : 'paused' });
   };
 
-  const fastTrack = (b: BusinessProgrammeRecord) => {
-    const day = prompt(`Fast-track ${b.businessName} to which day? (90 = complete)`, '90');
-    if (day) {
-      const num = parseInt(day);
-      if (num >= 1 && num <= 90) {
-        const totalMissions = getTotalMissions();
-        const allMissionIds: string[] = [];
-        PROGRAMME_PHASES.forEach(p => p.missions.forEach(m => allMissionIds.push(m.id)));
-        const completedCount = Math.round((num / 90) * allMissionIds.length);
-        updateBusiness(b.id, {
-          currentDay: num,
-          completedMissions: allMissionIds.slice(0, completedCount),
-          status: num >= 90 ? 'completed' : 'active',
-        });
-      }
+  const fastTrack = (b: BusinessProgrammeRecord, day: number) => {
+    if (day >= 1 && day <= 90) {
+      const allMissionIds: string[] = [];
+      PROGRAMME_PHASES.forEach(p => p.missions.forEach(m => allMissionIds.push(m.id)));
+      const completedCount = Math.round((day / 90) * allMissionIds.length);
+      updateBusiness(b.id, {
+        currentDay: day,
+        completedMissions: allMissionIds.slice(0, completedCount),
+        status: day >= 90 ? 'completed' : 'active',
+      });
     }
   };
 
-  const extendProgramme = (b: BusinessProgrammeRecord) => {
-    const days = prompt(`Extend ${b.businessName} beyond 90 days by how many?`, '30');
-    if (days) {
-      const num = parseInt(days);
-      if (num > 0) {
-        updateBusiness(b.id, { extendedBy: (b.extendedBy || 0) + num, status: 'extended' });
-      }
+  const extendProgramme = (b: BusinessProgrammeRecord, days: number) => {
+    if (days > 0) {
+      updateBusiness(b.id, { extendedBy: (b.extendedBy || 0) + days, status: 'extended' });
     }
   };
 
@@ -387,9 +888,18 @@ function BusinessesSection() {
   };
 
   const resetBusiness = (b: BusinessProgrammeRecord) => {
-    if (confirm(`Reset ${b.businessName}'s programme to Day 1?`)) {
-      updateBusiness(b.id, { currentDay: 1, status: 'active', completedMissions: [], extendedBy: 0 });
-    }
+    updateBusiness(b.id, { currentDay: 1, status: 'active', completedMissions: [], extendedBy: 0 });
+  };
+
+  const handleActionConfirm = (action: BusinessAction, value?: number) => {
+    if (!actionModal) return;
+    const b = actionModal.business;
+    if (action === 'pause' || action === 'resume') togglePause(b);
+    else if (action === 'fastTrack' && value) fastTrack(b, value);
+    else if (action === 'extend' && value) extendProgramme(b, value);
+    else if (action === 'skipPhase') skipPhase(b);
+    else if (action === 'reset') resetBusiness(b);
+    setActionModal(null);
   };
 
   const statusIcon = (status: string) => {
@@ -404,6 +914,14 @@ function BusinessesSection() {
 
   return (
     <div className="space-y-6">
+      {/* Action Modal */}
+      <BusinessActionModal
+        business={actionModal?.business || null}
+        actionType={actionModal?.type || null}
+        onClose={() => setActionModal(null)}
+        onConfirm={handleActionConfirm}
+      />
+
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -435,19 +953,19 @@ function BusinessesSection() {
           <div className="p-6 space-y-6">
             {/* Quick Actions */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button onClick={() => togglePause(selectedBusiness)} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-amber-300 hover:bg-amber-50/50 transition-colors group">
+              <button onClick={() => setActionModal({ type: selectedBusiness.status === 'paused' ? 'resume' : 'pause', business: selectedBusiness })} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-amber-300 hover:bg-amber-50/50 transition-colors group">
                 {selectedBusiness.status === 'paused' ? <PlayCircle className="w-6 h-6 text-green-500" /> : <PauseCircle className="w-6 h-6 text-amber-500" />}
                 <span className="text-xs font-bold text-gray-600 group-hover:text-gray-900">{selectedBusiness.status === 'paused' ? 'Resume' : 'Pause'}</span>
               </button>
-              <button onClick={() => fastTrack(selectedBusiness)} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors group">
+              <button onClick={() => setActionModal({ type: 'fastTrack', business: selectedBusiness })} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors group">
                 <FastForward className="w-6 h-6 text-blue-500" />
                 <span className="text-xs font-bold text-gray-600 group-hover:text-gray-900">Fast-Track</span>
               </button>
-              <button onClick={() => skipPhase(selectedBusiness)} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-purple-300 hover:bg-purple-50/50 transition-colors group">
+              <button onClick={() => setActionModal({ type: 'skipPhase', business: selectedBusiness })} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-purple-300 hover:bg-purple-50/50 transition-colors group">
                 <SkipForward className="w-6 h-6 text-purple-500" />
                 <span className="text-xs font-bold text-gray-600 group-hover:text-gray-900">Skip Phase</span>
               </button>
-              <button onClick={() => extendProgramme(selectedBusiness)} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-orange-300 hover:bg-orange-50/50 transition-colors group">
+              <button onClick={() => setActionModal({ type: 'extend', business: selectedBusiness })} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-orange-300 hover:bg-orange-50/50 transition-colors group">
                 <Clock className="w-6 h-6 text-orange-500" />
                 <span className="text-xs font-bold text-gray-600 group-hover:text-gray-900">Extend</span>
               </button>
@@ -481,7 +999,7 @@ function BusinessesSection() {
                   <span className="text-xs font-bold text-gray-500">{getProgressForDay(selectedBusiness.currentDay)}%</span>
                 </div>
               </div>
-              <button onClick={() => resetBusiness(selectedBusiness)} className="self-end px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+              <button onClick={() => setActionModal({ type: 'reset', business: selectedBusiness })} className="self-end px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                 Reset
               </button>
             </div>
@@ -629,12 +1147,27 @@ function MonitoringSection() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedBiz, setSelectedBiz] = useState<BusinessProgrammeRecord | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const filtered = businesses.filter(b => {
     const matchesSearch = b.businessName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -656,6 +1189,25 @@ function MonitoringSection() {
     }
   };
 
+  const getPhaseTaskCount = (b: BusinessProgrammeRecord): { completed: number; total: number; phase: ProgrammePhase | null } => {
+    const phase = getPhaseForDay(b.currentDay);
+    if (!phase) return { completed: 0, total: 0, phase: null };
+    const total = phase.missions.length;
+    const completed = b.completedMissions.filter(id => phase.missions.some(m => m.id === id)).length;
+    return { completed, total, phase };
+  };
+
+  const getOverallTaskCount = (): { completed: number; total: number } => {
+    const total = PROGRAMME_PHASES.reduce((s, p) => s + p.missions.length, 0);
+    const allMissionIds = PROGRAMME_PHASES.flatMap(p => p.missions.map(m => m.id));
+    const bizTaskStatuses = localStorage.getItem('businessTaskStatuses');
+    const parsed = bizTaskStatuses ? JSON.parse(bizTaskStatuses) : {};
+    const completed = Object.values(parsed).filter(v => v === 'completed').length;
+    return { completed, total };
+  };
+
+  const overall = getOverallTaskCount();
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -674,6 +1226,7 @@ function MonitoringSection() {
         <button className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 hover:bg-gray-50 transition-colors">
           <Download className="w-3.5 h-3.5" /> Export
         </button>
+        <span className="text-xs text-gray-400 font-medium ml-auto">{overall.completed}/{overall.total} tasks completed across all businesses</span>
       </div>
 
       {/* Bulk Actions */}
@@ -685,6 +1238,130 @@ function MonitoringSection() {
           <button onClick={() => setSelectedIds([])} className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-lg">Clear</button>
         </motion.div>
       )}
+
+      {/* Detail Panel */}
+      <AnimatePresence>
+        {selectedBiz && (
+          <motion.div
+            initial={{ opacity: 0, y: -10, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -10, height: 0 }}
+            className="bg-white rounded-xl border border-brand-blue/20 shadow-lg overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-6 py-4 bg-brand-blue/5 border-b border-brand-blue/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-brand-dark/10 flex items-center justify-center font-bold text-brand-dark shrink-0">{selectedBiz.businessName.slice(0, 2).toUpperCase()}</div>
+                <div>
+                  <h3 className="font-bold text-gray-900">{selectedBiz.businessName}</h3>
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span>{selectedBiz.sector}</span>
+                    <span>·</span>
+                    <span>Day {selectedBiz.currentDay}</span>
+                    <span>·</span>
+                    <span>{selectedBiz.status}</span>
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setSelectedBiz(null)} className="p-1.5 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Progress Overview */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Day</p>
+                  <p className="text-2xl font-black text-brand-dark mt-1">{selectedBiz.currentDay} <span className="text-sm font-bold text-gray-400">/ 90</span></p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Progress</p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <div className="flex-1 h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-brand-blue rounded-full" style={{ width: `${getProgressForDay(selectedBiz.currentDay)}%` }} />
+                    </div>
+                    <span className="text-lg font-black text-brand-dark">{getProgressForDay(selectedBiz.currentDay)}%</span>
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Phase Tasks</p>
+                  <p className="text-2xl font-black text-brand-dark mt-1">
+                    {getPhaseTaskCount(selectedBiz).completed} <span className="text-sm font-bold text-gray-400">/ {getPhaseTaskCount(selectedBiz).total}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Current Phase Tasks Breakdown */}
+              <div>
+                <h4 className="font-bold text-gray-900 mb-3">
+                  Current Phase: {getPhaseTaskCount(selectedBiz).phase?.name || 'N/A'}
+                </h4>
+                <div className="space-y-2">
+                  {getPhaseTaskCount(selectedBiz).phase?.missions.map(mission => {
+                    const isCompleted = selectedBiz.completedMissions.includes(mission.id);
+                    return (
+                      <div key={mission.id} className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-colors",
+                        isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'
+                      )}>
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                          isCompleted ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'
+                        )}>
+                          {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn(
+                            "text-sm font-semibold",
+                            isCompleted ? 'text-green-700' : 'text-gray-700'
+                          )}>{mission.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-gray-400">{mission.estimatedMinutes} min</span>
+                            {mission.system && <span className="text-[10px] text-sky-600">{mission.system}</span>}
+                          </div>
+                        </div>
+                        <span className={cn(
+                          "text-[10px] font-bold px-2.5 py-1 rounded-lg whitespace-nowrap",
+                          isCompleted ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'
+                        )}>
+                          {isCompleted ? 'Completed' : 'Pending'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {(!getPhaseTaskCount(selectedBiz).phase || getPhaseTaskCount(selectedBiz).phase.missions.length === 0) && (
+                    <p className="text-sm text-gray-400 text-center py-4">No tasks in current phase</p>
+                  )}
+                </div>
+              </div>
+
+              {/* All Phases Summary */}
+              <div>
+                <h4 className="font-bold text-gray-900 mb-3">All Phases</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+                  {PROGRAMME_PHASES.map(phase => {
+                    const phaseCompleted = selectedBiz.completedMissions.filter(id => phase.missions.some(m => m.id === id)).length;
+                    const phaseTotal = phase.missions.length;
+                    const allDone = phaseCompleted >= phaseTotal;
+                    return (
+                      <div key={phase.id} className={cn(
+                        "p-3 rounded-xl border text-center",
+                        allDone ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-100'
+                      )}>
+                        <p className="text-[10px] font-bold text-gray-500 truncate">{phase.name}</p>
+                        <p className={cn(
+                          "text-lg font-black mt-1",
+                          allDone ? 'text-green-600' : 'text-gray-700'
+                        )}>{phaseCompleted}<span className="text-xs font-bold text-gray-400">/{phaseTotal}</span></p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -698,17 +1375,26 @@ function MonitoringSection() {
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Business</th>
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Day / Progress</th>
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden md:table-cell">Phase</th>
+                <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tasks</th>
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Agent</th>
                 <th className="p-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Started</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(b => {
+              {paginated.map(b => {
                 const phase = getPhaseForDay(b.currentDay);
+                const { completed, total } = getPhaseTaskCount(b);
                 return (
-                  <tr key={b.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="p-4">
+                  <tr
+                    key={b.id}
+                    className={cn(
+                      "transition-colors cursor-pointer",
+                      selectedBiz?.id === b.id ? 'bg-brand-blue/5' : 'hover:bg-gray-50/50'
+                    )}
+                    onClick={() => setSelectedBiz(b)}
+                  >
+                    <td className="p-4" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selectedIds.includes(b.id)} onChange={() => toggleSelect(b.id)} className="rounded border-gray-300 text-brand-blue focus:ring-brand-blue" />
                     </td>
                     <td className="p-4">
@@ -731,6 +1417,16 @@ function MonitoringSection() {
                     </td>
                     <td className="p-4 hidden md:table-cell">
                       <span className="text-sm text-gray-700 font-medium">{phase?.name || '—'}</span>
+                    </td>
+                    <td className="p-4">
+                      <span className={cn(
+                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold",
+                        completed === total && total > 0 ? 'bg-green-100 text-green-700' :
+                        completed > 0 ? 'bg-amber-100 text-amber-700' :
+                        'bg-gray-100 text-gray-500'
+                      )}>
+                        {completed}/{total}
+                      </span>
                     </td>
                     <td className="p-4">
                       {b.status === 'active' && <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-[10px] font-bold"><PlayCircle className="w-3 h-3" /> Active</span>}
@@ -758,10 +1454,74 @@ function MonitoringSection() {
         )}
       </div>
 
-      {/* Summary Footer */}
-      <div className="flex items-center justify-between text-xs text-gray-400">
-        <span>{filtered.length} business{filtered.length !== 1 ? 'es' : ''} found</span>
-        <span>{businesses.filter(b => b.status === 'active').length} active · {businesses.filter(b => b.status === 'paused').length} paused · {businesses.filter(b => b.status === 'completed').length} completed</span>
+      {/* Pagination */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          <span>{filtered.length} business{filtered.length !== 1 ? 'es' : ''} found</span>
+          <span className="text-gray-300">|</span>
+          <span className="font-medium">{businesses.filter(b => b.status === 'active').length} active · {businesses.filter(b => b.status === 'paused').length} paused · {businesses.filter(b => b.status === 'completed').length} completed</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400 mr-1">Rows per page:</span>
+          <select
+            value={pageSize}
+            onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+            className="h-8 px-2 rounded-lg border border-gray-200 bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
+          >
+            {[5, 10, 20, 50].map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <span className="text-xs text-gray-400 mx-2">
+            Page {safePage} of {totalPages}
+          </span>
+
+          <div className="flex items-center gap-1">
+            <button onClick={() => goToPage(1)} disabled={safePage <= 1} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronsLeft className="w-4 h-4" />
+            </button>
+            <button onClick={() => goToPage(safePage - 1)} disabled={safePage <= 1} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {(() => {
+              const pages: (number | string)[] = [];
+              const delta = 1;
+              const left = Math.max(2, safePage - delta);
+              const right = Math.min(totalPages - 1, safePage + delta);
+
+              pages.push(1);
+              if (left > 2) pages.push('...');
+              for (let i = left; i <= right; i++) pages.push(i);
+              if (right < totalPages - 1) pages.push('...');
+              if (totalPages > 1) pages.push(totalPages);
+
+              return pages.map((p, i) =>
+                typeof p === 'string' ? (
+                  <span key={`ellipsis-${i}`} className="px-1 text-xs text-gray-400">...</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => goToPage(p)}
+                    className={cn(
+                      "w-7 h-7 rounded-lg text-xs font-bold transition-colors",
+                      p === safePage ? 'bg-brand-blue text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
+                    )}
+                  >
+                    {p}
+                  </button>
+                )
+              );
+            })()}
+
+            <button onClick={() => goToPage(safePage + 1)} disabled={safePage >= totalPages} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button onClick={() => goToPage(totalPages)} disabled={safePage >= totalPages} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

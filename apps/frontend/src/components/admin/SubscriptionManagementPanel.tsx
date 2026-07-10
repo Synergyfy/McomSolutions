@@ -60,7 +60,7 @@ export default function SubscriptionManagementPanel() {
                   <td className="px-6 py-4 font-bold text-sm">£{sub.amount}<span className="text-[10px] text-gray-400 font-normal">/{sub.billingCycle.toLowerCase()}</span></td>
                   <td className="px-6 py-4 text-xs text-gray-500">{sub.startDate} → {sub.endDate}</td>
                   <td className="px-6 py-4">
-                    <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-center gap-1">
                       {sub.status === 'Active' && <><ActionBtn icon={Ban} label="Suspend" onClick={() => handleAction(sub, 'suspend')} /><ActionBtn icon={X} label="Cancel" onClick={() => handleAction(sub, 'cancel')} /></>}
                       {sub.status === 'Expired' && <ActionBtn icon={RefreshCw} label="Renew" onClick={() => handleAction(sub, 'renew')} />}
                       {sub.status === 'Cancelled' && <ActionBtn icon={CheckCircle2} label="Reactivate" onClick={() => handleAction(sub, 'reactivate')} />}
