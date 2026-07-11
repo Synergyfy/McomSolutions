@@ -5,7 +5,7 @@ import {
   ToggleLeft, Shield, KeyRound, UserPlus, Store, Grid, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search, HelpCircle,
-  ChevronRight, Briefcase
+  ChevronRight, Briefcase, ShoppingBag
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -21,7 +21,8 @@ export type AdminTab =
   | 'notifications' | 'support'
   | 'audit-logs'
   | 'programme'
-  | 'system-settings' | 'developer-center' | 'super-admin';
+  | 'system-settings' | 'developer-center' | 'super-admin'
+  | 'high-streets' | 'boroughs' | 'local-malls';
 
 interface NavGroup {
   label: string;
@@ -32,6 +33,14 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Overview',
     items: [{ tab: 'dashboard', icon: LayoutDashboard, label: 'Ecosystem Dashboard' }],
+  },
+  {
+    label: 'Ecosystem',
+    items: [
+      { tab: 'high-streets', icon: Store, label: 'High Streets' },
+      { tab: 'boroughs', icon: Building2, label: 'Boroughs' },
+      { tab: 'local-malls', icon: ShoppingBag, label: 'LocalMalls' },
+    ],
   },
   {
     label: 'User Management',

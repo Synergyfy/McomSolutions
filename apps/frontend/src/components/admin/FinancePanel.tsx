@@ -41,7 +41,7 @@ function PaymentsPanel() {
                   <td className="px-4 py-3 text-xs text-gray-600">{p.method}</td>
                   <td className="px-4 py-3"><span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold", p.status === 'Completed' ? 'bg-green-50 text-green-700' : p.status === 'Pending' ? 'bg-amber-50 text-amber-700' : p.status === 'Failed' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700')}>{p.status}</span></td>
                   <td className="px-4 py-3 text-xs text-gray-500">{p.date}</td>
-                  <td className="px-4 py-3"><div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <td className="px-4 py-3"><div className="flex justify-center gap-1">
                     {p.status === 'Pending' && <button onClick={() => updatePayment(p.id, { status: 'Completed' })} className="p-1.5 bg-gray-50 rounded-lg hover:bg-green-50 hover:text-green-600 transition-all" title="Approve"><CheckCircle2 className="w-3.5 h-3.5" /></button>}
                     {p.status === 'Completed' && <button onClick={() => updatePayment(p.id, { status: 'Refunded' })} className="p-1.5 bg-gray-50 rounded-lg hover:bg-amber-50 hover:text-amber-600 transition-all" title="Refund"><RotateCcw className="w-3.5 h-3.5" /></button>}
                     {p.status === 'Failed' && <button onClick={() => updatePayment(p.id, { status: 'Pending' })} className="p-1.5 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-all" title="Retry"><RotateCcw className="w-3.5 h-3.5" /></button>}
