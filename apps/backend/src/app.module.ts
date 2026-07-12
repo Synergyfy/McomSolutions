@@ -7,6 +7,7 @@ import { PricingModule } from './pricing/pricing.module';
 import { PaymentModule } from './payment/payment.module';
 import { IntegrationModule } from './integration/integration.module';
 import { NotificationModule } from './notification/notification.module';
+import { DataSharingModule } from './data-sharing/data-sharing.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { NotificationModule } from './notification/notification.module';
     PaymentModule,
     IntegrationModule,
     NotificationModule,
+    DataSharingModule,
   ],
   controllers: [],
   providers: [],

@@ -13,21 +13,43 @@ enum Role {
   ADMIN
 }
 
+enum MembershipLevel {
+  Bronze
+  Silver
+  Gold
+  Platinum
+}
+
+enum MembershipTier {
+  Free
+  Normal
+  Pro
+  ProPlus @map("Pro+")
+}
+
+enum MembershipStatus {
+  active
+  inactive
+  trial
+}
+
 model User {
-  id                 String           @id @default(uuid())
-  email              String           @unique
+  id                 String              @id @default(uuid())
+  email              String              @unique
   password           String
-  role               Role             @default(BUSINESS)
+  role               Role                @default(BUSINESS)
   firstName          String?
   lastName           String?
-  jobTitle           String?          @default("Managing Director")
-  twoFactorEnabled   Boolean          @default(false)
-  emailNotifications Boolean          @default(true)
-  smsNotifications   Boolean          @default(false)
-  registrationSource String?          @default("direct")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  jobTitle           String?             @default("Managing Director")
+  twoFactorEnabled   Boolean             @default(false)
+  emailNotifications Boolean             @default(true)
+  smsNotifications   Boolean             @default(false)
+  registrationSource String?             @default("direct")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   businessProfile    BusinessProfile?
+  ssoSessions        SsoSession[]
+  resetCodes         PasswordResetCode[]
 }
 
 model BusinessProfile {
@@ -51,9 +73,9 @@ model BusinessProfile {
   logoUrl          String?
   openingHours     String?
   socialMedia      String?
-  membershipLevel  String            @default("Bronze") // Bronze, Silver, Gold, Platinum
-  membershipTier   String            @default("Normal") // Normal, Pro, Pro+
-  membershipStatus String            @default("active") // active, inactive
+  membershipLevel  MembershipLevel   @default(Bronze)
+  membershipTier   MembershipTier    @default(Normal)
+  membershipStatus MembershipStatus  @default(active)
   apiKey           String?           @unique
   localMallName    String?
   localMallId      String?
@@ -100,4 +122,70 @@ model BillingTransaction {
   description String
   status      String          @default("paid") // paid, pending, failed
   createdAt   DateTime        @default(now())
+}
+
+model SsoClient {
+  id           String        @id @default(cuid())
+  clientId     String        @unique @map("client_id")
+  clientSecret String        @map("client_secret")
+  name         String
+  redirectUris String[]      @map("redirect_uris")
+  scopes       String[]
+  logoUrl      String?       @map("logo_url")
+  apiKey       String?       @unique @map("api_key")
+  isActive     Boolean       @default(true) @map("is_active")
+  authCodes    SsoAuthCode[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([apiKey])
+  @@map("sso_clients")
+}
+
+model SsoAuthCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  client      SsoClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  redirectUri String    @map("redirect_uri")
+  scopes      String[]
+  expiresAt   DateTime  @map("expires_at")
+  used        Boolean   @default(false) @map("used")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([userId])
+  @@map("sso_auth_codes")
+}
+
+model SsoSession {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId     String   @map("client_id")
+  accessToken  String   @unique @map("access_token")
+  refreshToken String   @unique @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([accessToken])
+  @@index([refreshToken])
+  @@map("sso_sessions")
+}
+
+model PasswordResetCode {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  used      Boolean  @default(false) @map("used")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([userId])
+  @@map("password_reset_codes")
 }

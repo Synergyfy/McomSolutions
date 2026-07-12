@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, Check, XCircle } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { usePaypalCapture } from '../services/payment/hooks';
 
 export default function PayPalReturnPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
+  const { mutateAsync: capturePaypal } = usePaypalCapture();
 
   useEffect(() => {
     const orderId = searchParams.get('token'); // PayPal sends `token` as the order ID
@@ -21,7 +22,7 @@ export default function PayPalReturnPage() {
 
     const capture = async () => {
       try {
-        const result = await businessApi.paypalCapture(orderId);
+        const result = await capturePaypal(orderId);
 
         // Update localStorage with new membership
         const userRaw = localStorage.getItem('business_user');

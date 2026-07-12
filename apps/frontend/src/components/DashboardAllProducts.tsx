@@ -5,7 +5,7 @@ import {
   ShoppingBag, Users, ShieldCheck, LayoutGrid, Rocket, ArrowUpRight,
   Sparkles, Lock, PackageOpen
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useGetSsoToken } from '../services/auth/hooks';
 
 type EcoKey = 'all' | 'mcom' | 'gbs';
 
@@ -136,18 +136,19 @@ const filters: { id: EcoKey; label: string }[] = [
 
 export default function DashboardAllProducts() {
   const [filter, setFilter] = useState<EcoKey>('all');
+  const { mutateAsync: getSsoToken } = useGetSsoToken();
 
   const handleLaunch = async (platformId: string) => {
     if (platformId === 'mall' || platformId === 'rewards') {
       try {
-        const res = await businessApi.getSsoToken();
+        const ssoRes = await getSsoToken(platformId === 'mall' ? 'mcom-mall' : 'mcom-loyalty');
         if (platformId === 'mall') {
           const mcomMallUrl = import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002';
-          const launchUrl = `${mcomMallUrl}/auth/sso?sso_token=${res.ssoToken}`;
+          const launchUrl = `${mcomMallUrl}/auth/sso?sso_token=${ssoRes.ssoToken}`;
           window.open(launchUrl, '_blank');
         } else {
           const mcomLoyaltyUrl = import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005';
-          const launchUrl = `${mcomLoyaltyUrl}/sso-login?token=${res.ssoToken}`;
+          const launchUrl = `${mcomLoyaltyUrl}/sso-login?token=${ssoRes.ssoToken}`;
           window.open(launchUrl, '_blank');
         }
       } catch (err) {

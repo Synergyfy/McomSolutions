@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useLogin, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -12,13 +12,32 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { mutateAsync: login } = useLogin();
+  const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
+  const { mutateAsync: getSsoToken } = useGetSsoToken();
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
-      await businessApi.login({ email, password });
+      await login({ email, password });
       
+      const clientId = searchParams.get('client_id');
+      const redirectUri = searchParams.get('redirect_uri');
+      const state = searchParams.get('state');
+      const scope = searchParams.get('scope');
+
+      if (clientId && redirectUri) {
+        try {
+          const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
+          window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+          return;
+        } catch (err) {
+          console.error("SSO OAuth authorization failed", err);
+        }
+      }
+
       let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
       if (!redirectTarget) {
         const source = searchParams.get('source');
@@ -31,12 +50,12 @@ export default function LoginPage() {
 
       if (redirectTarget) {
         try {
-          const res = await businessApi.getSsoToken();
+          const ssoRes = await getSsoToken(clientId || undefined);
           const separator = redirectTarget.includes('?') ? '&' : '?';
           const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-          window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
+          window.location.href = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
         } catch (err) {
-          console.error("Failed to generate SSO token", err);
+          console.error('Failed to generate SSO token', err);
           navigate('/dashboard');
         }
       } else {
@@ -48,6 +67,15 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  const getClientName = (id: string) => {
+    if (id === 'mcom-mall') return 'MCOM Mall';
+    if (id === 'mcom-loyalty') return 'MCOM Loyalty';
+    if (id === '247gbs') return '24/7 GBS';
+    return id;
+  };
+
+  const clientId = searchParams.get('client_id');
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
@@ -63,6 +91,13 @@ export default function LoginPage() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
           <p className="text-gray-500">Sign in to your 24/7 GBS account</p>
         </div>
+
+        {clientId && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
+            <Lock className="w-5 h-5 shrink-0 text-blue-600" />
+            <span>Signing in to access <strong>{getClientName(clientId)}</strong></span>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-2xl flex items-start gap-2.5">

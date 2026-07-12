@@ -9,7 +9,8 @@ import {
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { businessApi, apiClient, setSharedAuthCookies } from '../../lib/api';
+import { apiClient } from '../../services/api';
+import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
@@ -52,10 +53,11 @@ const UserRole = {
 };
 
 function useCreateUser() {
+  const { mutateAsync, isPending } = useRegister();
   return {
     mutateAsync: async (data: any) => {
       console.log('Registering user during onboarding:', data);
-      const res = await businessApi.register({
+      const res = await mutateAsync({
         email: data.email,
         password: data.password,
         businessName: data.businessName || 'Business Owner',
@@ -65,44 +67,47 @@ function useCreateUser() {
       });
       return { data: res };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useLogin() {
+  const { mutateAsync, isPending } = useLoginHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Logging in user during onboarding:', data);
-      const res = await businessApi.login({
+      const res = await mutateAsync({
         email: data.email,
         password: data.password,
       });
       return { data: res };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useSendOtp() {
+  const { mutateAsync, isPending } = useSendOtpHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      await businessApi.sendOtp(data.email);
+      await mutateAsync(data.email);
       return { success: true };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 // Validation pipe helper
 function useValidateOtp() {
+  const { mutateAsync, isPending } = useVerifyOtpHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
-      const res = await businessApi.verifyOtp(data.email, data.otp);
+      const res = await mutateAsync({ email: data.email, code: data.otp });
       return { data: { valid: res.valid } };
     },
-    isPending: false,
+    isPending,
   };
 }
 
