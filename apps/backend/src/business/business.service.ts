@@ -107,38 +107,100 @@ export class BusinessService {
 
   // ─── Google Places Lookup ─────────────────────────────
   async searchGoogleBusinesses(queryText: string, radius?: number) {
-    // Return mock search results matching query
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      console.warn('GOOGLE_PLACES_API_KEY is not defined, falling back to mock data');
+      return this.getMockBusinesses(queryText);
+    }
+
+    try {
+      const response = await axios.post(
+        'https://places.googleapis.com/v1/places:searchText',
+        { textQuery: queryText },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.rating,places.types,places.internationalPhoneNumber,places.userRatingCount',
+          },
+        },
+      );
+
+      const places = response.data?.places || [];
+      return places.map((place: any) => {
+        const types = place.types || [];
+        const primaryType = types[0] || 'establishment';
+        return {
+          googlePlaceId: place.id,
+          placeId: place.id,
+          place_id: place.id,
+          name: place.displayName?.text || 'Business Name',
+          formattedAddress: place.formattedAddress || '',
+          formatted_address: place.formattedAddress || '',
+          postcode: this.extractPostcode(place.formattedAddress || ''),
+          businessPhone: place.internationalPhoneNumber || '',
+          rating: place.rating || 0,
+          userRatingsTotal: place.userRatingCount || 0,
+          user_ratings_total: place.userRatingCount || 0,
+          types: types,
+          googleCategoryId: `gcid:${primaryType}`,
+        };
+      });
+    } catch (err: any) {
+      console.error('Error fetching from Google Places API:', err?.response?.data || err.message);
+      return this.getMockBusinesses(queryText);
+    }
+  }
+
+  private extractPostcode(address: string) {
+    const match = address.match(/[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}/i);
+    return match ? match[0] : '';
+  }
+
+  private getMockBusinesses(queryText: string) {
     const allMocks = [
       {
         googlePlaceId: 'mock-place-001',
+        placeId: 'mock-place-001',
+        place_id: 'mock-place-001',
         name: 'The Coffee Lounge',
         formattedAddress: '14 Camden High Street, London, NW1 0JH',
+        formatted_address: '14 Camden High Street, London, NW1 0JH',
         postcode: 'NW1 0JH',
         businessPhone: '020 7946 0001',
         rating: 4.5,
         userRatingsTotal: 312,
+        user_ratings_total: 312,
         types: ['coffee_shop', 'establishment'],
         googleCategoryId: 'gcid:coffee_shop',
       },
       {
         googlePlaceId: 'mock-place-002',
+        placeId: 'mock-place-002',
+        place_id: 'mock-place-002',
         name: 'Artisan Bakehouse',
         formattedAddress: '8 Chalk Farm Road, London, NW1 8AG',
+        formatted_address: '8 Chalk Farm Road, London, NW1 8AG',
         postcode: 'NW1 8AG',
         businessPhone: '020 7946 0022',
         rating: 4.8,
         userRatingsTotal: 189,
+        user_ratings_total: 189,
         types: ['bakery', 'establishment'],
         googleCategoryId: 'gcid:bakery',
       },
       {
         googlePlaceId: 'mock-place-003',
+        placeId: 'mock-place-003',
+        place_id: 'mock-place-003',
         name: 'Urban Style Boutique',
         formattedAddress: '52 Parkway, Camden, London, NW1 7AH',
+        formatted_address: '52 Parkway, Camden, London, NW1 7AH',
         postcode: 'NW1 7AH',
         businessPhone: '020 7946 0033',
         rating: 4.3,
         userRatingsTotal: 97,
+        user_ratings_total: 97,
         types: ['clothing_store', 'establishment'],
         googleCategoryId: 'gcid:clothing_store',
       },
@@ -155,6 +217,58 @@ export class BusinessService {
 
   // ─── Google Place Details ─────────────────────────────
   async getGooglePlaceDetails(placeId: string) {
+    if (placeId.startsWith('mock-')) {
+      return this.getMockPlaceDetails(placeId);
+    }
+
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!apiKey) {
+      console.warn('GOOGLE_PLACES_API_KEY is not defined, falling back to mock data');
+      return this.getMockPlaceDetails(placeId);
+    }
+
+    try {
+      const response = await axios.get(
+        `https://places.googleapis.com/v1/places/${placeId}`,
+        {
+          headers: {
+            'X-Goog-Api-Key': apiKey,
+            'X-Goog-FieldMask': 'id,displayName,formattedAddress,rating,types,internationalPhoneNumber,websiteUri,regularOpeningHours,userRatingCount',
+          },
+        },
+      );
+
+      const place = response.data;
+      if (!place) {
+        throw new NotFoundException(`Google place details for id '${placeId}' not found`);
+      }
+
+      const types = place.types || [];
+      const primaryType = types[0] || 'establishment';
+
+      return {
+        name: place.displayName?.text || 'Business Name',
+        formattedAddress: place.formattedAddress || '',
+        postcode: this.extractPostcode(place.formattedAddress || ''),
+        internationalPhoneNumber: place.internationalPhoneNumber || '',
+        website: place.websiteUri || '',
+        rating: place.rating || 0,
+        userRatingsTotal: place.userRatingCount || 0,
+        openingHours: place.regularOpeningHours ? {
+          open_now: place.regularOpeningHours.openNow ?? false,
+          weekday_text: place.regularOpeningHours.weekdayDescriptions || [],
+        } : null,
+        types: types,
+        googleCategoryId: `gcid:${primaryType}`,
+      };
+    } catch (err: any) {
+      console.error('Error fetching from Google Place Details API:', err?.response?.data || err.message);
+      if (err instanceof NotFoundException) throw err;
+      return this.getMockPlaceDetails(placeId);
+    }
+  }
+
+  private getMockPlaceDetails(placeId: string) {
     const detailsMap: Record<string, any> = {
       'mock-place-001': {
         name: 'The Coffee Lounge',
@@ -201,22 +315,122 @@ export class BusinessService {
     return details;
   }
 
-  // ─── Claim Start & Simulator Redirect ─────────────────
+  // ─── Claim Start & Google OAuth Redirect ───────────────
   async claimStart(placeId: string, returnUrl: string) {
-    // Generate simulator URL
-    const baseUrl = process.env.APP_URL || 'http://localhost:3010';
-    const authUrl = `${baseUrl}/api/v1/business/google-claim-simulator?placeId=${placeId}&returnUrl=${encodeURIComponent(
-      returnUrl,
-    )}`;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      console.warn('GOOGLE_CLIENT_ID is not defined, falling back to simulator');
+      const baseUrl = process.env.APP_URL || 'http://localhost:3010';
+      const authUrl = `${baseUrl}/api/v1/business/google-claim-simulator?placeId=${placeId}&returnUrl=${encodeURIComponent(
+        returnUrl,
+      )}`;
+      return { authUrl };
+    }
+
+    const googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const redirectUri = `${process.env.APP_URL || 'http://localhost:3010'}/api/v1/business/google/callback`;
+    const scope = 'https://www.googleapis.com/auth/business.manage openid email profile';
+    const state = Buffer.from(JSON.stringify({ placeId, returnUrl })).toString('base64');
+    
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scope,
+      access_type: 'offline',
+      prompt: 'consent',
+      state: state,
+    });
+
+    const authUrl = `${googleAuthUrl}?${params.toString()}`;
     return { authUrl };
+  }
+
+  // ─── Google OAuth Callback Handler ─────────────────────
+  async handleGoogleCallback(code: string, state: string) {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const redirectUri = `${process.env.APP_URL || 'http://localhost:3010'}/api/v1/business/google/callback`;
+
+    let decodedState: any = {};
+    try {
+      decodedState = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
+    } catch (e) {
+      console.error('Failed to parse OAuth state:', e);
+    }
+
+    const { placeId, returnUrl } = decodedState;
+    if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl) {
+      return `
+        <script>
+          if (window.opener) {
+            window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '*');
+          }
+          window.close();
+        </script>
+      `;
+    }
+
+    try {
+      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      });
+
+      const { access_token } = tokenResponse.data;
+
+      // Verify Google OAuth works by requesting profile
+      const userinfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${access_token}` },
+      });
+
+      if (userinfoResponse.data?.email) {
+        return `
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'GOOGLE_CLAIM_RESULT',
+                success: true,
+                placeId: '${placeId}',
+                email: '${userinfoResponse.data.email}'
+              }, '*');
+            }
+            window.close();
+          </script>
+        `;
+      }
+    } catch (err: any) {
+      console.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
+    }
+
+    return `
+      <script>
+        if (window.opener) {
+          window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '*');
+        }
+        window.close();
+      </script>
+    `;
   }
 
   // ─── Google Category Mapping ──────────────────────────
   async mapGoogleCategory(googleCategoryId: string) {
     const categories: Record<string, any> = {
       'gcid:coffee_shop': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-4' },
+      'gcid:cafe': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-4' },
       'gcid:bakery': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-5' },
       'gcid:clothing_store': { sectorId: 'sector-1', categoryId: 'cat-1', subCategoryId: 'sub-2' },
+      'gcid:restaurant': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-1' },
+      'gcid:grocery_store': { sectorId: 'sector-2', categoryId: 'cat-5', subCategoryId: 'sub-8' },
+      'gcid:supermarket': { sectorId: 'sector-2', categoryId: 'cat-5', subCategoryId: 'sub-8' },
+      'gcid:barber_shop': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-14' },
+      'gcid:beauty_salon': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-15' },
+      'gcid:hair_salon': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-14' },
+      'gcid:gym': { sectorId: 'sector-3', categoryId: 'cat-9', subCategoryId: 'sub-18' },
+      'gcid:hotel': { sectorId: 'sector-2', categoryId: 'cat-6', subCategoryId: 'sub-11' },
     };
 
     return categories[googleCategoryId] || { sectorId: 'sector-1', categoryId: 'cat-1', subCategoryId: 'sub-1' };
@@ -273,7 +487,11 @@ export class BusinessService {
         },
         include: { businessProfile: true },
       });
-      return this.authService.login(updatedUser);
+      const loginRes = await this.authService.login(updatedUser);
+      return {
+        ...loginRes,
+        listing: updatedUser.businessProfile,
+      };
     }
 
     // Register new user & profile
@@ -342,7 +560,10 @@ export class BusinessService {
       });
     }
 
-    return loginRes;
+    return {
+      ...loginRes,
+      listing: newUser.businessProfile,
+    };
   }
 
   // ─── Profile CRUD ─────────────────────────────────────
@@ -358,20 +579,46 @@ export class BusinessService {
   }
 
   async updateProfile(businessId: string, updates: any) {
+    const address = updates.location?.addressLine1 || updates.address;
+    const postcode = updates.location?.postcode || updates.postcode;
+    const phone = updates.businessPhone || updates.phone;
+    const description = updates.shortDescription || updates.description;
+    const industry = updates.sectorId || updates.industry;
+    const subCategory = updates.subCategoryId || updates.subCategory;
+    const category = updates.categoryId || updates.category;
+
+    // Serialize businessHours array if present
+    let openingHours = updates.openingHours;
+    if (updates.businessHours && Array.isArray(updates.businessHours)) {
+      openingHours = updates.businessHours
+        .map((h: any) => {
+          const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const day = dayNames[h.dayOfWeek] || `Day ${h.dayOfWeek}`;
+          return `${day}: ${h.openTime} - ${h.closeTime}${h.is24h ? ' (24h)' : ''}`;
+        })
+        .join(', ');
+    }
+
+    const businessType = Array.isArray(updates.listingType)
+      ? (updates.listingType.includes('product') && updates.listingType.includes('service') ? 'both' : (updates.listingType.includes('product') ? 'products' : 'services'))
+      : (updates.businessType || undefined);
+
     return this.prisma.businessProfile.update({
       where: { id: businessId },
       data: {
         businessName: updates.businessName,
-        phone: updates.phone,
-        address: updates.address,
-        postcode: updates.postcode,
+        phone,
+        address,
+        postcode,
         website: updates.website,
         logoUrl: updates.logoUrl,
-        openingHours: updates.openingHours,
+        openingHours,
         socialMedia: updates.socialMedia,
-        description: updates.description,
-        category: updates.category,
-        industry: updates.industry,
+        description,
+        category,
+        subCategory,
+        industry,
+        businessType,
       },
     });
   }

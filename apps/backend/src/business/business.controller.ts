@@ -1,6 +1,10 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { BusinessService } from './business.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import * as fs from 'fs';
 
 @Controller()
 export class BusinessController {
@@ -10,6 +14,44 @@ export class BusinessController {
   @Get('business/search-address')
   async searchAddresses(@Query('postcode') postcode: string) {
     return this.businessService.searchAddresses(postcode || '');
+  }
+
+  // ─── File Uploads ─────────────────────────────────────
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          const uploadPath = join(process.cwd(), 'uploads');
+          if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+          }
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          const cleanExt = extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '').toLowerCase();
+          cb(null, `${uniqueSuffix}${cleanExt}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        const ext = extname(file.originalname).toLowerCase();
+        const allowedExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+        if (!allowedExts.includes(ext)) {
+          return cb(new BadRequestException('Only image files are allowed'), false);
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadFile(@UploadedFile() file: any, @Request() req: any) {
+    if (!file) {
+      throw new NotFoundException('No file uploaded');
+    }
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const fileUrl = `${protocol}://${host}/uploads/${file.filename}`;
+    return { secure_url: fileUrl };
   }
 
   // ─── Proximity Check ──────────────────────────────────
@@ -52,6 +94,18 @@ export class BusinessController {
   @Post('google-business/complete-onboarding')
   async completeGoogleOnboarding(@Body() body: any) {
     return this.businessService.completeGoogleOnboarding(body);
+  }
+
+  // ─── Google OAuth Callback ───────────────────────────
+  @Get('business/google/callback')
+  async handleGoogleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Response() res: any,
+  ) {
+    const html = await this.businessService.handleGoogleCallback(code, state);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
   }
 
   // ─── Google OAuth Consent Simulator ──────────────────

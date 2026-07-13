@@ -9,7 +9,7 @@ import {
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { apiClient } from '../../services/api';
+import { apiClient, setSharedAuthCookies } from '../../services/api';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { cn } from '../../lib/utils';
@@ -662,7 +662,7 @@ function BusinessOnboardingInner() {
     try {
       const queryText = `${searchName} ${searchLoc}`.trim();
       const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
-      const results = res.data?.results || [];
+      const results = Array.isArray(res.data) ? res.data : (res.data?.results || []);
       setSearchResults(results);
     } catch (err: any) {
       setSearchError('Failed to search businesses.');
@@ -704,14 +704,31 @@ function BusinessOnboardingInner() {
 
       // Listen for the result sent back from the popup
       const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
+        const allowedOrigins = [
+          window.location.origin,
+          'http://localhost:3010',
+          'http://localhost:3000',
+          'http://localhost:5173'
+        ];
+        if (!allowedOrigins.includes(event.origin)) return;
         if (event.data?.type !== 'GOOGLE_CLAIM_RESULT') return;
         window.removeEventListener('message', handleMessage);
         clearInterval(pollTimer);
         setIsSubmitting(false);
         if (event.data.success) {
+          if (event.data.email) {
+            setGoogleEmail(event.data.email);
+          }
+          setIsGoogleOnboarding(true);
           setShowConnectGooglePage(false);
-          setShowBusinessTypePage(true);
+          handleGoogleSelectBranch({
+            googlePlaceId: selectedPreviewBusiness.googlePlaceId,
+            businessName: selectedPreviewBusiness.businessName,
+            address: selectedPreviewBusiness.address,
+            postcode: selectedPreviewBusiness.postcode,
+            businessPhone: selectedPreviewBusiness.businessPhone,
+            googleCategoryId: selectedPreviewBusiness.googleCategoryId,
+          });
         } else {
           setSubmitError(
             'We could not verify your ownership of this business on Google. ' +
@@ -1851,7 +1868,7 @@ function BusinessOnboardingInner() {
             <div className="flex-grow overflow-y-auto p-4 space-y-4">
               {searchResults.length > 0 ? (
                 searchResults.map((result: any) => {
-                  const placeId = result.place_id || result.placeId;
+                  const placeId = result.place_id || result.placeId || result.googlePlaceId;
                   const postcode = extractPostcode(result.formatted_address || result.formattedAddress || result.vicinity || '');
                   const photoRef = result.photos?.[0]?.photo_reference || result.photos?.[0]?.photoReference;
                   const typeLabel = result.types?.[0] 
@@ -1885,19 +1902,19 @@ function BusinessOnboardingInner() {
                         <button onClick={async () => {
                             setIsSearching(true);
                             try {
-                              const placeId = result.place_id || result.placeId;
+                              const placeId = result.place_id || result.placeId || result.googlePlaceId;
                               const detailsRes = await api.get(`google/google-business/${placeId}`);
                               const placeDetails = detailsRes.data?.result || detailsRes.data || {};
                               
                               setSelectedPreviewBusiness({
                                 googlePlaceId: placeId,
                                 businessName: result.name,
-                                address: placeDetails.formatted_address || result.formatted_address || '',
-                                postcode: postcode || extractPostcode(placeDetails.formatted_address || ''),
+                                address: placeDetails.formatted_address || placeDetails.formattedAddress || result.formatted_address || result.formattedAddress || '',
+                                postcode: postcode || extractPostcode(placeDetails.formatted_address || placeDetails.formattedAddress || ''),
                                 googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
-                                businessPhone: placeDetails.international_phone_number || placeDetails.formatted_phone_number || '',
+                                businessPhone: placeDetails.international_phone_number || placeDetails.internationalPhoneNumber || placeDetails.formatted_phone_number || placeDetails.businessPhone || '',
                                 rating: String(result.rating || '4.0'),
-                                reviews: String(result.user_ratings_total || '0'),
+                                reviews: String(result.user_ratings_total || result.userRatingsTotal || '0'),
                                 type: typeLabel,
                                 website: placeDetails.website || '',
                                 hours: placeDetails.opening_hours?.weekday_text?.[0] || (placeDetails.opening_hours?.open_now ? 'Open now' : 'Closed'),
@@ -2004,7 +2021,7 @@ function BusinessOnboardingInner() {
 
                   return (
                     <div 
-                      key={result.place_id || result.placeId || index} 
+                      key={result.place_id || result.placeId || result.googlePlaceId || index} 
                       style={{ top, left }} 
                       className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-30"
                     >

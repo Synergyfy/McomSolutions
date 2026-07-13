@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 
 describe('MCOM Backend (e2e)', () => {
   let app: INestApplication;
+  let accessToken: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -48,7 +49,7 @@ describe('MCOM Backend (e2e)', () => {
       role: 'BUSINESS',
       businessName: 'E2E Test Business',
     };
-    let accessToken: string;
+    // Uses global accessToken variable
 
     it('POST /auth/register should register a new business user', () => {
       return request(app.getHttpServer())
@@ -117,25 +118,27 @@ describe('MCOM Backend (e2e)', () => {
   });
 
   describe('Business Flow', () => {
-    it('GET /businesses should return business listings', () => {
+    it('GET /business should return business listings when authenticated', () => {
       return request(app.getHttpServer())
-        .get('/businesses')
+        .get('/business')
+        .set('Authorization', `Bearer ${accessToken}`)
         .expect(200);
     });
 
-    it('GET /businesses/google-search should return mock results', () => {
+    it('GET /google/google-business should return mock results', () => {
       return request(app.getHttpServer())
-        .get('/businesses/google-search?query=Coffee')
+        .get('/google/google-business?queryText=Coffee')
         .expect(200)
         .expect((res) => {
           expect(Array.isArray(res.body)).toBe(true);
         });
     });
 
-    it('GET /businesses/proximity should return proximity info', () => {
+    it('POST /localmall/onboarding/check-location should return proximity info', () => {
       return request(app.getHttpServer())
-        .get('/businesses/proximity?postcode=NW1%200JH')
-        .expect(200);
+        .post('/localmall/onboarding/check-location')
+        .send({ postcode: 'NW1 0JH' })
+        .expect(201);
     });
   });
 
@@ -148,11 +151,45 @@ describe('MCOM Backend (e2e)', () => {
   });
 
   describe('Data Sharing Flow', () => {
-    it('POST /data-sharing/user-context should return 401 without API key', () => {
+    it('GET /data/user should return 401 without API key', () => {
       return request(app.getHttpServer())
-        .post('/data-sharing/user-context')
-        .send({ email: 'test@test.com' })
+        .get('/data/user?email=test@test.com')
         .expect(401);
+    });
+  });
+
+  describe('Security & Onboarding Flow Extensions', () => {
+    it('POST /upload should reject non-image file extensions to prevent path traversals / arbitrary writes', () => {
+      return request(app.getHttpServer())
+        .post('/upload')
+        .attach('file', Buffer.from('malicious code'), 'exploit.exe')
+        .expect(400)
+        .expect((res) => {
+          expect(res.body.message).toContain('Only image files are allowed');
+        });
+    });
+
+    it('POST /upload should accept valid image files and return secure_url', () => {
+      return request(app.getHttpServer())
+        .post('/upload')
+        .attach('file', Buffer.from('dummy image data'), 'logo.png')
+        .expect(201)
+        .expect((res) => {
+          expect(res.body.secure_url).toBeDefined();
+          expect(res.body.secure_url).toContain('/uploads/');
+        });
+    });
+
+    it('GET /business/google/callback should render failure script if placeId has script injection', () => {
+      const stateObj = { placeId: 'mock-place-001<script>alert(1)</script>', returnUrl: 'http://localhost:3000' };
+      const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+      return request(app.getHttpServer())
+        .get(`/business/google/callback?code=mock-code&state=${state}`)
+        .expect(200)
+        .expect((res) => {
+          expect(res.text).toContain('GOOGLE_CLAIM_RESULT');
+          expect(res.text).toContain('success: false');
+        });
     });
   });
 });

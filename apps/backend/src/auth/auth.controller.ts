@@ -30,6 +30,15 @@ export class AuthController {
     return result;
   }
 
+  @Get('check-email')
+  async checkEmail(@Query('email') email: string) {
+    if (!email) return { exists: false };
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+    return { exists: !!user };
+  }
+
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req: any, @Res({ passthrough: true }) res: any) {

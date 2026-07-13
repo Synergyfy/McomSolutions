@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import axios from 'axios';
 import { BusinessService } from './business.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -71,6 +72,17 @@ describe('BusinessService', () => {
 
   // ─── searchGoogleBusinesses ────────────────────
   describe('searchGoogleBusinesses', () => {
+    let originalApiKey: string | undefined;
+
+    beforeAll(() => {
+      originalApiKey = process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+    });
+
+    afterAll(() => {
+      process.env.GOOGLE_PLACES_API_KEY = originalApiKey;
+    });
+
     it('should return all mock results when no query', async () => {
       const result = await service.searchGoogleBusinesses('');
       expect(result).toHaveLength(3);
@@ -90,6 +102,17 @@ describe('BusinessService', () => {
 
   // ─── getGooglePlaceDetails ─────────────────────
   describe('getGooglePlaceDetails', () => {
+    let originalApiKey: string | undefined;
+
+    beforeAll(() => {
+      originalApiKey = process.env.GOOGLE_PLACES_API_KEY;
+      delete process.env.GOOGLE_PLACES_API_KEY;
+    });
+
+    afterAll(() => {
+      process.env.GOOGLE_PLACES_API_KEY = originalApiKey;
+    });
+
     it('should return details for known place ID', async () => {
       const result = await service.getGooglePlaceDetails('mock-place-001');
       expect(result.name).toBe('The Coffee Lounge');
@@ -103,10 +126,13 @@ describe('BusinessService', () => {
 
   // ─── claimStart ────────────────────────────────
   describe('claimStart', () => {
-    it('should generate auth URL with placeId and returnUrl', async () => {
+    it('should generate auth URL with placeId and returnUrl encoded in state', async () => {
       const result = await service.claimStart('mock-place-001', 'https://example.com/return');
-      expect(result.authUrl).toContain('mock-place-001');
-      expect(result.authUrl).toContain(encodeURIComponent('https://example.com/return'));
+      const url = new URL(result.authUrl);
+      const stateParam = url.searchParams.get('state') || '';
+      const stateObj = JSON.parse(Buffer.from(stateParam, 'base64').toString('utf-8'));
+      expect(stateObj.placeId).toBe('mock-place-001');
+      expect(stateObj.returnUrl).toBe('https://example.com/return');
     });
   });
 
@@ -183,11 +209,49 @@ describe('BusinessService', () => {
 
   // ─── updateProfile ─────────────────────────────
   describe('updateProfile', () => {
-    it('should update and return profile', async () => {
+    it('should update and return profile with standard inputs', async () => {
       const updated = { id: 'b1', businessName: 'Updated' };
       mockPrisma.businessProfile.update.mockResolvedValue(updated);
       const result = await service.updateProfile('b1', { businessName: 'Updated' });
       expect(result.businessName).toBe('Updated');
+    });
+
+    it('should correctly map nested manual onboarding inputs', async () => {
+      mockPrisma.businessProfile.update.mockImplementation((args: any) => {
+        return Promise.resolve({
+          id: args.where.id,
+          ...args.data,
+        });
+      });
+
+      const result = await service.updateProfile('b1', {
+        businessName: 'Super Store',
+        businessPhone: '0123456789',
+        shortDescription: 'Best store in London',
+        listingType: ['product', 'service'],
+        location: {
+          addressLine1: '456 Oxford St',
+          postcode: 'W1D 1AN',
+        },
+        sectorId: 'retail-sector',
+        categoryId: 'retail-category',
+        subCategoryId: 'retail-subcategory',
+        businessHours: [
+          { dayOfWeek: 1, openTime: '09:00', closeTime: '18:00' },
+          { dayOfWeek: 2, openTime: '09:00', closeTime: '18:00' },
+        ],
+      });
+
+      expect(result.businessName).toBe('Super Store');
+      expect(result.phone).toBe('0123456789');
+      expect(result.description).toBe('Best store in London');
+      expect(result.businessType).toBe('both');
+      expect(result.address).toBe('456 Oxford St');
+      expect(result.postcode).toBe('W1D 1AN');
+      expect(result.industry).toBe('retail-sector');
+      expect(result.category).toBe('retail-category');
+      expect(result.subCategory).toBe('retail-subcategory');
+      expect(result.openingHours).toBe('Monday: 09:00 - 18:00, Tuesday: 09:00 - 18:00');
     });
   });
 
@@ -252,6 +316,49 @@ describe('BusinessService', () => {
     it('should throw NotFoundException if profile not found', async () => {
       mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
       await expect(service.deleteBusiness('b-nonexistent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ─── handleGoogleCallback ───────────────────────
+  describe('handleGoogleCallback', () => {
+    let originalEnv: any;
+
+    beforeAll(() => {
+      originalEnv = process.env;
+      process.env = {
+        ...originalEnv,
+        GOOGLE_CLIENT_ID: 'test-client-id',
+        GOOGLE_CLIENT_SECRET: 'test-client-secret',
+        APP_URL: 'http://localhost:3010',
+      };
+    });
+
+    afterAll(() => {
+      process.env = originalEnv;
+    });
+
+    it('should return failure script if placeId contains malicious characters', async () => {
+      const stateObj = { placeId: 'mock-place-001<script>alert(1)</script>', returnUrl: 'http://localhost:3000' };
+      const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+      const result = await service.handleGoogleCallback('mock-code', state);
+      expect(result).toContain('success: false');
+    });
+
+    it('should return failure script on invalid state format', async () => {
+      const result = await service.handleGoogleCallback('mock-code', 'invalid-base64-state');
+      expect(result).toContain('success: false');
+    });
+
+    it('should return success script if token exchange and profile fetch succeeds', async () => {
+      jest.spyOn(axios, 'post').mockResolvedValueOnce({ data: { access_token: 'valid-token' } });
+      jest.spyOn(axios, 'get').mockResolvedValueOnce({ data: { email: 'business-owner@test.com' } });
+
+      const stateObj = { placeId: 'mock-place-001', returnUrl: 'http://localhost:3000' };
+      const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+
+      const result = await service.handleGoogleCallback('mock-code', state);
+      expect(result).toContain('success: true');
+      expect(result).toContain('placeId: \'mock-place-001\'');
     });
   });
 });
