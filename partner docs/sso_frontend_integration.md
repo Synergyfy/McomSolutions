@@ -27,7 +27,7 @@ When a user clicks a "Login" or "Sign Up" button on your frontend, or attempts t
 ### Example Redirection Function (React/TypeScript):
 ```typescript
 function redirectToCentralLogin() {
-  const centralUrl = import.meta.env.VITE_MCOM_CENTRAL_URL || 'http://localhost:5173';
+  const centralApi = import.meta.env.VITE_MCOM_CENTRAL_API || 'http://localhost:3010/api/v1';
   const clientId = import.meta.env.VITE_SSO_CLIENT_ID;
   
   // The callback route on your frontend that handles the code redirect
@@ -40,8 +40,8 @@ function redirectToCentralLogin() {
   // Send the state to your backend session so your server-side callback can verify it
   // (Alternatively, set a temporary client-side validation cookie)
 
-  // Redirect to MCOM Central SSO
-  window.location.href = `${centralUrl}/login?client_id=${clientId}&redirect_uri=${redirectUri}&state=${state}&scope=profile%20email`;
+  // Redirect to MCOM Central SSO Authorize Endpoint (Backend)
+  window.location.href = `${centralApi}/auth/sso/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&state=${state}&response_type=code&scope=profile%20email`;
 }
 ```
 
