@@ -1,305 +1,275 @@
-# MCOM Central — Partner SSO & Data Sharing Integration Guide
+# MCOM Service Integration — Backend SSO & Data Sharing Guide
 
-This guide describes how any partner service in the MCOM ecosystem (e.g., MCOM Mall, MCOM Loyalty, 247GBS) integrates with MCOM Central for universal authentication and user data sharing.
+This document describes how to implement the backend integration inside any partner service (e.g., MCOM Mall, MCOM Loyalty, 247GBS) to handle SSO authentication and exchange data with MCOM Central.
 
 ---
 
-## 1. Environment Configuration
+## 1. Required Environment Variables
 
-To allow flexible deployment across Local, Staging, and Production environments, all partner services must configure MCOM Central's base domain/URL in their environment variables.
-
-Add the following to your service's `.env` file:
+Add these to your service's `.env` configuration file:
 ```bash
-# The Base Domain/URL of MCOM Central (exclude the API path prefix)
+# 1. Base URL of MCOM Central
 MCOM_CENTRAL_BASE_URL=https://auth.mcomsolutions.com
-```
-*(For local development, set this to `MCOM_CENTRAL_BASE_URL=http://localhost:3010`)*
+# (Use http://localhost:3010 in local development)
 
-In addition, each partner service should define its own base URL:
-```bash
-# Your platform's own base URL
-YOUR_SERVICE_BASE_URL=https://your-mcom-service.com
+# 2. Your Service Credentials registered in MCOM Central
+SSO_CLIENT_ID=your-service-client-id         # e.g., mcom-mall
+SSO_CLIENT_SECRET=your-service-client-secret # Keep this secret!
+SSO_API_SECRET=your-service-hmac-secret       # Shared secret used to sign HMAC requests
+
+# 3. Shared JWT secret key (must match MCOM Central's SSO_SECRET)
+SSO_SECRET=shared-sso-secret
 ```
-*(For local development, this could be `http://localhost:3002`, `http://localhost:3005`, etc.)*
 
 ---
 
-## 2. Authentication Integration Options
+## 2. Implementing the OAuth Callback Endpoint
 
-MCOM Central supports two main methods for integrating authentication:
-1. **Shared JWT Handshake Redirection Flow** (High performance, zero-network verification using a shared secret).
-2. **OAuth 2.0 Authorization Code Flow** (Standard secure client-server authorization).
+When MCOM Central redirects a user back to your service with an authorization code, your backend callback endpoint must handle the code exchange.
 
----
+* **Route**: `/api/auth/callback` (or `/auth/callback` depending on backend router)
+* **Method**: `GET`
+* **Query Parameters**:
+  - `code` (string) - The temporary authorization code.
+  - `state` (string) - The state parameter to verify against CSRF.
 
-## 3. Option A: Shared JWT Handshake Redirection Flow
-
-When a logged-in user launches your platform from the MCOM Central Dashboard, MCOM Central redirects the user's browser with a short-lived `sso_token` (or `token`) query parameter:
-
-```
-GET ${YOUR_SERVICE_BASE_URL}/sso-login?token=<SHORT_LIVED_JWT>
-```
-
-### Handshake JWT Verification
-Because the token is signed as a standard JSON Web Token (JWT) with a shared secret, your service can verify the token **locally** without making a REST call back to MCOM Central.
-
-1. **Algorithm**: HS256
-2. **Shared Secret**: Configure `SSO_SECRET` in your service (defaults to `shared-sso-secret` in development).
-3. **Expiry**: 60 seconds (enforced by the `exp` claim).
-
-#### JWT Payload Structure:
-```json
-{
-  "iss": "mcom-loyalty",
-  "aud": "mcom-mall",
-  "sub": "user-uuid-12345",
-  "email": "user@example.com",
-  "name": "Acme Corp",
-  "role": "business",
-  "phoneNumber": "+447911123456",
-  "postcode": "SW1A 2AA",
-  "address": "10 Downing Street",
-  "iat": 1783857600,
-  "exp": 1783857660
-}
-```
-
-#### Example Verification (Node.js/Express):
+### Callback Handler Logic
 ```javascript
-const jwt = require('jsonwebtoken');
+const axios = require('axios');
+const db = require('./models'); // Your local database ORM
 
-app.get('/sso-login', (req, res) => {
-  const token = req.query.token || req.query.sso_token;
-  if (!token) return res.status(400).send('SSO Token is required');
+app.get('/api/auth/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  // 1. Verify CSRF State matches the one stored in session
+  if (!state || state !== req.session.oauthState) {
+    return res.status(400).json({ error: 'CSRF State mismatch. Potential request forgery.' });
+  }
+  // Clear the state from session
+  delete req.session.oauthState;
 
   try {
-    // Verify using the shared secret
-    const decoded = jwt.verify(token, process.env.SSO_SECRET || 'shared-sso-secret', {
-      issuer: 'mcom-loyalty'
+    // 2. Exchange the temporary code for Tokens
+    const tokenResponse = await axios.post(`${process.env.MCOM_CENTRAL_BASE_URL}/api/v1/auth/sso/token`, {
+      client_id: process.env.SSO_CLIENT_ID,
+      client_secret: process.env.SSO_CLIENT_SECRET,
+      code: code,
+      redirect_uri: `${process.env.YOUR_SERVICE_BASE_URL}/auth/callback`
     });
 
-    // Establish session / issue local cookie
-    req.session.userId = decoded.sub;
-    req.session.user = {
-      email: decoded.email,
-      name: decoded.name,
-      role: decoded.role
-    };
+    const { accessToken, refreshToken, user } = tokenResponse.data;
 
-    res.redirect('/dashboard');
+    // 3. JIT (Just-In-Time) User Provisioning
+    // Ensure the user exists in your local database with their MCOM profile details.
+    let localUser = await db.User.findOne({ where: { email: user.email } });
+    if (!localUser) {
+      localUser = await db.User.create({
+        email: user.email,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        role: user.role, // e.g. BUSINESS or CUSTOMER
+        // Set other default fields
+      });
+    } else {
+      // Sync names/roles if changed centrally
+      await localUser.update({
+        firstName: user.firstName || localUser.firstName,
+        lastName: user.lastName || localUser.lastName,
+        role: user.role
+      });
+    }
+
+    // 4. Establish Local Session
+    // Set local access/refresh tokens, or store session variables
+    req.session.userId = localUser.id;
+    req.session.email = localUser.email;
+    req.session.centralAccessToken = accessToken; // (Optional: save if you need to make authenticated requests)
+
+    // 5. Redirect frontend client to dashboard
+    return res.redirect('/dashboard');
   } catch (err) {
-    console.error('Invalid SSO Token:', err.message);
-    res.status(401).send('Unauthorized session or expired token');
+    console.error('SSO Token Exchange failed:', err.response?.data || err.message);
+    return res.status(500).json({ error: 'Authentication failed. Please try again.' });
   }
 });
 ```
 
 ---
 
-## 4. Option B: OAuth 2.0 Authorization Code Flow
+## 3. Handling Direct Dashboard Redirections (Shared JWT Handshake)
 
-For server-to-server secure logins where standard client redirection is desired.
+When a user clicks on your app card in the MCOM Central Dashboard, MCOM Central signs a short-lived (60s) JWT containing the user's profile and redirects them directly to your app:
 
-### Step 1: Redirect User to Authorize
-Redirect the user's browser to:
 ```
-GET ${MCOM_CENTRAL_BASE_URL}/api/v1/auth/sso/authorize
-  ?client_id=<YOUR_CLIENT_ID>
-  &redirect_uri=<YOUR_CALLBACK_URL>
-  &state=<RANDOM_STATE_STRING>
-  &scope=profile email
+GET https://your-service.com/sso-login?token=<JWT_TOKEN>
 ```
 
-### Step 2: Receive Code
-MCOM Central redirects the browser back to your callback:
-```
-GET ${YOUR_SERVICE_BASE_URL}/auth/callback
-  ?code=<AUTHORIZATION_CODE>
-  &state=<THE_SAME_STATE_STRING>
-```
+Your backend must intercept this redirect, verify the signature locally, and establish the session.
 
-### Step 3: Exchange Code for Access Token
-Make a server-to-server POST request:
-```http
-POST ${MCOM_CENTRAL_BASE_URL}/api/v1/auth/sso/token
-Content-Type: application/json
+### Direct Handshake Middleware/Route Handler
+```javascript
+const jwt = require('jsonwebtoken');
+const db = require('./models');
 
-{
-  "client_id": "<YOUR_CLIENT_ID>",
-  "client_secret": "<YOUR_CLIENT_SECRET>",
-  "code": "<THE_AUTHORIZATION_CODE>",
-  "redirect_uri": "<THE_SAME_CALLBACK_URL>"
-}
-```
-
-**Response:**
-```json
-{
-  "accessToken": "eyJhbGciOiJIUzI1...",
-  "refreshToken": "eyJhbGciOiJIUzI1...",
-  "expiresIn": 3600,
-  "tokenType": "Bearer",
-  "user": {
-    "id": "user-uuid",
-    "email": "user@example.com",
-    "role": "BUSINESS",
-    "firstName": "John",
-    "lastName": "Doe"
+app.get('/api/auth/sso-login', async (req, res) => {
+  const token = req.query.token || req.query.sso_token;
+  if (!token) {
+    return res.status(400).json({ error: 'SSO Token is required' });
   }
-}
+
+  try {
+    // 1. Verify the JWT signature using the shared secret
+    const decoded = jwt.verify(token, process.env.SSO_SECRET || 'shared-sso-secret', {
+      issuer: 'mcom-loyalty' // Must match central issuer identifier
+    });
+
+    // 2. JIT Provision the user
+    let localUser = await db.User.findOne({ where: { email: decoded.email } });
+    if (!localUser) {
+      localUser = await db.User.create({
+        email: decoded.email,
+        firstName: decoded.name ? decoded.name.split(' ')[0] : '',
+        lastName: decoded.name ? decoded.name.split(' ').slice(1).join(' ') : '',
+        role: decoded.role === 'business' ? 'BUSINESS' : 'CUSTOMER'
+      });
+    }
+
+    // 3. Establish Local Session
+    req.session.userId = localUser.id;
+    req.session.email = localUser.email;
+
+    // 4. Return success to redirect frontend
+    return res.json({ success: true, redirect: '/dashboard' });
+  } catch (err) {
+    console.error('Direct Handshake Verification failed:', err.message);
+    return res.status(401).json({ error: 'SSO session invalid or expired' });
+  }
+});
 ```
 
 ---
 
-## 5. Server-to-Server Data Sharing REST API
+## 4. Querying User Memberships & Active Packages (Data Sharing)
 
-To query user details, memberships, active packages, or permissions directly from MCOM Central, use the **Data Sharing API**.
+If your backend needs to check a user's subscription limits or active package permissions dynamically (e.g. check if a business is Gold and has the Mall package active), your request must be signed using HMAC-SHA256.
 
-### Authentication
-All requests must include your service's API Key in the headers:
-```http
-X-Api-Key: <YOUR_SERVICE_API_KEY>
+### HMAC Signature Generation
+The signature is created by signing the payload `${serviceId}:${timestamp}` using your `SSO_API_SECRET` as the key. The timestamp is a Unix timestamp in seconds. Replay window allows for a max ±5-minute skew.
+
+### Request Signing Example
+```javascript
+const axios = require('axios');
+const crypto = require('crypto');
+
+/**
+ * Generates HMAC signature headers for secure data exchange
+ */
+function getHmacHeaders() {
+  const serviceId = process.env.SSO_CLIENT_ID; // e.g. 'mcom-mall'
+  const secret = process.env.SSO_API_SECRET;
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+
+  // Create signature payload: "serviceId:timestamp"
+  const message = `${serviceId}:${timestamp}`;
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(message)
+    .digest('hex');
+
+  return {
+    'X-Service-Id': serviceId,
+    'X-Timestamp': timestamp,
+    'X-Signature': signature,
+  };
+}
+
+async function checkUserMembership(userId) {
+  try {
+    const headers = getHmacHeaders();
+
+    const res = await axios.get(`${process.env.MCOM_CENTRAL_BASE_URL}/api/v1/data/user`, {
+      params: { userId },
+      headers: headers
+    });
+
+    const userData = res.data.data;
+    // Example: check if business user has active MCOM Mall package
+    const hasActiveMall = userData.packages.some(
+      pkg => pkg.platformName.toLowerCase() === 'mall' && pkg.status === 'active'
+    );
+
+    return {
+      membershipLevel: userData.membershipLevel, // e.g. Gold
+      membershipTier: userData.membershipTier,   // e.g. Pro
+      hasActiveMall
+    };
+  } catch (err) {
+    console.error('Failed to retrieve user context from Central:', err.response?.data || err.message);
+    return null;
+  }
+}
 ```
 
-### Endpoints
+### Available Endpoints
 
-#### 1. Get Full User Context
-Fetch profile info, current active package entitlements, and computed permissions.
-- **Method**: `GET`
-- **Path**: `${MCOM_CENTRAL_BASE_URL}/api/v1/data/user`
-- **Query Params**:
-  - `email` (string, optional) - Query user by email address.
-  - `userId` (string, optional) - Query user by unique ID.
-- **Example Request**:
-  ```http
-  GET ${MCOM_CENTRAL_BASE_URL}/api/v1/data/user?email=john@example.com
-  X-Api-Key: mcom_mall_api_key_secure_987
-  ```
-- **Example Response Envelope**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "userId": "user-uuid-123",
-      "email": "john@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "role": "BUSINESS",
-      "businessId": "business-uuid-456",
-      "businessName": "Acme Corp",
-      "membershipLevel": "Gold",
-      "membershipTier": "Pro",
-      "membershipStatus": "active",
-      "packages": [
-        {
-          "platformName": "MCOM Mall",
-          "packageName": "Standard",
-          "status": "active"
-        }
-      ],
-      "permissions": {
-        "canAccessMall": true,
-        "canAccessRewards": true,
-        "canAccessSpin": false,
-        "canAccessAudit": false,
-        "canAccessExpo": false
-      }
-    }
-  }
-  ```
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/data/user` | GET | Full user context (profile, membership, packages, permissions) |
+| `/api/v1/data/user/:userId/membership` | GET | Membership level/tier/status only |
+| `/api/v1/data/user/:userId/packages` | GET | Active platform packages only |
+| `/api/v1/data/user/:userId/permissions` | GET | Calculated platform access permissions |
+| `/api/v1/data/user/bulk` | POST | Bulk query multiple users |
 
-#### 2. Get User Membership Details Only
-- **Method**: `GET`
-- **Path**: `${MCOM_CENTRAL_BASE_URL}/api/v1/data/user/:userId/membership`
-- **Example Request**:
-  ```http
-  GET ${MCOM_CENTRAL_BASE_URL}/api/v1/data/user/user-uuid-123/membership
-  X-Api-Key: mcom_mall_api_key_secure_987
-  ```
-- **Example Response**:
-  ```json
-  {
-    "success": true,
-    "data": {
-      "userId": "user-uuid-123",
-      "membershipLevel": "Gold",
-      "membershipTier": "Pro",
-      "membershipStatus": "active"
-    }
-  }
-  ```
+### Query Parameters for `/api/v1/data/user`
 
-#### 3. Get User Platform Packages
-- **Method**: `GET`
-- **Path**: `${MCOM_CENTRAL_BASE_URL}/api/v1/data/user/:userId/packages`
-- **Example Request**:
-  ```http
-  GET ${MCOM_CENTRAL_BASE_URL}/api/v1/data/user/user-uuid-123/packages
-  X-Api-Key: mcom_mall_api_key_secure_987
-  ```
-- **Example Response**:
-  ```json
-  {
-    "success": true,
-    "data": [
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | No* | Query by email address |
+| `userId` | string | No* | Query by user ID |
+
+*At least one of `email` or `userId` must be provided.
+
+### Example Response (Single User Context)
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "user-uuid-123",
+    "email": "john@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "role": "BUSINESS",
+    "businessId": "business-uuid-456",
+    "businessName": "Acme Corp",
+    "membershipLevel": "Gold",
+    "membershipTier": "Pro",
+    "membershipStatus": "active",
+    "packages": [
       {
-        "platformName": "MCOM Mall",
+        "platformName": "mall",
         "packageName": "Standard",
         "status": "active"
       }
-    ]
+    ],
+    "permissions": {
+      "canAccessMall": true,
+      "canAccessRewards": true,
+      "canAccessSpin": false,
+      "canAccessAudit": false,
+      "canAccessExpo": false
+    }
   }
-  ```
-
----
-
-## 6. Code Examples (Node.js & Express)
-
-### Client Callback Exchange
-```javascript
-const axios = require('axios');
-
-app.get('/auth/callback', async (req, res) => {
-  const { code, state } = req.query;
-
-  // 1. Verify state matches stored state session value
-  if (state !== req.session.oauthState) {
-    return res.status(400).send('CSRF State mismatch');
-  }
-
-  try {
-    const centralBaseUrl = process.env.MCOM_CENTRAL_BASE_URL || 'http://localhost:3010';
-
-    // 2. Exchange authorization code for token
-    const tokenResponse = await axios.post(`${centralBaseUrl}/api/v1/auth/sso/token`, {
-      client_id: 'mcom-mall',
-      client_secret: 'mall_secret_123',
-      code: code,
-      redirect_uri: 'http://localhost:3000/auth/callback'
-    });
-
-    const { accessToken, user } = tokenResponse.data;
-
-    // 3. Save accessToken to session or cookie
-    req.session.token = accessToken;
-    req.session.user = user;
-
-    res.redirect('/dashboard');
-  } catch (error) {
-    console.error('SSO Exchange error', error.response?.data || error.message);
-    res.status(500).send('Authentication failed');
-  }
-});
+}
 ```
 
 ---
 
-## 7. Development Credentials & Seed Data
+## 5. Development Credentials & Seed Data
 
 Use these values for local development and testing:
 
-| Service Name | Client ID | Client Secret | REST API Key |
+| Service Name | Client ID | Client Secret | HMAC Secret (SSO_API_SECRET) |
 |---|---|---|---|
-| **MCOM Mall** | `mcom-mall` | `mall_secret_123` | `mcom_mall_api_key_secure_987` |
-| **MCOM Loyalty** | `mcom-loyalty` | `loyalty_secret_123` | `mcom_loyalty_api_key_secure_987` |
-| **247GBS** | `247gbs` | `gbs_secret_123` | `gbs_api_key_secure_987` |
+| **MCOM Mall** | `mcom-mall` | `mall_secret_123` | `dev-hmac-secret` |
+| **MCOM Loyalty** | `mcom-loyalty` | `loyalty_secret_123` | `dev-hmac-secret` |
+| **247GBS** | `247gbs` | `gbs_secret_123` | `dev-hmac-secret` |

@@ -1,14 +1,16 @@
 import { Controller, Get, Post, Query, Body, Param, UseGuards, BadRequestException } from '@nestjs/common';
 import { DataSharingService } from './data-sharing.service';
-import { ServiceApiKeyGuard } from './guards/service-api-key.guard';
+import { HmacAuthGuard } from './guards/hmac-auth.guard';
 import { ApiTags, ApiOperation, ApiQuery, ApiBody, ApiOkResponse, ApiHeader } from '@nestjs/swagger';
 import { QueryUserDto } from './dto/query-user.dto';
 import { BulkUserDto } from './dto/bulk-user.dto';
 
 @ApiTags('Data Sharing API (Server-to-Server)')
-@ApiHeader({ name: 'X-Api-Key', description: 'Platform service API key', required: true })
+@ApiHeader({ name: 'X-Service-Id', description: 'Calling MCOM service identifier (e.g. mcom-rewards)', required: true })
+@ApiHeader({ name: 'X-Timestamp', description: 'Unix timestamp (seconds) of the request', required: true })
+@ApiHeader({ name: 'X-Signature', description: 'HMAC-SHA256(serviceId:timestamp, sharedSecret) as hex', required: true })
 @Controller('data')
-@UseGuards(ServiceApiKeyGuard)
+@UseGuards(HmacAuthGuard)
 export class DataSharingController {
   constructor(private readonly dataSharingService: DataSharingService) {}
 

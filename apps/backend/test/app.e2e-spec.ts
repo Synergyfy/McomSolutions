@@ -2,6 +2,22 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { createHmac } from 'crypto';
+
+/**
+ * Helper: generate valid HMAC headers for a given service ID and secret.
+ * Mirrors the signing logic that every MCOM platform service uses.
+ */
+function buildHmacHeaders(serviceId: string, secret: string, timestampOverride?: number) {
+  const timestamp = (timestampOverride ?? Math.floor(Date.now() / 1000)).toString();
+  const message = `${serviceId}:${timestamp}`;
+  const signature = createHmac('sha256', secret).update(message).digest('hex');
+  return {
+    'X-Service-Id': serviceId,
+    'X-Timestamp': timestamp,
+    'X-Signature': signature,
+  };
+}
 
 describe('MCOM Backend (e2e)', () => {
   let app: INestApplication;
@@ -151,10 +167,48 @@ describe('MCOM Backend (e2e)', () => {
   });
 
   describe('Data Sharing Flow', () => {
-    it('GET /data/user should return 401 without API key', () => {
+    const SERVICE_ID = 'mcom-rewards';
+    // This matches MCOM_REWARDS_SECRET in backend .env for tests
+    const SERVICE_SECRET = 'mcom_rewards_dev_secret_change_in_prod';
+
+    it('GET /data/user should return 401 with no headers', () => {
       return request(app.getHttpServer())
         .get('/data/user?email=test@test.com')
         .expect(401);
+    });
+
+    it('GET /data/user should return 401 with invalid signature', () => {
+      const headers = buildHmacHeaders(SERVICE_ID, SERVICE_SECRET);
+      headers['X-Signature'] = 'deadbeefdeadbeefdeadbeefdeadbeef';
+      return request(app.getHttpServer())
+        .get('/data/user?email=nonexistent@test.com')
+        .set(headers)
+        .expect(401);
+    });
+
+    it('GET /data/user should return 401 with expired timestamp', () => {
+      const expiredTimestamp = Math.floor(Date.now() / 1000) - 400; // 400s ago, > 5-min window
+      const headers = buildHmacHeaders(SERVICE_ID, SERVICE_SECRET, expiredTimestamp);
+      return request(app.getHttpServer())
+        .get('/data/user?email=nonexistent@test.com')
+        .set(headers)
+        .expect(401);
+    });
+
+    it('GET /data/user should return 401 with unknown service ID', () => {
+      const headers = buildHmacHeaders('mcom-unknown', SERVICE_SECRET);
+      return request(app.getHttpServer())
+        .get('/data/user?email=nonexistent@test.com')
+        .set(headers)
+        .expect(401);
+    });
+
+    it('GET /data/user should return 404 for non-existent user with valid HMAC', () => {
+      const headers = buildHmacHeaders(SERVICE_ID, SERVICE_SECRET);
+      return request(app.getHttpServer())
+        .get('/data/user?email=nonexistent-e2e@test.com')
+        .set(headers)
+        .expect(404);
     });
   });
 

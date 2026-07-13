@@ -154,7 +154,7 @@ describe('DataSharingService', () => {
       });
       const result = await service.getUserPackages('user-1');
       expect(result).toHaveLength(1);
-      expect(result[0].platform).toBe('mall');
+      expect(result[0].platformName).toBe('mall');
     });
   });
 
