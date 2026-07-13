@@ -1,14 +1,112 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
-  Crown, CheckCircle2, ArrowRight, Clock, Target,
+  Crown, CheckCircle2, ArrowRight, Clock, Target, X,
   Building2, Gift, Users, FileSearch, Shield, Dices,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles
+  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink
 } from 'lucide-react';
-import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../lib/programmeData';
+import {
+  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions,
+  getTaskStatus, setTaskStatus, TaskStatus
+} from '../lib/programmeData';
+import type { ProgrammeMission } from '../lib/programmeData';
+import { cn } from '../lib/utils';
 
 const CURRENT_DAY = 17;
+
+function TaskStartModal({
+  mission,
+  open,
+  onClose,
+  onStart,
+  onCancel,
+}: {
+  mission: ProgrammeMission | null;
+  open: boolean;
+  onClose: () => void;
+  onStart: () => void;
+  onCancel: () => void;
+}) {
+  if (!open || !mission) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg"
+      >
+        <div className="flex items-start gap-4 px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-lg">
+            <Play className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-bold text-gray-900">{mission.title}</h3>
+            <p className="text-sm text-gray-500">{mission.estimatedMinutes} min · {mission.reward}</p>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-colors shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {mission.instructions ? (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Instructions</label>
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{mission.instructions}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 italic">No instructions provided for this task.</p>
+          )}
+
+          {mission.submissionType === 'external_link' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+              <ExternalLink className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-bold text-blue-700">External Task</p>
+                <p className="text-xs text-blue-600 mt-1">
+                  This task is completed on an external platform. After you finish, come back here and click <strong>"Mark Complete"</strong> to confirm completion and claim your reward.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {mission.submissionType === 'image_upload' && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-green-700">Upload the required image to complete this task.</p>
+            </div>
+          )}
+
+          {(mission.submissionType === 'text_input' || mission.submissionType === 'digit_input') && (
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-purple-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-purple-700">
+                {mission.submissionType === 'text_input' ? 'Enter the required text information to complete this task.' : 'Enter the required digits to complete this task.'}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+          <button onClick={onCancel} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
+            Cancel
+          </button>
+          <button
+            onClick={onStart}
+            className="px-8 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-xl hover:from-orange-600 hover:to-red-600 transition-all shadow-lg shadow-orange-500/20 flex items-center gap-2"
+          >
+            <Play className="w-4 h-4" />
+            Confirm & Start
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
 export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const userRaw = localStorage.getItem('business_user');
@@ -33,13 +131,95 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   const currentPhase = getPhaseForDay(CURRENT_DAY);
   const currentPhaseIndex = PROGRAMME_PHASES.findIndex(p => p.id === currentPhase?.id);
   const totalMissions = getTotalMissions();
-  const completedMissions = Math.round(totalMissions * (progress / 100));
+
+  const [taskStatuses, setTaskStatuses] = useState<Record<string, TaskStatus>>(() => {
+    const saved = localStorage.getItem('businessTaskStatuses');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [activeMission, setActiveMission] = useState<ProgrammeMission | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('businessTaskStatuses', JSON.stringify(taskStatuses));
+  }, [taskStatuses]);
+
+  const status = (id: string): TaskStatus => taskStatuses[id] || 'not_started';
+  const completedCount = Object.values(taskStatuses).filter(s => s === 'completed').length;
+
+  const handleStart = (mission: ProgrammeMission) => {
+    setActiveMission(mission);
+    setModalOpen(true);
+  };
+
+  const confirmStart = () => {
+    if (!activeMission) return;
+    setTaskStatuses(prev => ({ ...prev, [activeMission.id]: 'in_progress' }));
+    setModalOpen(false);
+    setActiveMission(null);
+  };
+
+  const cancelStart = () => {
+    if (activeMission) {
+      setTaskStatuses(prev => ({ ...prev, [activeMission.id]: 'not_started' }));
+    }
+    setModalOpen(false);
+    setActiveMission(null);
+  };
+
+  const markComplete = (missionId: string) => {
+    setTaskStatuses(prev => ({ ...prev, [missionId]: 'completed' }));
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setActiveMission(null);
+  };
+
+  const StatusBadge = ({ missionId }: { missionId: string }) => {
+    const st = status(missionId);
+    const mission = currentPhase?.missions.find(m => m.id === missionId);
+    switch (st) {
+      case 'not_started':
+        return (
+          <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-bold whitespace-nowrap">
+            <Play className="w-3 h-3" /> Start Now
+          </span>
+        );
+      case 'in_progress':
+        return (
+          <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold whitespace-nowrap">
+            <RotateCcw className="w-3 h-3 animate-spin" /> In Progress
+          </span>
+        );
+      case 'completed':
+        return (
+          <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-bold whitespace-nowrap">
+            <CheckCircle2 className="w-3 h-3" /> Completed
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   const todayMissions = currentPhase?.missions.slice(0, 3) || [];
   const nextPhase = currentPhaseIndex < PROGRAMME_PHASES.length - 1 ? PROGRAMME_PHASES[currentPhaseIndex + 1] : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* ═══ Task Start Modal ═══ */}
+      <AnimatePresence>
+        {modalOpen && (
+          <TaskStartModal
+            mission={activeMission}
+            open={modalOpen}
+            onClose={handleCloseModal}
+            onStart={confirmStart}
+            onCancel={cancelStart}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ═══ Programme Header ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -77,7 +257,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 className="h-full bg-white rounded-full"
               />
             </div>
-            <p className="text-orange-200 text-[10px] font-bold mt-1">{completedMissions} of {totalMissions} tasks completed</p>
+            <p className="text-orange-200 text-[10px] font-bold mt-1">{completedCount} of {totalMissions} tasks completed</p>
           </div>
 
           {/* Phase Progress Dots */}
@@ -122,30 +302,69 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           </div>
 
           <div className="space-y-3">
-            {todayMissions.map((mission, i) => (
-              <div key={mission.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl hover:bg-orange-50 transition-colors cursor-pointer group">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  i === 0 ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  {i === 0 ? <CheckCircle2 className="w-5 h-5" /> : <span className="text-sm font-bold">{i + 1}</span>}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 text-sm">{mission.title}</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {mission.estimatedMinutes} min
-                    </span>
-                    <span className="text-xs text-amber-600 font-bold flex items-center gap-1">
-                      <Target className="w-3 h-3" /> {mission.reward}
-                    </span>
-                    {mission.system && (
-                      <span className="text-xs text-sky-600 font-bold">{mission.system}</span>
+            {todayMissions.map((mission, i) => {
+              const st = status(mission.id);
+              const isExternalLink = mission.submissionType === 'external_link';
+              const isInProgress = st === 'in_progress';
+              return (
+                <div
+                  key={mission.id}
+                  className={cn(
+                    "flex items-center gap-4 p-4 bg-gray-50 rounded-2xl transition-colors group",
+                    st === 'completed' ? 'bg-green-50/50' : isInProgress ? 'bg-blue-50/50' : 'hover:bg-orange-50'
+                  )}
+                >
+                  <div className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                    st === 'completed' ? 'bg-green-500 text-white' :
+                    isInProgress ? 'bg-blue-500 text-white' :
+                    i === 0 ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
+                  )}>
+                    {st === 'completed' ? <CheckCircle2 className="w-5 h-5" /> :
+                     isInProgress ? <RotateCcw className="w-5 h-5" /> :
+                     <span className="text-sm font-bold">{i + 1}</span>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900 text-sm">{mission.title}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {mission.estimatedMinutes} min
+                      </span>
+                      <span className="text-xs text-amber-600 font-bold flex items-center gap-1">
+                        <Target className="w-3 h-3" /> {mission.reward}
+                      </span>
+                      {mission.system && (
+                        <span className="text-xs text-sky-600 font-bold">{mission.system}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {st === 'not_started' && (
+                      <button onClick={() => handleStart(mission)} className="inline-flex items-center gap-1 px-4 py-2 bg-orange-500 text-white rounded-xl text-xs font-bold hover:bg-orange-600 transition-colors shadow-sm">
+                        <Play className="w-3 h-3" /> Start Now
+                      </button>
+                    )}
+                    {st === 'in_progress' && (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-100 text-blue-700 rounded-xl text-xs font-bold">
+                          <RotateCcw className="w-3 h-3 animate-spin" /> In Progress
+                        </span>
+                        {isExternalLink && (
+                          <button onClick={() => markComplete(mission.id)} className="inline-flex items-center gap-1 px-4 py-2 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition-colors shadow-sm">
+                            <CheckCircle2 className="w-3 h-3" /> Complete
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {st === 'completed' && (
+                      <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-100 text-green-700 rounded-xl text-xs font-bold">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Completed
+                      </span>
                     )}
                   </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 transition-colors shrink-0" />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </motion.div>
 

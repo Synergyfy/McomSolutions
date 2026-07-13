@@ -80,7 +80,7 @@ function PlatformDirectoryPanel() {
                 <td className="px-6 py-4 font-bold text-sm">{p.totalUsers.toLocaleString()}</td>
                 <td className="px-6 py-4 text-sm text-gray-500">{p.launchDate}</td>
                 <td className="px-6 py-4"><button onClick={() => updatePlatform(p.id, { visible: !p.visible })} className={cn("px-3 py-1 rounded-lg text-[10px] font-bold transition-all", p.visible ? "bg-green-50 text-green-700" : "bg-gray-50 text-gray-400")}>{p.visible ? 'Yes' : 'No'}</button></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5 text-gray-400" /></button>
                   <button className="p-2 bg-gray-50 rounded-lg hover:bg-amber-50 hover:text-amber-500 transition-all"><Wrench className="w-3.5 h-3.5 text-gray-400" /></button>
                 </div></td>

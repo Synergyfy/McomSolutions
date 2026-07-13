@@ -13,6 +13,9 @@ import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import CommunicationPanel from '../components/admin/CommunicationPanel';
 import SystemPanel from '../components/admin/SystemPanel';
 import ProgrammeManagementPanel from '../components/admin/ProgrammeManagementPanel';
+import HighStreetsPanel from '../components/admin/HighStreetsPanel';
+import BoroughsPanel from '../components/admin/BoroughsPanel';
+import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -50,6 +53,9 @@ export default function AdminDashboard() {
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
       'super-admin': { title: 'Super Admin Control Center', subtitle: 'Highest-level administrative control' },
+      'high-streets': { title: 'High Street Management', subtitle: 'Manage physical and virtual high street ecosystems across boroughs' },
+      boroughs: { title: 'Borough Management', subtitle: 'Command center for local borough ecosystems and engagement systems' },
+      'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -102,6 +108,12 @@ export default function AdminDashboard() {
       case 'developer-center':
       case 'super-admin':
         return <SystemPanel />;
+      case 'high-streets':
+        return <HighStreetsPanel />;
+      case 'boroughs':
+        return <BoroughsPanel />;
+      case 'local-malls':
+        return <LocalMallsPanel />;
       default:
         return <OverviewPanel onNavigate={(tab: string) => setActiveTab(tab as AdminTab)} />;
     }
