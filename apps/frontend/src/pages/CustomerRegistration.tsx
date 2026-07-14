@@ -33,7 +33,7 @@ function useLogin() {
 function useSendOtp() {
   const { mutateAsync, isPending } = useSendOtpHook();
   return {
-    mutateAsync: async (data: { email: string }) => {
+    mutateAsync: async (data: { email: string; type?: string }) => {
       return mutateAsync(data.email);
     },
     isPending,
@@ -43,7 +43,7 @@ function useSendOtp() {
 function useValidateOtp() {
   const { mutateAsync, isPending } = useVerifyOtpHook();
   return {
-    mutateAsync: async (data: { email: string; otp: string }) => {
+    mutateAsync: async (data: { email: string; otp: string; type?: string }) => {
       const res = await mutateAsync({ email: data.email, code: data.otp });
       if (!res) {
         throw new Error('Invalid verification code');
@@ -223,6 +223,63 @@ export default function CustomerRegistration() {
 
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
+
+  const performRedirect = async () => {
+    if (clientId && redirectUri) {
+      try {
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
+        window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+        return;
+      } catch (err) {
+        console.error("SSO OAuth authorization failed", err);
+      }
+    }
+
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+
+    let redirectTarget = null;
+    let finalRedirectState = null;
+
+    if (redirectParam) {
+      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+        redirectTarget = redirectParam;
+      } else {
+        finalRedirectState = redirectParam;
+      }
+    }
+
+    if (!redirectTarget) {
+      if (source === 'mcomloyalty') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
+      } else if (source === 'mcommall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      }
+    }
+
+    if (redirectTarget) {
+      try {
+        const ssoRes = await getSsoToken(clientId || undefined);
+        const separator = redirectTarget.includes('?') ? '&' : '?';
+        const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+        let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
+        
+        if (finalRedirectState) {
+          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        }
+        
+        window.location.href = targetUrl;
+        return;
+      } catch (err) {
+        console.error("Failed to generate SSO token", err);
+        navigate(redirect);
+      }
+    } else if (finalRedirectState) {
+      navigate(finalRedirectState);
+    } else {
+      navigate(redirect);
+    }
+  };
 
   useEffect(() => {
     if (roleParam === 'customer') {
@@ -481,42 +538,7 @@ export default function CustomerRegistration() {
       
       setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-
-        if (clientId && redirectUri) {
-          try {
-            const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
-            window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
-            return;
-          } catch (err) {
-            console.error("SSO OAuth authorization failed", err);
-          }
-        }
-
-        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
-        if (!redirectTarget) {
-          const source = searchParams.get('source');
-          if (source === 'mcomloyalty') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-          } else if (source === 'mcommall') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
-          }
-        }
-
-        if (redirectTarget) {
-          try {
-            const { data: ssoRes } = await fetchSsoToken();
-            if (ssoRes) {
-              const separator = redirectTarget.includes('?') ? '&' : '?';
-              const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-              window.location.href = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
-            }
-          } catch (err) {
-            console.error("Failed to generate SSO token", err);
-            navigate(redirect);
-          }
-        } else {
-          navigate(redirect);
-        }
+        await performRedirect();
       }, 2000);
 
     } catch (error: any) {
@@ -541,42 +563,7 @@ export default function CustomerRegistration() {
       
       setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-
-        if (clientId && redirectUri) {
-          try {
-            const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
-            window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
-            return;
-          } catch (err) {
-            console.error("SSO OAuth authorization failed", err);
-          }
-        }
-
-        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
-        if (!redirectTarget) {
-          const source = searchParams.get('source');
-          if (source === 'mcomloyalty') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-          } else if (source === 'mcommall') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
-          }
-        }
-
-        if (redirectTarget) {
-          try {
-            const { data: ssoRes } = await fetchSsoToken();
-            if (ssoRes) {
-              const separator = redirectTarget.includes('?') ? '&' : '?';
-              const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-              window.location.href = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
-            }
-          } catch (err) {
-            console.error("Failed to generate SSO token", err);
-            navigate(redirect);
-          }
-        } else {
-          navigate(redirect);
-        }
+        await performRedirect();
       }, 1500);
     } catch (error: any) {
       setDialogMessage(error.message || 'Login failed');

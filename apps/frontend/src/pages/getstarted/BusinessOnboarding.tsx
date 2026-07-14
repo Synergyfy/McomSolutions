@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies } from '../../services/api';
-import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook } from '../../services/auth/hooks';
+import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
@@ -578,6 +578,74 @@ function BusinessOnboardingInner() {
   };
   const router = useRouter();
   const [searchParams] = useSearchParams();
+  const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
+  const { mutateAsync: getSsoToken } = useGetSsoToken();
+
+  const performSSORedirect = async (fallbackRoute: string = '/dashboard') => {
+    const clientId = searchParams.get('client_id');
+    const redirectUri = searchParams.get('redirect_uri');
+    const state = searchParams.get('state');
+    const scope = searchParams.get('scope');
+
+    // Scenario A: Standard OAuth Flow
+    if (clientId && redirectUri) {
+      try {
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
+        window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+        return;
+      } catch (err) {
+        console.error("SSO OAuth authorization failed", err);
+      }
+    }
+
+    // Scenario B: Direct SSO / Shared Handshake Flow
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+    
+    let redirectTarget = null;
+    let finalRedirectState = null;
+
+    if (redirectParam) {
+      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+        redirectTarget = redirectParam;
+      } else {
+        finalRedirectState = redirectParam;
+      }
+    }
+
+    // Determine platform base SSO url if redirect target is relative or null
+    if (!redirectTarget) {
+      if (source === 'mcomloyalty') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
+      } else if (source === 'mcommall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      }
+    }
+
+    if (redirectTarget) {
+      try {
+        const ssoRes = await getSsoToken(clientId || undefined);
+        const separator = redirectTarget.includes('?') ? '&' : '?';
+        const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+        let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
+        
+        if (finalRedirectState) {
+          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        }
+        
+        window.location.href = targetUrl;
+        return;
+      } catch (err) {
+        console.error('Failed to generate SSO token', err);
+      }
+    } else if (finalRedirectState) {
+      router.push(finalRedirectState);
+      return;
+    }
+
+    router.push(fallbackRoute);
+  };
+
   const dispatch = useDispatch();
 
   // ── Handle OAuth popup callback ──────────────────────────────────────────
@@ -834,6 +902,14 @@ function BusinessOnboardingInner() {
       
       // Set shared cookies for localhost ports SSO
       setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
+      
+      // Persist token and user details to local storage
+      if (auth?.accessToken) {
+        localStorage.setItem('auth_token', auth.accessToken);
+      }
+      if (user) {
+        localStorage.setItem('business_user', JSON.stringify(user));
+      }
       
       // Dispatch auth tokens and user data to store (which also sets cookies)
       dispatch(
@@ -3354,7 +3430,9 @@ function BusinessOnboardingInner() {
                 <h2 className="text-3xl font-black text-gray-900 mb-2">Storefront Live!</h2>
                 <p className="text-base font-medium text-gray-500 mb-8 leading-relaxed">Congratulations, your business is now visible to the local community.</p>
                 <button 
-                  onClick={() => router.push('/dashboard')}
+                  onClick={async () => {
+                    await performSSORedirect('/dashboard');
+                  }}
                   className="w-full bg-orange-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-600/20 hover:bg-orange-700 transition-all active:scale-95"
                 >
                   Go to Dashboard
@@ -3950,13 +4028,13 @@ function BusinessOnboardingInner() {
 
             {/* Submit */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 localStorage.removeItem('businessOnboarding');
                 localStorage.removeItem('businessOnboardingStep');
                 localStorage.removeItem('businessOnboardingCompleted');
                 localStorage.setItem('firstDashboardLogin', 'true');
                 localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
-                router.push('/dashboard');
+                await performSSORedirect('/dashboard');
               }}
               disabled={!allAnswered}
               className={`w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
@@ -4021,16 +4099,16 @@ function BusinessOnboardingInner() {
           transition={{ delay: 0.9 }}
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.96 }}
-          onClick={() => {
+          onClick={async () => {
+            let targetRoute = '/dashboard';
             if (formData.businessType === 'both') {
-              router.push('/dashboard/store/products/add-product?fromOnboarding=true&hybridFlow=true');
+              targetRoute = '/dashboard/store/products/add-product?fromOnboarding=true&hybridFlow=true';
             } else if (formData.businessType === 'products') {
-              router.push('/dashboard/store/products/add-product?fromOnboarding=true');
+              targetRoute = '/dashboard/store/products/add-product?fromOnboarding=true';
             } else if (formData.businessType === 'services') {
-              router.push('/dashboard/services/add-service?fromOnboarding=true');
-            } else {
-              router.push('/dashboard');
+              targetRoute = '/dashboard/services/add-service?fromOnboarding=true';
             }
+            await performSSORedirect(targetRoute);
           }}
           className="px-10 py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-lg font-bold rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2"
         >
@@ -4065,7 +4143,7 @@ function BusinessOnboardingInner() {
   if (showWelcomeChecklistPage) {
     return (
       <WelcomeChecklistPage 
-        onComplete={() => {
+        onComplete={async () => {
           localStorage.removeItem('businessOnboarding');
           localStorage.removeItem('businessOnboardingStep');
           localStorage.removeItem('businessOnboardingCompleted');
@@ -4073,7 +4151,7 @@ function BusinessOnboardingInner() {
           localStorage.removeItem('localMallName');
           localStorage.removeItem('localMallId');
           localStorage.removeItem('businessProximityTier');
-          router.push('/dashboard');
+          await performSSORedirect('/dashboard');
         }} 
       />
     );

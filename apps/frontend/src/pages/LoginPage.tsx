@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useLogin, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
+import { setSharedAuthCookies } from '../services/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -16,56 +17,139 @@ export default function LoginPage() {
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
 
+  const performRedirect = async (clientIdParam?: string | null) => {
+    const clientId = clientIdParam || searchParams.get('client_id');
+    const redirectUri = searchParams.get('redirect_uri');
+    const state = searchParams.get('state');
+    const scope = searchParams.get('scope');
+
+    // Scenario A: Standard OAuth Flow
+    if (clientId && redirectUri) {
+      try {
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
+        window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+        return;
+      } catch (err) {
+        console.error("SSO OAuth authorization failed", err);
+      }
+    }
+
+    // Scenario B: Direct SSO / Shared Handshake Flow
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+    
+    let redirectTarget = null;
+    let finalRedirectState = null;
+
+    if (redirectParam) {
+      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+        redirectTarget = redirectParam;
+      } else {
+        finalRedirectState = redirectParam;
+      }
+    }
+
+    // Determine platform base SSO url if redirect target is relative or null
+    if (!redirectTarget) {
+      if (source === 'mcomloyalty') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
+      } else if (source === 'mcommall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      }
+    }
+
+    if (redirectTarget) {
+      try {
+        const ssoRes = await getSsoToken(clientId || undefined);
+        const separator = redirectTarget.includes('?') ? '&' : '?';
+        const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+        let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
+        
+        if (finalRedirectState) {
+          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        }
+        
+        window.location.href = targetUrl;
+        return;
+      } catch (err) {
+        console.error('Failed to generate SSO token', err);
+        navigate('/dashboard');
+      }
+    } else if (finalRedirectState) {
+      navigate(finalRedirectState);
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
       await login({ email, password });
-      
-      const clientId = searchParams.get('client_id');
-      const redirectUri = searchParams.get('redirect_uri');
-      const state = searchParams.get('state');
-      const scope = searchParams.get('scope');
-
-      if (clientId && redirectUri) {
-        try {
-          const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
-          window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
-          return;
-        } catch (err) {
-          console.error("SSO OAuth authorization failed", err);
-        }
-      }
-
-      let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
-      if (!redirectTarget) {
-        const source = searchParams.get('source');
-        if (source === 'mcomloyalty') {
-          redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-        } else if (source === 'mcommall') {
-          redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
-        }
-      }
-
-      if (redirectTarget) {
-        try {
-          const ssoRes = await getSsoToken(clientId || undefined);
-          const separator = redirectTarget.includes('?') ? '&' : '?';
-          const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-          window.location.href = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
-        } catch (err) {
-          console.error('Failed to generate SSO token', err);
-          navigate('/dashboard');
-        }
-      } else {
-        navigate('/dashboard');
-      }
+      await performRedirect();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    setLoading(true);
+    setError(null);
+    const backendUrl = import.meta.env.VITE_API_URL || '/api/v1';
+    const authUrl = `${backendUrl}/auth/google`;
+
+    const popup = window.open(
+      authUrl,
+      'google_oauth',
+      'width=520,height=660,scrollbars=yes,resizable=yes'
+    );
+
+    if (!popup) {
+      window.location.href = authUrl;
+      return;
+    }
+
+    const handleMessage = async (event: MessageEvent) => {
+      const allowedOrigins = [
+        window.location.origin,
+        'http://localhost:3010',
+        'http://localhost:3000',
+        'http://localhost:5173'
+      ];
+      if (!allowedOrigins.includes(event.origin)) return;
+      if (event.data?.type !== 'GOOGLE_LOGIN_SUCCESS') return;
+
+      window.removeEventListener('message', handleMessage);
+      clearInterval(pollTimer);
+
+      const { auth, user } = event.data;
+
+      try {
+        localStorage.setItem('auth_token', auth.accessToken);
+        localStorage.setItem('business_user', JSON.stringify(user));
+        setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
+
+        await performRedirect(user.role === 'BUSINESS' ? 'mcom-mall' : undefined);
+      } catch (err: any) {
+        setError('Google authentication failed. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    const pollTimer = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(pollTimer);
+        window.removeEventListener('message', handleMessage);
+        setLoading(false);
+      }
+    }, 600);
   };
 
   const getClientName = (id: string) => {
@@ -157,7 +241,11 @@ export default function LoginPage() {
         <div className="mt-10 pt-8 border-t border-gray-100 text-center">
           <p className="text-gray-500 mb-6">Or sign in with</p>
           <div className="grid grid-cols-2 gap-4">
-            <button className="flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-all font-semibold">
+            <button 
+              type="button"
+              onClick={handleGoogleLogin}
+              className="flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-all font-semibold"
+            >
               <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
               Google
             </button>

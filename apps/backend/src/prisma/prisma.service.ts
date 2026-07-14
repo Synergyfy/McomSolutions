@@ -25,6 +25,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             'http://localhost:3000/auth/callback',
             'http://localhost:3001/auth/callback',
             'http://localhost:3002/auth/callback',
+            'http://localhost:3003/auth/callback',
+            'http://localhost:3003/auth/sso',
             'http://localhost:5173/auth/callback'
           ],
           scopes: ['profile', 'email', 'business', 'membership'],
@@ -76,6 +78,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
             }
           });
           console.log(`[Seed] Created default SSO client: ${client.clientId}`);
+        } else {
+          // Sync redirect URIs in dev environments
+          await this.ssoClient.update({
+            where: { clientId: client.clientId },
+            data: { redirectUris: client.redirectUris }
+          });
         }
       }
     } catch (err) {
