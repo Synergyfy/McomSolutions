@@ -103,7 +103,7 @@ export class BusinessController {
     @Query('state') state: string,
     @Response() res: any,
   ) {
-    const html = await this.businessService.handleGoogleCallback(code, state);
+    const html = await this.businessService.handleGoogleCallback(code, state, res);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   }

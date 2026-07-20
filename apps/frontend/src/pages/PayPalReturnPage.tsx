@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, Check, XCircle } from 'lucide-react';
 import { usePaypalCapture } from '../services/payment/hooks';
+import { apiClient } from '../services/api';
 
 export default function PayPalReturnPage() {
   const [searchParams] = useSearchParams();
@@ -13,6 +14,7 @@ export default function PayPalReturnPage() {
   useEffect(() => {
     const orderId = searchParams.get('token'); // PayPal sends `token` as the order ID
     const plan = searchParams.get('plan') || 'Bronze';
+    const platform = searchParams.get('platform'); // If present, it's a platform purchase
 
     if (!orderId) {
       setStatus('error');
@@ -22,7 +24,16 @@ export default function PayPalReturnPage() {
 
     const capture = async () => {
       try {
-        const result = await capturePaypal(orderId);
+        let result: any;
+
+        if (platform) {
+          // Platform purchase — use platform capture endpoint
+          const res = await apiClient.post('/payment/platform/paypal/capture', { orderId });
+          result = res.data;
+        } else {
+          // Legacy membership purchase
+          result = await capturePaypal(orderId);
+        }
 
         // Update localStorage with new membership
         const userRaw = localStorage.getItem('business_user');
@@ -41,8 +52,39 @@ export default function PayPalReturnPage() {
           document.cookie = `packageInfo=${encodeURIComponent(JSON.stringify({ planType: result.membershipLevel || plan }))}; path=/; max-age=604800`;
         }
 
+        // Clean up pending purchase
+        localStorage.removeItem('pendingPlatformPurchase');
+
         setStatus('success');
-        setTimeout(() => navigate('/dashboard'), 2500);
+        
+        const onboarding = searchParams.get('onboarding') === 'true';
+        const source = searchParams.get('source') || '';
+        const redirect = searchParams.get('redirect') || '';
+
+        if (onboarding) {
+          localStorage.setItem('onboardingPaymentSuccess', 'true');
+          
+          // Check if user already has a business profile
+          const userRaw = localStorage.getItem('business_user');
+          let hasBusinessProfile = false;
+          if (userRaw) {
+            try {
+              const user = JSON.parse(userRaw);
+              if (user?.businessProfile?.id) {
+                hasBusinessProfile = true;
+              }
+            } catch (e) {}
+          }
+
+          if (!hasBusinessProfile) {
+            localStorage.setItem('businessOnboardingState', 'assessment');
+          } else {
+            localStorage.removeItem('businessOnboardingState');
+          }
+          setTimeout(() => navigate(`/getstarted/business?source=${encodeURIComponent(source)}&redirect=${encodeURIComponent(redirect)}`), 2500);
+        } else {
+          setTimeout(() => navigate('/dashboard'), 2500);
+        }
       } catch (err: any) {
         console.error('PayPal capture error:', err);
         setStatus('error');

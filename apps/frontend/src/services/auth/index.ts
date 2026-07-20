@@ -58,11 +58,12 @@ export const authApi = {
     return res.data;
   },
 
-  postSsoAuthorize: async (clientId: string, redirectUri: string, scope?: string) => {
+  postSsoAuthorize: async (clientId: string, redirectUri: string, scope?: string, state?: string) => {
     const res = await apiClient.post('/auth/sso/authorize', {
       client_id: clientId,
       redirect_uri: redirectUri,
       scope,
+      state,
     });
     return res.data;
   },

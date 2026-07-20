@@ -54,17 +54,18 @@ export const useResetPassword = () => {
 
 export const usePostSsoAuthorize = () => {
   return useMutation({
-    mutationFn: ({ clientId, redirectUri, scope }: { clientId: string; redirectUri: string; scope?: string }) =>
-      authApi.postSsoAuthorize(clientId, redirectUri, scope),
+    mutationFn: ({ clientId, redirectUri, scope, state }: { clientId: string; redirectUri: string; scope?: string; state?: string }) =>
+      authApi.postSsoAuthorize(clientId, redirectUri, scope, state),
   });
 };
 
-export const useCurrentUser = () => {
+export const useCurrentUser = (enabled = true) => {
   return useQuery({
     queryKey: ['currentUser'],
     queryFn: () => authApi.getCurrentUser(),
     staleTime: 1000 * 60 * 5, // 5 minutes — current user profile rarely changes
     retry: false,
+    enabled,
   });
 };
 

@@ -227,7 +227,7 @@ export default function CustomerRegistration() {
   const performRedirect = async () => {
     if (clientId && redirectUri) {
       try {
-        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined });
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined, state: state || undefined });
         window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
         return;
       } catch (err) {

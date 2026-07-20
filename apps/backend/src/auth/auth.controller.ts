@@ -114,7 +114,7 @@ export class AuthController {
     }
     // Real OAuth redirect (if configured)
     const googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-    const redirectUri = `${baseUrl}/api/v1/auth/google/callback`;
+    const redirectUri = `${baseUrl}/api/v1/business/google/callback`;
     const scope = 'openid email profile';
     const params = new URLSearchParams({
       client_id: clientId,

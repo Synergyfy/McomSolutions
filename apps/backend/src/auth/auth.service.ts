@@ -220,6 +220,43 @@ export class AuthService {
     const businessId = user.businessProfile?.id || null;
     const name = user.businessProfile?.businessName || user.email.split('@')[0];
 
+    // Fetch active platform packages for this business
+    let activePlans: any[] = [];
+    if (businessId) {
+      const now = new Date();
+      const packages = await this.prisma.platformPackage.findMany({
+        where: {
+          businessId,
+          status: 'active',
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: now } },
+          ],
+        },
+        select: {
+          platform: true,
+          externalPlanId: true,
+          planName: true,
+          planType: true,
+          expiresAt: true,
+          billingCycle: true,
+          amount: true,
+          currency: true,
+        },
+      });
+
+      activePlans = packages.map((p) => ({
+        platform: p.platform,
+        planId: p.externalPlanId,
+        planName: p.planName,
+        planType: p.planType,
+        expiresAt: p.expiresAt,
+        billingCycle: p.billingCycle,
+        amount: p.amount,
+        currency: p.currency,
+      }));
+    }
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -245,6 +282,7 @@ export class AuthService {
         name,
         businessId,
         isOnboarded: !!businessId,
+        activePlans,
       },
     };
   }
@@ -360,6 +398,36 @@ export class AuthService {
     const role = user.role === Role.BUSINESS ? 'business' : 'customer';
     const issuer = process.env.MCOM_CENTRAL_ISSUER || 'mcom-central';
 
+    // Fetch active platform packages for the platforms claim
+    const businessId = user.businessProfile?.id;
+    const platforms: Record<string, { planId: string; expiresAt: string | null }> = {};
+
+    if (businessId) {
+      const now = new Date();
+      const packages = await this.prisma.platformPackage.findMany({
+        where: {
+          businessId,
+          status: 'active',
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: now } },
+          ],
+        },
+        select: {
+          platform: true,
+          externalPlanId: true,
+          expiresAt: true,
+        },
+      });
+
+      for (const p of packages) {
+        platforms[p.platform] = {
+          planId: p.externalPlanId,
+          expiresAt: p.expiresAt?.toISOString() || null,
+        };
+      }
+    }
+
     const payload = {
       iss: issuer,
       aud: targetClientId || 'mcom-ecosystem',
@@ -370,6 +438,7 @@ export class AuthService {
       phoneNumber: user.businessProfile?.phone || null,
       postcode: user.businessProfile?.postcode || null,
       address: user.businessProfile?.address || null,
+      platforms,
     };
 
     const ssoToken = this.jwtService.sign(payload, {

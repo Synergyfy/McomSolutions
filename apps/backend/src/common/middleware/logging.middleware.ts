@@ -10,6 +10,30 @@ export class LoggingMiddleware implements NestMiddleware {
     const userAgent = request.get('user-agent') || '';
     const startTime = Date.now();
 
+    const isSsoEndpoint = originalUrl.includes('/auth/sso/authorize') || originalUrl.includes('/auth/sso/token');
+    const isDataUserEndpoint = originalUrl.includes('/data/user');
+    const isTargetEndpoint = isSsoEndpoint || isDataUserEndpoint;
+    let responseBody: any = null;
+
+    if (isTargetEndpoint) {
+      const originalSend = response.send;
+      response.send = function (...args: any[]): Response {
+        const chunk = args[0];
+        try {
+          if (typeof chunk === 'string') {
+            responseBody = chunk;
+          } else if (Buffer.isBuffer(chunk)) {
+            responseBody = chunk.toString('utf8');
+          } else {
+            responseBody = JSON.stringify(chunk);
+          }
+        } catch (e) {
+          responseBody = '[Unparseable response]';
+        }
+        return originalSend.apply(this, args);
+      };
+    }
+
     response.on('finish', () => {
       const { statusCode } = response;
       const contentLength = response.get('content-length') || '0';
@@ -30,8 +54,53 @@ export class LoggingMiddleware implements NestMiddleware {
       this.logger.log(
         `[${method}] ${originalUrl} ${statusString} - ${contentLength}b - ${duration}ms | IP: ${ip} | ${userAgent}`,
       );
+
+      if (isTargetEndpoint) {
+        // Mask sensitive request fields
+        const maskedBody = { ...request.body };
+        if (maskedBody.client_secret) maskedBody.client_secret = '[MASKED]';
+        if (maskedBody.password) maskedBody.password = '[MASKED]';
+
+        const maskedHeaders = { ...request.headers };
+        if (maskedHeaders.authorization) {
+          if (maskedHeaders.authorization.toLowerCase().startsWith('basic ')) {
+            maskedHeaders.authorization = 'Basic [MASKED]';
+          } else if (maskedHeaders.authorization.toLowerCase().startsWith('bearer ')) {
+            maskedHeaders.authorization = 'Bearer [MASKED]';
+          } else {
+            maskedHeaders.authorization = '[MASKED]';
+          }
+        }
+        if (maskedHeaders['x-signature']) {
+          maskedHeaders['x-signature'] = '[MASKED]';
+        }
+
+        // Mask sensitive response fields if it's JSON
+        let responseBodyToLog = responseBody;
+        try {
+          const parsed = JSON.parse(responseBody);
+          if (parsed.accessToken) parsed.accessToken = '[MASKED]';
+          if (parsed.refreshToken) parsed.refreshToken = '[MASKED]';
+          if (parsed.code) parsed.code = '[MASKED]';
+          responseBodyToLog = JSON.stringify(parsed);
+        } catch (e) {
+          // not JSON, or invalid JSON
+        }
+
+        const endpointType = isSsoEndpoint ? 'SSO' : 'Data User';
+
+        this.logger.log(
+          `[${endpointType} Details] [${method}] ${originalUrl}\n` +
+          `  Request Headers: ${JSON.stringify(maskedHeaders)}\n` +
+          `  Request Query: ${JSON.stringify(request.query)}\n` +
+          `  Request Body: ${JSON.stringify(maskedBody)}\n` +
+          `  Response Status: ${statusCode}\n` +
+          `  Response Body: ${responseBodyToLog}`
+        );
+      }
     });
 
     next();
   }
 }
+

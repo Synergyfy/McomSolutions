@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { paymentApi } from './index';
 
 export const useStripeInitiate = () => {
@@ -35,5 +35,52 @@ export const usePaypalCapture = () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
     },
+  });
+};
+
+// ─── Platform Plan Purchases ──────────────────────────────────────────
+export const usePlatformStripeInitiate = () => {
+  return useMutation({
+    mutationFn: (data: { platform: string; externalPlanId: string; billingCycle: string; returnUrl?: string; cancelUrl?: string }) =>
+      paymentApi.platformStripeInitiate(data),
+  });
+};
+
+export const usePlatformStripeConfirm = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { platform: string; externalPlanId: string; billingCycle: string; paymentIntentId: string }) =>
+      paymentApi.platformStripeConfirm(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['activePlans'] });
+    },
+  });
+};
+
+export const usePlatformPaypalInitiate = () => {
+  return useMutation({
+    mutationFn: (data: { platform: string; externalPlanId: string; billingCycle: string; returnUrl?: string; cancelUrl?: string }) =>
+      paymentApi.platformPaypalInitiate(data),
+  });
+};
+
+export const usePlatformPaypalCapture = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => paymentApi.platformPaypalCapture(orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['activePlans'] });
+    },
+  });
+};
+
+// ─── Public Platform Plans ──────────────────────────────────────────
+export const usePlatformPlans = (platform: string | null) => {
+  return useQuery({
+    queryKey: ['platformPlans', platform],
+    queryFn: () => paymentApi.getPlatformPlans(platform!),
+    enabled: !!platform,
   });
 };

@@ -53,9 +53,11 @@ export class DataSharingService {
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
       packages: packages.map(pkg => ({
+        packageId: pkg.id,
         platformName: pkg.platform,
         packageName: pkg.packageName,
         status: pkg.status,
+        externalPlanId: pkg.externalPlanId,
       })),
       permissions,
       createdAt: user.createdAt,
@@ -91,9 +93,11 @@ export class DataSharingService {
     }
 
     return user.businessProfile?.packages.map(pkg => ({
+      packageId: pkg.id,
       platformName: pkg.platform,
       packageName: pkg.packageName,
       status: pkg.status,
+      externalPlanId: pkg.externalPlanId,
     })) || [];
   }
 
@@ -151,9 +155,11 @@ export class DataSharingService {
         membershipTier,
         membershipStatus,
         packages: packages.map(pkg => ({
+          packageId: pkg.id,
           platformName: pkg.platform,
           packageName: pkg.packageName,
           status: pkg.status,
+          externalPlanId: pkg.externalPlanId,
         })),
         permissions,
       };

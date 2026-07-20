@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Building2, User, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function RegistrationEntry() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
 
   const roles = [
@@ -14,12 +15,13 @@ export default function RegistrationEntry() {
   ];
 
   const handleContinue = () => {
+    const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
     if (selectedRole === 'business') {
-      navigate('/getstarted/business');
+      navigate(`/getstarted/business${searchStr}`);
     } else if (selectedRole === 'customer') {
-      navigate('/register/customer');
+      navigate(`/register/customer${searchStr}`);
     } else if (selectedRole === 'affiliate') {
-      navigate('/register/affiliate');
+      navigate(`/register/affiliate${searchStr}`);
     } else {
       alert('This registration flow is coming soon!');
     }

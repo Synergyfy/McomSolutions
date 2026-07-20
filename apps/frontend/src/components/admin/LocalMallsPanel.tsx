@@ -8,6 +8,8 @@ import {
   Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useAdminLocalMalls } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 

@@ -12,10 +12,10 @@ export class SsoAuthorizeDto {
   @IsNotEmpty()
   redirect_uri: string;
 
-  @ApiProperty({ example: 'state-123456', description: 'State string to prevent CSRF' })
+  @ApiPropertyOptional({ example: 'state-123456', description: 'State string to prevent CSRF' })
   @IsString()
-  @IsNotEmpty()
-  state: string;
+  @IsOptional()
+  state?: string;
 
   @ApiPropertyOptional({ example: 'profile email', description: 'Space-separated scopes' })
   @IsString()

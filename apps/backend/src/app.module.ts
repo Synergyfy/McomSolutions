@@ -8,6 +8,8 @@ import { PaymentModule } from './payment/payment.module';
 import { IntegrationModule } from './integration/integration.module';
 import { NotificationModule } from './notification/notification.module';
 import { DataSharingModule } from './data-sharing/data-sharing.module';
+import { AdminModule } from './admin/admin.module';
+import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 @Module({
@@ -23,6 +25,8 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
     IntegrationModule,
     NotificationModule,
     DataSharingModule,
+    AdminModule,
+    ServiceConnectorsModule,
   ],
   controllers: [],
   providers: [],

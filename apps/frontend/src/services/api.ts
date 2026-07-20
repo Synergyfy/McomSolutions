@@ -19,6 +19,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('auth_token');
       localStorage.removeItem('business_user');
+      localStorage.removeItem('admin_user');
     }
     return Promise.reject(error);
   }
