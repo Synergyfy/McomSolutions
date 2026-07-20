@@ -1,36 +1,80 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData, BusinessUser, CustomerUser, AgentUser, ConsultantUser, AccountManager } from '../../context/AdminDataContext';
+import {
+  useAdminBusinesses, useAdminCustomers, useAdminAgents, useAdminConsultants, useAdminAccountManagers,
+  useCreateBusiness, useUpdateBusiness, useDeleteBusiness,
+  useCreateCustomer, useUpdateCustomer, useDeleteCustomer,
+  useCreateAgent, useUpdateAgent, useDeleteAgent,
+  useCreateConsultant, useUpdateConsultant, useDeleteConsultant,
+  useCreateAccountManager, useUpdateAccountManager, useDeleteAccountManager,
+} from '../../services/admin/hooks';
 
 type UserTab = 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers';
 
 export default function UserManagementPanel() {
-  const {
-    businesses, customers, agents, consultants, accountManagers,
-    addBusiness, updateBusiness, deleteBusiness,
-    addCustomer, updateCustomer, deleteCustomer,
-    addAgent, updateAgent, deleteAgent,
-    addConsultant, updateConsultant, deleteConsultant,
-    addAccountManager, updateAccountManager, deleteAccountManager,
-  } = useAdminData();
+  const { data: bizRes, isLoading: bizLoading } = useAdminBusinesses();
+  const { data: custRes, isLoading: custLoading } = useAdminCustomers();
+  const { data: agentRes, isLoading: agentLoading } = useAdminAgents();
+  const { data: consRes, isLoading: consLoading } = useAdminConsultants();
+  const { data: amRes, isLoading: amLoading } = useAdminAccountManagers();
+
+  const createBiz = useCreateBusiness();
+  const updateBiz = useUpdateBusiness();
+  const deleteBiz = useDeleteBusiness();
+
+  const createCust = useCreateCustomer();
+  const updateCust = useUpdateCustomer();
+  const deleteCust = useDeleteCustomer();
+
+  const createAgt = useCreateAgent();
+  const updateAgt = useUpdateAgent();
+  const deleteAgt = useDeleteAgent();
+
+  const createCons = useCreateConsultant();
+  const updateCons = useUpdateConsultant();
+  const deleteCons = useDeleteConsultant();
+
+  const createAM = useCreateAccountManager();
+  const updateAM = useUpdateAccountManager();
+  const deleteAM = useDeleteAccountManager();
 
   const [userTab, setUserTab] = useState<UserTab>('businesses');
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<any>(null);
 
+  const isLoading = bizLoading || custLoading || agentLoading || consLoading || amLoading;
+
+  const bizData = bizRes?.data as any;
+  const businesses = (Array.isArray(bizData) ? bizData : bizData?.data) ?? [];
+  const custData = custRes?.data as any;
+  const customers = (Array.isArray(custData) ? custData : custData?.data) ?? [];
+  const agtData = agentRes?.data as any;
+  const agents = (Array.isArray(agtData) ? agtData : agtData?.data) ?? [];
+  const consData = consRes?.data as any;
+  const consultants = (Array.isArray(consData) ? consData : consData?.data) ?? [];
+  const amData = amRes?.data as any;
+  const accountManagers = (Array.isArray(amData) ? amData : amData?.data) ?? [];
+
   const filterBySearch = <T extends { name: string; email: string }>(items: T[]) =>
     items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.email.toLowerCase().includes(search.toLowerCase()));
 
   const renderTable = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+        </div>
+      );
+    }
     switch (userTab) {
-      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onEdit={setEditing} onDelete={deleteBusiness} onAdd={() => setShowAdd(true)} />;
-      case 'customers': return <CustomerTable data={filterBySearch(customers)} onEdit={setEditing} onDelete={deleteCustomer} onAdd={() => setShowAdd(true)} />;
-      case 'agents': return <AgentTable data={filterBySearch(agents)} onEdit={setEditing} onDelete={deleteAgent} onAdd={() => setShowAdd(true)} />;
-      case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onEdit={setEditing} onDelete={deleteConsultant} onAdd={() => setShowAdd(true)} />;
-      case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onEdit={setEditing} onDelete={deleteAccountManager} onAdd={() => setShowAdd(true)} />;
+      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'customers': return <CustomerTable data={filterBySearch(customers)} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'agents': return <AgentTable data={filterBySearch(agents)} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
     }
   };
 
@@ -60,12 +104,12 @@ export default function UserManagementPanel() {
           <UserFormModal
             type={userTab}
             onClose={() => setShowAdd(false)}
-            onSave={(data) => {
-              if (userTab === 'businesses') addBusiness(data as any);
-              else if (userTab === 'customers') addCustomer(data as any);
-              else if (userTab === 'agents') addAgent(data as any);
-              else if (userTab === 'consultants') addConsultant(data as any);
-              else if (userTab === 'account-managers') addAccountManager(data as any);
+            onSave={(data: any) => {
+              if (userTab === 'businesses') createBiz.mutate(data);
+              else if (userTab === 'customers') createCust.mutate(data);
+              else if (userTab === 'agents') createAgt.mutate(data);
+              else if (userTab === 'consultants') createCons.mutate(data);
+              else if (userTab === 'account-managers') createAM.mutate(data);
               setShowAdd(false);
             }}
           />
@@ -75,12 +119,13 @@ export default function UserManagementPanel() {
             type={userTab}
             initial={editing}
             onClose={() => setEditing(null)}
-            onSave={(data) => {
-              if (userTab === 'businesses') updateBusiness(editing.id, data);
-              else if (userTab === 'customers') updateCustomer(editing.id, data);
-              else if (userTab === 'agents') updateAgent(editing.id, data);
-              else if (userTab === 'consultants') updateConsultant(editing.id, data);
-              else if (userTab === 'account-managers') updateAccountManager(editing.id, data);
+            onSave={(data: any) => {
+              const id = editing.id as string;
+              if (userTab === 'businesses') updateBiz.mutate({ id, data });
+              else if (userTab === 'customers') updateCust.mutate({ id, data });
+              else if (userTab === 'agents') updateAgt.mutate({ id, data });
+              else if (userTab === 'consultants') updateCons.mutate({ id, data });
+              else if (userTab === 'account-managers') updateAM.mutate({ id, data });
               setEditing(null);
             }}
           />
@@ -89,6 +134,8 @@ export default function UserManagementPanel() {
     </div>
   );
 }
+
+// ── Sub-components (BusinessTable, CustomerTable, etc.) unchanged ──
 
 function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
   return (
@@ -103,10 +150,10 @@ function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
-            {data.map((b: BusinessUser) => (
+            {data.map((b: any) => (
               <tr key={b.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-50 text-brand-blue rounded-lg flex items-center justify-center font-bold text-xs">{b.name.charAt(0)}</div>
+                  <div className="w-8 h-8 bg-blue-50 text-brand-blue rounded-lg flex items-center justify-center font-bold text-xs">{b.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{b.name}</div><div className="text-[10px] text-gray-400 font-bold">{b.email}</div></div>
                 </div></td>
                 <td className="px-6 py-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border bg-blue-50 text-blue-700 border-blue-200">{b.membership}</span></td>
@@ -138,13 +185,13 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
-            {data.map((c: CustomerUser) => (
+            {data.map((c: any) => (
               <tr key={c.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
+                  <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{c.name}</div><div className="text-[10px] text-gray-400 font-bold">{c.email}</div></div>
                 </div></td>
-                <td className="px-6 py-4 text-sm font-bold text-gray-900">{c.loyaltyPoints.toLocaleString()}</td>
+                <td className="px-6 py-4 text-sm font-bold text-gray-900">{c.loyaltyPoints?.toLocaleString()}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-red-500')} /><span className="text-xs font-bold">{c.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
@@ -172,13 +219,13 @@ function AgentTable({ data, onEdit, onDelete }: any) {
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
-            {data.map((a: AgentUser) => (
+            {data.map((a: any) => (
               <tr key={a.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name.charAt(0)}</div>
+                  <div className="w-8 h-8 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{a.name}</div><div className="text-[10px] text-gray-400 font-bold">{a.email}</div></div>
                 </div></td>
-                <td className="px-6 py-4"><div className="flex gap-1 flex-wrap">{a.permissions.map(p => <span key={p} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{p}</span>)}</div></td>
+                <td className="px-6 py-4"><div className="flex gap-1 flex-wrap">{a.permissions?.map((p: string) => <span key={p} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{p}</span>)}</div></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
                   <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
@@ -206,10 +253,10 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
-            {data.map((c: ConsultantUser) => (
+            {data.map((c: any) => (
               <tr key={c.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name.charAt(0)}</div>
+                  <div className="w-8 h-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{c.name}</div><div className="text-[10px] text-gray-400 font-bold">{c.email}</div></div>
                 </div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-700">{c.specialisation}</td>
@@ -240,10 +287,10 @@ function AccountManagerTable({ data, onEdit, onDelete }: any) {
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
-            {data.map((a: AccountManager) => (
+            {data.map((a: any) => (
               <tr key={a.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-cyan-50 text-cyan-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name.charAt(0)}</div>
+                  <div className="w-8 h-8 bg-cyan-50 text-cyan-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{a.name}</div><div className="text-[10px] text-gray-400 font-bold">{a.email}</div></div>
                 </div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{a.assignedBusinesses}</td>

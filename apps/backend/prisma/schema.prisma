@@ -11,23 +11,54 @@ enum Role {
   BUSINESS
   CUSTOMER
   ADMIN
+  AGENT
+  CONSULTANT
+  ACCOUNT_MANAGER
+  PARTNER
+}
+
+enum MembershipLevel {
+  Bronze
+  Silver
+  Gold
+  Platinum
+}
+
+enum MembershipTier {
+  Free
+  Normal
+  Pro
+  ProPlus @map("Pro+")
+}
+
+enum MembershipStatus {
+  active
+  inactive
+  trial
 }
 
 model User {
-  id                 String           @id @default(uuid())
-  email              String           @unique
+  id                 String              @id @default(uuid())
+  email              String              @unique
   password           String
-  role               Role             @default(BUSINESS)
+  role               Role                @default(BUSINESS)
   firstName          String?
   lastName           String?
-  jobTitle           String?          @default("Managing Director")
-  twoFactorEnabled   Boolean          @default(false)
-  emailNotifications Boolean          @default(true)
-  smsNotifications   Boolean          @default(false)
-  registrationSource String?          @default("direct")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  jobTitle           String?             @default("Managing Director")
+  twoFactorEnabled   Boolean             @default(false)
+  emailNotifications Boolean             @default(true)
+  smsNotifications   Boolean             @default(false)
+  registrationSource String?             @default("direct")
+  adminRole          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   businessProfile    BusinessProfile?
+  customerProfile    CustomerProfile?
+  agentProfile       AgentProfile?
+  consultantProfile  ConsultantProfile?
+  accountManagerProfile AccountManagerProfile?
+  ssoSessions        SsoSession[]
+  resetCodes         PasswordResetCode[]
 }
 
 model BusinessProfile {
@@ -51,9 +82,9 @@ model BusinessProfile {
   logoUrl          String?
   openingHours     String?
   socialMedia      String?
-  membershipLevel  String            @default("Bronze") // Bronze, Silver, Gold, Platinum
-  membershipTier   String            @default("Normal") // Normal, Pro, Pro+
-  membershipStatus String            @default("active") // active, inactive
+  membershipLevel  MembershipLevel   @default(Bronze)
+  membershipTier   MembershipTier    @default(Normal)
+  membershipStatus MembershipStatus  @default(active)
   apiKey           String?           @unique
   localMallName    String?
   localMallId      String?
@@ -77,27 +108,501 @@ model Notification {
   updatedAt   DateTime        @updatedAt
 }
 
-
 model PlatformPackage {
-  id          String          @id @default(uuid())
-  businessId  String
-  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  platform    String          // Rewards, Spin, Mall, Audit, Expo
-  packageName String          // Starter, Standard, Enterprise
-  status      String          @default("active") // active, inactive
-  limits      Json?           // JSON holding keys like rewardsLimit, campaignsLimit, etc.
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id                      String          @id @default(uuid())
+  businessId              String
+  business                BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  platform                String          // MCOM Mall, MCOM Rewards, MCOM Spin, GBS Audit, GBS Expo
+  packageName             String          // Starter, Standard, Enterprise, or plan name from external service
+  status                  String          @default("active") // active, inactive, expired
+  limits                  Json?           // JSON holding keys like rewardsLimit, campaignsLimit, etc.
+  externalPlanId          String?         // Plan ID from external service (Mall/Rewards)
+  planName                String?         // Display name from external plan
+  planType                String?         // STANDARD, TRIAL, SEASONAL
+  expiresAt               DateTime?       // When the subscription expires (null = no expiry)
+  provider                String?         // 'stripe' or 'paypal'
+  providerSubscriptionId  String?         // Stripe subscription ID or PayPal subscription ID
+  amount                  Float?          // Amount paid
+  currency                String          @default("GBP")
+  billingCycle            String?         // monthly, quarterly, annual
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
 
   @@unique([businessId, platform])
+  @@index([externalPlanId])
+  @@index([expiresAt])
 }
 
 model BillingTransaction {
-  id          String          @id @default(uuid())
-  businessId  String
-  business    BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  amount      Float
-  description String
-  status      String          @default("paid") // paid, pending, failed
-  createdAt   DateTime        @default(now())
+  id                  String          @id @default(uuid())
+  businessId          String
+  business            BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  amount              Float
+  description         String
+  status              String          @default("paid") // paid, pending, failed, refunded
+  platformPackageId   String?         // Link to platform package purchased
+  provider            String?         // 'stripe' or 'paypal'
+  providerPaymentId   String?         // Stripe payment intent ID or PayPal order ID
+  createdAt           DateTime        @default(now())
+
+  @@index([platformPackageId])
+}
+
+model SsoClient {
+  id           String        @id @default(cuid())
+  clientId     String        @unique @map("client_id")
+  clientSecret String        @map("client_secret")
+  name         String
+  redirectUris String[]      @map("redirect_uris")
+  scopes       String[]
+  logoUrl      String?       @map("logo_url")
+  apiKey       String?       @unique @map("api_key")
+  isActive     Boolean       @default(true) @map("is_active")
+  authCodes    SsoAuthCode[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([apiKey])
+  @@map("sso_clients")
+}
+
+model SsoAuthCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  userId      String    @map("user_id")
+  clientId    String    @map("client_id")
+  client      SsoClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  redirectUri String    @map("redirect_uri")
+  scopes      String[]
+  expiresAt   DateTime  @map("expires_at")
+  used        Boolean   @default(false) @map("used")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([userId])
+  @@map("sso_auth_codes")
+}
+
+model SsoSession {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId     String   @map("client_id")
+  accessToken  String   @unique @map("access_token")
+  refreshToken String   @unique @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([accessToken])
+  @@index([refreshToken])
+  @@map("sso_sessions")
+}
+
+model PasswordResetCode {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  used      Boolean  @default(false) @map("used")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([code])
+  @@index([userId])
+  @@map("password_reset_codes")
+}
+
+// ─── ADMIN DASHBOARD PROFILE TABLES ──────────────────────────────────────────
+
+model CustomerProfile {
+  id               String   @id @default(cuid())
+  userId           String   @unique @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  loyaltyPoints    Int      @default(0) @map("loyalty_points")
+  platformUsage    String[] @map("platform_usage")
+  membershipStatus String   @default("None") @map("membership_status")
+  status           String   @default("Active") @map("status")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("customer_profiles")
+}
+
+model AgentProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions String[] @map("permissions")
+  status      String   @default("Active") @map("status")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("agent_profiles")
+}
+
+model ConsultantProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialisation String   @map("specialisation")
+  status         String   @default("Active") @map("status")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("consultant_profiles")
+}
+
+model AccountManagerProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique @map("user_id")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedBusinesses Int      @default(0) @map("assigned_businesses")
+  status             String   @default("Active") @map("status")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("account_manager_profiles")
+}
+
+// ─── ADMIN DASHBOARD CONFIG & ENTITY TABLES ──────────────────────────────────
+
+model MembershipPlan {
+  id             String   @id @default(cuid())
+  name           String   @map("name")
+  description    String   @map("description")
+  price          Float    @map("price")
+  billingCycle   String   @map("billing_cycle")
+  platformAccess String[] @map("platform_access")
+  usageLimits    Json     @map("usage_limits")
+  permissions    String[] @map("permissions")
+  archived       Boolean  @default(false) @map("archived")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("membership_plans")
+}
+
+model PackageTemplate {
+  id           String   @id @default(cuid())
+  name         String   @map("name")
+  platform     String   @map("platform")
+  description  String   @map("description")
+  price        Float    @map("price")
+  billingCycle String   @map("billing_cycle")
+  features     String[] @map("features")
+  usageLimits  Json     @map("usage_limits")
+  accessRights String[] @map("access_rights")
+  archived     Boolean  @default(false) @map("archived")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("package_templates")
+}
+
+model EcosystemSubscription {
+  id           String   @id @default(cuid())
+  businessId   String   @map("business_id")
+  businessName String   @map("business_name")
+  type         String   @map("type") // 'Membership' | 'Package'
+  itemName     String   @map("item_name")
+  status       String   @default("Active") @map("status")
+  startDate    DateTime @map("start_date")
+  endDate      DateTime @map("end_date")
+  amount       Float    @map("amount")
+  billingCycle String   @map("billing_cycle")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@map("ecosystem_subscriptions")
+}
+
+model EcosystemPlatform {
+  id          String   @id @default(cuid())
+  name        String   @map("name")
+  description String   @map("description")
+  status      String   @default("Enabled") @map("status") // Enabled, Disabled, Maintenance, Restricted
+  icon        String   @map("icon")
+  launchDate  DateTime @map("launch_date")
+  totalUsers  Int      @default(0) @map("total_users")
+  visible     Boolean  @default(true) @map("visible")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("ecosystem_platforms")
+}
+
+model PermissionRole {
+  role        String   @id @map("role")
+  permissions Json     @map("permissions")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("permission_roles")
+}
+
+model AdminPayment {
+  id           String   @id @default(cuid())
+  businessId   String?  @map("business_id")
+  businessName String   @map("business_name")
+  amount       Float    @map("amount")
+  currency     String   @default("GBP") @map("currency")
+  method       String   @map("method")
+  status       String   @map("status") // Completed, Pending, Failed, Refunded
+  date         DateTime @default(now()) @map("date")
+  invoice      String   @map("invoice")
+  type         String   @map("type") // Membership, Package, One-time
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@map("admin_payments")
+}
+
+model BroadcastNotification {
+  id            String    @id @default(cuid())
+  title         String    @map("title")
+  message       String    @map("message")
+  audience      String[]  @map("audience")
+  scheduledDate DateTime? @map("scheduled_date")
+  status        String    @default("Sent") @map("status") // Sent, Scheduled, Draft
+  sentCount     Int       @default(0) @map("sent_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("broadcast_notifications")
+}
+
+model SupportTicket {
+  id         String   @id @default(cuid())
+  subject    String   @map("subject")
+  message    String   @map("message")
+  fromName   String   @map("from_name")
+  fromType   String   @map("from_type") // Business, Customer
+  status     String   @default("Open") @map("status") // Open, Resolved, Escalated
+  priority   String   @default("Medium") @map("priority") // Low, Medium, High
+  assignedTo String?  @map("assigned_to")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("support_tickets")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   @map("action")
+  adminName  String   @map("admin_name")
+  targetType String   @map("target_type")
+  targetName String   @map("target_name")
+  details    String   @map("details")
+  timestamp  DateTime @default(now()) @map("timestamp")
+  category   String   @map("category")
+
+  @@map("audit_logs")
+}
+
+model SystemSettings {
+  id                    String   @id @default("global") @map("id")
+  brandName             String   @default("MCOMSolutions") @map("brand_name")
+  supportEmail          String   @default("support@mcomsolutions.co.uk") @map("support_email")
+  currency              String   @default("GBP") @map("currency")
+  sessionTimeout        Int      @default(60) @map("session_timeout")
+  maxLoginAttempts      Int      @default(5) @map("max_login_attempts")
+  emailEnabled          Boolean  @default(true) @map("email_enabled")
+  smsEnabled            Boolean  @default(false) @map("sms_enabled")
+  paymentGateway        String   @default("Stripe") @map("payment_gateway")
+  maintenanceMode      Boolean  @default(false) @map("maintenance_mode")
+  allowRegistration    Boolean  @default(true) @map("allow_registration")
+  authConfig            Json?    @map("auth_config")
+  registrationFlow      Json?    @map("registration_flow")
+  businessProfileConfig Json?    @map("business_profile_config")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+model PlatformLaunchRule {
+  id                  String   @id @default(cuid())
+  platformId          String   @map("platform_id")
+  requiredMembership  String   @map("required_membership")
+  requiredPackage     String   @map("required_package")
+  requiredPermissions String[] @map("required_permissions")
+  launchConditions    String   @map("launch_conditions")
+  redirectRule        String   @map("redirect_rule")
+  accessRule          String   @map("access_rule")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_launch_rules")
+}
+
+model SystemIntegration {
+  id            String    @id @default(cuid())
+  name          String    @map("name")
+  type          String    @map("type")
+  status        String    @map("status") // Connected, Disconnected, Error
+  lastSync      DateTime? @map("last_sync")
+  connectedDate DateTime? @map("connected_date")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("system_integrations")
+}
+
+model SystemApiKey {
+  id          String    @id @default(cuid())
+  name        String    @map("name")
+  key         String    @unique @map("key")
+  permissions String[]  @map("permissions")
+  status      String    @default("Active") @map("status") // Active, Revoked
+  lastUsed    DateTime? @map("last_used")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("system_api_keys")
+}
+
+model RevenueRecord {
+  id        String   @id @default(cuid())
+  date      String   @map("date") // YYYY-MM-DD
+  amount    Float    @map("amount")
+  type      String   @map("type")
+  source    String   @map("source")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("revenue_records")
+}
+
+model Borough {
+  id                   String   @id @default(cuid())
+  name                 String   @unique @map("name")
+  populationActivity   String   @map("population_activity")
+  businessCount        Int      @default(0) @map("business_count")
+  activeCampaigns      Int      @default(0) @map("active_campaigns")
+  rewardsParticipation String   @map("rewards_participation")
+  healthScore          Int      @map("health_score")
+  manager              String   @map("manager")
+  area                 String   @map("area")
+  region               String   @map("region")
+  engagement           String   @map("engagement")
+  health               String   @map("health")
+  activity             String   @map("activity")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("boroughs")
+}
+
+model HighStreet {
+  id            String   @id @default(cuid())
+  name          String   @map("name")
+  borough       String   @map("borough")
+  status        String   @default("Active") @map("status")
+  businessCount Int      @default(0) @map("business_count")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("high_streets")
+}
+
+model LocalMall {
+  id                                  String   @id @default(cuid())
+  name                                String   @map("name")
+  postcodes                           String[] @map("postcodes")
+  borough                             String   @map("borough")
+  primaryHighStreet                   String   @map("primary_high_street")
+  additionalHighStreets               String[] @map("additional_high_streets")
+  businesses                          Int      @default(0) @map("businesses")
+  customers                           Int      @default(0) @map("customers")
+  campaigns                           Int      @default(0) @map("campaigns")
+  events                              Int      @default(0) @map("events")
+  status                              String   @default("Active") @map("status") // Active, Draft, Disabled, Archived
+  createdDate                         DateTime @default(now()) @map("created_date")
+  description                         String   @map("description")
+  longDescription                     String   @map("long_description")
+  slug                                String   @unique @map("slug")
+  logo                                String?  @map("logo")
+  coverBanner                         String?  @map("cover_banner")
+  mobileBanner                        String?  @map("mobile_banner")
+  primaryColour                       String   @map("primary_colour")
+  secondaryColour                     String   @map("secondary_colour")
+  welcomeMessage                      String   @map("welcome_message")
+  tagline                             String   @map("tagline")
+  radiusCoverage                      String   @map("radius_coverage")
+  allowBusinessesOutsidePostcode      Boolean  @default(false) @map("allow_businesses_outside_postcode")
+  allowVirtualBusinesses              Boolean  @default(true) @map("allow_virtual_businesses")
+  allowHomeBusinesses                 Boolean  @default(true) @map("allow_home_businesses")
+  requireVerification                 Boolean  @default(true) @map("require_verification")
+  requireAuditCompletion              Boolean  @default(false) @map("require_audit_completion")
+  requireMembershipApproval           Boolean  @default(true) @map("require_membership_approval")
+  leadConsultant                      String?  @map("lead_consultant")
+  leadConsultantId                    String?  @map("lead_consultant_id")
+  assignedAccountManagers             String[] @map("assigned_account_managers")
+  assignedAccountManagerIds           String[] @map("assigned_account_manager_ids")
+  assignedAgents                      String[] @map("assigned_agents")
+  assignedAgentIds                    String[] @map("assigned_agent_ids")
+  supportTeam                         String[] @map("support_team")
+  enableAudit                         Boolean  @default(true) @map("enable_audit")
+  enableRewards                       Boolean  @default(true) @map("enable_rewards")
+  enableLoyalty                       Boolean  @default(true) @map("enable_loyalty")
+  enableQLinks                        Boolean  @default(true) @map("enable_q_links")
+  enableSpin                          Boolean  @default(true) @map("enable_spin")
+  enableEvents                        Boolean  @default(true) @map("enable_events")
+  enableCampaigns                     Boolean  @default(true) @map("enable_campaigns")
+  enablePushNotifications             Boolean  @default(true) @map("enable_push_notifications")
+  enableMarketplace                   Boolean  @default(false) @map("enable_marketplace")
+  allowGuestBrowsing                  Boolean  @default(true) @map("allow_guest_browsing")
+  requireRegistrationForRewards       Boolean  @default(true) @map("require_registration_for_rewards")
+  requireRegistrationForSpin          Boolean  @default(true) @map("require_registration_for_spin")
+  enableAutoLocationDetection         Boolean  @default(true) @map("enable_auto_location_detection")
+  allowManualLocalMallSwitching       Boolean  @default(true) @map("allow_manual_local_mall_switching")
+  autoApproveBusinesses               Boolean  @default(false) @map("auto_approve_businesses")
+  manualApprovalRequired              Boolean  @default(true) @map("manual_approval_required")
+  requireDocumentVerification         Boolean  @default(true) @map("require_document_verification")
+  requireGoogleBusinessMatch          Boolean  @default(false) @map("require_google_business_match")
+  requireAuditCompletionForBusiness   Boolean  @default(true) @map("require_audit_completion_for_business")
+  defaultMembershipPackage            String?  @map("default_membership_package")
+  featuredBusinesses                  String[] @map("featured_businesses")
+  featuredCategories                  String[] @map("featured_categories")
+  featuredCampaigns                   String[] @map("featured_campaigns")
+  featuredEvents                      String[] @map("featured_events")
+  featuredRewards                     String[] @map("featured_rewards")
+  featuredSpinCampaigns               String[] @map("featured_spin_campaigns")
+  featuredHighStreets                 String[] @map("featured_high_streets")
+  categoryPriorities                  Json?    @map("category_priorities")
+  allowBoroughCampaigns               Boolean  @default(true) @map("allow_borough_campaigns")
+  allowHighStreetCampaigns            Boolean  @default(true) @map("allow_high_street_campaigns")
+  allowJointCampaigns                 Boolean  @default(false) @map("allow_joint_campaigns")
+  allowSeasonalCampaigns              Boolean  @default(true) @map("allow_seasonal_campaigns")
+  campaignApprovalRequired            Boolean  @default(true) @map("campaign_approval_required")
+  enableEventsModule                  Boolean  @default(true) @map("enable_events_module")
+  requireEventApproval                Boolean  @default(true) @map("require_event_approval")
+  maxEventsPerBusiness                Int      @default(5) @map("max_events_per_business")
+  allowCommunityEvents                Boolean  @default(true) @map("allow_community_events")
+  allowBusinessEvents                 Boolean  @default(true) @map("allow_business_events")
+  enableRewardsModule                 Boolean  @default(true) @map("enable_rewards_module")
+  enableLoyaltyModule                 Boolean  @default(true) @map("enable_loyalty_module")
+  enableBonusCampaigns                Boolean  @default(false) @map("enable_bonus_campaigns")
+  enableDoublePointDays               Boolean  @default(true) @map("enable_double_point_days")
+  enableSeasonalRewards               Boolean  @default(true) @map("enable_seasonal_rewards")
+  enableSpinModule                    Boolean  @default(true) @map("enable_spin_module")
+  allowBusinessSponsoredSpins         Boolean  @default(true) @map("allow_business_sponsored_spins")
+  allowBoroughSpins                   Boolean  @default(false) @map("allow_borough_spins")
+  allowSeasonalSpins                  Boolean  @default(true) @map("allow_seasonal_spins")
+  maxSpinsPerCustomer                 Int      @default(3) @map("max_spins_per_customer")
+  enableRotator                       Boolean  @default(true) @map("enable_rotator")
+  enableLocalFeedDistribution         Boolean  @default(true) @map("enable_local_feed_distribution")
+  enableBoroughFeedDistribution       Boolean  @default(false) @map("enable_borough_feed_distribution")
+  enableFeaturedPlacement             Boolean  @default(true) @map("enable_featured_placement")
+  createdAt                           DateTime @default(now()) @map("created_at")
+  updatedAt                           DateTime @updatedAt @map("updated_at")
+
+  @@map("local_malls")
 }

@@ -6,14 +6,18 @@ import {
   Request,
   BadRequestException,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
 
+@ApiTags('Payments')
+@ApiBearerAuth()
 @Controller('payment')
 export class PaymentController {
   constructor(private paymentService: PaymentService) {}
 
-  // ─── STRIPE ───────────────────────────────────────────────────────────────────
+  // ─── STRIPE (Membership) ─────────────────────────────────────────────────────
 
   /**
    * Initiates a Stripe payment.
@@ -69,7 +73,7 @@ export class PaymentController {
     );
   }
 
-  // ─── PAYPAL ───────────────────────────────────────────────────────────────────
+  // ─── PAYPAL (Membership) ─────────────────────────────────────────────────────
 
   /**
    * Creates a PayPal order and returns the approval URL.
@@ -110,5 +114,71 @@ export class PaymentController {
       throw new BadRequestException('orderId is required.');
     }
     return this.paymentService.paypalCapture(orderId);
+  }
+
+  // ─── PLATFORM PLAN PURCHASES (Stripe) ────────────────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Post('platform/stripe/initiate')
+  @ApiOperation({ summary: 'Initiate Stripe payment for a platform plan (Mall/Rewards)' })
+  async platformStripeInitiate(
+    @Request() req: any,
+    @Body() dto: CreatePlatformPurchaseDto,
+  ) {
+    return this.paymentService.platformStripeInitiate(
+      req.user.userId,
+      dto.platform,
+      dto.externalPlanId,
+      dto.billingCycle,
+      dto.returnUrl,
+      dto.cancelUrl,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('platform/stripe/confirm')
+  @ApiOperation({ summary: 'Confirm Stripe payment and activate platform plan' })
+  async platformStripeConfirm(
+    @Request() req: any,
+    @Body('platform') platform: string,
+    @Body('externalPlanId') externalPlanId: string,
+    @Body('billingCycle') billingCycle: string,
+    @Body('paymentIntentId') paymentIntentId: string,
+  ) {
+    return this.paymentService.platformStripeConfirm(
+      req.user.userId,
+      platform,
+      externalPlanId,
+      billingCycle,
+      paymentIntentId,
+    );
+  }
+
+  // ─── PLATFORM PLAN PURCHASES (PayPal) ────────────────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Post('platform/paypal/initiate')
+  @ApiOperation({ summary: 'Initiate PayPal payment for a platform plan (Mall/Rewards)' })
+  async platformPaypalInitiate(
+    @Request() req: any,
+    @Body() dto: CreatePlatformPurchaseDto,
+  ) {
+    return this.paymentService.platformPaypalInitiate(
+      req.user.userId,
+      dto.platform,
+      dto.externalPlanId,
+      dto.billingCycle,
+      dto.returnUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/success`,
+      dto.cancelUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/cancel`,
+    );
+  }
+
+  @Post('platform/paypal/capture')
+  @ApiOperation({ summary: 'Capture PayPal order and activate platform plan' })
+  async platformPaypalCapture(@Body('orderId') orderId: string) {
+    if (!orderId) {
+      throw new BadRequestException('orderId is required.');
+    }
+    return this.paymentService.platformPaypalCapture(orderId);
   }
 }

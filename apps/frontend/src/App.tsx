@@ -14,6 +14,7 @@ import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
+import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
@@ -27,7 +28,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
 import { AdminAuthProvider } from './context/AdminAuthContext';
-import { AdminDataProvider } from './context/AdminDataContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AffiliateSignup from './pages/AffiliateSignup';
 import { useAdminAuth } from './context/AdminAuthContext';
@@ -197,6 +197,14 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
+            path="/payment/success" 
+            element={
+              <PageWrapper>
+                <PaymentSuccessPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
             path="/customer" 
             element={
               <PageWrapper>
@@ -321,11 +329,9 @@ export default function App() {
       <PricingProvider>
         <BusinessProvider>
           <AdminAuthProvider>
-            <AdminDataProvider>
-              <Router>
+            <Router>
                 <AnimatedRoutes />
               </Router>
-            </AdminDataProvider>
           </AdminAuthProvider>
         </BusinessProvider>
       </PricingProvider>

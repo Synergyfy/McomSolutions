@@ -5,7 +5,8 @@ import {
   CheckCircle2, AlertCircle, Clock, Plus, RefreshCw, X,
   TrendingUp, ArrowUpRight, ChevronRight, PackageOpen
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useProfile } from '../services/business/hooks';
+import { usePurchasePackage } from '../services/pricing/hooks';
 
 type PkgStatus = 'active' | 'expired' | 'pending';
 
@@ -43,18 +44,12 @@ export default function DashboardPackages() {
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedPkg, setSelectedPkg] = useState<any | null>(null);
   const [activePackages, setActivePackages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: profile, isLoading: loading } = useProfile();
+  const { mutateAsync: purchasePackage } = usePurchasePackage();
   const [buying, setBuying] = useState(false);
 
   useEffect(() => {
-    loadPackages();
-  }, []);
-
-  const loadPackages = async () => {
-    setLoading(true);
-    try {
-      const profile = await businessApi.getProfile();
-      // map active platform packages
+    if (profile) {
       const list = (profile.packages || []).map((pkg: any) => {
         const matchingPlan = AVAILABLE_PLANS.find(p => p.platform.toLowerCase() === pkg.platformName.toLowerCase());
         const renewDateStr = new Date();
@@ -73,18 +68,15 @@ export default function DashboardPackages() {
         };
       });
       setActivePackages(list);
-    } catch (err) {
-      console.error('Failed to load packages:', err);
-    } finally {
-      setLoading(false);
+    } else {
+      setActivePackages([]);
     }
-  };
+  }, [profile]);
 
   const handlePurchase = async (platformName: string, packageName: string) => {
     setBuying(true);
     try {
-      await businessApi.purchasePackage(platformName, packageName);
-      await loadPackages();
+      await purchasePackage({ platform: platformName, packageName });
       setModal(null);
       setSelectedPkg(null);
     } catch (err: any) {

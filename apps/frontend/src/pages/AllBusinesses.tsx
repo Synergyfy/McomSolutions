@@ -29,31 +29,21 @@ import {
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { useBusinesses, Business } from '../context/BusinessContext';
-import { businessApi } from '../lib/api';
+import { useBusinessById } from '../services/business/hooks';
 
 const ITEMS_PER_PAGE = 8;
 
 export default function AllBusinesses() {
-  const { businesses, addBusiness, updateBusiness, deleteBusiness } = useBusinesses();
+  const { businesses, deleteBusiness } = useBusinesses();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   const [viewingBusiness, setViewingBusiness] = useState<Business | null>(null);
-  const [detailedBusiness, setDetailedBusiness] = useState<any | null>(null);
-  const [loadingDetails, setLoadingDetails] = useState(false);
 
-  const handleViewBusiness = async (b: Business) => {
+  const { data: detailedBusiness, isFetching: loadingDetails } = useBusinessById(viewingBusiness?.id || '');
+
+  const handleViewBusiness = (b: Business) => {
     setViewingBusiness(b);
-    setDetailedBusiness(null);
-    setLoadingDetails(true);
-    try {
-      const details = await businessApi.getBusinessById(b.id);
-      setDetailedBusiness(details);
-    } catch (err) {
-      console.error('Error fetching business details:', err);
-    } finally {
-      setLoadingDetails(false);
-    }
   };
 
   // Filter and search logic

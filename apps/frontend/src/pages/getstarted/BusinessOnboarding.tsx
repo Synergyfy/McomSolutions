@@ -6,11 +6,14 @@ import {
   ChevronRight, ChevronLeft, Upload, Check,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch
+  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, LogOut
 } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { businessApi, apiClient, setSharedAuthCookies } from '../../lib/api';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { apiClient, setSharedAuthCookies } from '../../services/api';
+import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
+import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
+import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 
@@ -52,10 +55,11 @@ const UserRole = {
 };
 
 function useCreateUser() {
+  const { mutateAsync, isPending } = useRegister();
   return {
     mutateAsync: async (data: any) => {
       console.log('Registering user during onboarding:', data);
-      const res = await businessApi.register({
+      const res = await mutateAsync({
         email: data.email,
         password: data.password,
         businessName: data.businessName || 'Business Owner',
@@ -65,44 +69,47 @@ function useCreateUser() {
       });
       return { data: res };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useLogin() {
+  const { mutateAsync, isPending } = useLoginHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Logging in user during onboarding:', data);
-      const res = await businessApi.login({
+      const res = await mutateAsync({
         email: data.email,
         password: data.password,
       });
       return { data: res };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 function useSendOtp() {
+  const { mutateAsync, isPending } = useSendOtpHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      await businessApi.sendOtp(data.email);
+      await mutateAsync(data.email);
       return { success: true };
     },
-    isPending: false,
+    isPending,
   };
 }
 
 // Validation pipe helper
 function useValidateOtp() {
+  const { mutateAsync, isPending } = useVerifyOtpHook();
   return {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
-      const res = await businessApi.verifyOtp(data.email, data.otp);
+      const res = await mutateAsync({ email: data.email, code: data.otp });
       return { data: { valid: res.valid } };
     },
-    isPending: false,
+    isPending,
   };
 }
 
@@ -573,6 +580,74 @@ function BusinessOnboardingInner() {
   };
   const router = useRouter();
   const [searchParams] = useSearchParams();
+  const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
+  const { mutateAsync: getSsoToken } = useGetSsoToken();
+
+  const performSSORedirect = async (fallbackRoute: string = '/dashboard') => {
+    const clientId = searchParams.get('client_id');
+    const redirectUri = searchParams.get('redirect_uri');
+    const state = searchParams.get('state');
+    const scope = searchParams.get('scope');
+
+    // Scenario A: Standard OAuth Flow
+    if (clientId && redirectUri) {
+      try {
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined, state: state || undefined });
+        window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+        return;
+      } catch (err) {
+        console.error("SSO OAuth authorization failed", err);
+      }
+    }
+
+    // Scenario B: Direct SSO / Shared Handshake Flow
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+    
+    let redirectTarget = null;
+    let finalRedirectState = null;
+
+    if (redirectParam) {
+      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+        redirectTarget = redirectParam;
+      } else {
+        finalRedirectState = redirectParam;
+      }
+    }
+
+    // Determine platform base SSO url if redirect target is relative or null
+    if (!redirectTarget) {
+      if (source === 'mcomloyalty') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
+      } else if (source === 'mcommall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      }
+    }
+
+    if (redirectTarget) {
+      try {
+        const ssoRes = await getSsoToken(clientId || undefined);
+        const separator = redirectTarget.includes('?') ? '&' : '?';
+        const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+        let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
+        
+        if (finalRedirectState) {
+          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        }
+        
+        window.location.href = targetUrl;
+        return;
+      } catch (err) {
+        console.error('Failed to generate SSO token', err);
+      }
+    } else if (finalRedirectState) {
+      router.push(finalRedirectState);
+      return;
+    }
+
+    router.push(fallbackRoute);
+  };
+
   const dispatch = useDispatch();
 
   // ── Handle OAuth popup callback ──────────────────────────────────────────
@@ -657,7 +732,7 @@ function BusinessOnboardingInner() {
     try {
       const queryText = `${searchName} ${searchLoc}`.trim();
       const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
-      const results = res.data?.results || [];
+      const results = Array.isArray(res.data) ? res.data : (res.data?.results || []);
       setSearchResults(results);
     } catch (err: any) {
       setSearchError('Failed to search businesses.');
@@ -699,14 +774,31 @@ function BusinessOnboardingInner() {
 
       // Listen for the result sent back from the popup
       const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
+        const allowedOrigins = [
+          window.location.origin,
+          'http://localhost:3010',
+          'http://localhost:3000',
+          'http://localhost:5173'
+        ];
+        if (!allowedOrigins.includes(event.origin)) return;
         if (event.data?.type !== 'GOOGLE_CLAIM_RESULT') return;
         window.removeEventListener('message', handleMessage);
         clearInterval(pollTimer);
         setIsSubmitting(false);
         if (event.data.success) {
+          if (event.data.email) {
+            setGoogleEmail(event.data.email);
+          }
+          setIsGoogleOnboarding(true);
           setShowConnectGooglePage(false);
-          setShowBusinessTypePage(true);
+          handleGoogleSelectBranch({
+            googlePlaceId: selectedPreviewBusiness.googlePlaceId,
+            businessName: selectedPreviewBusiness.businessName,
+            address: selectedPreviewBusiness.address,
+            postcode: selectedPreviewBusiness.postcode,
+            businessPhone: selectedPreviewBusiness.businessPhone,
+            googleCategoryId: selectedPreviewBusiness.googleCategoryId,
+          });
         } else {
           setSubmitError(
             'We could not verify your ownership of this business on Google. ' +
@@ -813,6 +905,14 @@ function BusinessOnboardingInner() {
       // Set shared cookies for localhost ports SSO
       setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
       
+      // Persist token and user details to local storage
+      if (auth?.accessToken) {
+        localStorage.setItem('auth_token', auth.accessToken);
+      }
+      if (user) {
+        localStorage.setItem('business_user', JSON.stringify(user));
+      }
+      
       // Dispatch auth tokens and user data to store (which also sets cookies)
       dispatch(
         setAuthTokens({
@@ -853,8 +953,9 @@ function BusinessOnboardingInner() {
         address: selectedGoogleBranch.address,
       }));
 
-        // Complete → go to Programme Introduction (Step 5)
-        setShowProgrammeIntro(true);
+      // Complete → go to Programme Introduction (Step 5)
+      localStorage.setItem('businessOnboardingState', 'plan_selection');
+      setShowProgrammeIntro(true);
     } catch (err: any) {
       setSubmitError(err?.response?.data?.message || err?.message || 'Failed to claim business storefront.');
     } finally {
@@ -913,6 +1014,31 @@ function BusinessOnboardingInner() {
   const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
   const [planSubTier, setPlanSubTier] = useState<SubTier>('Normal');
   const [planBillingCycle, setPlanBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+
+  // ─── Platform Plans (from external services) ──────────
+  const sourceParam = searchParams.get('source');
+  const platformMap: Record<string, string> = {
+    'mcomloyalty': 'MCOM Rewards',
+    'mcommall': 'MCOM Mall',
+  };
+  const platformName = sourceParam ? platformMap[sourceParam] : null;
+  const { data: externalPlansRes, isLoading: isLoadingPlans } = usePlatformPlans(platformName);
+  const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
+  const { data: currentUser } = useCurrentUser(hasToken);
+
+  useEffect(() => {
+    if (currentUser?.businessProfile?.id && platformName) {
+      setShowInitialPrompt(false);
+      setShowChoosePlan(true);
+    }
+  }, [currentUser, platformName]);
+
+  const externalPlans = externalPlansRes?.data || [];
+  const stripeInitiate = usePlatformStripeInitiate();
+  const paypalInitiate = usePlatformPaypalInitiate();
+  const [selectedPlatformPlan, setSelectedPlatformPlan] = useState<any>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [showPlatformPaymentModal, setShowPlatformPaymentModal] = useState(false);
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -1010,6 +1136,19 @@ function BusinessOnboardingInner() {
   // ─── Load from cache ─────────────────────────────────
   useEffect(() => {
     setIsClient(true);
+
+    const onboardingState = localStorage.getItem('businessOnboardingState');
+
+    if (onboardingState === 'plan_selection') {
+      setShowInitialPrompt(false);
+      setShowChoosePlan(true);
+      return;
+    } else if (onboardingState === 'assessment') {
+      setShowInitialPrompt(false);
+      setShowInitialAssessment(true);
+      return;
+    }
+
     try {
       const cached = localStorage.getItem('businessOnboarding');
       const cachedStep = localStorage.getItem('businessOnboardingStep');
@@ -1027,6 +1166,46 @@ function BusinessOnboardingInner() {
       // ignore parse errors
     }
   }, []);
+
+  // ─── Handle Payment Success Redirect ─────────────────
+  useEffect(() => {
+    if (!isClient) return;
+
+    const paymentSuccess = localStorage.getItem('onboardingPaymentSuccess') === 'true';
+    if (!paymentSuccess) return;
+
+    // Check localStorage for cached business profile (fast path)
+    const userRaw = localStorage.getItem('business_user');
+    let hasBusinessProfile = false;
+    if (userRaw) {
+      try {
+        const user = JSON.parse(userRaw);
+        if (user?.businessProfile?.id) {
+          hasBusinessProfile = true;
+        }
+      } catch (e) {}
+    }
+
+    if (currentUser?.businessProfile?.id || hasBusinessProfile) {
+      localStorage.removeItem('onboardingPaymentSuccess');
+      localStorage.removeItem('businessOnboardingState');
+      performSSORedirect();
+      return;
+    }
+
+    // If authenticated (has token) but user profile hasn't loaded yet, wait.
+    if (hasToken && currentUser === undefined) {
+      return;
+    }
+
+    // Default: new user signing up from scratch. Go to assessment.
+    localStorage.removeItem('onboardingPaymentSuccess');
+    localStorage.setItem('businessOnboardingState', 'assessment');
+    setShowInitialPrompt(false);
+    setShowChoosePlan(false);
+    setShowProgrammeIntro(false);
+    setShowInitialAssessment(true);
+  }, [isClient, currentUser, hasToken]);
 
   useEffect(() => {
     if (!isClient) return;
@@ -1451,6 +1630,7 @@ function BusinessOnboardingInner() {
         localStorage.removeItem('businessOnboardingStep');
         localStorage.removeItem('businessOnboardingCompleted');
 
+        localStorage.setItem('businessOnboardingState', 'plan_selection');
         setShowProgrammeIntro(true);
       } catch (err: unknown) {
         const e = err as { message?: string };
@@ -1846,7 +2026,7 @@ function BusinessOnboardingInner() {
             <div className="flex-grow overflow-y-auto p-4 space-y-4">
               {searchResults.length > 0 ? (
                 searchResults.map((result: any) => {
-                  const placeId = result.place_id || result.placeId;
+                  const placeId = result.place_id || result.placeId || result.googlePlaceId;
                   const postcode = extractPostcode(result.formatted_address || result.formattedAddress || result.vicinity || '');
                   const photoRef = result.photos?.[0]?.photo_reference || result.photos?.[0]?.photoReference;
                   const typeLabel = result.types?.[0] 
@@ -1880,19 +2060,19 @@ function BusinessOnboardingInner() {
                         <button onClick={async () => {
                             setIsSearching(true);
                             try {
-                              const placeId = result.place_id || result.placeId;
+                              const placeId = result.place_id || result.placeId || result.googlePlaceId;
                               const detailsRes = await api.get(`google/google-business/${placeId}`);
                               const placeDetails = detailsRes.data?.result || detailsRes.data || {};
                               
                               setSelectedPreviewBusiness({
                                 googlePlaceId: placeId,
                                 businessName: result.name,
-                                address: placeDetails.formatted_address || result.formatted_address || '',
-                                postcode: postcode || extractPostcode(placeDetails.formatted_address || ''),
+                                address: placeDetails.formatted_address || placeDetails.formattedAddress || result.formatted_address || result.formattedAddress || '',
+                                postcode: postcode || extractPostcode(placeDetails.formatted_address || placeDetails.formattedAddress || ''),
                                 googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
-                                businessPhone: placeDetails.international_phone_number || placeDetails.formatted_phone_number || '',
+                                businessPhone: placeDetails.international_phone_number || placeDetails.internationalPhoneNumber || placeDetails.formatted_phone_number || placeDetails.businessPhone || '',
                                 rating: String(result.rating || '4.0'),
-                                reviews: String(result.user_ratings_total || '0'),
+                                reviews: String(result.user_ratings_total || result.userRatingsTotal || '0'),
                                 type: typeLabel,
                                 website: placeDetails.website || '',
                                 hours: placeDetails.opening_hours?.weekday_text?.[0] || (placeDetails.opening_hours?.open_now ? 'Open now' : 'Closed'),
@@ -1999,7 +2179,7 @@ function BusinessOnboardingInner() {
 
                   return (
                     <div 
-                      key={result.place_id || result.placeId || index} 
+                      key={result.place_id || result.placeId || result.googlePlaceId || index} 
                       style={{ top, left }} 
                       className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-30"
                     >
@@ -3059,6 +3239,10 @@ function BusinessOnboardingInner() {
         }
 
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
+
+        // ─── Check if there's a pending platform purchase ───
+        const pendingPurchase = localStorage.getItem('pendingPlatformPurchase');
+
         dispatch(
           setAuthTokens({
             accessToken: auth.accessToken,
@@ -3332,7 +3516,9 @@ function BusinessOnboardingInner() {
                 <h2 className="text-3xl font-black text-gray-900 mb-2">Storefront Live!</h2>
                 <p className="text-base font-medium text-gray-500 mb-8 leading-relaxed">Congratulations, your business is now visible to the local community.</p>
                 <button 
-                  onClick={() => router.push('/dashboard')}
+                  onClick={async () => {
+                    await performSSORedirect('/dashboard');
+                  }}
                   className="w-full bg-orange-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-orange-600/20 hover:bg-orange-700 transition-all active:scale-95"
                 >
                   Go to Dashboard
@@ -3677,20 +3863,424 @@ function BusinessOnboardingInner() {
     const QUARTERLY_DISCOUNT = 0.1;
     const YEARLY_DISCOUNT = 0.2;
 
+    // Map source param to platform name for external plans
+
+    const handlePlatformPlanSelect = async (plan: any, provider: 'stripe' | 'paypal') => {
+      const billingCycle = planBillingCycle === 'yearly' ? 'annual' : 'quarterly';
+      const displayPrice = planBillingCycle === 'yearly' ? plan.annualPrice : plan.quarterlyPrice;
+
+      // Save the selected plan to localStorage
+      localStorage.setItem('selectedMembership', JSON.stringify({
+        tier: plan.name,
+        subTier: 'Normal',
+        billing: planBillingCycle,
+        price: displayPrice || 0,
+      }));
+
+      localStorage.setItem('pendingPlatformPurchase', JSON.stringify({
+        platform: platformName,
+        externalPlanId: plan.id,
+        planName: plan.name,
+        billingCycle,
+        provider,
+        source: sourceParam || '',
+        redirect: searchParams.get('redirect') || '',
+      }));
+
+      if (provider === 'stripe') {
+        setShowPlatformPaymentModal(true);
+      } else if (provider === 'paypal') {
+        setIsProcessingPayment(true);
+        setSelectedPlatformPlan(plan);
+        try {
+          const res = await paypalInitiate.mutateAsync({
+            platform: platformName!,
+            externalPlanId: plan.id,
+            billingCycle,
+            returnUrl: `${window.location.origin}/checkout/paypal-return?platform=${encodeURIComponent(platformName!)}&onboarding=true&source=${encodeURIComponent(sourceParam || '')}&redirect=${encodeURIComponent(searchParams.get('redirect') || '')}`,
+            cancelUrl: window.location.href,
+          });
+
+          if (res?.approvalUrl) {
+            window.location.href = res.approvalUrl;
+          } else {
+            console.error('PayPal initiation response did not contain approvalUrl:', res);
+          }
+        } catch (err) {
+          console.error('Failed to initiate PayPal platform payment:', err);
+        } finally {
+          setIsProcessingPayment(false);
+        }
+      }
+    };
+
+    // ─── Platform-Specific Plans (from external service) ────────────────────
+    if (platformName) {
+      const PLAN_COLORS = [
+        'from-blue-500 to-blue-600',
+        'from-orange-500 to-orange-600',
+        'from-green-500 to-green-600',
+        'from-purple-500 to-purple-600',
+      ];
+      const PLAN_ICONS = [Trophy, Star, Rocket, Crown];
+
+      return (
+        <>
+          <div className="min-h-screen bg-gray-50 py-12">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  {currentUser?.businessProfile?.id && (
+                    <button
+                      onClick={() => performSSORedirect()}
+                      className="text-sm font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 px-4 py-2 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                    >
+                      <ChevronLeft className="w-4 h-4" /> Back to {platformName}
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('businessOnboardingState');
+                    localStorage.removeItem('businessOnboarding');
+                    localStorage.removeItem('businessOnboardingStep');
+                    localStorage.removeItem('businessOnboardingCompleted');
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('business_user');
+                    localStorage.removeItem('pendingPlatformPurchase');
+                    document.cookie = "packageInfo=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
+                    window.location.reload();
+                  }}
+                  className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                >
+                  <LogOut className="w-4 h-4" /> Restart Onboarding
+                </button>
+              </div>
+            <div className="text-center max-w-3xl mx-auto mb-12">
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
+                  <Crown className="w-4 h-4" />
+                  {platformName} Plans
+                </div>
+                <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
+                  Select Your <span className="text-orange-600">{platformName}</span> Plan
+                </h1>
+                <p className="text-base sm:text-lg text-gray-600 font-medium">
+                  Choose a plan to activate your {platformName} platform access.
+                </p>
+              </motion.div>
+
+              {/* Billing Cycle Toggle */}
+              <div className="mt-8 flex justify-center">
+                <div className="flex p-1 bg-gray-100 rounded-full">
+                  {(['quarterly', 'yearly'] as const).map((cycle) => (
+                    <button
+                      key={cycle}
+                      onClick={() => setPlanBillingCycle(cycle)}
+                      className={cn(
+                        "px-6 md:px-8 py-3 rounded-full text-sm font-semibold transition-all",
+                        planBillingCycle === cycle ? "bg-white text-orange-600 shadow-lg" : "text-gray-500 hover:text-gray-700"
+                      )}
+                    >
+                      {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
+                      {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
+                      {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Loading State */}
+            {isLoadingPlans && (
+              <div className="flex flex-col items-center justify-center py-20">
+                <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mb-4" />
+                <p className="text-gray-500 font-medium">Loading {platformName} plans...</p>
+              </div>
+            )}
+
+            {/* External Plan Cards */}
+            {!isLoadingPlans && externalPlans.length > 0 && (
+              <div className={cn(
+                "grid gap-6 mb-12",
+                externalPlans.length <= 2 ? "sm:grid-cols-2 max-w-4xl mx-auto" :
+                externalPlans.length === 3 ? "sm:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto" :
+                "sm:grid-cols-2 lg:grid-cols-4"
+              )}>
+                {externalPlans.map((plan, index) => {
+                  const isDefault = plan.isDefault;
+                  const colorClass = PLAN_COLORS[index % PLAN_COLORS.length];
+                  const PlanIcon = PLAN_ICONS[index % PLAN_ICONS.length];
+
+                  // Determine price based on billing cycle
+                  let displayPrice: number | null = null;
+                  if (planBillingCycle === 'quarterly' && plan.quarterlyPrice) {
+                    displayPrice = plan.quarterlyPrice;
+                  } else if (planBillingCycle === 'yearly' && plan.annualPrice) {
+                    displayPrice = plan.annualPrice;
+                  } else if (plan.monthlyPrice) {
+                    displayPrice = plan.monthlyPrice;
+                  }
+
+                  const isTrial = plan.type === 'TRIAL';
+
+                  return (
+                    <motion.div
+                      key={plan.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className={cn(
+                        "relative p-6 md:p-8 rounded-3xl flex flex-col transition-all duration-300",
+                        isDefault
+                          ? "bg-orange-500 text-white shadow-2xl shadow-orange-500/30 scale-[1.02] md:scale-105 z-10"
+                          : "bg-white border border-gray-100 hover:border-orange-200 hover:shadow-xl"
+                      )}
+                    >
+                      {isDefault && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
+                          <Star className="w-3 h-3 fill-current" /> RECOMMENDED
+                        </div>
+                      )}
+
+                      <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4",
+                        isDefault ? "bg-white/20" : `bg-gradient-to-br ${colorClass} text-white`
+                      )}>
+                        <PlanIcon className="w-6 h-6" />
+                      </div>
+
+                      <h3 className={cn("text-xl font-bold mb-1",
+                        isDefault ? "text-white" : "text-gray-900"
+                      )}>
+                        {plan.name}
+                      </h3>
+
+                      {plan.description && (
+                        <p className={cn("text-sm mb-4 leading-relaxed",
+                          isDefault ? "text-orange-100" : "text-gray-500"
+                        )}>
+                          {plan.description}
+                        </p>
+                      )}
+
+                      <div className="mb-6">
+                        {isTrial ? (
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-3xl font-bold">Free</span>
+                            {plan.trialDuration && (
+                              <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                                {plan.trialDuration} days trial
+                              </span>
+                            )}
+                          </div>
+                        ) : displayPrice ? (
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-3xl font-bold">£{displayPrice}</span>
+                            <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                              /{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                            Contact for pricing
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Features */}
+                      {plan.features && plan.features.length > 0 && (
+                        <div className="space-y-2 mb-8 flex-1">
+                          <div className={cn("text-xs font-bold uppercase tracking-widest mb-3",
+                            isDefault ? "text-orange-200/60" : "text-gray-400"
+                          )}>Included</div>
+                          {plan.features.map((f, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <Check className={cn("w-4 h-4 shrink-0", isDefault ? "text-orange-300" : "text-orange-500")} />
+                              <span className={cn("text-sm", isDefault ? "text-white" : "text-gray-700")}>{f}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Payment Buttons */}
+                      <div className="space-y-2">
+                        {isTrial ? (
+                          <button
+                            onClick={() => handlePlatformPlanSelect(plan, 'stripe')}
+                            disabled={isProcessingPayment}
+                            className={cn(
+                              "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95",
+                              isDefault
+                                ? "bg-white text-orange-600 hover:bg-orange-50"
+                                : "bg-orange-500 text-white hover:bg-orange-600",
+                              isProcessingPayment && "opacity-50 cursor-not-allowed"
+                            )}
+                          >
+                            {isProcessingPayment ? (
+                              <span className="flex items-center justify-center gap-2">
+                                <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                              </span>
+                            ) : (
+                              'Start Free Trial'
+                            )}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handlePlatformPlanSelect(plan, 'stripe')}
+                              disabled={isProcessingPayment}
+                              className={cn(
+                                "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+                                isDefault
+                                  ? "bg-white text-orange-600 hover:bg-orange-50"
+                                  : "bg-orange-500 text-white hover:bg-orange-600",
+                                isProcessingPayment && "opacity-50 cursor-not-allowed"
+                              )}
+                            >
+                              {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
+                                <span className="flex items-center gap-2">
+                                  <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                                </span>
+                              ) : (
+                                <>
+                                  <CreditCard className="w-4 h-4" /> Pay with Card
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handlePlatformPlanSelect(plan, 'paypal')}
+                              disabled={isProcessingPayment}
+                              className={cn(
+                                "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+                                isDefault
+                                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                                  : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200",
+                                isProcessingPayment && "opacity-50 cursor-not-allowed"
+                              )}
+                            >
+                              {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
+                                <span className="flex items-center gap-2">
+                                  <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                                </span>
+                              ) : (
+                                <>
+                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106z" />
+                                  </svg>
+                                  Pay with PayPal
+                                </>
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {plan.type && plan.type !== 'STANDARD' && (
+                        <div className={cn("mt-3 text-center text-xs font-semibold uppercase tracking-wider",
+                          isDefault ? "text-orange-100" : "text-gray-400"
+                        )}>
+                          {plan.type}
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!isLoadingPlans && externalPlans.length === 0 && (
+              <div className="text-center py-20">
+                <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 font-medium">No plans available for {platformName} at this time.</p>
+                <button
+                  onClick={() => {
+                    if (currentUser?.businessProfile?.id) {
+                      performSSORedirect();
+                    } else {
+                      setShowChoosePlan(false);
+                    }
+                  }}
+                  className="mt-4 text-orange-600 font-semibold hover:underline"
+                >
+                  Go back
+                </button>
+              </div>
+            )}
+
+            <p className="text-center text-xs text-gray-400 font-medium mt-4">
+              Secure payment powered by Stripe &amp; PayPal
+            </p>
+          </div>
+        </div>
+        <PlatformPaymentModal
+          isOpen={showPlatformPaymentModal}
+          onClose={() => {
+            setShowPlatformPaymentModal(false);
+            const onboardingState = localStorage.getItem('businessOnboardingState');
+            if (onboardingState !== 'plan_selection') {
+              localStorage.removeItem('pendingPlatformPurchase');
+              setShowWelcomeChecklistPage(true);
+            }
+          }}
+          onSuccess={() => {
+            setShowPlatformPaymentModal(false);
+            if (currentUser?.businessProfile?.id) {
+              localStorage.removeItem('businessOnboardingState');
+              localStorage.removeItem('onboardingPaymentSuccess');
+              performSSORedirect();
+              return;
+            }
+            const onboardingState = localStorage.getItem('businessOnboardingState');
+            if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
+              localStorage.setItem('businessOnboardingState', 'assessment');
+              setShowChoosePlan(false);
+              setShowInitialAssessment(true);
+            } else {
+              setShowWelcomeChecklistPage(true);
+            }
+          }}
+        />
+      </>
+    );
+    }
+
+    // ─── Default MCOM Solutions Membership Plans ────────────────────────────
     return (
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex justify-end mb-6">
+            <button
+              onClick={() => {
+                localStorage.removeItem('businessOnboardingState');
+                localStorage.removeItem('businessOnboarding');
+                localStorage.removeItem('businessOnboardingStep');
+                localStorage.removeItem('businessOnboardingCompleted');
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('business_user');
+                localStorage.removeItem('pendingPlatformPurchase');
+                document.cookie = "packageInfo=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
+                window.location.reload();
+              }}
+              className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+            >
+              <LogOut className="w-4 h-4" /> Restart Onboarding
+            </button>
+          </div>
           <div className="text-center max-w-3xl mx-auto mb-12">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
                 <Crown className="w-4 h-4" />
-                Choose Your Membership
+                Choose Your {platformName ? platformName : 'Membership'} Plan
               </div>
               <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
                 Select Your <span className="text-orange-600">Growth Plan</span>
               </h1>
               <p className="text-base sm:text-lg text-gray-600 font-medium">
-                Your membership includes access to the Business Success Programme and all included platform tools.
+                {platformName
+                  ? `Choose a ${platformName} plan to get started with your platform access.`
+                  : 'Your membership includes access to the Business Success Programme and all included platform tools.'
+                }
               </p>
             </motion.div>
 
@@ -3713,28 +4303,30 @@ function BusinessOnboardingInner() {
                 ))}
               </div>
 
-              {/* Sub-tier Toggle */}
-              <div className="flex gap-2 p-1.5 bg-orange-50 rounded-2xl border border-orange-100">
-                {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map((tier) => (
-                  <button
-                    key={tier}
-                    onClick={() => setPlanSubTier(tier)}
-                    className={cn(
-                      "px-4 md:px-6 py-3 rounded-xl text-sm font-semibold transition-all flex flex-col items-center min-w-[90px] md:min-w-[120px]",
-                      planSubTier === tier
-                        ? "bg-orange-500 text-white shadow-lg"
-                        : "text-orange-600/60 hover:text-orange-600 hover:bg-orange-100"
-                    )}
-                  >
-                    {tier}
-                    <span className="text-[10px] opacity-80 font-normal">
-                      {tier === 'Normal' && 'Basic Access'}
-                      {tier === 'Pro' && 'More Growth'}
-                      {tier === 'Pro+' && 'Max Visibility'}
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {/* Sub-tier Toggle (only for default MCOM Solutions plans) */}
+              {!platformName && (
+                <div className="flex gap-2 p-1.5 bg-orange-50 rounded-2xl border border-orange-100">
+                  {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map((tier) => (
+                    <button
+                      key={tier}
+                      onClick={() => setPlanSubTier(tier)}
+                      className={cn(
+                        "px-4 md:px-6 py-3 rounded-xl text-sm font-semibold transition-all flex flex-col items-center min-w-[90px] md:min-w-[120px]",
+                        planSubTier === tier
+                          ? "bg-orange-500 text-white shadow-lg"
+                          : "text-orange-600/60 hover:text-orange-600 hover:bg-orange-100"
+                      )}
+                    >
+                      {tier}
+                      <span className="text-[10px] opacity-80 font-normal">
+                        {tier === 'Normal' && 'Basic Access'}
+                        {tier === 'Pro' && 'More Growth'}
+                        {tier === 'Pro+' && 'Max Visibility'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -3825,6 +4417,7 @@ function BusinessOnboardingInner() {
                   <button
                     onClick={() => {
                       localStorage.setItem('selectedMembership', JSON.stringify({ tier: plan.id, subTier: planSubTier, billing: planBillingCycle, price: totalPerCycle }));
+                      localStorage.setItem('businessOnboardingState', 'plan_selected');
                       setShowChoosePlan(false);
                       setShowInitialAssessment(true);
                     }}
@@ -3928,13 +4521,14 @@ function BusinessOnboardingInner() {
 
             {/* Submit */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 localStorage.removeItem('businessOnboarding');
                 localStorage.removeItem('businessOnboardingStep');
                 localStorage.removeItem('businessOnboardingCompleted');
+                localStorage.removeItem('businessOnboardingState');
                 localStorage.setItem('firstDashboardLogin', 'true');
                 localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
-                router.push('/dashboard');
+                await performSSORedirect('/dashboard');
               }}
               disabled={!allAnswered}
               className={`w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
@@ -3999,16 +4593,16 @@ function BusinessOnboardingInner() {
           transition={{ delay: 0.9 }}
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.96 }}
-          onClick={() => {
+          onClick={async () => {
+            let targetRoute = '/dashboard';
             if (formData.businessType === 'both') {
-              router.push('/dashboard/store/products/add-product?fromOnboarding=true&hybridFlow=true');
+              targetRoute = '/dashboard/store/products/add-product?fromOnboarding=true&hybridFlow=true';
             } else if (formData.businessType === 'products') {
-              router.push('/dashboard/store/products/add-product?fromOnboarding=true');
+              targetRoute = '/dashboard/store/products/add-product?fromOnboarding=true';
             } else if (formData.businessType === 'services') {
-              router.push('/dashboard/services/add-service?fromOnboarding=true');
-            } else {
-              router.push('/dashboard');
+              targetRoute = '/dashboard/services/add-service?fromOnboarding=true';
             }
+            await performSSORedirect(targetRoute);
           }}
           className="px-10 py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-lg font-bold rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2"
         >
@@ -4028,7 +4622,12 @@ function BusinessOnboardingInner() {
         onComplete={() => {
           setShowBuildingStorefrontPage(false);
           if (isFinalizingStorefront) {
-            setShowWelcomeChecklistPage(true);
+            // Check if there's a pending platform purchase — show payment modal
+            if (localStorage.getItem('pendingPlatformPurchase')) {
+              setShowPlatformPaymentModal(true);
+            } else {
+              setShowWelcomeChecklistPage(true);
+            }
           } else {
             setShowBusinessTypePage(true);
           }
@@ -4043,7 +4642,7 @@ function BusinessOnboardingInner() {
   if (showWelcomeChecklistPage) {
     return (
       <WelcomeChecklistPage 
-        onComplete={() => {
+        onComplete={async () => {
           localStorage.removeItem('businessOnboarding');
           localStorage.removeItem('businessOnboardingStep');
           localStorage.removeItem('businessOnboardingCompleted');
@@ -4051,7 +4650,7 @@ function BusinessOnboardingInner() {
           localStorage.removeItem('localMallName');
           localStorage.removeItem('localMallId');
           localStorage.removeItem('businessProximityTier');
-          router.push('/dashboard');
+          await performSSORedirect('/dashboard');
         }} 
       />
     );
@@ -5155,6 +5754,18 @@ function BusinessOnboardingInner() {
                           autoFocus
                         />
                       </div>
+
+                      <div className="text-center pt-4 border-t border-gray-100 mt-6">
+                        <p className="text-sm text-gray-500 font-medium">
+                          Already have an account?{' '}
+                          <Link
+                            to={`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                            className="text-orange-600 font-bold hover:underline"
+                          >
+                            Log in here
+                          </Link>
+                        </p>
+                      </div>
                     </div>
 
 
@@ -6203,6 +6814,35 @@ function BusinessOnboardingInner() {
         )}
       </AnimatePresence>
 
+      {/* Platform Payment Modal */}
+      <PlatformPaymentModal
+        isOpen={showPlatformPaymentModal}
+        onClose={() => {
+          setShowPlatformPaymentModal(false);
+          const onboardingState = localStorage.getItem('businessOnboardingState');
+          if (onboardingState !== 'plan_selection') {
+            localStorage.removeItem('pendingPlatformPurchase');
+            setShowWelcomeChecklistPage(true);
+          }
+        }}
+        onSuccess={() => {
+          setShowPlatformPaymentModal(false);
+          if (currentUser?.businessProfile?.id) {
+            localStorage.removeItem('businessOnboardingState');
+            localStorage.removeItem('onboardingPaymentSuccess');
+            performSSORedirect();
+            return;
+          }
+          const onboardingState = localStorage.getItem('businessOnboardingState');
+          if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
+            localStorage.setItem('businessOnboardingState', 'assessment');
+            setShowChoosePlan(false);
+            setShowInitialAssessment(true);
+          } else {
+            setShowWelcomeChecklistPage(true);
+          }
+        }}
+      />
 
     </div>
   );
