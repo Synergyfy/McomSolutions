@@ -14,14 +14,20 @@ async function bootstrap() {
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   // Enable CORS
+  const defaultOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://mcommall.vercel.app',
+    'https://mcomloyalty.vercel.app',
+    'https://mcom-solutions-backend.vercel.app',
+  ];
+  const envOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
+  const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'https://mcommall.vercel.app',
-      'https://mcomloyalty.vercel.app',
-      'https://mcom-solutions-backend.vercel.app',
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
