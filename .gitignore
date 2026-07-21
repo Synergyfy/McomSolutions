@@ -14,13 +14,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-apps/backend/.env
-apps/backend/.env.test
+.env*
+!.env.example
 
 # IDE / System
 .DS_Store
