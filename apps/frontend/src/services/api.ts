@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api/v1',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
 });
 
 apiClient.interceptors.request.use((config) => {
