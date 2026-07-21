@@ -732,7 +732,13 @@ function BusinessOnboardingInner() {
     try {
       const queryText = `${searchName} ${searchLoc}`.trim();
       const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
-      const results = Array.isArray(res.data) ? res.data : (res.data?.results || []);
+      const results = Array.isArray(res.data) 
+        ? res.data 
+        : Array.isArray(res.data?.results) 
+        ? res.data.results 
+        : Array.isArray(res.data?.data)
+        ? res.data.data
+        : [];
       setSearchResults(results);
     } catch (err: any) {
       setSearchError('Failed to search businesses.');
@@ -1033,7 +1039,13 @@ function BusinessOnboardingInner() {
     }
   }, [currentUser, platformName]);
 
-  const externalPlans = externalPlansRes?.data || [];
+  const externalPlans = Array.isArray(externalPlansRes?.data) 
+    ? externalPlansRes.data 
+    : Array.isArray(externalPlansRes) 
+    ? externalPlansRes 
+    : Array.isArray((externalPlansRes as any)?.plans)
+    ? (externalPlansRes as any).plans
+    : [];
   const stripeInitiate = usePlatformStripeInitiate();
   const paypalInitiate = usePlatformPaypalInitiate();
   const [selectedPlatformPlan, setSelectedPlatformPlan] = useState<any>(null);
@@ -1121,8 +1133,15 @@ function BusinessOnboardingInner() {
       setLoadingSuggestions(true);
       try {
         const res = await api.get(`business/search-address?postcode=${encodeURIComponent(formData.postcode)}`);
-        setSuggestions(res.data);
-        setShowSuggestions(res.data.length > 0);
+        const list = Array.isArray(res?.data) 
+          ? res.data 
+          : Array.isArray(res?.data?.addresses) 
+          ? res.data.addresses 
+          : Array.isArray(res?.data?.suggestions)
+          ? res.data.suggestions
+          : [];
+        setSuggestions(list);
+        setShowSuggestions(list.length > 0);
       } catch (err) {
         console.error('Error fetching suggestions:', err);
       } finally {
@@ -1133,38 +1152,13 @@ function BusinessOnboardingInner() {
     return () => clearTimeout(delayDebounce);
   }, [formData.postcode]);
 
-  // ─── Load from cache ─────────────────────────────────
+  // ─── Load initial state ─────────────────────────────────
   useEffect(() => {
     setIsClient(true);
-
-    const onboardingState = localStorage.getItem('businessOnboardingState');
-
-    if (onboardingState === 'plan_selection') {
-      setShowInitialPrompt(false);
-      setShowChoosePlan(true);
-      return;
-    } else if (onboardingState === 'assessment') {
-      setShowInitialPrompt(false);
-      setShowInitialAssessment(true);
-      return;
-    }
-
-    try {
-      const cached = localStorage.getItem('businessOnboarding');
-      const cachedStep = localStorage.getItem('businessOnboardingStep');
-      const cachedCompleted = localStorage.getItem('businessOnboardingCompleted');
-      if (cached) setFormData((prev: any) => ({ ...prev, ...JSON.parse(cached) }));
-      if (cachedStep) {
-        const step = parseInt(cachedStep, 10);
-        setCurrentStep(step);
-        if (step > 0) {
-          setShowInitialPrompt(false);
-        }
-      }
-      if (cachedCompleted) setCompletedSteps(new Set(JSON.parse(cachedCompleted)));
-    } catch {
-      // ignore parse errors
-    }
+    
+    // Clear stale auto-jump states from localStorage so users always start fresh
+    localStorage.removeItem('businessOnboardingState');
+    localStorage.removeItem('businessOnboardingStep');
   }, []);
 
   // ─── Handle Payment Success Redirect ─────────────────
@@ -4088,7 +4082,7 @@ function BusinessOnboardingInner() {
                       </div>
 
                       {/* Features */}
-                      {plan.features && plan.features.length > 0 && (
+                      {Array.isArray(plan?.features) && plan.features.length > 0 && (
                         <div className="space-y-2 mb-8 flex-1">
                           <div className={cn("text-xs font-bold uppercase tracking-widest mb-3",
                             isDefault ? "text-orange-200/60" : "text-gray-400"
@@ -4394,7 +4388,7 @@ function BusinessOnboardingInner() {
                     <div className={cn("text-xs font-bold uppercase tracking-widest",
                       isGold ? "text-orange-200/60" : "text-gray-400"
                     )}>Features</div>
-                    {plan.features.map((f, i) => (
+                    {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
                       <div key={i} className="flex items-center gap-3">
                         <Check className={cn("w-4 h-4 shrink-0", isGold ? "text-orange-300" : "text-orange-500")} />
                         <span className={cn("text-sm font-semibold", isGold ? "text-white" : "text-gray-700")}>{f}</span>
@@ -4406,7 +4400,7 @@ function BusinessOnboardingInner() {
                     <div className={cn("text-xs font-bold uppercase tracking-widest",
                       isGold ? "text-orange-200/60" : "text-gray-400"
                     )}>{planSubTier} Access</div>
-                    {(plan.tierFeatures?.[planSubTier] || []).map((f, i) => (
+                    {(Array.isArray(plan?.tierFeatures?.[planSubTier]) ? plan.tierFeatures[planSubTier] : []).map((f, i) => (
                       <div key={i} className="flex items-center gap-3">
                         <Zap className={cn("w-4 h-4 shrink-0", isGold ? "text-amber-300" : "text-amber-500")} />
                         <span className={cn("text-sm font-bold", isGold ? "text-white" : "text-gray-900")}>{f}</span>
@@ -5609,7 +5603,7 @@ function BusinessOnboardingInner() {
                             className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-orange-300"
                           >
                             <option value="">Select Sector</option>
-                            {sectors?.map(s => (
+                            {(Array.isArray(sectors) ? sectors : []).map(s => (
                               <option key={s.id} value={s.id}>{s.name}</option>
                             ))}
                           </select>
@@ -5627,7 +5621,7 @@ function BusinessOnboardingInner() {
                             className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50"
                           >
                             <option value="">Select Category</option>
-                            {googleCategories?.map(c => (
+                            {(Array.isArray(googleCategories) ? googleCategories : []).map(c => (
                               <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </select>
@@ -5642,7 +5636,7 @@ function BusinessOnboardingInner() {
                             className="w-full h-10 px-3 rounded-lg border border-gray-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50"
                           >
                             <option value="">Select Subcategory</option>
-                            {googleSubcategories?.map(sc => (
+                            {(Array.isArray(googleSubcategories) ? googleSubcategories : []).map(sc => (
                               <option key={sc.id} value={sc.id}>{sc.name}</option>
                             ))}
                           </select>
@@ -6286,7 +6280,7 @@ function BusinessOnboardingInner() {
                         className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
                       >
                         <option value="">Select a Sector</option>
-                        {sectors?.map(s => (
+                        {(Array.isArray(sectors) ? sectors : []).map(s => (
                           <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
                       </select>
@@ -6302,7 +6296,7 @@ function BusinessOnboardingInner() {
                         className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
                       >
                         <option value="">Select a Category</option>
-                        {categories?.map(c => (
+                        {(Array.isArray(categories) ? categories : []).map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
@@ -6318,7 +6312,7 @@ function BusinessOnboardingInner() {
                         className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
                       >
                         <option value="">Select a Business Type</option>
-                        {subcategories?.map(sc => (
+                        {(Array.isArray(subcategories) ? subcategories : []).map(sc => (
                           <option key={sc.id} value={sc.id}>{sc.name}</option>
                         ))}
                       </select>

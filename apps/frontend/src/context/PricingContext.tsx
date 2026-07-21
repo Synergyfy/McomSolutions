@@ -89,15 +89,20 @@ const PricingContext = createContext<PricingContextType | undefined>(undefined);
 
 export function PricingProvider({ children }: { children: React.ReactNode }) {
   const [plans, setPlans] = useState<PricingPlan[]>(() => {
-    const saved = localStorage.getItem('gbs_pricing_plans');
-    if (!saved) return DEFAULT_PLANS;
-    
-    // Structure migration: Ensure new keys exist even if user has old data
-    const parsedSaved = JSON.parse(saved);
-    return DEFAULT_PLANS.map(defaultPlan => {
-      const savedPlan = parsedSaved.find((p: any) => p.id === defaultPlan.id);
-      return savedPlan ? { ...defaultPlan, ...savedPlan } : defaultPlan;
-    });
+    try {
+      const saved = localStorage.getItem('gbs_pricing_plans');
+      if (!saved) return DEFAULT_PLANS;
+      
+      const parsedSaved = JSON.parse(saved);
+      if (!Array.isArray(parsedSaved)) return DEFAULT_PLANS;
+
+      return DEFAULT_PLANS.map(defaultPlan => {
+        const savedPlan = parsedSaved.find((p: any) => p && typeof p === 'object' && p.id === defaultPlan.id);
+        return savedPlan ? { ...defaultPlan, ...savedPlan } : defaultPlan;
+      });
+    } catch {
+      return DEFAULT_PLANS;
+    }
   });
 
   useEffect(() => {
