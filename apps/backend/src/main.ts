@@ -21,9 +21,12 @@ async function bootstrap() {
     'https://mcomloyalty.vercel.app',
     'https://mcom-solutions-backend.vercel.app',
   ];
-  const envOrigins = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-    : [];
+  const envOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.MCOM_MALL_API_URL,
+    process.env.MCOM_REWARDS_API_URL,
+  ].filter((o): o is string => Boolean(o && o.trim()));
+
   const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
   app.enableCors({
