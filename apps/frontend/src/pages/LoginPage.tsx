@@ -121,12 +121,18 @@ export default function LoginPage() {
     }
 
     const handleMessage = async (event: MessageEvent) => {
+      const getOrigin = (urlStr?: string) => {
+        if (!urlStr) return '';
+        try { return new URL(urlStr).origin; } catch { return ''; }
+      };
       const allowedOrigins = [
         window.location.origin,
+        getOrigin(import.meta.env.VITE_BACKEND_URL),
+        getOrigin(import.meta.env.VITE_API_URL),
         'http://localhost:3010',
         'http://localhost:3000',
         'http://localhost:5173'
-      ];
+      ].filter(Boolean);
       if (!allowedOrigins.includes(event.origin)) return;
       if (event.data?.type !== 'GOOGLE_LOGIN_SUCCESS') return;
 
