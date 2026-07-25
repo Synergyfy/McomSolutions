@@ -39,6 +39,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           redirectUris: [
             'https://mcomloyalty.vercel.app/auth/callback',
             'https://mcomloyalty.vercel.app/sso-login',
+            'https://mcomreward.vercel.app/auth/callback',
+            'https://mcomreward.vercel.app/sso-login',
             'http://localhost:3005/auth/callback',
             'http://localhost:3005/sso-login',
             'http://localhost:3006/sso-login',

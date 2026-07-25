@@ -42,7 +42,10 @@ export class SsoController {
       throw new BadRequestException('Invalid or inactive client');
     }
 
-    if (!client.redirectUris.includes(redirectUri)) {
+    const normalizedRedirectUri = redirectUri.trim().replace(/\/$/, '');
+    const isRegistered = client.redirectUris.some(uri => uri.trim().replace(/\/$/, '') === normalizedRedirectUri);
+
+    if (!isRegistered) {
       throw new BadRequestException('Redirect URI is not registered');
     }
 

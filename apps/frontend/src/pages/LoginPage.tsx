@@ -61,7 +61,7 @@ export default function LoginPage() {
       if (source === 'mcomloyalty') {
         redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
       } else if (source === 'mcommall') {
-        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3003'}/auth/sso`;
       }
     }
 
@@ -94,7 +94,17 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      await login({ email, password });
+      const res = await login({ email, password });
+      if (res?.user?.role === 'ADMIN') {
+        localStorage.setItem('admin_user', JSON.stringify({
+          id: res.user.id,
+          email: res.user.email,
+          name: res.user.name || 'System Admin',
+          role: 'ADMIN',
+        }));
+        window.location.href = '/admin';
+        return;
+      }
       await performRedirect();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');

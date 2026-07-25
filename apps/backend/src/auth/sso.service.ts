@@ -31,7 +31,10 @@ export class SsoService {
       throw new BadRequestException('Client not found');
     }
 
-    if (!client.redirectUris.includes(redirectUri)) {
+    const normalizedRedirectUri = redirectUri.trim().replace(/\/$/, '');
+    const isAllowed = client.redirectUris.some(uri => uri.trim().replace(/\/$/, '') === normalizedRedirectUri);
+
+    if (!isAllowed) {
       throw new BadRequestException('Redirect URI not allowed for this client');
     }
 
