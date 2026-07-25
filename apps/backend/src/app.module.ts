@@ -12,11 +12,14 @@ import { AdminModule } from './admin/admin.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
+import { RedisModule } from './redis/redis.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    RedisModule,
     PrismaModule,
     AuthModule,
     BusinessModule,

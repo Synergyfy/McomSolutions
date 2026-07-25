@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -11,6 +12,7 @@ export class SsoService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
   ) {}
 
   generateToken(payload: Record<string, any>): string {
@@ -31,7 +33,10 @@ export class SsoService {
       throw new BadRequestException('Client not found');
     }
 
-    if (!client.redirectUris.includes(redirectUri)) {
+    const normalizedRedirectUri = redirectUri.trim().replace(/\/$/, '');
+    const isAllowed = client.redirectUris.some(uri => uri.trim().replace(/\/$/, '') === normalizedRedirectUri);
+
+    if (!isAllowed) {
       throw new BadRequestException('Redirect URI not allowed for this client');
     }
 
@@ -274,16 +279,29 @@ export class SsoService {
   }
 
   async getClientByClientId(clientId: string) {
-    return this.prisma.ssoClient.findUnique({
+    const cacheKey = `sso_client:${clientId}`;
+    const cached = await this.redisService.get<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const client = await this.prisma.ssoClient.findUnique({
       where: { clientId },
     });
+
+    if (client) {
+      // Cache client object in Redis for 5 minutes (300s)
+      await this.redisService.set(cacheKey, client, 300);
+    }
+
+    return client;
   }
 
   async registerClient(data: any) {
     const salt = await bcrypt.genSalt();
     const clientSecret = await bcrypt.hash(data.clientSecret, salt);
 
-    return this.prisma.ssoClient.create({
+    const created = await this.prisma.ssoClient.create({
       data: {
         clientId: data.clientId,
         clientSecret,
@@ -294,6 +312,9 @@ export class SsoService {
         apiKey: data.apiKey || `api_key_${crypto.randomBytes(16).toString('hex')}`,
       },
     });
+
+    await this.redisService.del(`sso_client:${data.clientId}`);
+    return created;
   }
 
   async listClients() {
@@ -310,5 +331,29 @@ export class SsoService {
         createdAt: true,
       },
     });
+  }
+
+  async updateClient(clientId: string, data: { redirectUris?: string[]; name?: string; isActive?: boolean }) {
+    const client = await this.prisma.ssoClient.findUnique({ where: { clientId } });
+    if (!client) {
+      throw new BadRequestException('Client not found');
+    }
+    const updated = await this.prisma.ssoClient.update({
+      where: { clientId },
+      data,
+    });
+
+    // Invalidate Redis cache instantly on update
+    await this.redisService.del(`sso_client:${clientId}`);
+    return updated;
+  }
+
+  async clearClientCache(clientId?: string) {
+    if (clientId) {
+      await this.redisService.del(`sso_client:${clientId}`);
+    } else {
+      await this.redisService.delPattern('sso_client:*');
+    }
+    return { success: true, message: 'SSO Client cache invalidated' };
   }
 }
