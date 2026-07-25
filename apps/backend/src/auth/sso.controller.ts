@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Query, Body, Req, Res, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Req, Res, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { SsoService } from './sso.service';
 import { SsoClientGuard } from './guards/sso-client.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -172,5 +172,50 @@ export class SsoController {
       data: client,
       message: 'SSO Client registered successfully',
     };
+  }
+
+  // Admin route to update client configuration (e.g. redirect URIs)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('sso/clients/:clientId')
+  @ApiOperation({ summary: 'Update an SSO client redirect URIs or details (Admin only)' })
+  async updateClient(
+    @Req() req: any,
+    @Param('clientId') clientId: string,
+    @Body() dto: { redirectUris?: string[]; name?: string; isActive?: boolean },
+  ) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Admin role required');
+    }
+    const client = await this.ssoService.updateClient(clientId, dto);
+    return {
+      success: true,
+      data: client,
+      message: 'SSO Client updated successfully',
+    };
+  }
+
+  // Admin route to invalidate all or query-specified SSO client cache
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('sso/cache')
+  @ApiOperation({ summary: 'Invalidate all SSO client Redis caches (Admin only)' })
+  async clearAllCache(@Req() req: any, @Query('clientId') clientId?: string) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Admin role required');
+    }
+    return this.ssoService.clearClientCache(clientId);
+  }
+
+  // Admin route to invalidate specific SSO client cache by path parameter
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('sso/cache/:clientId')
+  @ApiOperation({ summary: 'Invalidate specific SSO client Redis cache (Admin only)' })
+  async clearSpecificCache(@Req() req: any, @Param('clientId') clientId: string) {
+    if (req.user.role !== 'ADMIN') {
+      throw new ForbiddenException('Admin role required');
+    }
+    return this.ssoService.clearClientCache(clientId);
   }
 }

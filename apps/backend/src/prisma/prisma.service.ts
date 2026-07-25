@@ -83,11 +83,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           });
           console.log(`[Seed] Created default SSO client: ${client.clientId}`);
         } else {
-          // Sync redirect URIs in dev environments
-          await this.ssoClient.update({
-            where: { clientId: client.clientId },
-            data: { redirectUris: client.redirectUris }
-          });
+          // Preserve custom URIs added directly to DB, only append missing defaults if any
+          const mergedUris = Array.from(new Set([...existing.redirectUris, ...client.redirectUris]));
+          if (mergedUris.length !== existing.redirectUris.length) {
+            await this.ssoClient.update({
+              where: { clientId: client.clientId },
+              data: { redirectUris: mergedUris }
+            });
+          }
         }
       }
     } catch (err) {
