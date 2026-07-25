@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -13,30 +13,51 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     const redisUrl = this.configService.get<string>('REDIS_URL');
-    const host = this.configService.get<string>('REDIS_HOST') || 'localhost';
+    const host = this.configService.get<string>('REDIS_HOST') || '127.0.0.1';
     const port = parseInt(this.configService.get<string>('REDIS_PORT') || '6379', 10);
     const password = this.configService.get<string>('REDIS_PASSWORD');
 
+    const options: RedisOptions = {
+      host,
+      port,
+      lazyConnect: true,
+      maxRetriesPerRequest: 3,
+      enableOfflineQueue: true,
+      retryStrategy(times) {
+        return Math.min(times * 100, 3000);
+      },
+    };
+
+    if (password && password.trim() !== '') {
+      options.password = password.trim();
+    }
+
     try {
-      if (redisUrl) {
-        this.client = new Redis(redisUrl, { maxRetriesPerRequest: 1, lazyConnect: true, enableOfflineQueue: false });
-      } else {
-        this.client = new Redis({
-          host,
-          port,
-          password,
-          maxRetriesPerRequest: 1,
+      if (redisUrl && redisUrl.trim() !== '') {
+        this.client = new Redis(redisUrl.trim(), {
           lazyConnect: true,
-          enableOfflineQueue: false,
+          maxRetriesPerRequest: 3,
+          enableOfflineQueue: true,
         });
+      } else {
+        this.client = new Redis(options);
       }
+
+      this.client.on('error', (err) => {
+        this.logger.warn(`Redis connection event error: ${err.message}`);
+        this.isRedisAvailable = false;
+      });
+
+      this.client.on('ready', () => {
+        this.isRedisAvailable = true;
+        this.logger.log(`Redis ready and operational (${redisUrl || `${host}:${port}`})`);
+      });
 
       await this.client.connect();
       this.isRedisAvailable = true;
-      this.logger.log('Redis connected successfully');
+      this.logger.log(`Connected to Redis server at ${redisUrl || `${host}:${port}`}`);
     } catch (err: any) {
-      this.logger.warn(`Redis unavailable (${err.message}). Falling back to in-memory caching.`);
-      this.client = null;
+      this.logger.warn(`Redis initialization failed (${err.message}). Using in-memory fallback cache.`);
       this.isRedisAvailable = false;
     }
   }
