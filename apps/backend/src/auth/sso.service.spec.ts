@@ -3,6 +3,7 @@ import { SsoService } from './sso.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 
 describe('SsoService', () => {
@@ -10,6 +11,13 @@ describe('SsoService', () => {
   let prisma: any;
   let jwtService: any;
   let configService: any;
+
+  const mockRedisService = {
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    setex: jest.fn(),
+  };
 
   const mockPrisma = {
     ssoClient: {
@@ -57,6 +65,7 @@ describe('SsoService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: RedisService, useValue: mockRedisService },
       ],
     }).compile();
 

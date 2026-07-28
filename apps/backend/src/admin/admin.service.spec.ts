@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 
 describe('AdminService', () => {
@@ -31,6 +32,11 @@ describe('AdminService', () => {
     },
   };
 
+  const mockJwtService = {
+    sign: jest.fn().mockReturnValue('mock-token'),
+    verify: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -38,6 +44,10 @@ describe('AdminService', () => {
         {
           provide: PrismaService,
           useValue: mockPrisma,
+        },
+        {
+          provide: JwtService,
+          useValue: mockJwtService,
         },
       ],
     }).compile();
