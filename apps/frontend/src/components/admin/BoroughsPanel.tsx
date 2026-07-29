@@ -28,87 +28,20 @@ import {
   Download
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-
-// --- Mock Data ---
-const boroughStats = [
-  { title: 'Active Businesses', value: '1,248', trend: '+12%', icon: Store, trendType: 'up' },
-  { title: 'Customer Part.', value: '45.2k', trend: '+8%', icon: Users, trendType: 'up' },
-  { title: 'Borough Campaigns', value: '34', trend: '+2', icon: Rocket, trendType: 'up' },
-  { title: 'Rewards Activity', value: '8.4k', trend: '+15%', icon: Gift, trendType: 'up' },
-  { title: 'Local Events', value: '12', trend: '-3', icon: Calendar, trendType: 'down' },
-  { title: 'Engagement Rate', value: '92%', trend: '+5%', icon: Activity, trendType: 'up' },
-];
-
-const initialBoroughs = [
-  {
-    id: '1',
-    name: 'Westminster',
-    populationActivity: 'High',
-    businessCount: 452,
-    activeCampaigns: 12,
-    rewardsParticipation: '88%',
-    healthScore: 94,
-    manager: 'James Wilson',
-    area: 'Central London',
-    region: 'West End',
-    engagement: '94.2%',
-    health: 'A+',
-    activity: 'Active Operational'
-  },
-  {
-    id: '2',
-    name: 'Camden',
-    populationActivity: 'Medium',
-    businessCount: 318,
-    activeCampaigns: 8,
-    rewardsParticipation: '76%',
-    healthScore: 82,
-    manager: 'Sarah Chen',
-    area: 'North London',
-    region: 'North-West',
-    engagement: '88.5%',
-    health: 'A',
-    activity: 'Operational'
-  },
-  {
-    id: '3',
-    name: 'Tower Hamlets',
-    populationActivity: 'Very High',
-    businessCount: 284,
-    activeCampaigns: 15,
-    rewardsParticipation: '92%',
-    healthScore: 89,
-    manager: 'David G.',
-    area: 'East London',
-    region: 'East',
-    engagement: '92.1%',
-    health: 'A+',
-    activity: 'High Activity'
-  },
-  {
-    id: '4',
-    name: 'Hackney',
-    populationActivity: 'High',
-    businessCount: 215,
-    activeCampaigns: 6,
-    rewardsParticipation: '81%',
-    healthScore: 85,
-    manager: 'Emma Thompson',
-    area: 'East London',
-    region: 'East End',
-    engagement: '85.4%',
-    health: 'B+',
-    activity: 'Operational'
-  },
-];
+import { useAdminBoroughs } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
+import type { Borough } from '../../services/admin/types';
 
 export default function BoroughsPanel() {
+  const { data: boroughsRes, isLoading } = useAdminBoroughs();
+  const boroughs: Borough[] = boroughsRes?.data ?? [];
+
   const [selectedBoroughId, setSelectedBoroughId] = useState<string | null>(null);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState('overview');
-  
+
   // Modals for detail view
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
@@ -121,12 +54,27 @@ export default function BoroughsPanel() {
     bizCount: '0'
   });
 
-  const selectedBorough = initialBoroughs.find(b => b.id === selectedBoroughId);
+  const selectedBorough = boroughs.find(b => b.id === selectedBoroughId);
 
-  const filteredBoroughs = initialBoroughs.filter(b => 
+  const filteredBoroughs = boroughs.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     b.manager.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const boroughStats = [
+    { title: 'Active Businesses', value: boroughs.reduce((s, b) => s + b.businessCount, 0).toLocaleString(), trend: `+${boroughs.length}`, icon: Store, trendType: 'up' as const },
+    { title: 'Total Boroughs', value: String(boroughs.length), trend: '0', icon: Users, trendType: 'up' as const },
+    { title: 'Borough Campaigns', value: String(boroughs.reduce((s, b) => s + b.activeCampaigns, 0)), trend: '+2', icon: Rocket, trendType: 'up' as const },
+    { title: 'Avg Health Score', value: boroughs.length > 0 ? `${Math.round(boroughs.reduce((s, b) => s + b.healthScore, 0) / boroughs.length)}%` : '0%', trend: '+5%', icon: Gift, trendType: 'up' as const },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   // Render Onboard Dialog Modal
   const renderOnboardModal = () => {

@@ -5,10 +5,12 @@ import {
   Instagram, Twitter, Facebook, CheckCircle2, AlertCircle,
   Edit2, Upload, ShieldCheck, Camera, Plus, ExternalLink
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useProfile, useUpdateProfile, useGenerateApiKey } from '../services/business/hooks';
 
 export default function DashboardBusinessProfile() {
-  const [loading, setLoading] = useState(true);
+  const { data: profile, isLoading: loading } = useProfile();
+  const { mutateAsync: updateProfile } = useUpdateProfile();
+  const { mutateAsync: generateApiKey } = useGenerateApiKey();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,37 +33,26 @@ export default function DashboardBusinessProfile() {
   });
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await businessApi.getProfile();
+    if (profile) {
       setFormData({
-        businessName: data.businessName || '',
-        businessType: data.businessType || '',
-        description: data.description || '',
-        email: data.email || '',
-        phone: data.phone || '',
-        country: data.country || '',
-        address: data.address || '',
-        postcode: data.postcode || '',
-        website: data.website || '',
-        openingHours: data.openingHours || '',
-        socialMedia: data.socialMedia || '',
-        industry: data.industry || '',
-        category: data.category || '',
-        isOnGoogle: data.isOnGoogle || false,
-        apiKey: data.apiKey || '',
+        businessName: profile.businessName || '',
+        businessType: profile.businessType || '',
+        description: profile.description || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
+        country: profile.country || '',
+        address: profile.address || '',
+        postcode: profile.postcode || '',
+        website: profile.website || '',
+        openingHours: profile.openingHours || '',
+        socialMedia: profile.socialMedia || '',
+        industry: profile.industry || '',
+        category: profile.category || '',
+        isOnGoogle: profile.isOnGoogle || false,
+        apiKey: profile.apiKey || '',
       });
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load business profile details.');
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [profile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -71,7 +62,7 @@ export default function DashboardBusinessProfile() {
     setSaving(true);
     setError(null);
     try {
-      await businessApi.updateProfile(formData);
+      await updateProfile(formData);
       setEditing(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to update business profile.');
@@ -82,7 +73,7 @@ export default function DashboardBusinessProfile() {
 
   const handleGenerateKey = async () => {
     try {
-      const res = await businessApi.generateApiKey();
+      const res = await generateApiKey();
       setFormData(prev => ({ ...prev, apiKey: res.apiKey }));
     } catch (err: any) {
       alert('Failed to generate API Key');

@@ -22,54 +22,14 @@ import {
 } from 'lucide-react';
 import HighStreetActivationWizard from './HighStreetActivationWizard';
 import { cn } from '../../lib/utils';
-
-// Mock data for High Streets (Inventory Table)
-const initialHighStreets = [
-  {
-    id: '1',
-    name: 'Oxford Street',
-    borough: 'Westminster',
-    status: 'Active',
-    physicalHub: 'Yes',
-    virtualHub: 'Yes',
-    communityGroup: 'Active',
-    totalBusinesses: 145,
-    engagementScore: 92,
-    location: { lat: 51.5145, lng: -0.1448 },
-    hasPhysical: true,
-    hasVirtual: true
-  },
-  {
-    id: '2',
-    name: 'Kings Road',
-    borough: 'Kensington & Chelsea',
-    status: 'Active',
-    physicalHub: 'No',
-    virtualHub: 'Yes',
-    communityGroup: 'Active',
-    totalBusinesses: 88,
-    engagementScore: 78,
-    location: { lat: 51.4875, lng: -0.1685 },
-    hasPhysical: false,
-    hasVirtual: true
-  },
-  {
-    id: '3',
-    name: 'Brick Lane',
-    borough: 'Tower Hamlets',
-    status: 'Pending',
-    physicalHub: 'No',
-    virtualHub: 'No',
-    communityGroup: 'Inactive',
-    totalBusinesses: 122,
-    engagementScore: 45,
-    location: { lat: 51.5218, lng: -0.0718 },
-    hasPhysical: false,
-    hasVirtual: false
-  },
-];
+import { useAdminHighStreets } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
+import type { HighStreet } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
+  const { data: hsRes, isLoading } = useAdminHighStreets();
+  const allHighStreets: HighStreet[] = hsRes?.data ?? [];
+
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Pending' | 'Inactive'>('All');
@@ -78,14 +38,21 @@ export default function HighStreetsPanel() {
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
 
-  // Filter high street data based on active filters
-  const filteredHighStreets = initialHighStreets.filter(hs => {
-    const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+  const filteredHighStreets = allHighStreets.filter(hs => {
+    const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          hs.borough.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'All' || hs.status === statusFilter;
     const matchesBorough = boroughFilter === 'All Boroughs' || hs.borough === boroughFilter;
     return matchesSearch && matchesStatus && matchesBorough;
   });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -105,13 +72,11 @@ export default function HighStreetsPanel() {
       </div>
 
       {/* Overview Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard title="Active High Streets" value="24" trend="+2" icon={MapIcon} />
-        <StatCard title="Pending Activations" value="7" trend="-1" icon={Clock} />
-        <StatCard title="Community Part." value="85%" trend="+5%" icon={Users} />
-        <StatCard title="Borough Coverage" value="12" trend="0" icon={MapPin} />
-        <StatCard title="Traffic Activity" value="1.2k" trend="+12%" icon={Activity} />
-        <StatCard title="QR Engagement" value="4.8k" trend="+18%" icon={QrCode} />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <StatCard title="Total High Streets" value={String(allHighStreets.length)} trend="0" icon={MapIcon} />
+        <StatCard title="Active" value={String(allHighStreets.filter(h => h.status === 'Active').length)} trend="+2" icon={CheckCircle2} />
+        <StatCard title="Pending" value={String(allHighStreets.filter(h => h.status === 'Pending').length)} trend="-1" icon={Clock} />
+        <StatCard title="Total Businesses" value={allHighStreets.reduce((s, h) => s + h.businessCount, 0).toLocaleString()} trend="+12%" icon={Store} />
       </div>
 
       {/* Main Content Area */}
@@ -374,11 +339,7 @@ export default function HighStreetsPanel() {
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">High Street Name</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Borough</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Physical Hub</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Virtual Hub</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Community Group</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Businesses</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Eng. Score</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Businesses</th>
                 <th className="px-6 py-4 text-right"></th>
               </tr>
             </thead>
@@ -398,48 +359,7 @@ export default function HighStreetsPanel() {
                         {hs.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex justify-center">
-                        {hs.physicalHub === 'Yes' ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5 text-gray-300" />
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex justify-center">
-                        {hs.virtualHub === 'Yes' ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5 text-gray-300" />
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border",
-                        hs.communityGroup === 'Active' ? "text-emerald-600 bg-emerald-50 border-emerald-100" : "text-gray-400 bg-gray-50 border-gray-150"
-                      )}>
-                        <Users className="h-3 w-3" />
-                        {hs.communityGroup}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-bold text-gray-800">{hs.totalBusinesses}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200/50">
-                          <div 
-                            className={cn(
-                              "h-full rounded-full",
-                              hs.engagementScore > 80 ? "bg-emerald-500" : "bg-amber-500"
-                            )}
-                            style={{ width: `${hs.engagementScore}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold text-gray-700">{hs.engagementScore}%</span>
-                      </div>
-                    </td>
+                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-800">{hs.businessCount}</td>
                     <td className="px-6 py-4 text-right relative">
                       <button 
                         onClick={() => setActiveActionsMenu(activeActionsMenu === hs.id ? null : hs.id)}
@@ -473,7 +393,7 @@ export default function HighStreetsPanel() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="h-24 text-center text-xs font-bold text-gray-400">
+                  <td colSpan={5} className="h-24 text-center text-xs font-bold text-gray-400">
                     No high streets match your current filters.
                   </td>
                 </tr>

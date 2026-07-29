@@ -4,7 +4,7 @@ import {
   Bell, AlertTriangle, Info, CheckCircle, PackageOpen, Crown,
   CreditCard, Megaphone, Trash2, CheckCheck
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useNotifications, useMarkNotificationsRead, useDeleteNotification } from '../services/notification/hooks';
 
 type NotifType = 'membership' | 'package' | 'update' | 'payment' | 'announcement';
 
@@ -42,31 +42,25 @@ function formatRelativeTime(dateString: string) {
 
 export default function DashboardNotifications() {
   const [filter, setFilter] = useState<'all' | NotifType>('all');
+  const { data: rawNotifs, isLoading: loading } = useNotifications();
+  const markAllReadMutation = useMarkNotificationsRead();
+  const deleteNotificationMutation = useDeleteNotification();
   const [notifs, setNotifs] = useState<NotificationItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchNotifications = async () => {
-    try {
-      const data = await businessApi.getNotifications();
-      setNotifs(data);
-    } catch (err) {
-      console.error('Error fetching notifications:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchNotifications();
-  }, []);
+    if (rawNotifs) {
+      setNotifs(rawNotifs);
+    } else {
+      setNotifs([]);
+    }
+  }, [rawNotifs]);
 
   const visible = filter === 'all' ? notifs : notifs.filter(n => n.type === filter);
   const unreadCount = notifs.filter(n => !n.read).length;
 
   const markAllRead = async () => {
     try {
-      await businessApi.markAllNotificationsRead();
-      setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+      await markAllReadMutation.mutateAsync();
     } catch (err) {
       console.error('Error marking all as read:', err);
     }
@@ -74,8 +68,7 @@ export default function DashboardNotifications() {
 
   const removeNotif = async (id: string) => {
     try {
-      await businessApi.deleteNotification(id);
-      setNotifs(prev => prev.filter(n => n.id !== id));
+      await deleteNotificationMutation.mutateAsync(id);
     } catch (err) {
       console.error('Error deleting notification:', err);
     }

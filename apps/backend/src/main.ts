@@ -2,22 +2,38 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
+
+import express from 'express';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.use(cookieParser());
+  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+
   // Enable CORS
+  const defaultOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://mcommall.vercel.app',
+    'https://mcomloyalty.vercel.app',
+    'https://mcom-solutions-backend.vercel.app',
+  ];
+  const envOrigins = [
+    process.env.FRONTEND_URL,
+    process.env.MCOM_MALL_API_URL,
+    process.env.MCOM_REWARDS_API_URL,
+  ].filter((o): o is string => Boolean(o && o.trim()));
+
+  const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'https://mcommall.vercel.app',
-      'https://mcomloyalty.vercel.app',
-      'https://mcom-solutions-backend.vercel.app',
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'ngrok-skip-browser-warning'],
   });
 
   // Global prefix

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MembershipLevel, MembershipTier, MembershipStatus } from '@prisma/client';
 
 export const MEMBERSHIP_PLANS = [
   {
@@ -102,9 +103,9 @@ export class PricingService {
     const updated = await this.prisma.businessProfile.update({
       where: { id: businessId },
       data: {
-        membershipLevel: level,
-        membershipTier: tier,
-        membershipStatus: isTrial ? 'trial' : 'active',
+        membershipLevel: level as MembershipLevel,
+        membershipTier: tier as MembershipTier,
+        membershipStatus: (isTrial ? 'trial' : 'active') as MembershipStatus,
       },
     });
 

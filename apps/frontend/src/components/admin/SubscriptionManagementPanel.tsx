@@ -2,12 +2,24 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, RefreshCw, ArrowUp, ArrowDown, Ban, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData, Subscription } from '../../context/AdminDataContext';
+import { useAdminSubscriptions, useUpdateSubscription } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
+import type { Subscription } from '../../services/admin/types';
 
 export default function SubscriptionManagementPanel() {
-  const { subscriptions, updateSubscription } = useAdminData();
+  const { data: subsRes, isLoading } = useAdminSubscriptions();
+  const updateSub = useUpdateSubscription();
+  const subscriptions = subsRes?.data ?? [];
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   const filtered = subscriptions.filter(s => {
     const matchSearch = s.businessName.toLowerCase().includes(search.toLowerCase());
@@ -16,11 +28,11 @@ export default function SubscriptionManagementPanel() {
   });
 
   const handleAction = (sub: Subscription, action: string) => {
-    const statusMap: Record<string, Subscription['status']> = {
+    const statusMap: Record<string, string> = {
       renew: 'Active', upgrade: 'Active', downgrade: 'Active',
       cancel: 'Cancelled', suspend: 'Suspended', reactivate: 'Active',
     };
-    updateSubscription(sub.id, { status: statusMap[action] || sub.status });
+    updateSub.mutate({ id: sub.id, data: { status: statusMap[action] || sub.status } });
   };
 
   return (
