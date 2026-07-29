@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '../lib/api';
+import { apiClient } from '../services/api';
 import { SECTORS, CATEGORIES, SUBCATEGORIES, type Sector, type Category, type Subcategory } from '../data/sectors';
 
 const USE_MOCK = import.meta.env.VITE_MOCK_API === 'true';

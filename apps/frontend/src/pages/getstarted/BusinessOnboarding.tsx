@@ -6,11 +6,11 @@ import {
   ChevronRight, ChevronLeft, Upload, Check,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-<<<<<<< HEAD
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu,   Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies } from '../../services/api';
+import { businessApi } from '../../services/business';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
@@ -7128,7 +7128,6 @@ function BusinessOnboardingInner() {
         )}
       </AnimatePresence>
 
-<<<<<<< HEAD
       <HighStreetActivationModal open={showLearnMoreModal} onClose={() => setShowLearnMoreModal(false)} />
       <PlatformPaymentModal
         isOpen={showPlatformPaymentModal}
