@@ -16,6 +16,7 @@ import ProgrammeManagementPanel from '../components/admin/ProgrammeManagementPan
 import HighStreetsPanel from '../components/admin/HighStreetsPanel';
 import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
+import AssessmentPanel from '../components/admin/AssessmentPanel';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -56,6 +57,7 @@ export default function AdminDashboard() {
       'high-streets': { title: 'High Street Management', subtitle: 'Manage physical and virtual high street ecosystems across boroughs' },
       boroughs: { title: 'Borough Management', subtitle: 'Command center for local borough ecosystems and engagement systems' },
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
+      'assessment': { title: 'Business Assessment', subtitle: 'Configure the onboarding assessment questions for new businesses' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -114,6 +116,8 @@ export default function AdminDashboard() {
         return <BoroughsPanel />;
       case 'local-malls':
         return <LocalMallsPanel />;
+      case 'assessment':
+        return <AssessmentPanel />;
       default:
         return <OverviewPanel onNavigate={(tab: string) => setActiveTab(tab as AdminTab)} />;
     }

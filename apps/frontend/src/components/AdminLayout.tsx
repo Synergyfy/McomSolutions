@@ -22,7 +22,8 @@ export type AdminTab =
   | 'audit-logs'
   | 'programme'
   | 'system-settings' | 'developer-center' | 'super-admin'
-  | 'high-streets' | 'boroughs' | 'local-malls';
+  | 'high-streets' | 'boroughs' | 'local-malls'
+  | 'assessment';
 
 interface NavGroup {
   label: string;
@@ -77,6 +78,7 @@ const NAV_GROUPS: NavGroup[] = [
       { tab: 'auth', icon: KeyRound, label: 'Authentication' },
       { tab: 'registration-flow', icon: UserPlus, label: 'Registration Flow' },
       { tab: 'business-profile', icon: Store, label: 'Business Profile' },
+      { tab: 'assessment', icon: HelpCircle, label: 'Business Assessment' },
     ],
   },
   {
