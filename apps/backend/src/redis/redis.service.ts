@@ -12,6 +12,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly configService: ConfigService) {}
 
   async onModuleInit() {
+    // In test environments, skip Redis entirely and rely on the in-memory cache.
+    // This prevents ioredis from entering its retry loop when Redis isn't running,
+    // which was causing test processes to hang indefinitely.
+    if (process.env.NODE_ENV === 'test') {
+      this.logger.log('Test environment: Redis connection skipped — using in-memory cache.');
+      return;
+    }
+
     const redisUrl = this.configService.get<string>('REDIS_URL');
     const host = this.configService.get<string>('REDIS_HOST') || '127.0.0.1';
     const port = parseInt(this.configService.get<string>('REDIS_PORT') || '6379', 10);
@@ -21,10 +29,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       host,
       port,
       lazyConnect: true,
-      maxRetriesPerRequest: 3,
-      enableOfflineQueue: true,
+      maxRetriesPerRequest: 0,    // Don't retry individual commands — fail fast
+      enableOfflineQueue: false,  // Don't queue commands while disconnected (they'd never resolve)
+      connectTimeout: 2000,       // Give up connecting after 2 seconds
       retryStrategy(times) {
-        return Math.min(times * 100, 3000);
+        // Stop retrying after 3 attempts so the process can exit cleanly
+        if (times >= 3) return null;
+        return Math.min(times * 100, 1000);
       },
     };
 
@@ -36,8 +47,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       if (redisUrl && redisUrl.trim() !== '') {
         this.client = new Redis(redisUrl.trim(), {
           lazyConnect: true,
-          maxRetriesPerRequest: 3,
-          enableOfflineQueue: true,
+          maxRetriesPerRequest: 0,
+          enableOfflineQueue: false,
+          connectTimeout: 2000,
+          retryStrategy(times) {
+            if (times >= 3) return null;
+            return Math.min(times * 100, 1000);
+          },
         });
       } else {
         this.client = new Redis(options);

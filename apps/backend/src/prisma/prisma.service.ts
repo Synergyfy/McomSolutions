@@ -6,7 +6,11 @@ import * as bcrypt from 'bcryptjs';
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     await this.$connect();
-    await this.seedDefaultSsoClients();
+    // Skip seeding in test environments — it runs bcrypt + DB queries on every
+    // module bootstrap which saturates CPU when Jest spins up multiple workers.
+    if (process.env.NODE_ENV !== 'test') {
+      await this.seedDefaultSsoClients();
+    }
   }
 
   async onModuleDestroy() {
