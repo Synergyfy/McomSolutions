@@ -1,9 +1,24 @@
 import React from 'react';
 
-interface AuthInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface AuthInputProps {
     label: string;
     icon?: string;
     id?: string;
+    name?: string;
+    type?: string;
+    placeholder?: string;
+    required?: boolean;
+    value?: string;
+    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    className?: string;
+    disabled?: boolean;
+    readOnly?: boolean;
+    autoComplete?: string;
+    min?: string | number;
+    max?: string | number;
+    step?: string | number;
+    pattern?: string;
+    children?: React.ReactNode;
 }
 
 export default function AuthInput({ label, icon, id, ...props }: AuthInputProps) {

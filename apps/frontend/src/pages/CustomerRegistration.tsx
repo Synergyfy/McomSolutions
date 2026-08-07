@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, ShieldCheck, RefreshCw, X, ArrowRight, Gift, MapPin, Compass, Search, Smartphone, Mail, User, Shield, CheckCircle2, ChevronLeft, Lock } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { businessApi } from '../lib/api';
+import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
 
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
@@ -21,67 +21,34 @@ type UserRoleType = 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'OWNER';
 
 // Real hooks wrapping McomSolutions API
 function useCreateUser() {
-  const [isPending, setIsPending] = useState(false);
-  return {
-    mutateAsync: async (data: any) => {
-      setIsPending(true);
-      try {
-        const res = await businessApi.register(data);
-        return res;
-      } finally {
-        setIsPending(false);
-      }
-    },
-    isPending,
-  };
+  const { mutateAsync, isPending } = useRegister();
+  return { mutateAsync, isPending };
 }
 
 function useLogin() {
-  const [isPending, setIsPending] = useState(false);
-  return {
-    mutateAsync: async (data: any) => {
-      setIsPending(true);
-      try {
-        const res = await businessApi.login(data);
-        return res;
-      } finally {
-        setIsPending(false);
-      }
-    },
-    isPending,
-  };
+  const { mutateAsync, isPending } = useLoginHook();
+  return { mutateAsync, isPending };
 }
 
 function useSendOtp() {
-  const [isPending, setIsPending] = useState(false);
+  const { mutateAsync, isPending } = useSendOtpHook();
   return {
-    mutateAsync: async (data: any) => {
-      setIsPending(true);
-      try {
-        const res = await businessApi.sendOtp(data.email);
-        return res;
-      } finally {
-        setIsPending(false);
-      }
+    mutateAsync: async (data: { email: string; type?: string }) => {
+      return mutateAsync(data.email);
     },
     isPending,
   };
 }
 
 function useValidateOtp() {
-  const [isPending, setIsPending] = useState(false);
+  const { mutateAsync, isPending } = useVerifyOtpHook();
   return {
-    mutateAsync: async (data: any) => {
-      setIsPending(true);
-      try {
-        const res = await businessApi.verifyOtp(data.email, data.otp);
-        if (!res.valid) {
-          throw new Error('Invalid verification code');
-        }
-        return { data: { valid: true } };
-      } finally {
-        setIsPending(false);
+    mutateAsync: async (data: { email: string; otp: string; type?: string }) => {
+      const res = await mutateAsync({ email: data.email, code: data.otp });
+      if (!res) {
+        throw new Error('Invalid verification code');
       }
+      return { data: { valid: true } };
     },
     isPending,
   };
@@ -192,6 +159,18 @@ export default function CustomerRegistration() {
   const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl') || '/dashboard';
   const roleParam = searchParams.get('role') || 'customer';
 
+  const getClientName = (id: string) => {
+    if (id === 'mcom-mall') return 'MCOM Mall';
+    if (id === 'mcom-loyalty') return 'MCOM Loyalty';
+    if (id === '247gbs') return '24/7 GBS';
+    return id;
+  };
+
+  const clientId = searchParams.get('client_id');
+  const redirectUri = searchParams.get('redirect_uri');
+  const state = searchParams.get('state');
+  const scope = searchParams.get('scope');
+
   const [mode, setMode] = useState<Mode>('register');
   const [step, setStep] = useState<Step>('enter-email');
   const [emailForVerification, setEmailForVerification] = useState('');
@@ -241,6 +220,66 @@ export default function CustomerRegistration() {
   const { isPending: validateOtpPending, mutateAsync: validateOtpAsync } = useValidateOtp();
   const { isPending: checkEmailPending, mutateAsync: checkEmailAsync } = useCheckEmail();
   const { mutateAsync: addAddressAsync } = useAddShippingAddress();
+
+  const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
+  const { mutateAsync: getSsoToken } = useGetSsoToken();
+
+  const performRedirect = async () => {
+    if (clientId && redirectUri) {
+      try {
+        const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined, state: state || undefined });
+        window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
+        return;
+      } catch (err) {
+        console.error("SSO OAuth authorization failed", err);
+      }
+    }
+
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+
+    let redirectTarget = null;
+    let finalRedirectState = null;
+
+    if (redirectParam) {
+      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+        redirectTarget = redirectParam;
+      } else {
+        finalRedirectState = redirectParam;
+      }
+    }
+
+    if (!redirectTarget) {
+      if (source === 'mcomloyalty') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
+      } else if (source === 'mcommall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      }
+    }
+
+    if (redirectTarget) {
+      try {
+        const ssoRes = await getSsoToken(clientId || undefined);
+        const separator = redirectTarget.includes('?') ? '&' : '?';
+        const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
+        let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
+        
+        if (finalRedirectState) {
+          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        }
+        
+        window.location.href = targetUrl;
+        return;
+      } catch (err) {
+        console.error("Failed to generate SSO token", err);
+        navigate(redirect);
+      }
+    } else if (finalRedirectState) {
+      navigate(finalRedirectState);
+    } else {
+      navigate(redirect);
+    }
+  };
 
   useEffect(() => {
     if (roleParam === 'customer') {
@@ -499,29 +538,7 @@ export default function CustomerRegistration() {
       
       setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
-        if (!redirectTarget) {
-          const source = searchParams.get('source');
-          if (source === 'mcomloyalty') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-          } else if (source === 'mcommall') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
-          }
-        }
-
-        if (redirectTarget) {
-          try {
-            const res = await businessApi.getSsoToken();
-            const separator = redirectTarget.includes('?') ? '&' : '?';
-            const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-            window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
-          } catch (err) {
-            console.error("Failed to generate SSO token", err);
-            navigate(redirect);
-          }
-        } else {
-          navigate(redirect);
-        }
+        await performRedirect();
       }, 2000);
 
     } catch (error: any) {
@@ -546,29 +563,7 @@ export default function CustomerRegistration() {
       
       setTimeout(async () => {
         setIsSuccessDialogOpen(false);
-        let redirectTarget = searchParams.get('redirect') || searchParams.get('callbackUrl');
-        if (!redirectTarget) {
-          const source = searchParams.get('source');
-          if (source === 'mcomloyalty') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-          } else if (source === 'mcommall') {
-            redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
-          }
-        }
-
-        if (redirectTarget) {
-          try {
-            const res = await businessApi.getSsoToken();
-            const separator = redirectTarget.includes('?') ? '&' : '?';
-            const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
-            window.location.href = `${redirectTarget}${separator}${tokenParamName}=${res.ssoToken}`;
-          } catch (err) {
-            console.error("Failed to generate SSO token", err);
-            navigate(redirect);
-          }
-        } else {
-          navigate(redirect);
-        }
+        await performRedirect();
       }, 1500);
     } catch (error: any) {
       setDialogMessage(error.message || 'Login failed');
@@ -617,12 +612,19 @@ export default function CustomerRegistration() {
             <span className="text-white font-black text-lg -rotate-45">M</span>
           </div>
           <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-            {mode === 'login' ? 'Sign In to McomMall' : 'Create Your Account'}
+            {mode === 'login' ? (clientId ? 'Sign In' : 'Sign In to McomMall') : 'Create Your Account'}
           </h1>
           {mode === 'register' && step === 'enter-otp' && (
             <p className="text-xs text-gray-400 mt-1 font-semibold">Enter OTP sent to {formData.email}</p>
           )}
         </div>
+
+        {clientId && (
+          <div className="p-4 bg-orange-50 border border-orange-200 text-orange-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
+            <Lock className="w-5 h-5 shrink-0 text-orange-500" />
+            <span>Signing in to access <strong>{getClientName(clientId)}</strong></span>
+          </div>
+        )}
 
         <form className="mt-8 space-y-5" onSubmit={mode === 'login' ? handleLoginSubmit : (e) => e.preventDefault()}>
           

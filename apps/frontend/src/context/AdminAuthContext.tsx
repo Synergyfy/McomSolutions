@@ -1,66 +1,66 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { adminApi } from '../services/admin/index';
 
 interface AdminUser {
+  id: string;
   name: string;
   email: string;
-  role: 'Super Admin' | 'Admin' | 'Finance Admin' | 'Support Admin' | 'Membership Admin' | 'Platform Admin' | 'Developer';
-  avatar: string;
+  role: string;
 }
 
 interface AdminAuthContextType {
   isAuthenticated: boolean;
   admin: AdminUser | null;
-  login: (email: string, password: string, code: string) => boolean;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  loading: boolean;
+  error: string | null;
 }
-
-const ADMIN_CREDENTIALS = {
-  email: 'admin@mcomsolutions.co.uk',
-  password: 'admin123',
-};
-
-const DEFAULT_ADMIN: AdminUser = {
-  name: 'Adam Smith',
-  email: 'admin@mcomsolutions.co.uk',
-  role: 'Super Admin',
-  avatar: 'AS',
-};
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
 
-export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('admin_auth') === 'true';
-  });
-  const [admin, setAdmin] = useState<AdminUser | null>(() => {
+function loadAdmin(): AdminUser | null {
+  try {
     const saved = localStorage.getItem('admin_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('admin_auth', String(isAuthenticated));
-    if (admin) {
-      localStorage.setItem('admin_user', JSON.stringify(admin));
-    } else {
-      localStorage.removeItem('admin_user');
+    const token = localStorage.getItem('auth_token');
+    if (saved && token) {
+      return JSON.parse(saved);
     }
-  }, [isAuthenticated, admin]);
+  } catch {}
+  return null;
+}
 
-  const login = useCallback((_email: string, _password: string, _code: string) => {
-    setAdmin(DEFAULT_ADMIN);
-    setIsAuthenticated(true);
-    return true;
+export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
+  const [admin, setAdmin] = useState<AdminUser | null>(loadAdmin);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAuthenticated = !!admin && !!localStorage.getItem('auth_token');
+
+  const login = useCallback(async (email: string, password: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await adminApi.login({ email, password });
+      setAdmin(res.admin);
+      return true;
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Login failed';
+      setError(message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const logout = useCallback(() => {
     setAdmin(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('admin_auth');
+    localStorage.removeItem('auth_token');
     localStorage.removeItem('admin_user');
   }, []);
 
   return (
-    <AdminAuthContext.Provider value={{ isAuthenticated, admin, login, logout }}>
+    <AdminAuthContext.Provider value={{ isAuthenticated, admin, login, logout, loading, error }}>
       {children}
     </AdminAuthContext.Provider>
   );

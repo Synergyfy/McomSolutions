@@ -92,6 +92,19 @@ export interface RegistrationFlow {
   autoApproveBusinesses: boolean; autoApproveCustomers: boolean;
 }
 
+export type AssessmentFieldType = 'single-choice' | 'multi-choice' | 'text' | 'textarea' | 'number' | 'date' | 'rating' | 'yes-no';
+
+export interface AssessmentQuestion {
+  id: string;
+  question: string;
+  iconName: string;
+  fieldType: AssessmentFieldType;
+  options: string[];
+  hint: string;
+  enabled: boolean;
+  order: number;
+}
+
 export interface BusinessProfileConfig {
   fields: string[]; storefrontEnabled: boolean; googleFieldsEnabled: boolean;
   locationFields: string[]; mediaFields: string[];
@@ -129,6 +142,7 @@ interface AdminDataContextType {
   authConfig: AuthConfig; registrationFlow: RegistrationFlow;
   businessProfileConfig: BusinessProfileConfig; launchRules: PlatformLaunchRule[];
   integrations: Integration[]; apiKeys: ApiKey[]; revenueRecords: RevenueRecord[];
+  assessmentQuestions: AssessmentQuestion[];
   addBusiness: (b: Omit<BusinessUser, 'id'>) => void; updateBusiness: (id: number, u: Partial<BusinessUser>) => void; deleteBusiness: (id: number) => void;
   addCustomer: (c: Omit<CustomerUser, 'id'>) => void; updateCustomer: (id: number, u: Partial<CustomerUser>) => void; deleteCustomer: (id: number) => void;
   addAgent: (a: Omit<AgentUser, 'id'>) => void; updateAgent: (id: number, u: Partial<AgentUser>) => void; deleteAgent: (id: number) => void;
@@ -151,6 +165,10 @@ interface AdminDataContextType {
   addIntegration: (i: Omit<Integration, 'id'>) => void; updateIntegration: (id: number, u: Partial<Integration>) => void;
   addApiKey: (a: Omit<ApiKey, 'id'>) => void; updateApiKey: (id: number, u: Partial<ApiKey>) => void;
   addRevenueRecord: (r: RevenueRecord) => void;
+  addAssessmentQuestion: (q: Omit<AssessmentQuestion, 'id' | 'order'>) => void;
+  updateAssessmentQuestion: (id: string, u: Partial<AssessmentQuestion>) => void;
+  deleteAssessmentQuestion: (id: string) => void;
+  reorderAssessmentQuestions: (ids: string[]) => void;
 }
 
 // ===================== DEFAULTS =====================
@@ -275,6 +293,15 @@ const DEFAULT_REGISTRATION_FLOW: RegistrationFlow = {
   autoApproveBusinesses: false, autoApproveCustomers: true,
 };
 
+const DEFAULT_ASSESSMENT_QUESTIONS: AssessmentQuestion[] = [
+  { id: 'yearsInBusiness', question: 'How long has your business been operating?', iconName: 'Clock', fieldType: 'single-choice', options: ['Less than 1 year', '1–3 years', '3–5 years', '5+ years'], hint: 'This helps us understand your growth stage', enabled: true, order: 0 },
+  { id: 'employeeCount', question: 'How many employees does your business have?', iconName: 'Users', fieldType: 'single-choice', options: ['Just me', '2–5', '6–20', '20+'], hint: 'We tailor recommendations to your team size', enabled: true, order: 1 },
+  { id: 'onlinePresence', question: 'How would you rate your current online presence?', iconName: 'Globe', fieldType: 'single-choice', options: ['No online presence', 'Basic website only', 'Website + social media', 'Strong online presence'], hint: 'This determines your digital starting point', enabled: true, order: 2 },
+  { id: 'customerBase', question: 'Approximately how many active customers do you serve monthly?', iconName: 'Heart', fieldType: 'number', options: [], hint: 'We use this to set realistic growth targets', enabled: true, order: 3 },
+  { id: 'mainGoal', question: 'What is your primary goal for the next 90 days?', iconName: 'Target', fieldType: 'single-choice', options: ['Increase customer loyalty', 'Grow customer base', 'Improve online visibility', 'Launch marketing campaigns'], hint: 'Your goal shapes your personalised action plan', enabled: true, order: 4 },
+  { id: 'marketingChannels', question: 'Which marketing channels do you currently use?', iconName: 'Megaphone', fieldType: 'multi-choice', options: ['None', 'Social media only', 'Social media + email', 'Multiple channels'], hint: 'We will fill any gaps in your strategy', enabled: true, order: 5 },
+];
+
 const DEFAULT_BUSINESS_PROFILE_CONFIG: BusinessProfileConfig = {
   fields: ['Business Name', 'Description', 'Logo', 'Cover Image', 'Contact Email', 'Phone', 'Website', 'Address', 'Social Links'],
   storefrontEnabled: true, googleFieldsEnabled: true,
@@ -346,6 +373,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [integrations, setIntegrations] = useState<Integration[]>(() => loadFromLocalStorage('admin_integrations', DEFAULT_INTEGRATIONS));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>(() => loadFromLocalStorage('admin_api_keys', DEFAULT_API_KEYS));
   const [revenueRecords, setRevenueRecords] = useState<RevenueRecord[]>(() => loadFromLocalStorage('admin_revenue_records', DEFAULT_REVENUE_RECORDS));
+  const [assessmentQuestions, setAssessmentQuestions] = useState<AssessmentQuestion[]>(() => loadFromLocalStorage('admin_assessment_questions', DEFAULT_ASSESSMENT_QUESTIONS));
 
   useEffect(() => { localStorage.setItem('admin_businesses', JSON.stringify(businesses)); }, [businesses]);
   useEffect(() => { localStorage.setItem('admin_customers', JSON.stringify(customers)); }, [customers]);
@@ -369,6 +397,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { localStorage.setItem('admin_integrations', JSON.stringify(integrations)); }, [integrations]);
   useEffect(() => { localStorage.setItem('admin_api_keys', JSON.stringify(apiKeys)); }, [apiKeys]);
   useEffect(() => { localStorage.setItem('admin_revenue_records', JSON.stringify(revenueRecords)); }, [revenueRecords]);
+  useEffect(() => { localStorage.setItem('admin_assessment_questions', JSON.stringify(assessmentQuestions)); }, [assessmentQuestions]);
 
   const genId = () => Date.now() + Math.floor(Math.random() * 1000);
 
@@ -383,6 +412,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       payments, notifications, supportTickets, auditLogs, settings,
       authConfig, registrationFlow, businessProfileConfig, launchRules,
       integrations, apiKeys, revenueRecords,
+      assessmentQuestions,
 
       addBusiness: useCallback((b) => { const id = genId(); setBusinesses(p => [{ ...b, id }, ...p]); withAudit('Business Created', 'Business', b.name, `Created business account`); }, [withAudit]),
       updateBusiness: useCallback((id, u) => { setBusinesses(p => p.map(b => b.id === id ? { ...b, ...u } : b)); withAudit('Business Updated', 'Business', id.toString(), `Updated business fields`); }, [withAudit]),
@@ -448,6 +478,25 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       updateApiKey: useCallback((id, u) => setApiKeys(p => p.map(k => k.id === id ? { ...k, ...u } : k)), []),
 
       addRevenueRecord: useCallback((r) => setRevenueRecords(p => [...p, r]), []),
+
+      addAssessmentQuestion: useCallback((q) => {
+        setAssessmentQuestions(p => [...p, { ...q, id: `custom_${Date.now()}`, order: p.length }]);
+        withAudit('Assessment Question Created', 'Assessment', q.question, `Created assessment question`);
+      }, [withAudit]),
+      updateAssessmentQuestion: useCallback((id, u) => {
+        setAssessmentQuestions(p => p.map(q => q.id === id ? { ...q, ...u } : q));
+        withAudit('Assessment Question Updated', 'Assessment', id, `Updated assessment question`);
+      }, [withAudit]),
+      deleteAssessmentQuestion: useCallback((id) => {
+        setAssessmentQuestions(p => p.filter(q => q.id !== id));
+        withAudit('Assessment Question Deleted', 'Assessment', id, `Deleted assessment question`);
+      }, [withAudit]),
+      reorderAssessmentQuestions: useCallback((ids) => {
+        setAssessmentQuestions(p => ids.map((id, i) => {
+          const q = p.find(x => x.id === id);
+          return q ? { ...q, order: i } : q;
+        }).filter(Boolean) as AssessmentQuestion[]);
+      }, []),
     }}>
       {children}
     </AdminDataContext.Provider>
