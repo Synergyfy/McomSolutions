@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, CheckCircle2, Store, Search, Globe, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { businessApi } from '../lib/api';
+import { useRegister } from '../services/auth/hooks';
 
 export default function BusinessRegistration() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { mutateAsync: register } = useRegister();
   const [formData, setFormData] = useState({
     businessName: '',
     businessType: '',
@@ -62,7 +63,7 @@ export default function BusinessRegistration() {
       setLoading(true);
       setError(null);
       try {
-        await businessApi.register({
+        await register({
           email: formData.email,
           password: formData.password,
           businessName: formData.businessName,

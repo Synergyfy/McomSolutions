@@ -4,7 +4,8 @@ import {
   Crown, CheckCircle2, Star, Zap, Shield, ArrowUpRight,
   CalendarDays, Clock, ChevronRight, AlertCircle, TrendingUp, X, RefreshCw
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useProfile } from '../services/business/hooks';
+import { useTransactions, useSubscribeMembership } from '../services/pricing/hooks';
 
 const TIERS = [
   {
@@ -56,36 +57,18 @@ const TIERS = [
 type ModalType = 'upgrade' | 'renew' | 'cancel' | null;
 
 export default function DashboardMemberships() {
-  const [profile, setProfile] = useState<any>(null);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: profile, isLoading: profileLoading } = useProfile();
+  const { data: transactions = [], isLoading: txLoading } = useTransactions();
+  const { mutateAsync: subscribeMembership } = useSubscribeMembership();
+  const loading = profileLoading || txLoading;
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedUpgrade, setSelectedUpgrade] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const p = await businessApi.getProfile();
-      const t = await businessApi.getTransactions();
-      setProfile(p);
-      setTransactions(t);
-    } catch (err) {
-      console.error('Failed to load membership data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleUpgrade = async (level: string) => {
     setUpgrading(true);
     try {
-      await businessApi.subscribeMembership(level, 'Normal');
-      await loadData();
+      await subscribeMembership({ level, tier: 'Normal' });
       setModal(null);
       setSelectedUpgrade(null);
     } catch (err: any) {

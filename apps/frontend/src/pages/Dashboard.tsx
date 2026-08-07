@@ -7,7 +7,8 @@ import {
   User, ChevronDown, ExternalLink
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { businessApi } from '../lib/api';
+import { useProfile } from '../services/business/hooks';
+import { useLogout } from '../services/auth/hooks';
 import DashboardMemberships from '../components/DashboardMemberships';
 import DashboardPackages from '../components/DashboardPackages';
 import DashboardOverview from '../components/DashboardOverview';
@@ -24,7 +25,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
+  const { data: profile } = useProfile();
+  const logout = useLogout();
   const [showFirstWelcome, setShowFirstWelcome] = useState(() => {
     return localStorage.getItem('firstDashboardLogin') === 'true';
   });
@@ -35,20 +37,7 @@ export default function Dashboard() {
     const token = localStorage.getItem('auth_token');
     if (!token) {
       navigate('/login');
-      return;
     }
-    
-    // Fetch profile
-    businessApi.getProfile().then(data => {
-      setProfile(data);
-    }).catch(err => {
-      console.error('Failed to load profile in Dashboard dashboard mount:', err);
-      // If unauthorized, redirect
-      if (err.response?.status === 401) {
-        localStorage.removeItem('auth_token');
-        navigate('/login');
-      }
-    });
   }, [navigate]);
 
   const handleNav = (tab: string) => {
@@ -58,8 +47,7 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     setUserMenuOpen(false);
-    businessApi.logout();
-    navigate('/login');
+    logout();
   };
 
   const displayName = profile?.businessName || 'Business Owner';

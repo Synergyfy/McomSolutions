@@ -14,13 +14,14 @@ import {
   Sparkles,
   HelpCircle
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useStripeInitiate, useStripeConfirm, usePaypalInitiate } from '../services/payment/hooks';
 
 const ICON_MAP = {
   Bronze: Building2,
   Silver: Zap,
   Gold: Star,
-  Platinum: Trophy
+  Platinum: Trophy,
+  Elite: Sparkles,
 };
 
 const PLAN_DESCRIPTIONS = {
@@ -40,6 +41,9 @@ const PLAN_PRICES = {
 export default function CheckoutPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { mutateAsync: stripeInitiate } = useStripeInitiate();
+  const { mutateAsync: stripeConfirm } = useStripeConfirm();
+  const { mutateAsync: paypalInitiate } = usePaypalInitiate();
 
   const planId = (searchParams.get('plan') || 'Bronze') as 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
   const tier = (searchParams.get('tier') || 'Normal') as 'Normal' | 'Pro' | 'Pro+';
@@ -117,18 +121,18 @@ export default function CheckoutPage() {
     try {
       if (paymentProvider === 'stripe') {
         // Step 1: Ask backend to create a Stripe PaymentIntent or SetupIntent
-        const initiated = await businessApi.stripeInitiate(planId, tier, billing, isTrial);
+        const initiated = await stripeInitiate({ level: planId, tier, billing, isTrial });
 
         // Step 2: Confirm with the backend (for now without Stripe.js — direct confirm)
         // In production, you'd call stripe.confirmPayment() here with the clientSecret
         // For now we use the backend confirm endpoint which verifies intent status
-        const confirmed = await businessApi.stripeConfirm(
-          planId,
+        const confirmed = await stripeConfirm({
+          level: planId,
           tier,
           billing,
-          initiated.clientSecret, // pass as paymentIntentId reference
+          paymentIntentId: initiated.clientSecret, // pass as paymentIntentId reference
           isTrial,
-        );
+        });
 
         if (user) {
           const updatedUser = { ...user, businessProfile: { ...user.businessProfile, membershipLevel: planId, membershipTier: tier, membershipStatus: isTrial ? 'trial' : 'active' } };
@@ -145,7 +149,7 @@ export default function CheckoutPage() {
         const returnUrl = `${origin}/checkout/paypal-return?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${billing}&isTrial=${isTrial}`;
         const cancelUrl = `${origin}/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${billing}&isTrial=${isTrial}`;
 
-        const initiated = await businessApi.paypalInitiate(planId, tier, billing, returnUrl, cancelUrl, isTrial);
+        const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial });
 
         if (initiated.approvalUrl) {
           window.location.href = initiated.approvalUrl;
