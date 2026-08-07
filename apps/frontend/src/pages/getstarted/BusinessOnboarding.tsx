@@ -869,53 +869,84 @@ function BusinessOnboardingInner() {
         return;
       }
       const queryText = `${searchName} ${searchLoc}`.trim();
-      const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': googleApiKey,
-          'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.primaryTypeDisplayName,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.currentOpeningHours,places.regularOpeningHours,places.photos',
-        },
-        body: JSON.stringify({
-          textQuery: queryText,
-          maxResultCount: 20,
-          locationBias: searchLoc
-            ? { circle: { center: { latitude: 0, longitude: 0 }, radius: searchRadius * 1000 } }
-            : undefined,
-        }),
+      const params = new URLSearchParams({
+        query: queryText,
+        key: googleApiKey,
+        maxresults: '20',
       });
+      const res = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`);
       if (!res.ok) throw new Error(`Google Places API error: ${res.status}`);
       const data = await res.json();
-      const places = (data.places || []).map((p: any) => {
-        const heroPhotoUrl = p.photos?.[0]?.name
-          ? `https://places.googleapis.com/v1/${p.photos[0].name}/media?key=${googleApiKey}&maxWidthPx=800`
+      if (data.status !== 'OK') {
+        setSearchError(
+          `Google Places API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`
+        );
+        return;
+      }
+
+      // Legacy Text Search doesn't return phone/website. Enrich the first
+      // results with Place Details (parallel, capped) to preserve the fields
+      // the preview screen expects.
+      const results = data.results || [];
+      const details = await Promise.all(
+        results.slice(0, 10).map(async (r: any) => {
+          try {
+            const dParams = new URLSearchParams({
+              place_id: r.place_id,
+              fields: 'formatted_phone_number,international_phone_number,website,opening_hours',
+              key: googleApiKey,
+            });
+            const dRes = await fetch(
+              `https://maps.googleapis.com/maps/api/place/details/json?${dParams.toString()}`
+            );
+            if (!dRes.ok) return null;
+            const dData = await dRes.json();
+            return dData.status === 'OK' ? dData.result : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const detailMap = new Map<string, any>();
+      results.slice(0, 10).forEach((r: any, i: number) => {
+        if (details[i]) detailMap.set(r.place_id, details[i]);
+      });
+
+      const places = results.map((p: any) => {
+        const detail = detailMap.get(p.place_id);
+        const photoRef = p.photos?.[0]?.photo_reference;
+        const heroPhotoUrl = photoRef
+          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoRef}&key=${googleApiKey}`
           : '';
-        const thumbPhotoUrl = p.photos?.[0]?.name
-          ? `https://places.googleapis.com/v1/${p.photos[0].name}/media?key=${googleApiKey}&maxWidthPx=200`
+        const thumbPhotoUrl = photoRef
+          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${photoRef}&key=${googleApiKey}`
           : '';
         const allPhotoUrls = (p.photos || []).slice(0, 5).map((ph: any) =>
-          `https://places.googleapis.com/v1/${ph.name}/media?key=${googleApiKey}&maxWidthPx=800`
+          `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
         );
 
-        const hoursText = p.currentOpeningHours?.weekdayDescriptions?.[new Date().getDay()]
-          || p.regularOpeningHours?.weekdayDescriptions?.[new Date().getDay()]
-          || (p.currentOpeningHours?.openNow ? 'Open now' : 'Closed');
-        const isOpen = p.currentOpeningHours?.openNow ?? false;
+        const weekdayText =
+          detail?.opening_hours?.weekday_text || p.opening_hours?.weekday_text || [];
+        const hoursText =
+          weekdayText[new Date().getDay()] || (p.opening_hours?.open_now ? 'Open now' : 'Closed');
+        const isOpen =
+          detail?.opening_hours?.open_now ?? p.opening_hours?.open_now ?? false;
 
         return {
-          place_id: p.id,
-          name: p.displayName?.text || 'Unknown',
-          formatted_address: p.formattedAddress || '',
-          lat: p.location?.latitude || 0,
-          lng: p.location?.longitude || 0,
+          place_id: p.place_id,
+          name: p.name || 'Unknown',
+          formatted_address: p.formatted_address || p.vicinity || '',
+          lat: p.geometry?.location?.lat || 0,
+          lng: p.geometry?.location?.lng || 0,
           types: p.types || [],
-          primaryType: p.primaryType || '',
-          primaryTypeDisplayName: p.primaryTypeDisplayName?.text || '',
-          formatted_phone_number: p.nationalPhoneNumber || '',
-          international_phone_number: p.nationalPhoneNumber || '',
-          website: p.websiteUri || '',
+          primaryType: p.types?.[0] || '',
+          primaryTypeDisplayName: p.types?.[0] || '',
+          formatted_phone_number: detail?.formatted_phone_number || p.formatted_phone_number || '',
+          international_phone_number:
+            detail?.international_phone_number || p.international_phone_number || '',
+          website: detail?.website || p.website || '',
           rating: p.rating || 0,
-          user_ratings_total: p.userRatingCount || 0,
+          user_ratings_total: p.user_ratings_total || 0,
           photos: p.photos || [],
           heroImg: heroPhotoUrl,
           thumbImg: thumbPhotoUrl,
@@ -2079,7 +2110,7 @@ function BusinessOnboardingInner() {
       ? CATEGORIES.find(c => c.id === googleCatDrillGroup)
       : null;
 
-    let displayItems: { id: string; name: string; icon: React.ReactNode; onClick: () => void }[] = [];
+    let displayItems: { id: string; name: string; icon: React.ReactNode; tag?: string; onClick: () => void }[] = [];
     let pageTitle = 'Categories';
     let showBack = false;
     let onBack = () => {};
@@ -2125,9 +2156,62 @@ function BusinessOnboardingInner() {
       }));
     }
 
-    const filteredCategories = displayItems.filter(item =>
-      item.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
-    );
+    const filteredCategories = (() => {
+      const query = categorySearchQuery.trim();
+      if (!query) return displayItems;
+
+      const q = query.toLowerCase();
+      const matches: { id: string; name: string; icon: React.ReactNode; tag?: string; onClick: () => void }[] = [];
+
+      // Universal search across every taxonomy level, regardless of the
+      // current drill-down location.
+      SECTORS.forEach(s => {
+        if (!s.name.toLowerCase().includes(q)) return;
+        matches.push({
+          id: s.id,
+          name: s.name,
+          icon: SECTOR_ICON_MAP[s.id] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: 'Sector',
+          onClick: () => {
+            setGoogleCatDrillGroup(null);
+            setGoogleCatDrillSector(s.id);
+          },
+        });
+      });
+
+      CATEGORIES.forEach(c => {
+        if (!c.name.toLowerCase().includes(q)) return;
+        const sector = SECTORS.find(s => s.id === c.sectorId);
+        matches.push({
+          id: c.id,
+          name: c.name,
+          icon: SECTOR_ICON_MAP[c.sectorId] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: sector ? `Sector • ${sector.name}` : 'Category',
+          onClick: () => setGoogleCatDrillGroup(c.id),
+        });
+      });
+
+      SUBCATEGORIES.forEach(sc => {
+        if (!sc.name.toLowerCase().includes(q)) return;
+        const cat = CATEGORIES.find(c => c.id === sc.categoryId);
+        const sector = cat ? SECTORS.find(s => s.id === cat.sectorId) : null;
+        matches.push({
+          id: sc.id,
+          name: sc.name,
+          icon: <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: [sector?.name, cat?.name].filter(Boolean).join(' > ') || 'Subcategory',
+          onClick: () => {
+            setSearchName(sc.name);
+            setShowGoogleCategoryPage(false);
+            setGoogleCatDrillSector(null);
+            setGoogleCatDrillGroup(null);
+            setShowFindClaimPage(true);
+          },
+        });
+      });
+
+      return matches;
+    })();
 
     return (
       <div className="fixed top-0 inset-x-0 bottom-0 bg-gray-50 flex flex-col font-sans z-40 overflow-y-auto">
@@ -2239,6 +2323,9 @@ function BusinessOnboardingInner() {
                   {item.icon}
                 </div>
                 <span className="font-bold text-gray-800 text-sm mt-1">{item.name}</span>
+                {item.tag && (
+                  <span className="text-[10px] font-medium text-gray-400 mt-0.5 uppercase tracking-wide line-clamp-2">{item.tag}</span>
+                )}
               </button>
             ))}
 
