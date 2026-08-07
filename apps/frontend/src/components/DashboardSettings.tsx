@@ -3,10 +3,11 @@ import {
   User, Lock, ShieldCheck, Bell, Smartphone,
   Mail, Key, CheckCircle2, AlertCircle, Apple, Loader2
 } from 'lucide-react';
-import { businessApi } from '../lib/api';
+import { useCurrentUser, useUpdateSettings } from '../services/auth/hooks';
 
 export default function DashboardSettings() {
-  const [loading, setLoading] = useState(true);
+  const { data: user, isLoading: loading } = useCurrentUser();
+  const { mutateAsync: updateSettings } = useUpdateSettings();
   const [saving, setSaving] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -18,32 +19,22 @@ export default function DashboardSettings() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    async function loadSettings() {
-      try {
-        const user = await businessApi.getCurrentUser();
-        if (user) {
-          setFirstName(user.firstName || '');
-          setLastName(user.lastName || '');
-          setEmail(user.email || '');
-          setJobTitle(user.jobTitle || 'Managing Director');
-          setTwoFactor(user.twoFactorEnabled || false);
-          setEmailNotifs(user.emailNotifications !== false); // default to true
-          setSmsNotifs(user.smsNotifications || false);
-        }
-      } catch (err) {
-        console.error('Failed to load settings', err);
-      } finally {
-        setLoading(false);
-      }
+    if (user) {
+      setFirstName(user.firstName || '');
+      setLastName(user.lastName || '');
+      setEmail(user.email || '');
+      setJobTitle(user.jobTitle || 'Managing Director');
+      setTwoFactor(user.twoFactorEnabled || false);
+      setEmailNotifs(user.emailNotifications !== false); // default to true
+      setSmsNotifs(user.smsNotifications || false);
     }
-    loadSettings();
-  }, []);
+  }, [user]);
 
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
-      await businessApi.updateSettings({
+      await updateSettings({
         firstName,
         lastName,
         jobTitle,

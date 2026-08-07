@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { KeyRound, UserPlus, Store, Eye, EyeOff, CheckCircle2, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData } from '../../context/AdminDataContext';
 
 export default function ConfigPanel() {
   const [tab, setTab] = useState<'auth' | 'registration' | 'profile'>('auth');
@@ -17,78 +16,17 @@ export default function ConfigPanel() {
         ))}
       </div>
 
-      {tab === 'auth' && <AuthConfigPanel />}
-      {tab === 'registration' && <RegistrationFlowPanel />}
-      {tab === 'profile' && <BusinessProfileConfigPanel />}
+      {tab === 'auth' && <PlaceholderPanel />}
+      {tab === 'registration' && <PlaceholderPanel />}
+      {tab === 'profile' && <PlaceholderPanel />}
     </div>
   );
 }
 
-function AuthConfigPanel() {
-  const { authConfig, updateAuthConfig } = useAdminData();
-  const ac = authConfig;
-
+function PlaceholderPanel() {
   return (
-    <div className="max-w-2xl space-y-6">
-      <ConfigSection title="Login & Registration">
-        <ToggleRow label="Login Enabled" value={ac.loginEnabled} onChange={v => updateAuthConfig({ loginEnabled: v })} />
-        <ToggleRow label="Registration Enabled" value={ac.registrationEnabled} onChange={v => updateAuthConfig({ registrationEnabled: v })} />
-        <ToggleRow label="Single Sign-On (SSO)" value={ac.ssoEnabled} onChange={v => updateAuthConfig({ ssoEnabled: v })} />
-      </ConfigSection>
-      <ConfigSection title="Password Policy">
-        <SliderRow label="Minimum Password Length" value={ac.passwordMinLength} min={4} max={32} onChange={v => updateAuthConfig({ passwordMinLength: v })} />
-        <ToggleRow label="Require Special Characters" value={ac.passwordRequireSpecial} onChange={v => updateAuthConfig({ passwordRequireSpecial: v })} />
-        <ToggleRow label="Require Numbers" value={ac.passwordRequireNumber} onChange={v => updateAuthConfig({ passwordRequireNumber: v })} />
-      </ConfigSection>
-      <ConfigSection title="Session Policy">
-        <SliderRow label="Session Duration (hours)" value={ac.sessionDuration} min={1} max={168} onChange={v => updateAuthConfig({ sessionDuration: v })} />
-        <SliderRow label="Max Sessions Per User" value={ac.maxSessionsPerUser} min={1} max={20} onChange={v => updateAuthConfig({ maxSessionsPerUser: v })} />
-      </ConfigSection>
-    </div>
-  );
-}
-
-function RegistrationFlowPanel() {
-  const { registrationFlow, updateRegistrationFlow } = useAdminData();
-  const rf = registrationFlow;
-
-  return (
-    <div className="max-w-2xl space-y-6">
-      <ConfigSection title="Business Registration Fields">
-        <div className="flex flex-wrap gap-1.5">{rf.businessFields.map(f => <span key={f} className="px-3 py-1.5 bg-blue-50 text-brand-blue rounded-lg text-xs font-bold">{f}</span>)}</div>
-      </ConfigSection>
-      <ConfigSection title="Customer Registration Fields">
-        <div className="flex flex-wrap gap-1.5">{rf.customerFields.map(f => <span key={f} className="px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold">{f}</span>)}</div>
-      </ConfigSection>
-      <ConfigSection title="Verification Rules">
-        <ToggleRow label="Require Business Verification" value={rf.requireBusinessVerification} onChange={v => updateRegistrationFlow({ requireBusinessVerification: v })} />
-        <ToggleRow label="Require Email Verification" value={rf.requireEmailVerification} onChange={v => updateRegistrationFlow({ requireEmailVerification: v })} />
-        <ToggleRow label="Auto-Approve Businesses" value={rf.autoApproveBusinesses} onChange={v => updateRegistrationFlow({ autoApproveBusinesses: v })} />
-        <ToggleRow label="Auto-Approve Customers" value={rf.autoApproveCustomers} onChange={v => updateRegistrationFlow({ autoApproveCustomers: v })} />
-      </ConfigSection>
-    </div>
-  );
-}
-
-function BusinessProfileConfigPanel() {
-  const { businessProfileConfig, updateBusinessProfileConfig } = useAdminData();
-  const bp = businessProfileConfig;
-
-  return (
-    <div className="max-w-2xl space-y-6">
-      <ConfigSection title="Business Information Fields">
-        <div className="flex flex-wrap gap-1.5">{bp.fields.map(f => <span key={f} className="px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg text-xs font-bold">{f}</span>)}</div>
-      </ConfigSection>
-      <ConfigSection title="Storefront & Google">
-        <ToggleRow label="Storefront Enabled" value={bp.storefrontEnabled} onChange={v => updateBusinessProfileConfig({ storefrontEnabled: v })} />
-        <ToggleRow label="Google Fields Enabled" value={bp.googleFieldsEnabled} onChange={v => updateBusinessProfileConfig({ googleFieldsEnabled: v })} />
-      </ConfigSection>
-      <ConfigSection title="Location Fields">
-        <div className="flex flex-wrap gap-1.5">{bp.locationFields.map(f => <span key={f} className="px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-bold">{f}</span>)}</div>
-      </ConfigSection>
-      <ConfigSection title="Media Fields">
-        <div className="flex flex-wrap gap-1.5">{bp.mediaFields.map(f => <span key={f} className="px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-bold">{f}</span>)}</div>
-      </ConfigSection>
+    <div className="flex items-center justify-center py-20">
+      <p className="text-sm text-gray-400 font-medium">Configuration will be available once connected to the backend.</p>
     </div>
   );
 }

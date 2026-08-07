@@ -2,12 +2,24 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, RefreshCw, ArrowUp, ArrowDown, Ban, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData, Subscription } from '../../context/AdminDataContext';
+import { useAdminSubscriptions, useUpdateSubscription } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
+import type { Subscription } from '../../services/admin/types';
 
 export default function SubscriptionManagementPanel() {
-  const { subscriptions, updateSubscription } = useAdminData();
+  const { data: subsRes, isLoading } = useAdminSubscriptions();
+  const updateSub = useUpdateSubscription();
+  const subscriptions = subsRes?.data ?? [];
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   const filtered = subscriptions.filter(s => {
     const matchSearch = s.businessName.toLowerCase().includes(search.toLowerCase());
@@ -16,11 +28,11 @@ export default function SubscriptionManagementPanel() {
   });
 
   const handleAction = (sub: Subscription, action: string) => {
-    const statusMap: Record<string, Subscription['status']> = {
+    const statusMap: Record<string, string> = {
       renew: 'Active', upgrade: 'Active', downgrade: 'Active',
       cancel: 'Cancelled', suspend: 'Suspended', reactivate: 'Active',
     };
-    updateSubscription(sub.id, { status: statusMap[action] || sub.status });
+    updateSub.mutate({ id: sub.id, data: { status: statusMap[action] || sub.status } });
   };
 
   return (
@@ -60,7 +72,7 @@ export default function SubscriptionManagementPanel() {
                   <td className="px-6 py-4 font-bold text-sm">£{sub.amount}<span className="text-[10px] text-gray-400 font-normal">/{sub.billingCycle.toLowerCase()}</span></td>
                   <td className="px-6 py-4 text-xs text-gray-500">{sub.startDate} → {sub.endDate}</td>
                   <td className="px-6 py-4">
-                    <div className="flex justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-center gap-1">
                       {sub.status === 'Active' && <><ActionBtn icon={Ban} label="Suspend" onClick={() => handleAction(sub, 'suspend')} /><ActionBtn icon={X} label="Cancel" onClick={() => handleAction(sub, 'cancel')} /></>}
                       {sub.status === 'Expired' && <ActionBtn icon={RefreshCw} label="Renew" onClick={() => handleAction(sub, 'renew')} />}
                       {sub.status === 'Cancelled' && <ActionBtn icon={CheckCircle2} label="Reactivate" onClick={() => handleAction(sub, 'reactivate')} />}

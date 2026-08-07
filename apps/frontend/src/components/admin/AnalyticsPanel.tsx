@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BarChart3, FileText, Download, TrendingUp, Users, DollarSign, Activity } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData } from '../../context/AdminDataContext';
+import { useAdminStats } from '../../services/admin/hooks';
 
 export default function AnalyticsPanel() {
   const [tab, setTab] = useState<'analytics' | 'reports'>('analytics');
@@ -17,17 +17,31 @@ export default function AnalyticsPanel() {
 }
 
 function AnalyticsCenter() {
-  const { businesses, customers, subscriptions, payments, revenueRecords, platforms } = useAdminData();
-  const totalRevenue = payments.filter(p => p.status === 'Completed').reduce((s, p) => s + p.amount, 0);
-  const activeSubs = subscriptions.filter(s => s.status === 'Active').length;
+  const { data: stats, isLoading } = useAdminStats();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-sm text-gray-400 font-medium">Loading analytics...</p>
+      </div>
+    );
+  }
+
+  const d = stats?.data;
+  const totalRevenue = d?.revenueStats.totalCompleted ?? 0;
+  const activeSubs = d?.membershipStats.active ?? 0;
+  const totalBusinesses = d?.ecosystemStats.totalBusinesses ?? 0;
+  const totalCustomers = d?.ecosystemStats.totalCustomers ?? 0;
+  const totalPlatformUsers = d?.ecosystemStats.totalPlatformUsers ?? 0;
+  const platforms = d?.platforms ?? [];
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <AnalyticCard label="Business Growth" value={`+${Math.floor(businesses.length * 0.15)}%`} icon={TrendingUp} color="text-blue-600" bg="bg-blue-50" />
-        <AnalyticCard label="Customer Growth" value={`+${Math.floor(customers.length * 0.22)}%`} icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
+        <AnalyticCard label="Business Growth" value={`+${Math.floor(totalBusinesses * 0.15)}%`} icon={TrendingUp} color="text-blue-600" bg="bg-blue-50" />
+        <AnalyticCard label="Customer Growth" value={`+${Math.floor(totalCustomers * 0.22)}%`} icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
         <AnalyticCard label="Revenue Growth" value={`+${Math.floor(totalRevenue * 0.12)}%`} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
-        <AnalyticCard label="Platform Activity" value={`${platforms.reduce((s, p) => s + p.totalUsers, 0)}`} icon={Activity} color="text-purple-600" bg="bg-purple-50" />
+        <AnalyticCard label="Platform Activity" value={`${totalPlatformUsers}`} icon={Activity} color="text-purple-600" bg="bg-purple-50" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -48,7 +62,7 @@ function AnalyticsCenter() {
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Platform Usage</h3>
           <div className="space-y-4">
             {platforms.slice(0, 5).map(p => {
-              const maxUsers = Math.max(...platforms.map(x => x.totalUsers));
+              const maxUsers = Math.max(...platforms.map(x => x.totalUsers), 1);
               return (
                 <div key={p.id}>
                   <div className="flex justify-between text-xs mb-1"><span className="font-bold text-gray-700">{p.name}</span><span className="font-bold text-gray-900">{p.totalUsers.toLocaleString()}</span></div>
@@ -64,7 +78,6 @@ function AnalyticsCenter() {
 }
 
 function ReportingCenter() {
-  const { businesses, customers, payments, subscriptions } = useAdminData();
   const reports = [
     { name: 'Membership Report', desc: 'Active memberships, renewals, and churn', icon: FileText, color: 'text-blue-600' },
     { name: 'Revenue Report', desc: 'Income breakdown by source and period', icon: DollarSign, color: 'text-emerald-600' },

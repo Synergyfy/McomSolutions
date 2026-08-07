@@ -1,6 +1,6 @@
-import { useAdminData } from '../../context/AdminDataContext';
+import { useAdminStats } from '../../services/admin/hooks';
 import { cn } from '../../lib/utils';
-import { Building2, Users, Briefcase, UserCircle, Target, Zap, ShoppingBag, ClipboardCheck, Presentation, Heart, Wallet, CreditCard, ArrowUpRight, CheckCircle2, Clock, AlertTriangle, Activity, Package } from 'lucide-react';
+import { Building2, Users, Briefcase, UserCircle, Target, Zap, ShoppingBag, ClipboardCheck, Presentation, Heart, Wallet, CreditCard, ArrowUpRight, CheckCircle2, Clock, AlertTriangle, Activity, Package, Loader2 } from 'lucide-react';
 
 const QUICK_ACTIONS = [
   { label: 'Create Membership', tab: 'memberships', icon: CreditCard, color: 'bg-blue-500' },
@@ -12,48 +12,53 @@ const QUICK_ACTIONS = [
 ];
 
 export default function OverviewPanel({ onNavigate }: { onNavigate: (tab: string) => void }) {
-  const { businesses, customers, agents, consultants, accountManagers, payments, revenueRecords, subscriptions, platforms } = useAdminData();
+  const { data: statsRes, isLoading, isError } = useAdminStats();
 
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
+
+  const stats = statsRes?.data;
+  const platforms = stats?.platforms ?? [];
   const totalPlatformUsers = platforms.reduce((sum, p) => sum + p.totalUsers, 0);
-  const activeSubs = subscriptions.filter(s => s.status === 'Active').length;
-  const expiredSubs = subscriptions.filter(s => s.status === 'Expired').length;
-  const pendingSubs = subscriptions.filter(s => s.status === 'Pending').length;
-  const cancelledSubs = subscriptions.filter(s => s.status === 'Cancelled').length;
-  const todayRevenue = revenueRecords.filter(r => r.date === new Date().toISOString().split('T')[0]).reduce((s, r) => s + r.amount, 0);
-  const monthlyRevenue = revenueRecords.reduce((s, r) => s + r.amount, 0);
-  const completedPayments = payments.filter(p => p.status === 'Completed').reduce((s, p) => s + p.amount, 0);
+
+  const ecosystem = stats?.ecosystemStats;
+  const membership = stats?.membershipStats;
+  const revenue = stats?.revenueStats;
 
   return (
     <div className="space-y-8">
-      {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard label="Total Businesses" value={businesses.length} icon={Building2} color="text-blue-600" bg="bg-blue-50" />
-        <StatCard label="Total Customers" value={customers.length} icon={UserCircle} color="text-emerald-600" bg="bg-emerald-50" />
-        <StatCard label="Total Agents" value={agents.length} icon={Briefcase} color="text-purple-600" bg="bg-purple-50" />
-        <StatCard label="Consultants" value={consultants.length} icon={Users} color="text-amber-600" bg="bg-amber-50" />
-        <StatCard label="Account Managers" value={accountManagers.length} icon={UserCircle} color="text-cyan-600" bg="bg-cyan-50" />
+        <StatCard label="Total Businesses" value={ecosystem?.totalBusinesses ?? 0} icon={Building2} color="text-blue-600" bg="bg-blue-50" />
+        <StatCard label="Total Customers" value={ecosystem?.totalCustomers ?? 0} icon={UserCircle} color="text-emerald-600" bg="bg-emerald-50" />
+        <StatCard label="Total Agents" value={ecosystem?.totalAgents ?? 0} icon={Briefcase} color="text-purple-600" bg="bg-purple-50" />
+        <StatCard label="Consultants" value={ecosystem?.totalConsultants ?? 0} icon={Users} color="text-amber-600" bg="bg-amber-50" />
+        <StatCard label="Account Managers" value={ecosystem?.totalAccountManagers ?? 0} icon={UserCircle} color="text-cyan-600" bg="bg-cyan-50" />
         <StatCard label="Platform Users" value={totalPlatformUsers.toLocaleString()} icon={Activity} color="text-rose-600" bg="bg-rose-50" />
       </div>
 
-      {/* Memberships & Revenue */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Membership Stats</h3>
           <div className="space-y-3">
-            <MiniStat label="Active" value={activeSubs} color="text-green-600" bg="bg-green-50" />
-            <MiniStat label="Expired" value={expiredSubs} color="text-red-600" bg="bg-red-50" />
-            <MiniStat label="Pending" value={pendingSubs} color="text-amber-600" bg="bg-amber-50" />
-            <MiniStat label="Cancelled" value={cancelledSubs} color="text-gray-600" bg="bg-gray-50" />
+            <MiniStat label="Active" value={membership?.active ?? 0} color="text-green-600" bg="bg-green-50" />
+            <MiniStat label="Expired" value={membership?.expired ?? 0} color="text-red-600" bg="bg-red-50" />
+            <MiniStat label="Pending" value={membership?.pending ?? 0} color="text-amber-600" bg="bg-amber-50" />
+            <MiniStat label="Cancelled" value={membership?.cancelled ?? 0} color="text-gray-600" bg="bg-gray-50" />
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Revenue Stats</h3>
           <div className="space-y-3">
-            <MiniStat label="Today's Revenue" value={`£${todayRevenue.toLocaleString()}`} color="text-green-600" bg="bg-green-50" />
-            <MiniStat label="Monthly Revenue" value={`£${monthlyRevenue.toLocaleString()}`} color="text-blue-600" bg="bg-blue-50" />
-            <MiniStat label="Total Completed" value={`£${completedPayments.toLocaleString()}`} color="text-purple-600" bg="bg-purple-50" />
-            <MiniStat label="Recurring Revenue" value={`£${(monthlyRevenue * 0.7).toLocaleString()}`} color="text-cyan-600" bg="bg-cyan-50" />
+            <MiniStat label="Today's Revenue" value={`£${(revenue?.todayRevenue ?? 0).toLocaleString()}`} color="text-green-600" bg="bg-green-50" />
+            <MiniStat label="Monthly Revenue" value={`£${(revenue?.monthlyRevenue ?? 0).toLocaleString()}`} color="text-blue-600" bg="bg-blue-50" />
+            <MiniStat label="Total Completed" value={`£${(revenue?.totalCompleted ?? 0).toLocaleString()}`} color="text-purple-600" bg="bg-purple-50" />
+            <MiniStat label="Recurring Revenue" value={`£${(revenue?.recurringRevenue ?? 0).toLocaleString()}`} color="text-cyan-600" bg="bg-cyan-50" />
           </div>
         </div>
 
@@ -70,7 +75,6 @@ export default function OverviewPanel({ onNavigate }: { onNavigate: (tab: string
         </div>
       </div>
 
-      {/* Quick Actions */}
       <div>
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Quick Actions</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

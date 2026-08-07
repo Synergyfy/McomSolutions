@@ -14,6 +14,7 @@ import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
+import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
@@ -55,16 +56,20 @@ function SignupRedirect() {
   return null;
 }
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
-    >
-      {children}
-    </motion.div>
+    <ErrorBoundary>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.3 }}
+      >
+        {children}
+      </motion.div>
+    </ErrorBoundary>
   );
 }
 
@@ -126,9 +131,11 @@ function AnimatedRoutes() {
             path="/admin" 
             element={
               <ProtectedAdminRoute>
-                <PageWrapper>
-                  <AdminDashboard />
-                </PageWrapper>
+                <AdminDataProvider>
+                  <PageWrapper>
+                    <AdminDashboard />
+                  </PageWrapper>
+                </AdminDataProvider>
               </ProtectedAdminRoute>
             } 
           />
@@ -193,6 +200,14 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <PayPalReturnPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/payment/success" 
+            element={
+              <PageWrapper>
+                <PaymentSuccessPage />
               </PageWrapper>
             } 
           />
@@ -321,11 +336,9 @@ export default function App() {
       <PricingProvider>
         <BusinessProvider>
           <AdminAuthProvider>
-            <AdminDataProvider>
-              <Router>
+            <Router>
                 <AnimatedRoutes />
               </Router>
-            </AdminDataProvider>
           </AdminAuthProvider>
         </BusinessProvider>
       </PricingProvider>

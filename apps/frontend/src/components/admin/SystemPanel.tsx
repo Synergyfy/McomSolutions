@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ClipboardList, Settings as SettingsIcon, Terminal, Crown, Search, Trash2, Download, RefreshCw, Eye, EyeOff, Shield, Save } from 'lucide-react';
+import { ClipboardList, Settings as SettingsIcon, Terminal, Crown, Search, Trash2, Download, RefreshCw, Eye, EyeOff, Shield, Save, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData } from '../../context/AdminDataContext';
+import { useAdminAuditLogs, useAdminSettings, useAdminPlans, useAdminPlatforms, useAdminPackages, useAdminPermissions, useClearAuditLogs, useUpdateSettings } from '../../services/admin/hooks';
 
 export default function SystemPanel() {
   const [tab, setTab] = useState<'audit' | 'settings' | 'developer' | 'super'>('audit');
@@ -26,21 +26,31 @@ export default function SystemPanel() {
 }
 
 function AuditLogsPanel() {
-  const { auditLogs, clearAuditLogs } = useAdminData();
+  const { data: logsRes, isLoading } = useAdminAuditLogs();
+  const auditLogs = logsRes?.data ?? [];
+  const clearLogs = useClearAuditLogs();
   const [search, setSearch] = useState('');
 
-  const filtered = auditLogs.filter(l =>
+  const filtered = auditLogs.filter((l: any) =>
     l.action.toLowerCase().includes(search.toLowerCase()) ||
     l.adminName.toLowerCase().includes(search.toLowerCase()) ||
     l.targetName.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input type="text" placeholder="Search logs..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-64" /></div>
         <div className="flex gap-2">
-          <button onClick={clearAuditLogs} className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" />Clear All</button>
+          <button onClick={() => clearLogs.mutate()} className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" />Clear All</button>
           <button className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-blue-50 hover:text-brand-blue transition-all flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Export</button>
         </div>
       </div>
@@ -56,7 +66,7 @@ function AuditLogsPanel() {
               <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Timestamp</th>
             </tr></thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(log => (
+              {filtered.map((log: any) => (
                 <tr key={log.id} className="hover:bg-gray-50/80 transition-colors text-xs">
                   <td className="px-6 py-4 font-bold text-gray-900">{log.action}</td>
                   <td className="px-6 py-4 text-gray-700">{log.adminName}</td>
@@ -76,41 +86,64 @@ function AuditLogsPanel() {
 }
 
 function SystemSettingsPanel() {
-  const { settings, updateSettings } = useAdminData();
+  const { data: settingsRes, isLoading } = useAdminSettings();
+  const settings = settingsRes?.data ?? ({} as any);
+  const updateSetting = useUpdateSettings();
   const [saved, setSaved] = useState(false);
+  const [localSettings, setLocalSettings] = useState<Record<string, any>>({});
+
+  const get = (key: string) => localSettings[key] ?? settings[key] ?? '';
+
+  const set = (key: string, value: any) => {
+    setLocalSettings(prev => ({ ...prev, [key]: value }));
+  };
 
   const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (Object.keys(localSettings).length === 0) return;
+    updateSetting.mutate(localSettings, {
+      onSuccess: () => {
+        setLocalSettings({});
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      },
+    });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Brand & Support</h3>
         <div className="space-y-4">
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Brand Name</label><input value={settings.brandName} onChange={e => updateSettings({ brandName: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Support Email</label><input value={settings.supportEmail} onChange={e => updateSettings({ supportEmail: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Currency</label><select value={settings.currency} onChange={e => updateSettings({ currency: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"><option>GBP</option><option>USD</option><option>EUR</option></select></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Brand Name</label><input value={get('brandName')} onChange={e => set('brandName', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Support Email</label><input value={get('supportEmail')} onChange={e => set('supportEmail', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Currency</label><select value={get('currency')} onChange={e => set('currency', e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"><option>GBP</option><option>USD</option><option>EUR</option></select></div>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Security</h3>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Session Timeout (min)</label><input type="number" value={settings.sessionTimeout} onChange={e => updateSettings({ sessionTimeout: parseInt(e.target.value) || 30 })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Max Login Attempts</label><input type="number" value={settings.maxLoginAttempts} onChange={e => updateSettings({ maxLoginAttempts: parseInt(e.target.value) || 5 })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Session Timeout (min)</label><input type="number" value={get('sessionTimeout')} onChange={e => set('sessionTimeout', parseInt(e.target.value) || 30)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Max Login Attempts</label><input type="number" value={get('maxLoginAttempts')} onChange={e => set('maxLoginAttempts', parseInt(e.target.value) || 5)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></div>
         </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">System Toggles</h3>
         <div className="space-y-4">
-          <Toggle label="Email Notifications Enabled" value={settings.emailEnabled} onChange={v => updateSettings({ emailEnabled: v })} />
-          <Toggle label="SMS Notifications Enabled" value={settings.smsEnabled} onChange={v => updateSettings({ smsEnabled: v })} />
-          <Toggle label="Payment Gateway Active" value={settings.paymentGateway === 'Stripe'} onChange={v => updateSettings({ paymentGateway: v ? 'Stripe' : 'None' })} />
-          <Toggle label="Maintenance Mode" value={settings.maintenanceMode} onChange={v => updateSettings({ maintenanceMode: v })} />
-          <Toggle label="Allow Registration" value={settings.allowRegistration} onChange={v => updateSettings({ allowRegistration: v })} />
+          <Toggle label="Email Notifications Enabled" value={get('emailEnabled') ?? settings.emailEnabled} onChange={v => set('emailEnabled', v)} />
+          <Toggle label="SMS Notifications Enabled" value={get('smsEnabled') ?? settings.smsEnabled} onChange={v => set('smsEnabled', v)} />
+          <Toggle label="Payment Gateway Active" value={(get('paymentGateway') ?? settings.paymentGateway) === 'Stripe'} onChange={v => set('paymentGateway', v ? 'Stripe' : 'None')} />
+          <Toggle label="Maintenance Mode" value={get('maintenanceMode') ?? settings.maintenanceMode} onChange={v => set('maintenanceMode', v)} />
+          <Toggle label="Allow Registration" value={get('allowRegistration') ?? settings.allowRegistration} onChange={v => set('allowRegistration', v)} />
         </div>
       </div>
 
@@ -135,7 +168,18 @@ function DeveloperCenterPanel() {
 }
 
 function SuperAdminPanel() {
-  const { permissionRoles, membershipPlans, platforms, packages } = useAdminData();
+  const { data: permRes } = useAdminPermissions();
+  const { data: plansRes } = useAdminPlans();
+  const { data: platformsRes } = useAdminPlatforms();
+  const { data: packagesRes } = useAdminPackages();
+  const permData = permRes?.data as any;
+  const permissionRoles = Array.isArray(permData) ? permData : permData?.data ?? [];
+  const planData = plansRes?.data as any;
+  const membershipPlans = Array.isArray(planData) ? planData : planData?.data ?? [];
+  const platData = platformsRes?.data as any;
+  const platforms = Array.isArray(platData) ? platData : platData?.data?.platforms ?? [];
+  const pkgData = packagesRes?.data as any;
+  const packages = Array.isArray(pkgData) ? pkgData : pkgData?.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -158,11 +202,11 @@ function SuperAdminPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div className="space-y-3">
             <h4 className="font-bold text-gray-900">Admin Roles</h4>
-            {permissionRoles.map(r => <div key={r.role} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl"><span className="font-bold text-gray-700">{r.role}</span><span className="text-xs text-gray-400">Supervisory</span></div>)}
+            {permissionRoles.map((r: any) => <div key={r.role} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl"><span className="font-bold text-gray-700">{r.role}</span><span className="text-xs text-gray-400">Supervisory</span></div>)}
           </div>
           <div className="space-y-3">
             <h4 className="font-bold text-gray-900">Platforms</h4>
-            {platforms.map(p => <div key={p.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl"><span className="font-bold text-gray-700">{p.name}</span><span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold", p.status === 'Enabled' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>{p.status}</span></div>)}
+            {platforms.map((p: any) => <div key={p.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl"><span className="font-bold text-gray-700">{p.name}</span><span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold", p.status === 'Enabled' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>{p.status}</span></div>)}
           </div>
         </div>
       </div>
