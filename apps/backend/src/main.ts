@@ -20,6 +20,8 @@ async function bootstrap() {
     'https://mcommall.vercel.app',
     'https://mcomloyalty.vercel.app',
     'https://mcom-solutions-backend.vercel.app',
+    'https://centralhubsolution.com',
+    'https://www.centralhubsolution.com'
   ];
   const envOrigins = [
     process.env.FRONTEND_URL,
