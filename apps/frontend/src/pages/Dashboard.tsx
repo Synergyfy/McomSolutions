@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
@@ -21,8 +21,16 @@ import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
 import FirstDashboardWelcome from '../components/FirstDashboardWelcome';
 
+const DASHBOARD_TABS = [
+  'overview', 'all-products', 'access', 'notifications',
+  'memberships', 'packages', 'billing', 'business-profile',
+  'support', 'settings',
+] as const;
+
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const location = useLocation();
+  const pathTab = location.pathname.split('/')[2] || 'overview';
+  const activeTab = (DASHBOARD_TABS as readonly string[]).includes(pathTab) ? pathTab : 'overview';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { data: profile } = useProfile();
@@ -41,8 +49,8 @@ export default function Dashboard() {
   }, [navigate]);
 
   const handleNav = (tab: string) => {
-    setActiveTab(tab);
     setSidebarOpen(false);
+    navigate(tab === 'overview' ? '/dashboard' : `/dashboard/${tab}`);
   };
 
   const handleLogout = () => {
@@ -218,7 +226,7 @@ export default function Dashboard() {
             />
           ) : (
             <>
-              {activeTab === 'overview' && <DashboardOverview onNavigate={setActiveTab} />}
+              {activeTab === 'overview' && <DashboardOverview onNavigate={handleNav} />}
               {activeTab === 'all-products' && <DashboardAllProducts />}
               {activeTab === 'access' && <DashboardAccess />}
               {activeTab === 'notifications' && <DashboardNotifications />}

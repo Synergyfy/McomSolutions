@@ -112,7 +112,7 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/dashboard" 
+            path="/dashboard/*" 
             element={
               <PageWrapper>
                 <Dashboard />
@@ -128,7 +128,7 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/admin" 
+            path="/admin/*" 
             element={
               <ProtectedAdminRoute>
                 <AdminDataProvider>
@@ -138,14 +138,6 @@ function AnimatedRoutes() {
                 </AdminDataProvider>
               </ProtectedAdminRoute>
             } 
-          />
-          <Route 
-            path="/admin/pricing" 
-            element={<Navigate to="/admin" replace />} 
-          />
-          <Route 
-            path="/admin/businesses" 
-            element={<Navigate to="/admin" replace />} 
           />
           <Route 
             path="/about" 
