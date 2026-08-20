@@ -54,51 +54,51 @@ export default function DashboardBilling() {
     .reduce((sum, t) => sum + parseFloat(t.amount.replace('£', '')), 0);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-4 sm:space-y-6 md:space-y-8 animate-in fade-in duration-500">
 
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-1">Billing & Payments</h2>
-          <p className="text-gray-500">Your central payment control hub.</p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 mb-1 leading-tight">Billing & Payments</h2>
+          <p className="text-sm sm:text-base text-gray-500 leading-tight">Your central payment control hub.</p>
         </div>
         <button
           onClick={() => setModal('pay-now')}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-7 py-4 rounded-full font-bold transition-colors shadow-lg shadow-orange-500/20"
+          className="w-full sm:w-auto justify-center flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-sm sm:text-base transition-colors shadow-lg shadow-orange-500/20 shrink-0"
         >
-          <CreditCard className="w-5 h-5" /> Pay Now
+          <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" /> Pay Now
         </button>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl p-5 md:p-8 text-white shadow-xl shadow-orange-500/20 relative overflow-hidden">
-          <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
-          <Wallet className="w-8 h-8 text-orange-200 mb-4" />
-          <p className="text-orange-200 text-xs font-bold uppercase tracking-widest mb-1">Total Spend</p>
-          <p className="text-3xl md:text-4xl font-black">£{totalSpend.toFixed(0)}</p>
-          <p className="text-orange-300 text-xs font-semibold mt-1">Lifetime</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
+        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-8 text-white shadow-xl shadow-orange-500/20 relative overflow-hidden">
+          <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+          <Wallet className="w-6 h-6 sm:w-8 sm:h-8 text-orange-200 mb-3 sm:mb-4" />
+          <p className="text-orange-200 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1">Total Spend</p>
+          <p className="text-2xl sm:text-3xl md:text-4xl font-black">£{totalSpend.toFixed(0)}</p>
+          <p className="text-orange-300 text-[11px] sm:text-xs font-semibold mt-1">Lifetime</p>
         </div>
-        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
-          <CheckCircle2 className="w-8 h-8 text-green-500 mb-4" />
-          <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Active Subscriptions</p>
-          <p className="text-3xl md:text-4xl font-black text-gray-900">{SUBSCRIPTIONS.filter(s => s.status === 'active').length}</p>
-          <p className="text-gray-400 text-xs font-semibold mt-1">Auto-renewing</p>
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-8 border border-gray-200 shadow-sm">
+          <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 mb-3 sm:mb-4" />
+          <p className="text-gray-400 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1">Active Subscriptions</p>
+          <p className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900">{SUBSCRIPTIONS.filter(s => s.status === 'active').length}</p>
+          <p className="text-gray-400 text-[11px] sm:text-xs font-semibold mt-1">Auto-renewing</p>
         </div>
-        <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-200 shadow-sm">
-          <Clock className="w-8 h-8 text-amber-500 mb-4" />
-          <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Next Due Date</p>
-          <p className="text-3xl md:text-4xl font-black text-gray-900">23 Jul</p>
-          <p className="text-gray-400 text-xs font-semibold mt-1">2026 · £296/mo total</p>
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-8 border border-gray-200 shadow-sm">
+          <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500 mb-3 sm:mb-4" />
+          <p className="text-gray-400 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1">Next Due Date</p>
+          <p className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900">23 Jul</p>
+          <p className="text-gray-400 text-[11px] sm:text-xs font-semibold mt-1">2026 · £296/mo total</p>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex gap-2 bg-gray-100 p-1.5 rounded-full w-full max-w-lg">
+      {/* Tab Navigation - native pill control */}
+      <div className="flex gap-1 sm:gap-2 bg-gray-100 p-1 sm:p-1.5 rounded-full w-full sm:max-w-lg overflow-x-auto scrollbar-hide">
         {[
-          { id: 'transactions', label: 'Transactions', icon: Receipt },
-          { id: 'subscriptions', label: 'Subscriptions', icon: RefreshCw },
-          { id: 'methods', label: 'Payment Methods', icon: CreditCard },
+          { id: 'transactions', label: 'Transactions', shortLabel: 'Txns', icon: Receipt },
+          { id: 'subscriptions', label: 'Subscriptions', shortLabel: 'Subs', icon: RefreshCw },
+          { id: 'methods', label: 'Payment Methods', shortLabel: 'Methods', icon: CreditCard },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id as any;
@@ -106,11 +106,12 @@ export default function DashboardBilling() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-full font-bold text-sm transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-3 px-2.5 sm:px-4 rounded-full font-bold text-[11px] sm:text-sm leading-none whitespace-nowrap transition-all min-w-0 ${
                 isActive ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'
               }`}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <span className="sm:hidden">{tab.shortLabel}</span>
               <span className="hidden sm:inline">{tab.label}</span>
             </button>
           );
@@ -121,11 +122,11 @@ export default function DashboardBilling() {
       <AnimatePresence mode="wait">
         {activeTab === 'transactions' && (
           <motion.div key="tx" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-5 md:p-8 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900">Transaction History</h3>
-                <button className="flex items-center gap-2 text-orange-500 font-bold text-sm hover:underline">
-                  <Download className="w-4 h-4" /> Export All
+            <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
+              <div className="p-4 sm:p-5 md:p-8 border-b border-gray-100 flex items-center justify-between gap-3">
+                <h3 className="text-base sm:text-lg font-bold text-gray-900 leading-tight">Transaction History</h3>
+                <button className="flex items-center gap-1.5 text-orange-500 font-bold text-xs sm:text-sm hover:underline shrink-0 whitespace-nowrap">
+                  <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Export All</span><span className="sm:hidden">Export</span>
                 </button>
               </div>
               <div className="divide-y divide-gray-50">
@@ -135,19 +136,19 @@ export default function DashboardBilling() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.05 }}
-                    className="flex items-center gap-3 md:gap-4 px-4 md:px-8 py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
+                    className="flex items-center gap-2.5 sm:gap-3 md:gap-4 px-3 sm:px-4 md:px-8 py-3 sm:py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
                   >
-                    <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-5 h-5 text-gray-500" />
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 text-sm">{tx.description}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{tx.id} · {tx.date}</p>
+                      <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight line-clamp-2">{tx.description}</p>
+                      <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 truncate">{tx.id} · {tx.date}</p>
                     </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <StatusBadge status={tx.status} />
-                      <span className="font-black text-gray-900">{tx.amount}</span>
-                      <button className="p-2 text-gray-300 hover:text-orange-500 transition-colors">
+                    <div className="flex items-center gap-2 sm:gap-3 md:gap-4 flex-shrink-0">
+                      <span className="hidden sm:inline-flex"><StatusBadge status={tx.status} /></span>
+                      <span className="font-black text-gray-900 text-sm sm:text-base whitespace-nowrap">{tx.amount}</span>
+                      <button className="hidden sm:flex p-2 text-gray-300 hover:text-orange-500 transition-colors">
                         <Download className="w-4 h-4" />
                       </button>
                     </div>
@@ -161,9 +162,9 @@ export default function DashboardBilling() {
         {/* Subscriptions Tab */}
         {activeTab === 'subscriptions' && (
           <motion.div key="subs" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
-              <div className="p-5 md:p-8 border-b border-gray-100">
-                <h3 className="text-lg font-bold text-gray-900">Active Subscriptions</h3>
+            <div className="bg-white rounded-2xl sm:rounded-[2rem] border border-gray-200 shadow-sm overflow-hidden">
+              <div className="p-4 sm:p-5 md:p-8 border-b border-gray-100">
+                <h3 className="text-base sm:text-lg font-bold text-gray-900">Active Subscriptions</h3>
               </div>
               <div className="divide-y divide-gray-50">
                 {SUBSCRIPTIONS.map((sub, i) => (
@@ -172,17 +173,17 @@ export default function DashboardBilling() {
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.06 }}
-                    className="flex items-center gap-3 md:gap-4 px-4 md:px-8 py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
+                    className="flex items-center gap-2.5 sm:gap-3 md:gap-4 px-3 sm:px-4 md:px-8 py-3 sm:py-4 md:py-5 hover:bg-gray-50/70 transition-colors"
                   >
-                    <div className={`w-3 h-3 rounded-full flex-shrink-0 ${sub.status === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
+                    <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full flex-shrink-0 ${sub.status === 'active' ? 'bg-green-500' : 'bg-amber-500'}`} />
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 text-sm">{sub.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Next charge: {sub.next}</p>
+                      <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight line-clamp-2">{sub.name}</p>
+                      <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 truncate">Next: {sub.next}</p>
                     </div>
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                      <StatusBadge status={sub.status} />
-                      <span className="font-black text-gray-900 min-w-[60px] text-right">{sub.price}</span>
-                      <button className="flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-orange-500 transition-colors">
+                    <div className="flex items-center gap-2 sm:gap-3 md:gap-4 flex-shrink-0">
+                      <span className="hidden sm:inline-flex"><StatusBadge status={sub.status} /></span>
+                      <span className="font-black text-gray-900 text-sm sm:text-base min-w-[56px] sm:min-w-[60px] text-right whitespace-nowrap">{sub.price}</span>
+                      <button className="hidden sm:flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-orange-500 transition-colors whitespace-nowrap">
                         Manage <ChevronRight className="w-3 h-3" />
                       </button>
                     </div>
@@ -196,28 +197,28 @@ export default function DashboardBilling() {
         {/* Payment Methods Tab */}
         {activeTab === 'methods' && (
           <motion.div key="methods" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {PAYMENT_METHODS.map((card, i) => (
                 <motion.div
                   key={card.last4}
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.08 }}
-                  className={`bg-white rounded-3xl border p-5 md:p-8 flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6 ${card.primary ? 'border-orange-300 shadow-md' : 'border-gray-200'}`}
+                  className={`bg-white rounded-2xl sm:rounded-3xl border p-4 sm:p-5 md:p-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-4 sm:gap-6 ${card.primary ? 'border-orange-300 shadow-md' : 'border-gray-200'}`}
                 >
-                  <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                    <CreditCard className="w-8 h-8 text-white" />
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-900 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg">
+                    <CreditCard className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                   </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <p className="font-black text-gray-900 text-lg">{card.type} •••• {card.last4}</p>
-                      {card.primary && <span className="bg-orange-100 text-orange-600 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">Primary</span>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-black text-gray-900 text-base sm:text-lg leading-tight">{card.type} •••• {card.last4}</p>
+                      {card.primary && <span className="bg-orange-100 text-orange-600 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full leading-none">Primary</span>}
                     </div>
-                    <p className="text-gray-400 text-sm font-semibold mt-1">Expires {card.expiry}</p>
+                    <p className="text-gray-400 text-xs sm:text-sm font-semibold mt-1">Expires {card.expiry}</p>
                   </div>
-                  <div className="flex gap-2 md:gap-3">
-                    {!card.primary && <button className="px-3 md:px-5 py-2 md:py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 text-xs md:text-sm font-bold text-gray-600 transition-colors">Set Primary</button>}
-                    <button className="px-3 md:px-5 py-2 md:py-2.5 rounded-full border border-red-200 hover:bg-red-50 text-xs md:text-sm font-bold text-red-400 transition-colors">Remove</button>
+                  <div className="flex gap-2 sm:gap-3 shrink-0">
+                    {!card.primary && <button className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 text-xs sm:text-sm font-bold text-gray-600 transition-colors whitespace-nowrap">Set Primary</button>}
+                    <button className="flex-1 sm:flex-none px-4 sm:px-5 py-2.5 rounded-full border border-red-200 hover:bg-red-50 text-xs sm:text-sm font-bold text-red-400 transition-colors whitespace-nowrap">Remove</button>
                   </div>
                 </motion.div>
               ))}
@@ -225,9 +226,9 @@ export default function DashboardBilling() {
               {/* Add Card */}
               <button
                 onClick={() => setModal('add-card')}
-                className="w-full bg-white rounded-3xl border-2 border-dashed border-gray-300 hover:border-orange-400 p-8 flex items-center justify-center gap-3 text-gray-400 hover:text-orange-500 font-bold transition-all"
+                className="w-full bg-white rounded-2xl sm:rounded-3xl border-2 border-dashed border-gray-300 hover:border-orange-400 p-5 sm:p-8 flex items-center justify-center gap-2 sm:gap-3 text-gray-400 hover:text-orange-500 font-bold text-sm sm:text-base transition-all"
               >
-                <Plus className="w-5 h-5" /> Add New Payment Method
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5" /> Add New Payment Method
               </button>
             </div>
           </motion.div>
@@ -241,14 +242,14 @@ export default function DashboardBilling() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={() => setModal(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 md:p-10 max-w-md w-full shadow-2xl"
+              className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 md:p-10 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
               onClick={e => e.stopPropagation()}
             >
               {modal === 'pay-now' && (
