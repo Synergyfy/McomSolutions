@@ -83,7 +83,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const isDashboard = location.pathname === '/dashboard';
+  const isDashboard = location.pathname.startsWith('/dashboard');
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
   const isRegister = location.pathname.startsWith('/register');

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   PackageOpen, Wallet, Building2, ShieldCheck,
-  User, ChevronDown, ExternalLink
+  User, ChevronDown, ExternalLink, MoreHorizontal
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
@@ -33,6 +34,7 @@ export default function Dashboard() {
   const activeTab = (DASHBOARD_TABS as readonly string[]).includes(pathTab) ? pathTab : 'overview';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const { data: profile } = useProfile();
   const logout = useLogout();
   const [showFirstWelcome, setShowFirstWelcome] = useState(() => {
@@ -50,6 +52,7 @@ export default function Dashboard() {
 
   const handleNav = (tab: string) => {
     setSidebarOpen(false);
+    setMoreSheetOpen(false);
     navigate(tab === 'overview' ? '/dashboard' : `/dashboard/${tab}`);
   };
 
@@ -123,15 +126,10 @@ export default function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen">
+      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen pb-20 lg:pb-0">
         <header className="sticky top-0 z-10 px-4 sm:px-6 lg:px-12 py-3 md:py-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-gray-200">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+            {/* Hamburger hidden on mobile — replaced by bottom tab nav */}
             <div className="relative w-full max-w-xs hidden sm:block">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
               <input 
@@ -240,7 +238,107 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {/* Mobile Bottom Tab Nav - 3 tabs + More */}
+      {!showFirstWelcome && (
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 flex items-center justify-around px-1 pt-1.5 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+          <button onClick={() => handleNav('overview')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "text-orange-600" : "text-gray-400")}>
+            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "bg-orange-50" : "")}>
+              <LayoutDashboard className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold leading-none">Overview</span>
+          </button>
+          <button onClick={() => handleNav('all-products')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "text-orange-600" : "text-gray-400")}>
+            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "bg-orange-50" : "")}>
+              <Grid className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold leading-none">Products</span>
+          </button>
+          <button onClick={() => handleNav('billing')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "text-orange-600" : "text-gray-400")}>
+            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "bg-orange-50" : "")}>
+              <Wallet className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold leading-none">Billing</span>
+          </button>
+          <button onClick={() => setMoreSheetOpen(true)} className="flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl text-gray-400">
+            <div className="p-1.5 rounded-xl bg-gray-50">
+              <MoreHorizontal className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold leading-none">More</span>
+          </button>
+        </nav>
+      )}
+
+      {/* More Sheet */}
+      <AnimatePresence>
+        {moreSheetOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMoreSheetOpen(false)}
+              className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-[1.5rem] shadow-2xl max-h-[72vh] max-h-[72dvh] flex flex-col"
+            >
+              <div className="shrink-0 flex flex-col items-center pt-3 pb-2 border-b border-gray-100">
+                <div className="w-10 h-1.5 bg-gray-300 rounded-full mb-3" />
+                <div className="w-full flex items-center justify-between px-6">
+                  <h3 className="font-black text-gray-900">Menu</h3>
+                  <button onClick={() => setMoreSheetOpen(false)} className="p-2 rounded-full hover:bg-gray-100 text-gray-500">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 pb-6 space-y-6">
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">General</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <SheetItem icon={ShieldCheck} label="Access" active={activeTab==='access'} onClick={() => handleNav('access')} />
+                    <SheetItem icon={Bell} label="Alerts" active={activeTab==='notifications'} onClick={() => handleNav('notifications')} />
+                    <SheetItem icon={HelpCircle} label="Support" active={activeTab==='support'} onClick={() => handleNav('support')} />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Billing & Plans</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <SheetItem icon={CreditCard} label="Memberships" active={activeTab==='memberships'} onClick={() => handleNav('memberships')} />
+                    <SheetItem icon={PackageOpen} label="Packages" active={activeTab==='packages'} onClick={() => handleNav('packages')} />
+                    <SheetItem icon={Wallet} label="Billing" active={activeTab==='billing'} onClick={() => handleNav('billing')} />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Account</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <SheetItem icon={Building2} label="Profile" active={activeTab==='business-profile'} onClick={() => handleNav('business-profile')} />
+                    <SheetItem icon={Settings} label="Settings" active={activeTab==='settings'} onClick={() => handleNav('settings')} />
+                    <SheetItem icon={LogOut} label="Sign Out" onClick={handleLogout} danger />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function SheetItem({ icon: Icon, label, active, onClick, danger }: { icon: any, label: string, active?: boolean, onClick?: () => void, danger?: boolean }) {
+  return (
+    <button onClick={onClick} className={cn(
+      "flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all",
+      active ? "bg-orange-500 border-orange-500 text-white shadow-md shadow-orange-500/20" : danger ? "bg-red-50 border-red-100 text-red-600" : "bg-gray-50 border-gray-100 text-gray-700 active:bg-gray-100"
+    )}>
+      <Icon className={cn("w-5 h-5", active ? "text-white" : danger ? "text-red-500" : "text-gray-500")} />
+      <span className="text-[11px] font-bold leading-none text-center">{label}</span>
+    </button>
   );
 }
 

@@ -22,6 +22,7 @@ import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import GoogleMapSection from '../../components/GoogleMapSection';
 import WizardProgressBar from '../../components/WizardProgressBar';
+import ImageCropModal from '../../components/ImageCropModal';
 
 
 // ═══════════════════════════════════════════════════════════
@@ -640,7 +641,11 @@ function BusinessOnboardingInner() {
       setCoverFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setCoverImage(reader.result as string);
+        setCropModalSrc(reader.result as string);
+        setCropModalAspect(16 / 6);
+        setCropModalTitle('Crop Cover Image');
+        setCropModalTarget('cover');
+        setCropModalOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -1220,10 +1225,11 @@ function BusinessOnboardingInner() {
       setLogoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData((prev: any) => ({
-          ...prev,
-          logo: reader.result as string,
-        }));
+        setCropModalSrc(reader.result as string);
+        setCropModalAspect(1);
+        setCropModalTitle('Crop Logo');
+        setCropModalTarget('logo');
+        setCropModalOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -1348,6 +1354,13 @@ function BusinessOnboardingInner() {
   const [exteriorFile, setExteriorFile] = useState<File | null>(null);
   const [gridImages, setGridImages] = useState<string[]>([]);
   const [gridFiles, setGridFiles] = useState<(File | null)[]>([]);
+
+  // ─── Image Crop Modal State ──────────────────────────
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropModalSrc, setCropModalSrc] = useState('');
+  const [cropModalAspect, setCropModalAspect] = useState(1);
+  const [cropModalTitle, setCropModalTitle] = useState('Crop Image');
+  const [cropModalTarget, setCropModalTarget] = useState<'logo' | 'cover'>('logo');
   const [selectedBorough, setSelectedBorough] = useState<string>('Camden Borough');
   const [boroughSearchQuery, setBoroughSearchQuery] = useState<string>('');
 
@@ -5228,7 +5241,8 @@ function BusinessOnboardingInner() {
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  Complete Assessment & Enter Dashboard
+                  <span className="hidden sm:inline">Complete Assessment & Enter Dashboard</span>
+                  <span className="sm:hidden">Complete</span>
                   <ArrowRight className="w-5 h-5" />
                 </motion.button>
               ) : (
@@ -7215,6 +7229,29 @@ function BusinessOnboardingInner() {
         )}
       </AnimatePresence>
 
+      <ImageCropModal
+        open={cropModalOpen}
+        imageSrc={cropModalSrc}
+        aspect={cropModalAspect}
+        title={cropModalTitle}
+        onCancel={() => setCropModalOpen(false)}
+        onApply={(dataUrl) => {
+          if (cropModalTarget === 'logo') {
+            setFormData((prev: any) => ({ ...prev, logo: dataUrl }));
+          } else {
+            setCoverImage(dataUrl);
+          }
+          setCropModalOpen(false);
+        }}
+        onSkip={() => {
+          if (cropModalTarget === 'logo') {
+            setFormData((prev: any) => ({ ...prev, logo: cropModalSrc }));
+          } else {
+            setCoverImage(cropModalSrc);
+          }
+          setCropModalOpen(false);
+        }}
+      />
       <HighStreetActivationModal open={showLearnMoreModal} onClose={() => setShowLearnMoreModal(false)} />
       <PlatformPaymentModal
         isOpen={showPlatformPaymentModal}
