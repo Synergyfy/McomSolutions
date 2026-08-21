@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import AdminLayout, { AdminTab } from '../components/AdminLayout';
 import OverviewPanel from '../components/admin/OverviewPanel';
 import UserManagementPanel from '../components/admin/UserManagementPanel';
@@ -16,9 +16,33 @@ import ProgrammeManagementPanel from '../components/admin/ProgrammeManagementPan
 import HighStreetsPanel from '../components/admin/HighStreetsPanel';
 import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
+import AssessmentPanel from '../components/admin/AssessmentPanel';
+
+const ADMIN_TABS: AdminTab[] = [
+  'dashboard', 'users', 'businesses', 'customers', 'agents', 'consultants', 'account-managers',
+  'memberships', 'packages', 'pricing', 'subscriptions',
+  'platform-access', 'platform-directory', 'platform-launch',
+  'permissions', 'auth', 'registration-flow', 'business-profile',
+  'payments', 'billing',
+  'api-keys', 'integrations',
+  'analytics', 'reports',
+  'notifications', 'support',
+  'audit-logs',
+  'programme',
+  'system-settings', 'developer-center', 'super-admin',
+  'high-streets', 'boroughs', 'local-malls',
+  'assessment',
+];
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathTab = location.pathname.split('/')[2] || 'dashboard';
+  const activeTab = (ADMIN_TABS as readonly string[]).includes(pathTab) ? (pathTab as AdminTab) : 'dashboard';
+
+  const handleTabChange = (tab: AdminTab) => {
+    navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
+  };
 
   const getTabInfo = (tab: AdminTab): { title: string; subtitle: string } => {
     const map: Record<AdminTab, { title: string; subtitle: string }> = {
@@ -56,6 +80,7 @@ export default function AdminDashboard() {
       'high-streets': { title: 'High Street Management', subtitle: 'Manage physical and virtual high street ecosystems across boroughs' },
       boroughs: { title: 'Borough Management', subtitle: 'Command center for local borough ecosystems and engagement systems' },
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
+      'assessment': { title: 'Business Assessment', subtitle: 'Configure the onboarding assessment questions for new businesses' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -65,7 +90,7 @@ export default function AdminDashboard() {
   const renderPanel = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <OverviewPanel onNavigate={(tab: string) => setActiveTab(tab as AdminTab)} />;
+        return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
       case 'users':
       case 'businesses':
       case 'customers':
@@ -114,13 +139,15 @@ export default function AdminDashboard() {
         return <BoroughsPanel />;
       case 'local-malls':
         return <LocalMallsPanel />;
+      case 'assessment':
+        return <AssessmentPanel />;
       default:
-        return <OverviewPanel onNavigate={(tab: string) => setActiveTab(tab as AdminTab)} />;
+        return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
     }
   };
 
   return (
-    <AdminLayout activeTab={activeTab} onTabChange={setActiveTab} title={title} subtitle={subtitle}>
+    <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
       {renderPanel()}
     </AdminLayout>
   );

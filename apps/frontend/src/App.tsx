@@ -28,6 +28,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
 import { BusinessProvider } from './context/BusinessContext';
 import { AdminAuthProvider } from './context/AdminAuthContext';
+import { AdminDataProvider } from './context/AdminDataContext';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AffiliateSignup from './pages/AffiliateSignup';
 import { useAdminAuth } from './context/AdminAuthContext';
@@ -82,7 +83,7 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
 
 function AnimatedRoutes() {
   const location = useLocation();
-  const isDashboard = location.pathname === '/dashboard';
+  const isDashboard = location.pathname.startsWith('/dashboard');
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
   const isRegister = location.pathname.startsWith('/register');
@@ -111,7 +112,7 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/dashboard" 
+            path="/dashboard/*" 
             element={
               <PageWrapper>
                 <Dashboard />
@@ -127,22 +128,16 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/admin" 
+            path="/admin/*" 
             element={
               <ProtectedAdminRoute>
-                <PageWrapper>
-                  <AdminDashboard />
-                </PageWrapper>
+                <AdminDataProvider>
+                  <PageWrapper>
+                    <AdminDashboard />
+                  </PageWrapper>
+                </AdminDataProvider>
               </ProtectedAdminRoute>
             } 
-          />
-          <Route 
-            path="/admin/pricing" 
-            element={<Navigate to="/admin" replace />} 
-          />
-          <Route 
-            path="/admin/businesses" 
-            element={<Navigate to="/admin" replace />} 
           />
           <Route 
             path="/about" 

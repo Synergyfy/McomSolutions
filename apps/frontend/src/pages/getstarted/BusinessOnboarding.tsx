@@ -6,16 +6,23 @@ import {
   ChevronRight, ChevronLeft, Upload, Check,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, LogOut
+  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu,   Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies } from '../../services/api';
+import { businessApi } from '../../services/business';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
+import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
+import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
+import { useGeolocation } from '../../hooks/useGeolocation';
+import GoogleMapSection from '../../components/GoogleMapSection';
+import WizardProgressBar from '../../components/WizardProgressBar';
+import ImageCropModal from '../../components/ImageCropModal';
 
 
 // ═══════════════════════════════════════════════════════════
@@ -59,7 +66,10 @@ function useCreateUser() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Registering user during onboarding:', data);
-      const res = await mutateAsync({
+      if (USE_MOCK) {
+        return { data: { id: 'mock-user-' + Date.now(), email: data.email, firstName: data.businessName } };
+      }
+      const res = await businessApi.register({
         email: data.email,
         password: data.password,
         businessName: data.businessName || 'Business Owner',
@@ -78,7 +88,12 @@ function useLogin() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Logging in user during onboarding:', data);
-      const res = await mutateAsync({
+      if (USE_MOCK) {
+        const mockToken = 'mock-jwt-' + Date.now();
+        localStorage.setItem('auth_token', mockToken);
+        return { data: { accessToken: mockToken, user: { id: 'mock-user', email: data.email, role: 'BUSINESS' } } };
+      }
+      const res = await businessApi.login({
         email: data.email,
         password: data.password,
       });
@@ -93,7 +108,11 @@ function useSendOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      await mutateAsync(data.email);
+      if (USE_MOCK) {
+        console.log('[MOCK] OTP sent to', data.email, '(code: 123456)');
+        return { success: true };
+      }
+      await businessApi.sendOtp(data.email);
       return { success: true };
     },
     isPending,
@@ -106,7 +125,11 @@ function useValidateOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
-      const res = await mutateAsync({ email: data.email, code: data.otp });
+      if (USE_MOCK) {
+        const valid = data.otp === '123456' || data.otp?.length === 6;
+        return { data: { valid } };
+      }
+      const res = await businessApi.verifyOtp(data.email, data.otp);
       return { data: { valid: res.valid } };
     },
     isPending,
@@ -133,26 +156,7 @@ function useAddListing() {
   };
 }
 
-function useGetSectors() {
-  return {
-    data: SECTORS,
-    isLoading: false,
-  };
-}
-
-function useGetCategoriesBySector(sectorId?: string) {
-  return {
-    data: sectorId ? CATEGORIES.filter(c => c.sectorId === sectorId) : [],
-    isLoading: false,
-  };
-}
-
-function useGetSubCategoriesByCategory(categoryId?: string) {
-  return {
-    data: categoryId ? SUBCATEGORIES.filter(sc => sc.categoryId === categoryId) : [],
-    isLoading: false,
-  };
-}
+// Replaced by import from ../../hooks/useCategoryData
 
 async function uploadFile(file: File) {
   console.log('Mock: Uploading file', file.name);
@@ -169,7 +173,7 @@ const Cookies = {
   get: (key: string) => null,
 };
 
-const USE_MOCK = import.meta.env.VITE_MOCK_API === 'true';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.VITE_MOCK_API === 'true';
 
 const mockFallback = (endpoint: string, fallbackData: any) => {
   console.warn(`[MOCK] Using mock data for: ${endpoint}`);
@@ -183,6 +187,9 @@ const api = {
       if (USE_MOCK) {
         if (cleanEndpoint.includes('/localmall/onboarding/check-location')) {
           return mockFallback(cleanEndpoint, { status: 'active', resolvedArea: 'Westminster Borough', tier: 'high_street' });
+        }
+        if (cleanEndpoint.includes('/claim/start')) {
+          return mockFallback(cleanEndpoint, { authUrl: 'about:blank#mock' });
         }
         if (cleanEndpoint.includes('/google-business/complete-onboarding')) {
           return mockFallback(cleanEndpoint, {
@@ -200,6 +207,9 @@ const api = {
         console.warn(`[MOCK] Backend unreachable — using mock for: ${cleanEndpoint}`);
         if (cleanEndpoint.includes('/localmall/onboarding/check-location')) {
           return mockFallback(cleanEndpoint, { status: 'active', resolvedArea: 'Westminster Borough', tier: 'high_street' });
+        }
+        if (cleanEndpoint.includes('/claim/start')) {
+          return mockFallback(cleanEndpoint, { authUrl: 'about:blank#mock' });
         }
         if (cleanEndpoint.includes('/google-business/complete-onboarding')) {
           return mockFallback(cleanEndpoint, {
@@ -232,6 +242,9 @@ const api = {
         if (cleanEndpoint.includes('/subcategories')) {
           return mockFallback(cleanEndpoint, SUBCATEGORIES);
         }
+        if (cleanEndpoint.includes('/google-business/map-category')) {
+          return mockFallback(cleanEndpoint, { sectorId: 'hospitality-food', categoryId: 'dining', subCategoryId: 'fine-dining' });
+        }
         if (cleanEndpoint.includes('/google-business')) {
           return mockFallback(cleanEndpoint, { businesses: [] });
         }
@@ -255,6 +268,9 @@ const api = {
         }
         if (cleanEndpoint.includes('/subcategories')) {
           return mockFallback(cleanEndpoint, SUBCATEGORIES);
+        }
+        if (cleanEndpoint.includes('/google-business/map-category')) {
+          return mockFallback(cleanEndpoint, { sectorId: 'hospitality-food', categoryId: 'dining', subCategoryId: 'fine-dining' });
         }
         return mockFallback(cleanEndpoint, { businesses: [] });
       }
@@ -297,6 +313,33 @@ const QUESTS = [
     color: '#d97706',
     colorLight: '#fffbeb',
     Icon: MapPin,
+  },
+  {
+    id: 'borough_detected',
+    title: 'Borough Detected',
+    flavor: 'Review and confirm your local business district.',
+    label: 'Borough',
+    color: '#7c3aed',
+    colorLight: '#f5f3ff',
+    Icon: Building2,
+  },
+  {
+    id: 'high_street_activation',
+    title: 'High Street Activation',
+    flavor: 'Activate your high street presence in the local network.',
+    label: 'High Street',
+    color: '#c2410c',
+    colorLight: '#fff7ed',
+    Icon: Store,
+  },
+  {
+    id: 'storefront',
+    title: 'Add Your Storefront',
+    flavor: 'Set up your business storefront with images and description.',
+    label: 'Storefront',
+    color: '#0891b2',
+    colorLight: '#ecfeff',
+    Icon: Image,
   },
   {
     id: 'category',
@@ -410,6 +453,75 @@ function ConfettiRain() {
         );
       })}
     </div>
+  );
+}
+
+function HighStreetActivationModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="absolute inset-0 backdrop-blur-md bg-orange-950/25"
+          />
+          <motion.div
+            initial={{ scale: 0.92, y: 20, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.92, y: 20, opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 180 }}
+            className="bg-white rounded-3xl w-full max-w-lg max-h-[85dvh] overflow-y-auto shadow-2xl relative z-10 border border-gray-100 flex flex-col"
+          >
+            <div className="h-2.5 bg-gradient-to-r from-orange-500 to-red-500 shrink-0" />
+            <div className="p-6 sm:p-8 overflow-y-auto">
+              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 mb-4 mx-auto">
+                <Info className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-2 tracking-tight text-center">High Street Activation</h3>
+              <p className="text-gray-500 text-sm text-center mb-6">By validating your postcode, your store is integrated into your local borough's digital business network.</p>
+              <div className="w-full space-y-4 mb-6 text-left">
+                <div className="flex gap-3">
+                  <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-800">Active High Street Listing</h4>
+                    <p className="text-xs text-gray-500">Your store will appear in the local borough's active directory, making you easily discoverable to nearby shoppers.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-800">Virtual Hub Integration</h4>
+                    <p className="text-xs text-gray-500">Gain access to digital co-promotions, local business collaborations, and district-wide marketing campaigns.</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-800">Community Engagement</h4>
+                    <p className="text-xs text-gray-500">Connect with local merchant association groups, consumer feedback channels, and digital neighborhood forums.</p>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-orange-500/25 active:scale-[0.98] transition-all"
+              >
+                Got it
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -529,7 +641,11 @@ function BusinessOnboardingInner() {
       setCoverFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setCoverImage(reader.result as string);
+        setCropModalSrc(reader.result as string);
+        setCropModalAspect(16 / 6);
+        setCropModalTitle('Crop Cover Image');
+        setCropModalTarget('cover');
+        setCropModalOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -674,6 +790,20 @@ function BusinessOnboardingInner() {
   
   const activeQuests = QUESTS;
 
+  const WIZARD_STEPS = [
+    { label: 'Account', description: 'Create your business account' },
+    { label: 'Verify', description: 'Verify your email' },
+    { label: 'Location', description: 'Set your business location' },
+    { label: 'Borough', description: 'Confirm your local borough' },
+    { label: 'High Street', description: 'Activate high street presence' },
+    { label: 'Storefront', description: 'Set up your storefront' },
+    { label: 'Categories', description: 'Select business categories' },
+    { label: 'Operations', description: 'Business operation type' },
+    { label: 'Details', description: 'Your personal details' },
+  ];
+
+  const { wizardStepIndex, completedWizardSteps, nextWizardStep, prevWizardStep } = useOnboardingWizard(WIZARD_STEPS.length);
+
   const { mutateAsync: createUser } = useCreateUser();
   const { mutateAsync: login } = useLogin();
   const { mutateAsync: sendOtp } = useSendOtp();
@@ -681,9 +811,9 @@ function BusinessOnboardingInner() {
   const { mutateAsync: checkEmail } = useCheckEmail();
   const { mutateAsync: addListing } = useAddListing();
 
-  const { data: sectors } = useGetSectors();
-  const { data: categories } = useGetCategoriesBySector(formData.sectorId);
-  const { data: subcategories } = useGetSubCategoriesByCategory(formData.categoryId);
+  const { data: sectors, isLoading: sectorsLoading, error: sectorsError } = useGetSectors();
+  const { data: categories, isLoading: categoriesLoading } = useGetCategoriesBySector(formData.sectorId);
+  const { data: subcategories, isLoading: subcategoriesLoading } = useGetSubCategoriesByCategory(formData.categoryId);
 
   // --- Google Onboarding State ---
   const [isGoogleOnboarding, setIsGoogleOnboarding] = useState(false);
@@ -720,8 +850,16 @@ function BusinessOnboardingInner() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const extractPostcode = (address: string) => {
-    const match = address.match(/[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}/i);
-    return match ? match[0] : '';
+    // UK postcode: SW1A 2AA, EC1A 1BB, etc.
+    const ukMatch = address.match(/[A-Z]{1,2}[0-9][A-Z0-9]? ?[0-9][A-Z]{2}/i);
+    if (ukMatch) return ukMatch[0];
+    // Nigerian / generic numeric postal code: 5-6 digits (e.g. 900211, 100001)
+    const numMatch = address.match(/\b(\d{5,6})\b/);
+    if (numMatch) return numMatch[1];
+    // US zip+4 or zip: 12345 or 12345-6789
+    const usMatch = address.match(/\b(\d{5}(?:-\d{4})?)\b/);
+    if (usMatch) return usMatch[1];
+    return '';
   };
 
   const handleSearch = async () => {
@@ -730,16 +868,99 @@ function BusinessOnboardingInner() {
     setSearchError(null);
     setHasSearched(true);
     try {
+      const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+      if (!googleApiKey) {
+        setSearchError('Google Maps API key is not configured.');
+        return;
+      }
       const queryText = `${searchName} ${searchLoc}`.trim();
-      const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
-      const results = Array.isArray(res.data) 
-        ? res.data 
-        : Array.isArray(res.data?.results) 
-        ? res.data.results 
-        : Array.isArray(res.data?.data)
-        ? res.data.data
-        : [];
-      setSearchResults(results);
+      const params = new URLSearchParams({
+        query: queryText,
+        key: googleApiKey,
+        maxresults: '20',
+      });
+      const res = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`);
+      if (!res.ok) throw new Error(`Google Places API error: ${res.status}`);
+      const data = await res.json();
+      if (data.status !== 'OK') {
+        setSearchError(
+          `Google Places API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`
+        );
+        return;
+      }
+
+      // Legacy Text Search doesn't return phone/website. Enrich the first
+      // results with Place Details (parallel, capped) to preserve the fields
+      // the preview screen expects.
+      const results = data.results || [];
+      const details = await Promise.all(
+        results.slice(0, 10).map(async (r: any) => {
+          try {
+            const dParams = new URLSearchParams({
+              place_id: r.place_id,
+              fields: 'formatted_phone_number,international_phone_number,website,opening_hours',
+              key: googleApiKey,
+            });
+            const dRes = await fetch(
+              `https://maps.googleapis.com/maps/api/place/details/json?${dParams.toString()}`
+            );
+            if (!dRes.ok) return null;
+            const dData = await dRes.json();
+            return dData.status === 'OK' ? dData.result : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const detailMap = new Map<string, any>();
+      results.slice(0, 10).forEach((r: any, i: number) => {
+        if (details[i]) detailMap.set(r.place_id, details[i]);
+      });
+
+      const places = results.map((p: any) => {
+        const detail = detailMap.get(p.place_id);
+        const photoRef = p.photos?.[0]?.photo_reference;
+        const heroPhotoUrl = photoRef
+          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoRef}&key=${googleApiKey}`
+          : '';
+        const thumbPhotoUrl = photoRef
+          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${photoRef}&key=${googleApiKey}`
+          : '';
+        const allPhotoUrls = (p.photos || []).slice(0, 5).map((ph: any) =>
+          `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
+        );
+
+        const weekdayText =
+          detail?.opening_hours?.weekday_text || p.opening_hours?.weekday_text || [];
+        const hoursText =
+          weekdayText[new Date().getDay()] || (p.opening_hours?.open_now ? 'Open now' : 'Closed');
+        const isOpen =
+          detail?.opening_hours?.open_now ?? p.opening_hours?.open_now ?? false;
+
+        return {
+          place_id: p.place_id,
+          name: p.name || 'Unknown',
+          formatted_address: p.formatted_address || p.vicinity || '',
+          lat: p.geometry?.location?.lat || 0,
+          lng: p.geometry?.location?.lng || 0,
+          types: p.types || [],
+          primaryType: p.types?.[0] || '',
+          primaryTypeDisplayName: p.types?.[0] || '',
+          formatted_phone_number: detail?.formatted_phone_number || p.formatted_phone_number || '',
+          international_phone_number:
+            detail?.international_phone_number || p.international_phone_number || '',
+          website: detail?.website || p.website || '',
+          rating: p.rating || 0,
+          user_ratings_total: p.user_ratings_total || 0,
+          photos: p.photos || [],
+          heroImg: heroPhotoUrl,
+          thumbImg: thumbPhotoUrl,
+          allPhotos: allPhotoUrls,
+          hours: hoursText,
+          isOpenNow: isOpen,
+        };
+      });
+      setSearchResults(places);
     } catch (err: any) {
       setSearchError('Failed to search businesses.');
       console.error(err);
@@ -757,6 +978,26 @@ function BusinessOnboardingInner() {
     }
     setIsSubmitting(true);
     setSubmitError(null);
+
+    // ─── MOCK MODE: Skip OAuth, go straight to review ───
+    if (USE_MOCK) {
+      const b = selectedPreviewBusiness;
+      try {
+        const mapRes = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(b.googleCategoryId || '')}`);
+        if (mapRes.data) {
+          setGoogleSectorId(mapRes.data.sectorId || '');
+          setGoogleCategoryId(mapRes.data.categoryId || '');
+          setGoogleSubCategoryId(mapRes.data.subCategoryId || '');
+        }
+      } catch { /* proceed without mapping */ }
+      setGooglePhoneInput(b.businessPhone || '');
+      setGoogleStep('review_claim');
+      setShowConnectGooglePage(false);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // ─── REAL MODE: OAuth popup flow ───
     try {
       const returnUrl = `${window.location.origin}/getstarted/business`;
       const res = await api.post('claim/start', {
@@ -765,7 +1006,6 @@ function BusinessOnboardingInner() {
       });
       const { authUrl } = res.data;
 
-      // Open Google OAuth consent screen in a popup window
       const popup = window.open(
         authUrl,
         'google_oauth',
@@ -773,12 +1013,10 @@ function BusinessOnboardingInner() {
       );
 
       if (!popup) {
-        // Blocked by browser — fall back to full redirect
         window.location.href = authUrl;
         return;
       }
 
-      // Listen for the result sent back from the popup
       const handleMessage = (event: MessageEvent) => {
         const getOrigin = (urlStr?: string) => {
           if (!urlStr) return '';
@@ -820,7 +1058,6 @@ function BusinessOnboardingInner() {
       };
       window.addEventListener('message', handleMessage);
 
-      // If the user closes the popup without completing, clean up
       const pollTimer = setInterval(() => {
         if (popup.closed) {
           clearInterval(pollTimer);
@@ -891,85 +1128,74 @@ function BusinessOnboardingInner() {
     }
     setIsSubmitting(true);
     try {
-      const res = await api.post('google-business/complete-onboarding', {
-        email: googleEmail,
-        password: formData.password,
-        firstName: ownerFirstName,
-        lastName: ownerLastName,
-        businessType: ownerBusinessType,
-        googlePlaceId: selectedGoogleBranch.googlePlaceId,
-        businessName: selectedGoogleBranch.businessName,
-        businessPhone: googlePhoneInput,
-        address: selectedGoogleBranch.address,
-        postcode: selectedGoogleBranch.postcode,
-        sectorId: googleSectorId,
-        categoryId: googleCategoryId,
-        subCategoryId: googleSubCategoryId,
-        logoUrl: '',
-        source: searchParams.get('source') || 'direct',
-      });
+      const b = selectedPreviewBusiness || selectedGoogleBranch || {};
+      const businessName = b.businessName || b.name || '';
+      const address = b.address || b.formatted_address || '';
+      const postcode = b.postcode || extractPostcode(address) || '';
+      const phone = googlePhoneInput || b.businessPhone || b.formatted_phone_number || '';
 
-      const { auth, user, listing } = res.data;
+      if (!USE_MOCK) {
+        // ─── REAL MODE: Call backend to complete onboarding ───
+        const res = await api.post('google-business/complete-onboarding', {
+          email: googleEmail,
+          password: formData.password,
+          firstName: ownerFirstName,
+          lastName: ownerLastName,
+          businessType: ownerBusinessType,
+          googlePlaceId: b.googlePlaceId || b.place_id || '',
+          businessName,
+          businessPhone: phone,
+          address,
+          postcode,
+          sectorId: googleSectorId,
+          categoryId: googleCategoryId,
+          subCategoryId: googleSubCategoryId,
+          logoUrl: b.heroImg || '',
+          source: searchParams.get('source') || 'direct',
+        });
 
-      // Set headers and auth cookies
-      api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
-      
-      // Set shared cookies for localhost ports SSO
-      setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
-      
-      // Persist token and user details to local storage
-      if (auth?.accessToken) {
-        localStorage.setItem('auth_token', auth.accessToken);
-      }
-      if (user) {
-        localStorage.setItem('business_user', JSON.stringify(user));
-      }
-      
-      // Dispatch auth tokens and user data to store (which also sets cookies)
-      dispatch(
-        setAuthTokens({
-          accessToken: auth.accessToken,
-          refreshToken: auth.refreshToken,
-        })
-      );
-      dispatch(
-        setUserData({
+        const { auth, user, listing } = res.data;
+        api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
+        setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
+        dispatch(setAuthTokens({ accessToken: auth.accessToken, refreshToken: auth.refreshToken }));
+        dispatch(setUserData({
           id: user?.id || user?._id || 'mock_user_id',
           userName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : `${ownerFirstName} ${ownerLastName}`,
           userRole: user?.role || 'owner',
-          packageInfo: user?.packageInfo
-            ? { planType: user.packageInfo.planType }
-            : null,
-        })
-      );
+          packageInfo: user?.packageInfo ? { planType: user.packageInfo.planType } : null,
+        }));
+      }
 
-      // Persist to local storage for dashboard
-      localStorage.setItem('businessOnboarding', JSON.stringify({
-        businessName: listing.businessName,
-        postcode: selectedGoogleBranch.postcode,
-        address: selectedGoogleBranch.address,
-        logo: null,
-      }));
-      localStorage.setItem('businessArea', 'London');
-      localStorage.setItem('businessProximityTier', 'high_street');
-
-      // Sync form data
+      // ─── BOTH MODES: Sync form data and proceed ───
       setFormData((prev: any) => ({
         ...prev,
-        email: googleEmail,
+        email: googleEmail || prev.email,
         firstName: ownerFirstName,
         lastName: ownerLastName,
-        businessName: listing.businessName,
-        businessPhone: googlePhoneInput,
-        postcode: selectedGoogleBranch.postcode,
-        address: selectedGoogleBranch.address,
+        businessName,
+        businessPhone: phone,
+        address,
+        postcode,
+        sectorId: googleSectorId || prev.sectorId,
+        categoryId: googleCategoryId || prev.categoryId,
+        subCategoryId: googleSubCategoryId || prev.subCategoryId,
+        logo: b.heroImg || prev.logo || null,
       }));
 
-      // Complete → go to Programme Introduction (Step 5)
-      localStorage.setItem('businessOnboardingState', 'plan_selection');
+      localStorage.setItem('businessOnboarding', JSON.stringify({
+        businessName,
+        postcode,
+        address,
+        logo: b.heroImg || null,
+        sectorId: googleSectorId,
+        categoryId: googleCategoryId,
+        subCategoryId: googleSubCategoryId,
+      }));
+
+      setShowConnectGooglePage(false);
       setShowProgrammeIntro(true);
     } catch (err: any) {
-      setSubmitError(err?.response?.data?.message || err?.message || 'Failed to claim business storefront.');
+      setSubmitError(err?.response?.data?.message || err?.message || 'Failed to complete onboarding. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -999,10 +1225,11 @@ function BusinessOnboardingInner() {
       setLogoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData((prev: any) => ({
-          ...prev,
-          logo: reader.result as string,
-        }));
+        setCropModalSrc(reader.result as string);
+        setCropModalAspect(1);
+        setCropModalTitle('Crop Logo');
+        setCropModalTarget('logo');
+        setCropModalOpen(true);
       };
       reader.readAsDataURL(file);
     }
@@ -1024,6 +1251,7 @@ function BusinessOnboardingInner() {
   const [showChoosePlan, setShowChoosePlan] = useState(false);
   const [showInitialAssessment, setShowInitialAssessment] = useState(false);
   const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
+  const [assessmentStep, setAssessmentStep] = useState(0);
   const [planSubTier, setPlanSubTier] = useState<SubTier>('Normal');
   const [planBillingCycle, setPlanBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
 
@@ -1073,9 +1301,11 @@ function BusinessOnboardingInner() {
     message: string;
   } | null>(null);
   const [showProximityModal, setShowProximityModal] = useState(false);
-  const [showActivationLearnMore, setShowActivationLearnMore] = useState(false);
+  const [showLearnMoreModal, setShowLearnMoreModal] = useState(false);
   const [showInitialPrompt, setShowInitialPrompt] = useState(true);
   const [showGoogleCategoryPage, setShowGoogleCategoryPage] = useState(false);
+  const [googleCatDrillSector, setGoogleCatDrillSector] = useState<string | null>(null);
+  const [googleCatDrillGroup, setGoogleCatDrillGroup] = useState<string | null>(null);
   const [showFindClaimPage, setShowFindClaimPage] = useState(false);
   const [showBusinessPreviewPage, setShowBusinessPreviewPage] = useState(false);
   const [showVerifyOwnershipPage, setShowVerifyOwnershipPage] = useState(false);
@@ -1114,6 +1344,7 @@ function BusinessOnboardingInner() {
   const [verifyMethod, setVerifyMethod] = useState<'google' | 'email' | 'sms'>('google');
   const [selectedPreviewBusiness, setSelectedPreviewBusiness] = useState<any>(null);
   const [mapViewToggle, setMapViewToggle] = useState<'list' | 'map'>('list');
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
 
   // ─── Manual Onboarding States ────────────────────────
   const [showBoroughBrowser, setShowBoroughBrowser] = useState(false);
@@ -1123,13 +1354,29 @@ function BusinessOnboardingInner() {
   const [exteriorFile, setExteriorFile] = useState<File | null>(null);
   const [gridImages, setGridImages] = useState<string[]>([]);
   const [gridFiles, setGridFiles] = useState<(File | null)[]>([]);
+
+  // ─── Image Crop Modal State ──────────────────────────
+  const [cropModalOpen, setCropModalOpen] = useState(false);
+  const [cropModalSrc, setCropModalSrc] = useState('');
+  const [cropModalAspect, setCropModalAspect] = useState(1);
+  const [cropModalTitle, setCropModalTitle] = useState('Crop Image');
+  const [cropModalTarget, setCropModalTarget] = useState<'logo' | 'cover'>('logo');
   const [selectedBorough, setSelectedBorough] = useState<string>('Camden Borough');
   const [boroughSearchQuery, setBoroughSearchQuery] = useState<string>('');
+
+  const geo = useGeolocation();
 
 
   // ─── Debounced address suggestion lookup ──────────────
   useEffect(() => {
     if (!formData.postcode || formData.postcode.trim().length < 3) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    // If address is already pre-filled (e.g. from Google import), skip backend lookup
+    if (formData.address && formData.address.trim().length > 5) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -1156,15 +1403,59 @@ function BusinessOnboardingInner() {
     }, 450);
 
     return () => clearTimeout(delayDebounce);
-  }, [formData.postcode]);
+  }, [formData.postcode, formData.address]);
 
-  // ─── Load initial state ─────────────────────────────────
+  // ─── Load from cache ─────────────────────────────────
+  const [restoreToast, setRestoreToast] = useState(false);
   useEffect(() => {
     setIsClient(true);
-    
-    // Clear stale auto-jump states from localStorage so users always start fresh
-    localStorage.removeItem('businessOnboardingState');
-    localStorage.removeItem('businessOnboardingStep');
+    try {
+      const draft = localStorage.getItem('business_onboarding_draft');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (parsed.formData) setFormData((prev: any) => ({ ...prev, ...parsed.formData }));
+        if (parsed.step !== undefined) {
+          setCurrentStep(parsed.step);
+        }
+        if (parsed.completedWizardSteps) setCompletedSteps(new Set(parsed.completedWizardSteps));
+        if (parsed.showInitialPrompt !== undefined) setShowInitialPrompt(parsed.showInitialPrompt);
+        if (parsed.showGoogleCategoryPage !== undefined) setShowGoogleCategoryPage(parsed.showGoogleCategoryPage);
+        if (parsed.showFindClaimPage !== undefined) setShowFindClaimPage(parsed.showFindClaimPage);
+        if (parsed.showBusinessPreviewPage !== undefined) setShowBusinessPreviewPage(parsed.showBusinessPreviewPage);
+        if (parsed.showConnectGooglePage !== undefined) setShowConnectGooglePage(parsed.showConnectGooglePage);
+        if (parsed.showBusinessTypePage !== undefined) setShowBusinessTypePage(parsed.showBusinessTypePage);
+        if (parsed.showProgrammeIntro !== undefined) setShowProgrammeIntro(parsed.showProgrammeIntro);
+        if (parsed.showChoosePlan !== undefined) setShowChoosePlan(parsed.showChoosePlan);
+        if (parsed.showInitialAssessment !== undefined) setShowInitialAssessment(parsed.showInitialAssessment);
+        if (parsed.selectedPreviewBusiness) setSelectedPreviewBusiness(parsed.selectedPreviewBusiness);
+        if (parsed.googleSectorId) setGoogleSectorId(parsed.googleSectorId);
+        if (parsed.googleCategoryId) setGoogleCategoryId(parsed.googleCategoryId);
+        if (parsed.googleSubCategoryId) setGoogleSubCategoryId(parsed.googleSubCategoryId);
+        if (parsed.googleStep) setGoogleStep(parsed.googleStep);
+        if (parsed.searchName) setSearchName(parsed.searchName);
+        if (parsed.searchLoc) setSearchLoc(parsed.searchLoc);
+        if (parsed.searchRadius) setSearchRadius(parsed.searchRadius);
+        setRestoreToast(true);
+        setTimeout(() => setRestoreToast(false), 5000);
+      } else {
+        const cached = localStorage.getItem('businessOnboarding');
+        const cachedStep = localStorage.getItem('businessOnboardingStep');
+        const cachedCompleted = localStorage.getItem('businessOnboardingCompleted');
+        if (cached) setFormData((prev: any) => ({ ...prev, ...JSON.parse(cached) }));
+        if (cachedStep) {
+          const step = parseInt(cachedStep, 10);
+          setCurrentStep(step);
+          if (step > 0) setShowInitialPrompt(false);
+        }
+        if (cachedCompleted) setCompletedSteps(new Set(JSON.parse(cachedCompleted)));
+        if (cached || cachedStep) {
+          setRestoreToast(true);
+          setTimeout(() => setRestoreToast(false), 5000);
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
   }, []);
 
   // ─── Handle Payment Success Redirect ─────────────────
@@ -1227,6 +1518,34 @@ function BusinessOnboardingInner() {
     localStorage.setItem('businessOnboarding', JSON.stringify(formData));
     localStorage.setItem('businessOnboardingStep', currentStep.toString());
     localStorage.setItem('businessOnboardingCompleted', JSON.stringify([...completedSteps]));
+    // Also save to new wizard draft key with full screen state
+    try {
+      localStorage.setItem('business_onboarding_draft', JSON.stringify({
+        step: currentStep,
+        wizardStepIndex: currentStep,
+        formData,
+        completedWizardSteps: [...completedSteps],
+        // Screen state
+        showInitialPrompt,
+        showGoogleCategoryPage,
+        showFindClaimPage,
+        showBusinessPreviewPage,
+        showConnectGooglePage,
+        showBusinessTypePage,
+        showProgrammeIntro,
+        showChoosePlan,
+        showInitialAssessment,
+        // Google import state
+        selectedPreviewBusiness,
+        googleSectorId,
+        googleCategoryId,
+        googleSubCategoryId,
+        googleStep,
+        searchName,
+        searchLoc,
+        searchRadius,
+      }));
+    } catch { /* ignore */ }
   }, [formData, currentStep, isClient, completedSteps]);
 
   // ─── Storefront Progress Simulation ───────────────────
@@ -1629,6 +1948,7 @@ function BusinessOnboardingInner() {
         }));
         localStorage.removeItem('businessOnboardingStep');
         localStorage.removeItem('businessOnboardingCompleted');
+        localStorage.removeItem('business_onboarding_draft');
 
         localStorage.setItem('businessOnboardingState', 'plan_selection');
         setShowProgrammeIntro(true);
@@ -1781,24 +2101,130 @@ function BusinessOnboardingInner() {
   // Google Category Selection Page
   // ═══════════════════════════════════════════════════════
   if (showGoogleCategoryPage) {
-    const categoryList = [
-      { id: 'accounting', name: 'Accounting', icon: <Calculator className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'airport', name: 'Airport', icon: <Plane className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'amusement', name: 'Amusement Park', icon: <Ticket className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'aquarium', name: 'Aquarium', icon: <Umbrella className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'art_gallery', name: 'Art Gallery', icon: <Palette className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'atm', name: 'Atm', icon: <CreditCard className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'bakery', name: 'Bakery', icon: <Croissant className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'bank', name: 'Bank', icon: <Landmark className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'bar', name: 'Bar', icon: <Wine className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'cafe', name: 'Cafe', icon: <Coffee className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'restaurant', name: 'Restaurant', icon: <Utensils className="w-8 h-8 mb-2 mx-auto" /> },
-      { id: 'store', name: 'Store', icon: <Store className="w-8 h-8 mb-2 mx-auto" /> },
-    ];
+    const SECTOR_ICON_MAP: Record<string, React.ReactNode> = {
+      'hospitality-food': <Utensils className="w-8 h-8 mb-2 mx-auto" />,
+      'retail-wholesale': <ShoppingBag className="w-8 h-8 mb-2 mx-auto" />,
+      'manufacturing-industrial': <Factory className="w-8 h-8 mb-2 mx-auto" />,
+      'professional-business': <Briefcase className="w-8 h-8 mb-2 mx-auto" />,
+      'construction-property': <HardHat className="w-8 h-8 mb-2 mx-auto" />,
+      'health-wellness': <Heart className="w-8 h-8 mb-2 mx-auto" />,
+      'education-training': <GraduationCap className="w-8 h-8 mb-2 mx-auto" />,
+      'transport-logistics': <Truck className="w-8 h-8 mb-2 mx-auto" />,
+      'technology-digital': <Cpu className="w-8 h-8 mb-2 mx-auto" />,
+      'financial-insurance': <Landmark className="w-8 h-8 mb-2 mx-auto" />,
+      'tourism-travel': <Plane className="w-8 h-8 mb-2 mx-auto" />,
+      'agriculture-environment': <Sprout className="w-8 h-8 mb-2 mx-auto" />,
+      'community-public': <Users className="w-8 h-8 mb-2 mx-auto" />,
+      'online-micro': <Monitor className="w-8 h-8 mb-2 mx-auto" />,
+    };
 
-    const filteredCategories = categoryList.filter(cat =>
-      cat.name.toLowerCase().includes(categorySearchQuery.toLowerCase())
-    );
+    const activeSector = googleCatDrillSector ? SECTORS.find(s => s.id === googleCatDrillSector) : null;
+    const activeCategory = googleCatDrillGroup
+      ? CATEGORIES.find(c => c.id === googleCatDrillGroup)
+      : null;
+
+    let displayItems: { id: string; name: string; icon: React.ReactNode; tag?: string; onClick: () => void }[] = [];
+    let pageTitle = 'Categories';
+    let showBack = false;
+    let onBack = () => {};
+
+    if (activeCategory) {
+      // Level 3: Show subcategories within the category
+      pageTitle = activeCategory.name;
+      showBack = true;
+      onBack = () => setGoogleCatDrillGroup(null);
+      const subs = SUBCATEGORIES.filter(sc => sc.categoryId === activeCategory.id);
+      displayItems = subs.map(sc => ({
+        id: sc.id,
+        name: sc.name,
+        icon: <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+        onClick: () => {
+          setSearchName(sc.name);
+          setShowGoogleCategoryPage(false);
+          setGoogleCatDrillSector(null);
+          setGoogleCatDrillGroup(null);
+          setShowFindClaimPage(true);
+        },
+      }));
+    } else if (activeSector) {
+      // Level 2: Show categories within the sector
+      pageTitle = activeSector.name;
+      showBack = true;
+      onBack = () => setGoogleCatDrillSector(null);
+      const cats = CATEGORIES.filter(c => c.sectorId === activeSector.id);
+      displayItems = cats.map(c => ({
+        id: c.id,
+        name: c.name,
+        icon: SECTOR_ICON_MAP[activeSector.id] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+        onClick: () => setGoogleCatDrillGroup(c.id),
+      }));
+    } else {
+      // Level 1: Show all sectors
+      pageTitle = 'Categories';
+      displayItems = SECTORS.map(s => ({
+        id: s.id,
+        name: s.name,
+        icon: SECTOR_ICON_MAP[s.id] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+        onClick: () => setGoogleCatDrillSector(s.id),
+      }));
+    }
+
+    const filteredCategories = (() => {
+      const query = categorySearchQuery.trim();
+      if (!query) return displayItems;
+
+      const q = query.toLowerCase();
+      const matches: { id: string; name: string; icon: React.ReactNode; tag?: string; onClick: () => void }[] = [];
+
+      // Universal search across every taxonomy level, regardless of the
+      // current drill-down location.
+      SECTORS.forEach(s => {
+        if (!s.name.toLowerCase().includes(q)) return;
+        matches.push({
+          id: s.id,
+          name: s.name,
+          icon: SECTOR_ICON_MAP[s.id] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: 'Sector',
+          onClick: () => {
+            setGoogleCatDrillGroup(null);
+            setGoogleCatDrillSector(s.id);
+          },
+        });
+      });
+
+      CATEGORIES.forEach(c => {
+        if (!c.name.toLowerCase().includes(q)) return;
+        const sector = SECTORS.find(s => s.id === c.sectorId);
+        matches.push({
+          id: c.id,
+          name: c.name,
+          icon: SECTOR_ICON_MAP[c.sectorId] || <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: sector ? `Sector • ${sector.name}` : 'Category',
+          onClick: () => setGoogleCatDrillGroup(c.id),
+        });
+      });
+
+      SUBCATEGORIES.forEach(sc => {
+        if (!sc.name.toLowerCase().includes(q)) return;
+        const cat = CATEGORIES.find(c => c.id === sc.categoryId);
+        const sector = cat ? SECTORS.find(s => s.id === cat.sectorId) : null;
+        matches.push({
+          id: sc.id,
+          name: sc.name,
+          icon: <Building2 className="w-8 h-8 mb-2 mx-auto" />,
+          tag: [sector?.name, cat?.name].filter(Boolean).join(' > ') || 'Subcategory',
+          onClick: () => {
+            setSearchName(sc.name);
+            setShowGoogleCategoryPage(false);
+            setGoogleCatDrillSector(null);
+            setGoogleCatDrillGroup(null);
+            setShowFindClaimPage(true);
+          },
+        });
+      });
+
+      return matches;
+    })();
 
     return (
       <div className="fixed top-0 inset-x-0 bottom-0 bg-gray-50 flex flex-col font-sans z-40 overflow-y-auto">
@@ -1847,6 +2273,8 @@ function BusinessOnboardingInner() {
             <button 
               onClick={() => {
                 setShowGoogleCategoryPage(false);
+                setGoogleCatDrillSector(null);
+                setGoogleCatDrillGroup(null);
                 setShowInitialPrompt(true);
               }}
               className="hidden sm:block p-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors shrink-0"
@@ -1860,7 +2288,20 @@ function BusinessOnboardingInner() {
         <div className="flex-grow max-w-6xl w-full mx-auto p-4 sm:p-6 md:p-8">
           
           <div className="mb-8 mt-4">
-            <h1 className="text-3xl font-black text-gray-900 mb-2">Categories</h1>
+            <div className="flex items-center gap-3 mb-2">
+              {showBack && (
+                <button
+                  onClick={onBack}
+                  className="p-2 -ml-2 rounded-full hover:bg-gray-200 text-gray-600 transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              )}
+              <h1 className="text-3xl font-black text-gray-900">{pageTitle}</h1>
+            </div>
+            {!activeSector && (
+              <p className="text-sm text-gray-500 mb-4">Select your industry to find your business</p>
+            )}
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-gray-400" />
@@ -1873,6 +2314,8 @@ function BusinessOnboardingInner() {
                   if (e.key === 'Enter' && categorySearchQuery.trim()) {
                     setSearchName(categorySearchQuery);
                     setShowGoogleCategoryPage(false);
+                    setGoogleCatDrillSector(null);
+                    setGoogleCatDrillGroup(null);
                     setShowFindClaimPage(true);
                   }
                 }}
@@ -1883,20 +2326,19 @@ function BusinessOnboardingInner() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {filteredCategories.map((cat) => (
+            {filteredCategories.map((item) => (
               <button
-                key={cat.id}
-                onClick={() => {
-                  setSearchName(cat.name);
-                  setShowGoogleCategoryPage(false);
-                  setShowFindClaimPage(true);
-                }}
+                key={item.id}
+                onClick={item.onClick}
                 className="bg-white rounded-2xl p-6 border border-gray-200 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-gray-300 active:scale-95 transition-all group"
               >
                 <div className="text-gray-700 group-hover:text-black transition-colors">
-                  {cat.icon}
+                  {item.icon}
                 </div>
-                <span className="font-bold text-gray-800 text-sm mt-1">{cat.name}</span>
+                <span className="font-bold text-gray-800 text-sm mt-1">{item.name}</span>
+                {item.tag && (
+                  <span className="text-[10px] font-medium text-gray-400 mt-0.5 uppercase tracking-wide line-clamp-2">{item.tag}</span>
+                )}
               </button>
             ))}
 
@@ -1907,6 +2349,8 @@ function BusinessOnboardingInner() {
                   onClick={() => {
                     setSearchName(categorySearchQuery);
                     setShowGoogleCategoryPage(false);
+                    setGoogleCatDrillSector(null);
+                    setGoogleCatDrillGroup(null);
                     setShowFindClaimPage(true);
                   }}
                   className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-md active:scale-95"
@@ -2034,10 +2478,18 @@ function BusinessOnboardingInner() {
                     : 'Business';
 
                   return (
-                    <div key={placeId} className="group bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 transition-all cursor-pointer">
+                    <div key={placeId} onClick={() => {
+                        if (result.lat && result.lng) setMapCenter({ lat: result.lat, lng: result.lng });
+                        setSelectedPreviewBusiness({
+                          googlePlaceId: placeId,
+                          businessName: result.name,
+                          address: result.formatted_address || '',
+                          type: typeLabel,
+                        });
+                      }} className="group bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 transition-all cursor-pointer">
                       <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
-                        {photoRef ? (
-                          <img className="w-full h-full object-cover" src={`${baseURL}google/google-business/photo/${photoRef}`} alt={result.name} />
+                        {result.heroImg ? (
+                          <img className="w-full h-full object-cover" src={result.heroImg} alt={result.name} />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
                             <Store className="w-8 h-8" />
@@ -2057,29 +2509,29 @@ function BusinessOnboardingInner() {
                           </div>
                           <p className="text-xs text-gray-500 mt-1 font-medium">{result.formatted_address || result.vicinity}</p>
                         </div>
-                        <button onClick={async () => {
-                            setIsSearching(true);
-                            try {
-                              const placeId = result.place_id || result.placeId || result.googlePlaceId;
-                              const detailsRes = await api.get(`google/google-business/${placeId}`);
-                              const placeDetails = detailsRes.data?.result || detailsRes.data || {};
-                              
-                              setSelectedPreviewBusiness({
-                                googlePlaceId: placeId,
-                                businessName: result.name,
-                                address: placeDetails.formatted_address || placeDetails.formattedAddress || result.formatted_address || result.formattedAddress || '',
-                                postcode: postcode || extractPostcode(placeDetails.formatted_address || placeDetails.formattedAddress || ''),
-                                googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
-                                businessPhone: placeDetails.international_phone_number || placeDetails.internationalPhoneNumber || placeDetails.formatted_phone_number || placeDetails.businessPhone || '',
-                                rating: String(result.rating || '4.0'),
-                                reviews: String(result.user_ratings_total || result.userRatingsTotal || '0'),
-                                type: typeLabel,
-                                website: placeDetails.website || '',
-                                hours: placeDetails.opening_hours?.weekday_text?.[0] || (placeDetails.opening_hours?.open_now ? 'Open now' : 'Closed'),
-                                heroImg: photoRef ? `${baseURL}google/google-business/photo/${photoRef}` : '',
-                                thumbImg: photoRef ? `${baseURL}google/google-business/photo/${photoRef}` : ''
-                              });
-                              
+                        <button onClick={() => {
+                            const placeId = result.place_id || result.placeId;
+                            
+                            setSelectedPreviewBusiness({
+                              googlePlaceId: placeId,
+                              businessName: result.name,
+                              address: result.formatted_address || '',
+                              postcode: postcode || extractPostcode(result.formatted_address || ''),
+                              googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
+                              businessPhone: result.formatted_phone_number || result.international_phone_number || '',
+                              rating: String(result.rating || '4.0'),
+                              reviews: String(result.user_ratings_total || '0'),
+                              type: typeLabel,
+                              website: result.website || '',
+                              hours: result.hours || (result.isOpenNow ? 'Open now' : 'Closed'),
+                              heroImg: result.heroImg || '',
+                              thumbImg: result.thumbImg || '',
+                              allPhotos: result.allPhotos || [],
+                              lat: result.lat,
+                              lng: result.lng,
+                            });
+                            
+                            const mapGoogleCategory = async () => {
                               try {
                                 const mapRes = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(result.types?.[0] ? `gcid:${result.types[0]}` : '')}`);
                                 if (mapRes.data) {
@@ -2089,22 +2541,19 @@ function BusinessOnboardingInner() {
                                     categoryId: mapRes.data.categoryId || '',
                                     subCategoryId: mapRes.data.subCategoryId || '',
                                     businessName: result.name,
-                                    address: placeDetails.formatted_address || result.formatted_address || '',
-                                    postcode: postcode || extractPostcode(placeDetails.formatted_address || ''),
-                                    businessPhone: placeDetails.international_phone_number || placeDetails.formatted_phone_number || '',
+                                    address: result.formatted_address || '',
+                                    postcode: postcode || extractPostcode(result.formatted_address || ''),
+                                    businessPhone: result.formatted_phone_number || '',
                                   }));
                                 }
                               } catch (mapErr) {
                                 console.error('Failed to map category:', mapErr);
                               }
+                            };
+                            mapGoogleCategory();
 
-                              setShowFindClaimPage(false);
-                              setShowBusinessPreviewPage(true);
-                            } catch (detailsErr) {
-                              console.error('Failed to fetch details:', detailsErr);
-                            } finally {
-                              setIsSearching(false);
-                            }
+                            setShowFindClaimPage(false);
+                            setShowBusinessPreviewPage(true);
                         }} className="mt-2 text-orange-600 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform self-start">
                           Claim this business <ChevronRight className="w-4 h-4" />
                         </button>
@@ -2148,85 +2597,40 @@ function BusinessOnboardingInner() {
           {/* Map Section (Desktop Right) */}
           <section className={`flex-grow relative bg-gray-100 ${mapViewToggle === 'map' ? 'block absolute inset-0 z-20' : 'hidden md:block'}`}>
             <div className="absolute inset-0">
-              <div className="w-full h-full bg-[#f4f3f0] relative overflow-hidden">
-                {/* Abstract Street Grid Layout */}
-                <svg className="w-full h-full opacity-35" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
-                  <defs>
-                    <pattern id="street-grid" width="80" height="80" patternUnits="userSpaceOnUse">
-                      <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#d1cfc7" strokeWidth="2" />
-                      <path d="M 0 40 L 80 40" fill="none" stroke="#d1cfc7" strokeWidth="1" strokeDasharray="4,4" />
-                      <path d="M 40 0 L 40 80" fill="none" stroke="#d1cfc7" strokeWidth="1" strokeDasharray="4,4" />
-                    </pattern>
-                  </defs>
-                  <rect width="100%" height="100%" fill="url(#street-grid)" />
-                  <path d="M-100,-100 L800,800" fill="none" stroke="#e3e1d9" strokeWidth="24" />
-                  <path d="M-200,300 C400,200 200,600 1000,500" fill="none" stroke="#cbdcf7" strokeWidth="40" />
-                  <path d="M0,500 L900,100" fill="none" stroke="#e8e6dd" strokeWidth="16" />
-                </svg>
-              </div>
-              
-              {/* Map Pins */}
-              {searchResults.length > 0 ? (
-                searchResults.map((result: any, index: number) => {
-                  // Scatter pins deterministically around the center area of the static map image
-                  const topOffsets = ['35%', '45%', '55%', '30%', '50%', '40%', '60%'];
-                  const leftOffsets = ['40%', '50%', '60%', '35%', '55%', '45%', '65%'];
-                  const top = topOffsets[index % topOffsets.length];
-                  const left = leftOffsets[index % leftOffsets.length];
-                  const typeLabel = result.types?.[0]
-                    ? result.types[0].replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-                    : 'Business';
-
-                  return (
-                    <div 
-                      key={result.place_id || result.placeId || result.googlePlaceId || index} 
-                      style={{ top, left }} 
-                      className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-30"
-                    >
-                      <div className="relative flex flex-col items-center">
-                        <div className="bg-orange-600 text-white p-2 rounded-full shadow-lg border-2 border-white animate-bounce shadow-orange-500/40">
-                          <Building2 className="w-4 h-4" />
-                        </div>
-                        <div className="hidden group-hover:block absolute bottom-full mb-2 w-48 bg-white/90 backdrop-blur-md p-3 rounded-xl border border-gray-200 shadow-xl z-50">
-                          <p className="text-xs font-bold text-gray-900">{result.name}</p>
-                          <p className="text-[10px] font-medium text-gray-500 mt-0.5">{result.rating || '0.0'} Rating • {typeLabel}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <>
-                  {/* Fallback mock pins before any query is performed */}
-                  <div className="absolute top-[40%] left-[45%] transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-30">
-                    <div className="relative flex flex-col items-center">
-                      <div className="bg-orange-600 text-white p-2 rounded-full shadow-lg border-2 border-white animate-bounce shadow-orange-500/40">
-                        <Building2 className="w-4 h-4" />
-                      </div>
-                      <div className="hidden group-hover:block absolute bottom-full mb-2 w-48 bg-white/90 backdrop-blur-md p-3 rounded-xl border border-gray-200 shadow-xl z-20">
-                        <p className="text-xs font-bold text-gray-900">The Indigo Kitchen</p>
-                        <p className="text-[10px] font-medium text-gray-500 mt-0.5">4.8 Rating • European</p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="absolute top-[55%] left-[60%] transform -translate-x-1/2 -translate-y-1/2 cursor-pointer opacity-70 z-30">
-                    <div className="bg-gray-500 text-white p-2 rounded-full shadow-lg border-2 border-white">
-                      <Building2 className="w-4 h-4" />
-                    </div>
-                  </div>
-                  
-                  <div className="absolute top-[30%] left-[30%] transform -translate-x-1/2 -translate-y-1/2 cursor-pointer group z-30">
-                    <div className="bg-orange-600 text-white p-2 rounded-full shadow-lg border-2 border-white shadow-orange-500/40">
-                      <Building2 className="w-4 h-4" />
-                    </div>
-                  </div>
-                </>
-              )}
+              <GoogleMapSection
+                businesses={searchResults}
+                selectedBusiness={selectedPreviewBusiness}
+                onSelectBusiness={(business) => {
+                  setSelectedPreviewBusiness({
+                    googlePlaceId: business.place_id || business.placeId,
+                    businessName: business.name,
+                    address: business.formatted_address || business.vicinity || '',
+                    type: business.types?.[0]?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) || 'Business',
+                  });
+                  const pos = business.lat && business.lng ? { lat: business.lat, lng: business.lng } : business.geometry?.location ? { lat: business.geometry.location.lat, lng: business.geometry.location.lng } : null;
+                  if (pos) setMapCenter(pos);
+                }}
+                userLocation={geo.latitude && geo.longitude ? { lat: geo.latitude, lng: geo.longitude } : null}
+                mapCenter={mapCenter}
+              />
             </div>
+
+            {/* Geolocation status banner */}
+            {geo.loading && (
+              <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-72 bg-white/90 backdrop-blur-md p-3 rounded-xl border border-gray-200 shadow-lg z-30 flex items-center gap-2">
+                <div className="w-3 h-3 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-medium text-gray-600">Detecting your location...</span>
+              </div>
+            )}
+            {geo.permissionDenied && (
+              <div className="absolute top-4 left-4 right-4 md:left-auto md:right-4 md:w-80 bg-amber-50/90 backdrop-blur-md p-3 rounded-xl border border-amber-200 shadow-lg z-30 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span className="text-xs font-medium text-amber-800">Location access denied. Enter your location manually or use the search fields.</span>
+              </div>
+            )}
             
             {/* Overlay Card (Contextual) */}
-            <div className="absolute top-6 left-6 w-72 bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-200 shadow-xl hidden lg:block z-30">
+            <div className="absolute top-16 left-6 w-72 bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-200 shadow-xl hidden lg:block z-30">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                 <span className="text-xs font-bold text-gray-900 uppercase tracking-wider">Live Search Area</span>
@@ -2240,7 +2644,9 @@ function BusinessOnboardingInner() {
                   </span>
                 ) : (
                   <span>
-                    No search results found. Try adjusting the search radius slider or your query parameters above.
+                    {geo.latitude && geo.longitude
+                      ? 'Showing your current location. Search above to find businesses.'
+                      : 'No search results found. Try adjusting the search radius slider or your query parameters above.'}
                   </span>
                 )}
               </p>
@@ -2273,16 +2679,65 @@ function BusinessOnboardingInner() {
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <img alt="Interior" className="w-full h-full object-cover" src={selectedPreviewBusiness.heroImg} />
+          {selectedPreviewBusiness.heroImg ? (
+            <img
+              alt="Business cover"
+              className="w-full h-full object-cover"
+              src={selectedPreviewBusiness.heroImg}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const fb = e.currentTarget.nextElementSibling as HTMLElement;
+                if (fb) fb.classList.remove('hidden');
+              }}
+              loading="lazy"
+            />
+          ) : null}
+          <div className={`${selectedPreviewBusiness.heroImg ? 'hidden' : ''} absolute inset-0 bg-gradient-to-br from-orange-400 via-orange-500 to-red-500 flex flex-col items-center justify-center gap-3`}>
+            <Building2 className="w-16 h-16 text-white/70" />
+            <span className="text-white/80 text-sm font-bold tracking-wide">{selectedPreviewBusiness.businessName || 'Business'}</span>
+          </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
           
           {/* Storefront Thumbnail Overlay */}
           <div className="absolute -bottom-6 left-6">
             <div className="w-24 h-24 rounded-xl border-4 border-white overflow-hidden shadow-lg bg-white">
-              <img alt="Storefront" className="w-full h-full object-cover" src={selectedPreviewBusiness.thumbImg} />
+              {selectedPreviewBusiness.thumbImg ? (
+                <img
+                  alt="Storefront"
+                  className="w-full h-full object-cover"
+                  src={selectedPreviewBusiness.thumbImg}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    const fb = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (fb) fb.classList.remove('hidden');
+                  }}
+                  loading="lazy"
+                />
+              ) : null}
+              <div className={`${selectedPreviewBusiness.thumbImg ? 'hidden' : ''} w-full h-full flex items-center justify-center bg-orange-100 text-orange-400`}>
+                <Store className="w-8 h-8" />
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Photo Gallery */}
+        {selectedPreviewBusiness.allPhotos && selectedPreviewBusiness.allPhotos.length > 1 && (
+          <div className="px-6 mt-4 max-w-3xl mx-auto w-full">
+            <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory">
+              {selectedPreviewBusiness.allPhotos.map((photo: string, idx: number) => (
+                <div key={idx} className="flex-shrink-0 w-32 h-24 rounded-xl overflow-hidden snap-start border border-gray-200">
+                  <img
+                    src={photo}
+                    alt={`${selectedPreviewBusiness.businessName} photo ${idx + 1}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform cursor-pointer"
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-10 px-6 flex flex-col gap-6 max-w-3xl mx-auto w-full">
           {/* Business Identity */}
@@ -2325,9 +2780,13 @@ function BusinessOnboardingInner() {
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-gray-900 text-sm">Opening Hours</span>
-                  <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-black rounded-full uppercase">Open</span>
+                  {selectedPreviewBusiness.isOpenNow !== undefined && (
+                    <span className={`px-2 py-0.5 text-[10px] font-black rounded-full uppercase ${selectedPreviewBusiness.isOpenNow ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {selectedPreviewBusiness.isOpenNow ? 'Open' : 'Closed'}
+                    </span>
+                  )}
                 </div>
-                <p className="text-gray-500 text-sm font-medium">{selectedPreviewBusiness.hours}</p>
+                <p className="text-gray-500 text-sm font-medium">{selectedPreviewBusiness.hours || 'Hours not available'}</p>
               </div>
             </div>
             <div className="w-full h-px bg-gray-100"></div>
@@ -4446,103 +4905,369 @@ function BusinessOnboardingInner() {
   }
 
   // ═══════════════════════════════════════════════════════
-  // Step 7 — Initial Business Assessment (5 minutes)
+  // Step 7 — Initial Business Assessment (Interactive Wizard)
   // ═══════════════════════════════════════════════════════
   if (showInitialAssessment) {
-    const assessmentQuestions = [
-      { id: 'yearsInBusiness', question: 'How long has your business been operating?', options: ['Less than 1 year', '1–3 years', '3–5 years', '5+ years'] },
-      { id: 'employeeCount', question: 'How many employees does your business have?', options: ['Just me', '2–5', '6–20', '20+'] },
-      { id: 'onlinePresence', question: 'How would you rate your current online presence?', options: ['No online presence', 'Basic website only', 'Website + social media', 'Strong online presence'] },
-      { id: 'customerBase', question: 'Approximately how many active customers do you serve monthly?', options: ['0–50', '50–200', '200–1000', '1000+'] },
-      { id: 'mainGoal', question: 'What is your primary goal for the next 90 days?', options: ['Increase customer loyalty', 'Grow customer base', 'Improve online visibility', 'Launch marketing campaigns'] },
-      { id: 'marketingChannels', question: 'Which marketing channels do you currently use?', options: ['None', 'Social media only', 'Social media + email', 'Multiple channels'] },
+    // Load questions from admin panel (localStorage), fall back to defaults
+    const ICON_MAP: Record<string, any> = { Clock, Users, Globe, Heart, Target, Megaphone, HelpCircle, Zap, Award, Briefcase, BarChart3, Sparkles, MessageSquare, FileText, Star, TrendingUp, ShoppingCart, Package, MapPin };
+
+    const defaultQuestions = [
+      { id: 'yearsInBusiness', question: 'How long has your business been operating?', iconName: 'Clock', fieldType: 'single-choice', options: ['Less than 1 year', '1–3 years', '3–5 years', '5+ years'], hint: 'This helps us understand your growth stage' },
+      { id: 'employeeCount', question: 'How many employees does your business have?', iconName: 'Users', fieldType: 'single-choice', options: ['Just me', '2–5', '6–20', '20+'], hint: 'We tailor recommendations to your team size' },
+      { id: 'onlinePresence', question: 'How would you rate your current online presence?', iconName: 'Globe', fieldType: 'single-choice', options: ['No online presence', 'Basic website only', 'Website + social media', 'Strong online presence'], hint: 'This determines your digital starting point' },
+      { id: 'customerBase', question: 'Approximately how many active customers do you serve monthly?', iconName: 'Heart', fieldType: 'number', options: [], hint: 'We use this to set realistic growth targets' },
+      { id: 'mainGoal', question: 'What is your primary goal for the next 90 days?', iconName: 'Target', fieldType: 'single-choice', options: ['Increase customer loyalty', 'Grow customer base', 'Improve online visibility', 'Launch marketing campaigns'], hint: 'Your goal shapes your personalised action plan' },
+      { id: 'marketingChannels', question: 'Which marketing channels do you currently use?', iconName: 'Megaphone', fieldType: 'multi-choice', options: ['None', 'Social media only', 'Social media + email', 'Multiple channels'], hint: 'We will fill any gaps in your strategy' },
     ];
 
+    let rawQuestions: any[];
+    try {
+      const saved = localStorage.getItem('admin_assessment_questions');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        rawQuestions = parsed.filter((q: any) => q.enabled !== false).sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+      } else {
+        rawQuestions = defaultQuestions;
+      }
+    } catch { rawQuestions = defaultQuestions; }
+
+    const assessmentQuestions = rawQuestions.map(q => ({
+      ...q,
+      icon: ICON_MAP[q.iconName] || HelpCircle,
+      fieldType: q.fieldType || 'single-choice',
+    }));
+
+    const totalSteps = assessmentQuestions.length;
+    const currentQuestion = assessmentQuestions[assessmentStep];
+    const ft = currentQuestion.fieldType || 'single-choice';
+    const isCurrentAnswered = ft === 'multi-choice'
+      ? (assessmentAnswers[currentQuestion.id] || '').length > 0
+      : ft === 'yes-no'
+        ? assessmentAnswers[currentQuestion.id] === 'Yes' || assessmentAnswers[currentQuestion.id] === 'No'
+        : ft === 'rating'
+          ? !!assessmentAnswers[currentQuestion.id]
+          : ft === 'number'
+            ? assessmentAnswers[currentQuestion.id] !== undefined && assessmentAnswers[currentQuestion.id] !== ''
+            : !!assessmentAnswers[currentQuestion.id];
     const answeredCount = Object.keys(assessmentAnswers).length;
-    const allAnswered = answeredCount === assessmentQuestions.length;
-    const progressPercent = Math.round((answeredCount / assessmentQuestions.length) * 100);
+    const progressPercent = Math.round((answeredCount / totalSteps) * 100);
+    const isLastStep = assessmentStep === totalSteps - 1;
+    const allAnswered = answeredCount === totalSteps;
 
     return (
-      <div className="min-h-screen bg-gray-50 py-12">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="text-center mb-8">
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
+
+            {/* Header */}
+            <div className="text-center mb-6">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
                 <FileSearch className="w-4 h-4" />
                 Step 7 of 8
               </div>
               <h1 className="text-3xl font-black text-gray-900 mb-2">Initial Business Assessment</h1>
-              <p className="text-gray-500 font-medium">This quick assessment (5 minutes) determines your starting point and recommended pathway.</p>
+              <p className="text-gray-500 font-medium text-sm">This quick assessment determines your starting point and recommended pathway.</p>
             </div>
 
-            {/* Progress */}
+            {/* Step Circles */}
+            <div className="flex items-center justify-center gap-1.5 mb-4">
+              {assessmentQuestions.map((q, i) => {
+                const isCompleted = !!assessmentAnswers[q.id];
+                const isCurrent = i === assessmentStep;
+                return (
+                  <React.Fragment key={q.id}>
+                    <button
+                      onClick={() => setAssessmentStep(i)}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 cursor-pointer ${
+                        isCompleted
+                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30'
+                          : isCurrent
+                            ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md'
+                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200'
+                      }`}
+                    >
+                      {isCompleted ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
+                    </button>
+                    {i < totalSteps - 1 && (
+                      <div className={`flex-1 h-0.5 max-w-[24px] rounded-full transition-all duration-500 ${
+                        isCompleted ? 'bg-orange-500' : 'bg-gray-200'
+                      }`} />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* Progress bar */}
             <div className="mb-8">
               <div className="flex items-center justify-between text-xs font-bold mb-1.5">
-                <span className="text-gray-500">{answeredCount} of {assessmentQuestions.length} answered</span>
+                <span className="text-gray-500">{answeredCount} of {totalSteps} answered</span>
                 <span className="text-orange-600">{progressPercent}%</span>
               </div>
               <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                 <motion.div
                   animate={{ width: `${progressPercent}%` }}
-                  className="h-full bg-orange-500 rounded-full"
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                  className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full"
                 />
               </div>
             </div>
 
-            {/* Questions */}
-            <div className="space-y-6 mb-8">
-              {assessmentQuestions.map((q, i) => (
+            {/* Question Card */}
+            <div className="flex-1 flex flex-col">
+              <AnimatePresence mode="wait">
                 <motion.div
-                  key={q.id}
-                  initial={{ opacity: 0, y: 15 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm"
+                  key={assessmentStep}
+                  initial={{ opacity: 0, x: 40, scale: 0.98 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: -40, scale: 0.98 }}
+                  transition={{ duration: 0.25 }}
+                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm flex-1 flex flex-col"
                 >
-                  <p className="font-bold text-gray-900 mb-3">{q.question}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {q.options.map((opt) => (
-                      <button
-                        key={opt}
-                        onClick={() => setAssessmentAnswers(prev => ({ ...prev, [q.id]: opt }))}
-                        className={`p-3 rounded-xl text-sm font-semibold text-left transition-all ${
-                          assessmentAnswers[q.id] === opt
-                            ? 'bg-orange-500 text-white shadow-lg'
-                            : 'bg-gray-50 text-gray-600 hover:bg-orange-50 hover:text-orange-600 border border-gray-200'
-                        }`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
+                  {/* Question number */}
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
+                      <currentQuestion.icon className="w-5 h-5 text-orange-500" />
+                    </div>
+                    <span className="text-xs font-bold text-orange-500 uppercase tracking-wider">
+                      Question {assessmentStep + 1} of {totalSteps}
+                    </span>
+                  </div>
+
+                  {/* Question text */}
+                  <h2 className="text-xl sm:text-2xl font-black text-gray-900 mb-2 leading-tight">
+                    {currentQuestion.question}
+                  </h2>
+                  <p className="text-sm text-gray-400 font-medium mb-6">{currentQuestion.hint}</p>
+
+                  {/* Answer Input — renders based on fieldType */}
+                  <div className="flex-1 flex flex-col">
+                    {ft === 'single-choice' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {currentQuestion.options.map((opt: string) => {
+                          const isSelected = assessmentAnswers[currentQuestion.id] === opt;
+                          return (
+                            <motion.button
+                              key={opt}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
+                                if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
+                              }}
+                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${
+                                isSelected
+                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
+                                  {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />}
+                                </div>
+                                <span className="text-sm sm:text-base">{opt}</span>
+                              </div>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {ft === 'multi-choice' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {currentQuestion.options.map((opt: string) => {
+                          const selected = (assessmentAnswers[currentQuestion.id] || '').split(',').filter(Boolean);
+                          const isSelected = selected.includes(opt);
+                          return (
+                            <motion.button
+                              key={opt}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                const next = isSelected ? selected.filter(s => s !== opt) : [...selected, opt];
+                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: next.join(',') }));
+                              }}
+                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${
+                                isSelected
+                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
+                                  {isSelected && <Check className="w-3 h-3" strokeWidth={3} />}
+                                </div>
+                                <span className="text-sm sm:text-base">{opt}</span>
+                              </div>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {ft === 'text' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+                        <input
+                          type="text"
+                          value={assessmentAnswers[currentQuestion.id] || ''}
+                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
+                          placeholder="Type your answer..."
+                          autoFocus
+                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none"
+                        />
+                      </div>
+                    )}
+
+                    {ft === 'textarea' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+                        <textarea
+                          value={assessmentAnswers[currentQuestion.id] || ''}
+                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
+                          placeholder="Type your answer..."
+                          autoFocus
+                          rows={4}
+                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {ft === 'number' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+                        <input
+                          type="number"
+                          value={assessmentAnswers[currentQuestion.id] || ''}
+                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
+                          placeholder="0"
+                          autoFocus
+                          min="0"
+                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none"
+                        />
+                      </div>
+                    )}
+
+                    {ft === 'date' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
+                        <input
+                          type="date"
+                          value={assessmentAnswers[currentQuestion.id] || ''}
+                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
+                          className="w-full text-lg font-semibold text-gray-900 focus:outline-none"
+                        />
+                      </div>
+                    )}
+
+                    {ft === 'rating' && (
+                      <div className="bg-white rounded-2xl border border-gray-200 p-6 flex items-center justify-center gap-3">
+                        {[1,2,3,4,5].map(s => {
+                          const val = parseInt(assessmentAnswers[currentQuestion.id] || '0');
+                          const active = s <= val;
+                          return (
+                            <motion.button
+                              key={s}
+                              whileHover={{ scale: 1.15 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => {
+                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: String(s) }));
+                                if (!isLastStep) setTimeout(() => setAssessmentStep(step => step + 1), 400);
+                              }}
+                              className="transition-all"
+                            >
+                              <Star className={`w-10 h-10 transition-colors ${active ? 'text-orange-400 fill-orange-400' : 'text-gray-300'}`} />
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {ft === 'yes-no' && (
+                      <div className="flex gap-4 justify-center">
+                        {['Yes', 'No'].map(opt => {
+                          const isSelected = assessmentAnswers[currentQuestion.id] === opt;
+                          return (
+                            <motion.button
+                              key={opt}
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => {
+                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
+                                if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
+                              }}
+                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 ${
+                                isSelected
+                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50'
+                              }`}
+                            >
+                              {opt}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </motion.div>
-              ))}
+              </AnimatePresence>
             </div>
 
-            {/* Submit */}
-            <button
-              onClick={async () => {
-                localStorage.removeItem('businessOnboarding');
-                localStorage.removeItem('businessOnboardingStep');
-                localStorage.removeItem('businessOnboardingCompleted');
-                localStorage.removeItem('businessOnboardingState');
-                localStorage.setItem('firstDashboardLogin', 'true');
-                localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
-                await performSSORedirect('/dashboard');
-              }}
-              disabled={!allAnswered}
-              className={`w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${
-                allAnswered
-                  ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              Complete Assessment & Enter Dashboard
-              <ArrowRight className="w-5 h-5" />
-            </button>
+            {/* Navigation */}
+            <div className="flex items-center justify-between mt-6 gap-4">
+              <button
+                onClick={() => assessmentStep > 0 && setAssessmentStep(s => s - 1)}
+                disabled={assessmentStep === 0}
+                className="flex items-center gap-1.5 text-sm font-semibold px-5 py-3 rounded-xl transition-all outline-none text-gray-500 hover:text-gray-700 hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back
+              </button>
+
+              {isLastStep ? (
+                <motion.button
+                  whileHover={allAnswered ? { scale: 1.03 } : {}}
+                  whileTap={allAnswered ? { scale: 0.97 } : {}}
+                  onClick={() => {
+                    if (!allAnswered) return;
+                    localStorage.removeItem('businessOnboarding');
+                    localStorage.removeItem('businessOnboardingStep');
+                    localStorage.removeItem('businessOnboardingCompleted');
+                    localStorage.removeItem('business_onboarding_draft');
+                    localStorage.setItem('firstDashboardLogin', 'true');
+                    localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
+                    router.push('/dashboard');
+                  }}
+                  disabled={!allAnswered}
+                  className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 ${
+                    allAnswered
+                      ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 cursor-pointer'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  <span className="hidden sm:inline">Complete Assessment & Enter Dashboard</span>
+                  <span className="sm:hidden">Complete</span>
+                  <ArrowRight className="w-5 h-5" />
+                </motion.button>
+              ) : (
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    if (isCurrentAnswered) setAssessmentStep(s => s + 1);
+                  }}
+                  disabled={!isCurrentAnswered}
+                  className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all ${
+                    isCurrentAnswered
+                      ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 hover:bg-orange-600 cursor-pointer'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  Next
+                  <ChevronRight className="w-5 h-5" />
+                </motion.button>
+              )}
+            </div>
             <p className="text-center text-xs text-gray-400 mt-3 font-medium">
               Your answers help us personalise your 90-day journey
             </p>
+
           </motion.div>
         </div>
       </div>
@@ -4646,6 +5371,7 @@ function BusinessOnboardingInner() {
           localStorage.removeItem('businessOnboarding');
           localStorage.removeItem('businessOnboardingStep');
           localStorage.removeItem('businessOnboardingCompleted');
+          localStorage.removeItem('business_onboarding_draft');
           localStorage.removeItem('businessArea');
           localStorage.removeItem('localMallName');
           localStorage.removeItem('localMallId');
@@ -4669,39 +5395,90 @@ function BusinessOnboardingInner() {
     });
 
     return (
-      <div className="mcommall-onboarding bg-[#fff8f6] text-[#261812] min-h-screen flex flex-col font-sans pt-4 md:pt-16">
-        <main className="flex-grow w-full max-w-2xl mx-auto px-margin-mobile py-4 md:py-stack-lg">
-          <button 
+      <div className="min-h-screen bg-[#fafafa] relative overflow-x-hidden font-sans">
+        {/* Subtle dot grid background */}
+        <div
+          className="absolute inset-0 opacity-30"
+          style={{
+            backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+        {/* Warm brand gradient glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-gradient-to-b from-orange-200/15 to-transparent pointer-events-none" />
+        <div className="absolute top-32 right-0 w-72 h-72 bg-amber-100/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-32 left-0 w-80 h-80 bg-rose-100/20 rounded-full blur-3xl pointer-events-none" />
+
+        <main className="relative z-10 w-full max-w-3xl mx-auto px-4 py-6 md:py-12">
+          {/* Back button */}
+          <motion.button
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
             onClick={() => setShowBoroughBrowser(false)}
-            className="flex items-center gap-1.5 text-sm font-bold text-primary hover:opacity-80 transition-opacity active:scale-95 mb-6"
+            className="flex items-center gap-1.5 text-sm font-bold text-orange-600 hover:text-orange-700 transition-colors active:scale-95 mb-6"
           >
-            <span className="material-symbols-outlined">arrow_back</span> Back
-          </button>
-          <section className="text-center mb-stack-lg">
-            <h1 className="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-background mb-unit">Select Your Borough</h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant">Search or select a local business district to connect your storefront.</p>
-          </section>
+            <ChevronLeft className="w-4 h-4" />
+            Back
+          </motion.button>
+
+          {/* Header */}
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="text-center mb-8"
+          >
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500 shadow-lg shadow-orange-500/20 mb-4">
+              <Compass className="w-7 h-7 text-white" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight">Select Your Borough</h1>
+            <p className="text-gray-500 text-sm mt-1.5 max-w-md mx-auto">
+              Search or select a local business district to connect your storefront.
+            </p>
+          </motion.section>
 
           {/* Search bar */}
-          <div className="w-full mb-8 relative">
-            <div className="relative flex items-center bg-white border border-[#e2bfb0] rounded-xl shadow-sm focus-within:border-primary transition-all">
-              <span className="material-symbols-outlined text-outline ml-4 absolute pointer-events-none">search</span>
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="w-full mb-8 relative"
+          >
+            <div className="relative flex items-center bg-white border border-orange-200 rounded-xl shadow-sm focus-within:border-orange-400 focus-within:ring-2 focus-within:ring-orange-100 transition-all">
+              <Search className="w-5 h-5 text-orange-300 ml-4 absolute pointer-events-none" />
               <input 
                 type="text"
                 value={boroughSearchQuery}
                 onChange={(e) => setBoroughSearchQuery(e.target.value)}
                 placeholder="Search boroughs, districts or postcodes..."
-                className="w-full pl-12 pr-4 py-4 bg-transparent border-none rounded-xl text-on-surface placeholder-outline focus:ring-0 text-base"
+                className="w-full pl-12 pr-4 py-4 bg-transparent border-none rounded-xl text-gray-900 placeholder-gray-300 focus:ring-0 text-base"
               />
+              {boroughSearchQuery && (
+                <button
+                  onClick={() => setBoroughSearchQuery('')}
+                  className="mr-3 text-gray-300 hover:text-gray-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
-          </div>
+          </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredBoroughs.map(key => {
+          {/* Borough grid */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="grid grid-cols-1 md:grid-cols-2 gap-5"
+          >
+            {filteredBoroughs.map((key, idx) => {
               const b = BOROUGH_DATA[key];
               return (
-                <div 
+                <motion.div
                   key={key}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 * idx + 0.2 }}
                   onClick={async () => {
                     setSelectedBorough(key);
                     const defaultPostcodes: Record<string, string> = {
@@ -4717,619 +5494,100 @@ function BusinessOnboardingInner() {
                       city: key,
                     }));
                     setShowBoroughBrowser(false);
-                    setShowLocalNetworkPage(true);
                     try {
                       await runLocationCheck(targetPostcode);
                     } catch (err) {
                       console.error('Borough browser location check error:', err);
                     }
                   }}
-                  className="group cursor-pointer rounded-xl border border-outline-variant bg-white shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary overflow-hidden flex flex-col"
+                  className="group cursor-pointer rounded-2xl border border-gray-100 bg-white shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden flex flex-col active:scale-[0.98]"
+                  whileHover={{ y: -4 }}
                 >
-                  <div className="h-32 w-full overflow-hidden relative">
-                    <img src={b.detectedImage} alt={b.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <div className="absolute bottom-3 left-3 flex items-center gap-1.5 text-white">
-                      <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>location_on</span>
-                      <span className="font-title-md text-sm font-bold uppercase tracking-tight">{b.name}</span>
+                  {/* Image area */}
+                  <div className="h-36 w-full overflow-hidden relative">
+                    <img
+                      src={b.detectedImage}
+                      alt={b.name}
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                    {/* Badge */}
+                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm rounded-lg px-2.5 py-1 flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider">
+                        {b.nearbyBusinesses} merchants
+                      </span>
                     </div>
-                  </div>
-                  <div className="p-4 flex flex-col justify-between flex-grow">
-                    <div>
-                      <h3 className="font-title-md text-base text-on-surface mb-1">{b.mallName}</h3>
-                      <p className="font-body-sm text-xs text-on-surface-variant flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[12px]">map</span>
+                    {/* Borough name overlay */}
+                    <div className="absolute bottom-3 left-3 right-3">
+                      <h3 className="text-base font-bold text-white drop-shadow-sm">{b.name}</h3>
+                      <p className="text-[11px] text-white/80 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
                         {b.district}
                       </p>
                     </div>
-                    <div className="mt-4 pt-3 border-t border-outline-variant/30 flex justify-between items-center text-xs text-outline">
-                      <span>{b.nearbyBusinesses} Nearby Businesses</span>
-                      <span className="text-primary font-bold flex items-center gap-0.5">Select <span className="material-symbols-outlined text-[14px]">chevron_right</span></span>
+                  </div>
+                  {/* Details */}
+                  <div className="p-4 flex flex-col gap-3 flex-grow">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">{b.mallName}</h4>
+                      <p className="text-xs text-gray-400">{b.district}</p>
+                    </div>
+                    {/* Stats row */}
+                    <div className="flex items-center justify-between text-[11px] text-gray-500">
+                      <div className="flex items-center gap-1.5">
+                        <Store className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{b.networkBusinesses} network</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{b.localShoppers} shoppers</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Megaphone className="w-3.5 h-3.5 text-orange-400" />
+                        <span>{b.activeCampaigns} campaigns</span>
+                      </div>
+                    </div>
+                    {/* CTA */}
+                    <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                      <span className="text-[11px] text-gray-400 font-medium">Select this borough</span>
+                      <span className="bg-gradient-to-r from-orange-500 to-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg group-hover:shadow-md group-hover:shadow-orange-500/20 transition-shadow">
+                        Choose
+                      </span>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
-          </div>
-        </main>
-      </div>
-    );
-  }
+          </motion.div>
 
-  // ═══════════════════════════════════════════════════════
-  // Override: Loading/Verifying Screen
-  // ═══════════════════════════════════════════════════════
-  if (!isGoogleOnboarding && (currentQuest.id === 'borough_detected' || currentQuest.id === 'high_street_activation') && (isCheckingProximity || !proximityResult)) {
-    return (
-      <div className="mcommall-onboarding bg-[#fff8f6] text-[#261812] min-h-screen flex flex-col font-sans pt-16">
-        <main className="flex-grow flex flex-col items-center justify-center px-margin-mobile py-stack-lg max-w-[640px] mx-auto w-full">
-          <div className="flex flex-col items-center gap-4 text-center">
+          {/* Empty state */}
+          {filteredBoroughs.length === 0 && (
             <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full mb-2"
-            />
-            <h2 className="font-title-md text-xl font-bold animate-pulse">Verifying High Street Proximity...</h2>
-            <p className="font-body-sm text-on-surface-variant max-w-[320px]">
-              Querying mapping network to dynamically calculate local active merchant count and borough stats.
-            </p>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Override: Local Borough Detected Screen (Step 2 Verification)
-  // ═══════════════════════════════════════════════════════
-  if (!isGoogleOnboarding && currentQuest.id === 'borough_detected') {
-    const resolvedName = proximityResult?.resolvedArea || selectedBorough.replace(' Borough', '');
-    const resolvedBoroughKey = resolvedName.endsWith('Borough') ? resolvedName : `${resolvedName} Borough`;
-
-    const data = BOROUGH_DATA[resolvedBoroughKey] || {
-      name: resolvedBoroughKey,
-      mallName: proximityResult?.localMallName || `${resolvedName} Local Mall`,
-      district: `${(formData.postcode || '').split(' ')[0] || 'Local'} District • UK Network`,
-      detectedImage: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=800&q=80',
-      activationImage: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&q=80',
-      nearbyBusinesses: proximityResult?.businessCount || 0,
-      activeCampaigns: 0,
-      localShoppers: '0',
-      networkBusinesses: String(proximityResult?.businessCount || 0),
-    };
-
-    return (
-      <div className="mcommall-onboarding bg-background text-on-background min-h-screen flex flex-col font-sans pt-4 md:pt-16">
-        <main className="flex-grow flex flex-col items-center px-margin-mobile py-4 md:py-stack-lg max-w-[640px] mx-auto w-full">
-          {/* Back button */}
-          <div className="w-full flex justify-start mb-4">
-            <button 
-              onClick={handleBack}
-              className="flex items-center gap-1.5 text-sm font-bold text-primary hover:opacity-80 transition-opacity active:scale-95"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-16"
             >
-              <span className="material-symbols-outlined">arrow_back</span> Back
-            </button>
-          </div>
-          {/* Onboarding Progress */}
-          <div className="w-full mb-stack-lg">
-            <div className="flex justify-between items-center mb-unit">
-              <span className="font-label-md text-label-md text-secondary">STEP 2 OF 13</span>
-              <span className="font-label-md text-label-md text-outline">LOCATION VERIFICATION</span>
-            </div>
-            <div className="w-full h-1 bg-surface-container-highest rounded-full flex gap-1">
-              <div className="h-full w-[7.6%] bg-primary-container rounded-full"></div>
-              <div className="h-full w-[7.6%] bg-primary-container rounded-full"></div>
-              <div className="flex-grow bg-surface-container-highest rounded-full"></div>
-            </div>
-          </div>
-
-          {/* Header Section */}
-          <section className="text-center mb-stack-lg">
-            <h1 className="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-background mb-unit">Local Borough Detected</h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant">We've matched your postcode to a local business district.</p>
-          </section>
-
-          {/* Prominent District Card */}
-          <div className="w-full mb-stack-lg group">
-            <div className="relative overflow-hidden rounded-xl border border-outline-variant bg-surface shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary">
-              <div className="h-48 w-full overflow-hidden relative">
-                <img 
-                  alt={data.name} 
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
-                  src={data.detectedImage}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                <div className="absolute bottom-4 left-4 flex items-center gap-2 text-white">
-                  <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>location_on</span>
-                  <span className="font-title-md text-title-md font-bold uppercase tracking-tight">{data.name}</span>
-                </div>
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
+                <Search className="w-7 h-7 text-gray-400" />
               </div>
-              <div className="p-stack-md bg-white">
-                <div className="flex justify-between items-start mb-unit">
-                  <div>
-                    <h2 className="font-title-md text-title-md text-on-surface">{data.mallName}</h2>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[14px]">map</span>
-                      {data.district}
-                    </p>
-                  </div>
-                  <span className="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full font-label-md text-label-md flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[16px] pulse-animation" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
-                    Matched
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* District Pulse Bento Grid */}
-          <section className="w-full mb-stack-lg">
-            <h3 className="font-label-md text-label-md text-outline uppercase mb-stack-sm tracking-widest px-unit">District Pulse</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-surface-container-low p-stack-md rounded-xl border border-outline-variant/30 flex flex-col gap-unit">
-                <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 0" }}>storefront</span>
-                <span className="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">{proximityResult?.businessCount ?? data.nearbyBusinesses}</span>
-                <span className="font-label-md text-label-md text-on-surface-variant">Nearby Businesses</span>
-              </div>
-              <div className="bg-surface-container-low p-stack-md rounded-xl border border-outline-variant/30 flex flex-col gap-unit">
-                <span className="material-symbols-outlined text-tertiary" style={{ fontVariationSettings: "'FILL' 0" }}>campaign</span>
-                <span className="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">{proximityResult?.activeCampaignsCount ?? data.activeCampaigns}</span>
-                <span className="font-label-md text-label-md text-on-surface-variant">Active Campaigns</span>
-              </div>
-              <div className="col-span-2 bg-primary-container/5 p-stack-md rounded-xl border border-primary-container/20 flex items-center justify-between">
-                <div className="flex flex-col gap-unit">
-                  <span className="font-title-md text-title-md text-primary font-bold">High Local Activity</span>
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">Based on real-time transaction density</span>
-                </div>
-                <div className="flex items-end gap-1 h-8">
-                  <div className="w-2 bg-primary-container/30 h-1/2 rounded-t-sm"></div>
-                  <div className="w-2 bg-primary-container/50 h-3/4 rounded-t-sm"></div>
-                  <div className="w-2 bg-primary-container h-full rounded-t-sm pulse-animation"></div>
-                  <div className="w-2 bg-primary-container/70 h-2/3 rounded-t-sm"></div>
-                </div>
-              </div>
-              <div className="col-span-2 bg-surface-container-highest p-stack-md rounded-xl border border-outline-variant/30 flex items-center gap-4">
-                <div className="bg-white p-3 rounded-lg shadow-sm">
-                  <span className="material-symbols-outlined text-secondary" style={{ fontVariationSettings: "'FILL' 1" }}>groups</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">{proximityResult?.consumerCount !== undefined ? (proximityResult.consumerCount >= 1000 ? `${(proximityResult.consumerCount / 1000).toFixed(1)}k` : String(proximityResult.consumerCount)) : data.localShoppers}</span>
-                  <span className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Local Shoppers Active</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Action Section */}
-          <section className="w-full flex flex-col gap-stack-sm mt-auto pb-stack-lg">
-            <button 
-              onClick={handleNext}
-              className="w-full bg-primary-container text-on-primary-container font-title-md text-title-md py-4 rounded-xl font-bold shadow-lg shadow-primary-container/20 active:scale-[0.98] transition-all hover:opacity-90"
-            >
-              Confirm Borough
-            </button>
-            <div className="grid grid-cols-2 gap-stack-sm">
-              <button 
-                onClick={() => setCurrentStep(2)} // Go back to postcode lookup
-                className="flex items-center justify-center gap-2 border border-outline text-on-surface-variant font-label-md text-label-md py-3 rounded-xl hover:bg-surface-container transition-colors active:scale-95"
+              <p className="text-gray-500 text-sm font-medium">No boroughs match your search</p>
+              <button
+                onClick={() => setBoroughSearchQuery('')}
+                className="mt-3 text-orange-600 font-bold text-sm hover:underline"
               >
-                <span className="material-symbols-outlined text-[18px]">edit_location</span>
-                Change Borough
+                Clear search
               </button>
-              <button 
-                onClick={() => setShowBoroughBrowser(true)}
-                className="flex items-center justify-center gap-2 border border-outline text-on-surface-variant font-label-md text-label-md py-3 rounded-xl hover:bg-surface-container transition-colors active:scale-95"
-              >
-                <span className="material-symbols-outlined text-[18px]">search</span>
-                Browse Boroughs
-              </button>
-            </div>
-            <p className="text-center font-body-sm text-body-sm text-outline mt-unit">
-              Not seeing your area? <a className="text-primary font-bold hover:underline" href="#">Request a new district</a>
-            </p>
-          </section>
-        </main>
-        
-        <footer className="mt-auto py-stack-md border-t border-outline-variant/30 text-center">
-          <p className="font-label-md text-label-md text-outline">© 2024 MCOMMALL Institutional Commerce Platform</p>
-        </footer>
-
-        <style dangerouslySetInnerHTML={{ __html: `
-          .pulse-animation {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-          }
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-          }
-        ` }} />
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Override: High Street Activation Screen (Step 3)
-  // ═══════════════════════════════════════════════════════
-  if (!isGoogleOnboarding && currentQuest.id === 'high_street_activation') {
-    const resolvedName = proximityResult?.resolvedArea || selectedBorough.replace(' Borough', '');
-    const resolvedBoroughKey = resolvedName.endsWith('Borough') ? resolvedName : `${resolvedName} Borough`;
-
-    const data = BOROUGH_DATA[resolvedBoroughKey] || {
-      name: resolvedBoroughKey,
-      mallName: proximityResult?.localMallName || `${resolvedName} Local Mall`,
-      district: `${(formData.postcode || '').split(' ')[0] || 'Local'} District • UK Network`,
-      detectedImage: 'https://lh3.googleusercontent.com/aida/AP1WRLvkPz8abWOBQa4SZlJlBySfIVn0p8f7AGbrVN_YFkjqzlkeQmpAjEIGQyi1C1ZSidbcCh9jJH6wt71bJcM9HmPi6Ui-rG6Wxcg-3W2YGLj-ye3ijX64eY30NtPxLcMOPXhkaUcwOWzVSNdzcEiyRZeToCMsM7bD70v6jYU-0r0FW_LQvAgpigJtDGoHKs0TWxqDFDsSGqRAscZta5LK3_7vsqe4YM1DKJJZvhnSHt0P3nihEPx_EDtm8l0',
-      activationImage: 'https://lh3.googleusercontent.com/aida/AP1WRLvg3NvL1p4joMKNfaz4IS3I3tO-155FkiTNsqwbY5oMySM0i27aQrRfneJXse53lmgvmF7eAlAEz_vv_vT0IAs0bktmQ_Kk2ubLr_f6sSbC-_Yi-Dcbxe1dD4vwpcn_OAFqnqLXQdDKwcuY-VY7W_rWz1g8ZStyrlqqIYe0gih_dlkVDGVbAl3qxNUug4DCcz74_je9C9CijEObaRqtOrOu-obk34tR_vk9JSuYqZVys7KvgMQEPqfqMxs',
-      nearbyBusinesses: proximityResult?.businessCount || 0,
-      activeCampaigns: 0,
-      localShoppers: '0',
-      networkBusinesses: String(proximityResult?.businessCount || 0),
-    };
-
-    return (
-      <div className="mcommall-onboarding bg-[#fff8f6] text-[#261812] flex flex-col min-h-screen font-sans pt-16">
-        <main className="flex-grow w-full max-w-2xl mx-auto px-margin-mobile py-stack-lg">
-          <div className="w-full flex justify-between items-center mb-6">
-            <button 
-              onClick={handleBack}
-              className="flex items-center gap-1.5 text-sm font-bold text-primary hover:opacity-80 transition-opacity active:scale-95"
-            >
-              <span className="material-symbols-outlined">arrow_back</span> Back
-            </button>
-            <div className="flex items-center gap-2">
-              <span className="font-label-md text-label-md text-on-surface-variant">Step 3 of 13</span>
-            </div>
-          </div>
-          {/* Hero Section */}
-          <div className="mb-stack-lg">
-            <h2 className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background mb-unit">High Street Activation</h2>
-            <p className="font-body-lg text-body-lg text-on-surface-variant">Your business is joining the {data.name} digital ecosystem.</p>
-          </div>
-
-          {/* Asymmetric Visual Area */}
-          <div className="grid grid-cols-12 gap-4 mb-stack-lg">
-            <div className="col-span-12 md:col-span-7 rounded-xl overflow-hidden relative h-48 md:h-64 shadow-sm border border-outline-variant">
-              <img 
-                alt={data.name} 
-                className="w-full h-full object-cover" 
-                src={data.activationImage}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex flex-col justify-end p-stack-md">
-                <span className="text-white font-title-md text-title-md">{data.name}</span>
-                <span className="text-white/80 font-body-sm text-body-sm">Priority Merchant Zone</span>
-              </div>
-            </div>
-            <div className="col-span-12 md:col-span-5 bg-white/70 backdrop-blur-sm border border-[#d9c2bb]/50 rounded-xl p-stack-md flex flex-col justify-center items-center text-center shadow-sm">
-              <div className="w-12 h-12 rounded-full bg-primary-container/20 flex items-center justify-center text-primary-container mb-stack-sm">
-                <span className="material-symbols-outlined text-3xl">location_on</span>
-              </div>
-              <p className="font-title-md text-title-md text-on-background">Live Network</p>
-              <p className="font-label-md text-label-md text-on-surface-variant">{proximityResult?.businessCount ?? data.networkBusinesses} active merchants in this area</p>
-            </div>
-          </div>
-
-          {/* Status List Section */}
-          <div className="space-y-4 mb-stack-lg">
-            <div className="bg-surface-container-low border border-outline-variant rounded-xl p-stack-md flex items-center justify-between transition-all hover:translate-y-[-2px] duration-200 cursor-pointer">
-              <div className="flex items-center gap-stack-md">
-                <div className="w-10 h-10 rounded-lg bg-surface flex items-center justify-center border border-outline-variant">
-                  <span className="material-symbols-outlined text-primary">storefront</span>
-                </div>
-                <span className="font-title-md text-title-md text-on-background">Active High Street</span>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-tertiary-container text-on-tertiary-container font-label-md text-label-md">ACTIVE</span>
-            </div>
-            <div className="bg-surface-container-low border border-outline-variant rounded-xl p-stack-md flex items-center justify-between transition-all hover:translate-y-[-2px] duration-200 cursor-pointer">
-              <div className="flex items-center gap-stack-md">
-                <div className="w-10 h-10 rounded-lg bg-surface flex items-center justify-center border border-outline-variant">
-                  <span className="material-symbols-outlined text-primary">hub</span>
-                </div>
-                <span className="font-title-md text-title-md text-on-background">Virtual Hub Status</span>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-tertiary-container text-on-tertiary-container font-label-md text-label-md">LIVE</span>
-            </div>
-            <div className="bg-surface-container-low border border-outline-variant rounded-xl p-stack-md flex items-center justify-between transition-all hover:translate-y-[-2px] duration-200 cursor-pointer opacity-70">
-              <div className="flex items-center gap-stack-md">
-                <div className="w-10 h-10 rounded-lg bg-surface flex items-center justify-center border border-outline-variant">
-                  <span className="material-symbols-outlined text-on-surface-variant">location_city</span>
-                </div>
-                <span className="font-title-md text-title-md text-on-background">Physical Hub Status</span>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-surface-container-highest text-on-surface-variant font-label-md text-label-md">COMING SOON</span>
-            </div>
-            <div className="bg-surface-container-low border border-outline-variant rounded-xl p-stack-md flex items-center justify-between transition-all hover:translate-y-[-2px] duration-200 cursor-pointer">
-              <div className="flex items-center gap-stack-md">
-                <div className="w-10 h-10 rounded-lg bg-surface flex items-center justify-center border border-outline-variant">
-                  <span className="material-symbols-outlined text-primary">groups</span>
-                </div>
-                <span className="font-title-md text-title-md text-on-background">Community Group</span>
-              </div>
-              <span className="px-3 py-1 rounded-full bg-tertiary-container text-on-tertiary-container font-label-md text-label-md">ACTIVE</span>
-            </div>
-          </div>
-
-          {/* Legend Section */}
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-stack-md mb-stack-lg">
-            <h3 className="font-label-md text-label-md text-on-surface-variant uppercase mb-stack-sm tracking-wider">Status Legend</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-stack-md">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-tertiary-container"></div>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">Active / Live</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-surface-container-highest"></div>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">Coming Soon</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-primary-fixed"></div>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">Expansion Area</span>
-              </div>
-            </div>
-          </div>
-        </main>
-
-        <footer className="w-full bg-surface border-t border-outline-variant p-margin-mobile">
-          <div className="max-w-2xl mx-auto flex flex-col md:flex-row gap-stack-md">
-            <button 
-              onClick={() => {
-                setShowBoroughBrowser(true);
-              }}
-              className="flex-1 order-1 md:order-2 bg-primary-container text-white py-4 rounded-xl font-title-md text-title-md shadow-sm active:scale-[0.98] transition-all hover:opacity-90"
-            >
-              Continue
-            </button>
-            <button 
-              onClick={() => setShowActivationLearnMore(true)}
-              className="flex-1 order-2 md:order-1 border border-primary text-primary py-4 rounded-xl font-title-md text-title-md active:scale-[0.98] transition-all hover:bg-primary/5"
-            >
-              Learn More
-            </button>
-          </div>
-        </footer>
-
-        <AnimatePresence>
-          {showActivationLearnMore && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              {/* Glassmorphic backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowActivationLearnMore(false)}
-                className="absolute inset-0 backdrop-blur-md bg-orange-950/25"
-              />
-
-              {/* Modal Container */}
-              <motion.div
-                initial={{ scale: 0.92, y: 20, opacity: 0 }}
-                animate={{ scale: 1, y: 0, opacity: 1 }}
-                exit={{ scale: 0.92, y: 20, opacity: 0 }}
-                transition={{ type: 'spring', damping: 25, stiffness: 180 }}
-                className="bg-white rounded-3xl w-full max-w-lg max-h-[85dvh] overflow-y-auto shadow-2xl relative z-10 border border-gray-100 flex flex-col"
-              >
-                {/* Decorative bar */}
-                <div className="h-2.5 bg-gradient-to-r from-orange-500 to-red-500 shadow-orange-500/30" />
-
-                <div className="p-6 sm:p-8 flex-1 flex flex-col items-center">
-                  <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 mb-4 shrink-0">
-                    <span className="material-symbols-outlined text-2xl">info</span>
-                  </div>
-
-                  <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-2 tracking-tight text-center">
-                    High Street Activation
-                  </h3>
-                  <p className="text-gray-500 text-sm text-center mb-6">
-                    By validating your postcode, your store is integrated into your local borough's digital business network.
-                  </p>
-
-                  <div className="w-full space-y-4 mb-6 text-left">
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
-                        <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-gray-800">Active High Street Listing</h4>
-                        <p className="text-xs text-gray-500">Your store will appear in the local borough's active directory, making you easily discoverable to nearby shoppers.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
-                        <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-gray-800">Virtual Hub Integration</h4>
-                        <p className="text-xs text-gray-500">Gain access to digital co-promotions, local business collaborations, and district-wide marketing campaigns.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
-                        <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-gray-800">Community Engagement</h4>
-                        <p className="text-xs text-gray-500">Connect with local merchant association groups, consumer feedback channels, and digital neighborhood forums.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => setShowActivationLearnMore(false)}
-                    className="w-full bg-[#ea580c] text-white py-3.5 rounded-xl font-bold hover:bg-[#d94e02] transition-colors shadow-lg shadow-orange-500/10 active:scale-95"
-                  >
-                    Got It
-                  </button>
-                </div>
-              </motion.div>
-            </div>
+            </motion.div>
           )}
-        </AnimatePresence>
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Override: Add Your Storefront Screen (Step 7 of 13)
-  // ═══════════════════════════════════════════════════════
-  if (!isGoogleOnboarding && currentQuest.id === 'storefront') {
-    return (
-      <div className="mcommall-onboarding bg-background text-on-background font-body-lg min-h-screen flex flex-col font-sans pt-4 md:pt-16">
-        <main className="flex-grow pt-4 md:pt-8 pb-32 px-margin-mobile md:px-0">
-          <div className="max-w-[640px] mx-auto">
-
-            <div className="mb-stack-lg">
-              <span className="hidden md:inline-block font-label-md text-label-md text-on-surface-variant tracking-widest uppercase mb-1">Add Your Storefront</span>
-              <h1 className="text-3xl md:text-5xl font-black text-on-surface leading-tight tracking-tight">Add Your Storefront</h1>
-              <div className="mt-stack-md p-stack-md bg-tertiary-container/10 border border-tertiary/20 rounded-xl flex items-start gap-3 glass-card">
-                <span className="material-symbols-outlined text-tertiary">info</span>
-                <div>
-                  <p className="font-title-md text-body-sm text-on-surface">Precision Assets</p>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant">Don't worry about dimensions—auto-crop and auto-resize are active to ensure your store looks premium on all devices.</p>
-                </div>
-              </div>
-            </div>
-
-            <section className="space-y-stack-lg">
-              <div>
-                <h2 className="font-title-md text-title-md mb-stack-sm">Branding &amp; Hero</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-stack-md h-auto">
-                  {/* Brand Logo Upload */}
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="md:col-span-1 aspect-square border-2 border-dashed border-[#8C7167] rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors group overflow-hidden"
-                  >
-                    {formData.logo ? (
-                      <img src={formData.logo} alt="Logo Preview" className="w-full h-full object-cover" />
-                    ) : (
-                      <>
-                        <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center border border-outline-variant shadow-sm group-hover:scale-105 transition-transform">
-                          <span className="material-symbols-outlined text-outline">add_a_photo</span>
-                        </div>
-                        <span className="font-label-md text-label-md text-outline mt-4">Brand Logo</span>
-                      </>
-                    )}
-                  </div>
-                  <input type="file" ref={fileInputRef} onChange={handleLogoChange} accept="image/*" className="hidden" />
-
-                  {/* Cover Image Upload */}
-                  <div 
-                    onClick={() => coverInputRef.current?.click()}
-                    className="md:col-span-2 aspect-[16/9] border-2 border-dashed border-[#8C7167] rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors group overflow-hidden"
-                  >
-                    {coverImage ? (
-                      <img src={coverImage} alt="Cover Preview" className="w-full h-full object-cover" />
-                    ) : (
-                      <>
-                        <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border border-outline-variant shadow-sm group-hover:scale-105 transition-transform">
-                          <span className="material-symbols-outlined text-outline">wallpaper</span>
-                        </div>
-                        <span className="font-label-md text-label-md text-outline mt-4">Cover Image (Landscape)</span>
-                      </>
-                    )}
-                  </div>
-                  <input type="file" ref={coverInputRef} onChange={handleCoverChange} accept="image/*" className="hidden" />
-                </div>
-              </div>
-
-              {/* Physical Presence Exterior Upload */}
-              <div>
-                <h2 className="font-title-md text-title-md mb-stack-sm">Physical Presence</h2>
-                <div 
-                  onClick={() => exteriorInputRef.current?.click()}
-                  className="w-full aspect-[21/9] border-2 border-dashed border-[#8C7167] rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors group overflow-hidden"
-                >
-                  {exteriorImage ? (
-                    <img src={exteriorImage} alt="Exterior Preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <>
-                      <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border border-outline-variant shadow-sm group-hover:scale-105 transition-transform">
-                        <span className="material-symbols-outlined text-outline">storefront</span>
-                      </div>
-                      <span className="font-label-md text-label-md text-outline mt-4">Storefront Exterior Image</span>
-                    </>
-                  )}
-                </div>
-                <input type="file" ref={exteriorInputRef} onChange={handleExteriorChange} accept="image/*" className="hidden" />
-              </div>
-
-              {/* Product & Service Grid */}
-              <div>
-                <div className="flex justify-between items-end mb-stack-sm">
-                  <h2 className="font-title-md text-title-md">Product &amp; Service Grid</h2>
-                  <span className="font-label-md text-label-md text-on-surface-variant">{gridImages.length}/6 selected</span>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {/* Upload card */}
-                  <div 
-                    onClick={() => handleGridUploadClick(-1)}
-                    className="aspect-square border-2 border-dashed border-[#8C7167] rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors group"
-                  >
-                    <span className="material-symbols-outlined text-outline text-display-lg">add</span>
-                    <span className="font-label-md text-label-md text-outline mt-2">Upload</span>
-                  </div>
-                  <input type="file" ref={gridInputRef} onChange={handleGridFileChange} accept="image/*" className="hidden" />
-
-                  {/* Synced preview items */}
-                  {gridImages.map((src, index) => (
-                    <div 
-                      key={index}
-                      onClick={() => handleGridUploadClick(index)}
-                      className="aspect-square rounded-xl overflow-hidden relative group cursor-pointer shadow-sm border border-outline-variant"
-                    >
-                      <img src={src} alt={`Preview ${index}`} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="material-symbols-outlined text-white">edit</span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Empty placeholders to reach 6 total slots (including the upload button) */}
-                  {Array.from({ length: Math.max(0, 5 - gridImages.length) }).map((_, i) => (
-                    <div 
-                      key={i}
-                      className="aspect-square bg-surface-container-lowest border border-outline-variant rounded-xl flex items-center justify-center opacity-40"
-                    >
-                      <span className="material-symbols-outlined text-outline">image</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-          </div>
         </main>
-
-        <div className="fixed bottom-4 left-4 right-4 p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-gray-200 shadow-2xl z-55 sm:static sm:bg-transparent sm:border-none sm:shadow-none sm:p-0 sm:mt-8">
-          <div className="max-w-2xl mx-auto flex items-center justify-between w-full">
-            <button
-              onClick={handleBack}
-              aria-label="Go back"
-              className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all outline-none text-gray-500 hover:text-gray-700 hover:bg-gray-100 active:bg-gray-200 cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Back
-            </button>
-
-            <motion.button
-              whileHover={isSubmitting ? {} : { scale: 1.03 }}
-              whileTap={isSubmitting ? {} : { scale: 0.97 }}
-              onClick={handleNext}
-              disabled={isSubmitting}
-              className="flex items-center gap-2 px-10 py-3.5 rounded-xl text-white font-bold text-base transition-all outline-none disabled:opacity-75 disabled:cursor-not-allowed cursor-pointer shadow-lg"
-              style={{
-                backgroundColor: currentQuest.color,
-                boxShadow: isSubmitting ? 'none' : `0 8px 24px -4px ${currentQuest.color}55`,
-              }}
-            >
-              Continue
-              <ChevronRight className="w-5 h-5" />
-            </motion.button>
-          </div>
-        </div>
       </div>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // High Street Activation Learn More Modal
+  // ═══════════════════════════════════════════════════════
   // ═══════════════════════════════════════════════════════
   // Main Onboarding Flow
   // ═══════════════════════════════════════════════════════
@@ -5352,112 +5610,28 @@ function BusinessOnboardingInner() {
       />
 
       <div className="relative z-10 max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-32 sm:pb-20">
-        {/* ─── Sleek Segmented Progress Hairline for Mobile ─── */}
-        <div className="block sm:hidden space-y-2 mb-4">
-          <div className="flex gap-1 w-full">
-            {activeQuests.map((quest, i) => {
-              const isCompleted = completedSteps.has(i) || i < currentStep;
-              const isCurrent = i === currentStep;
-              return (
-                <div
-                  key={quest.id}
-                  className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                    isCompleted
-                      ? 'bg-[#ea580c]'
-                      : isCurrent
-                        ? 'bg-[#ea580c] animate-pulse'
-                        : 'bg-gray-200'
-                  }`}
-                  style={{
-                    backgroundColor: isCompleted ? quest.color : isCurrent ? quest.color : '#e5e7eb'
-                  }}
-                />
-              );
-            })}
-          </div>
-          <div className="flex justify-between items-center text-[11px] font-bold text-[#5a4136]">
-            <span>{currentQuest.title}</span>
-            <span className="text-[#a23f00] font-extrabold">{currentStep + 1} / {activeQuests.length}</span>
-          </div>
-        </div>
-
-        {/* ─── Quest Map — connected icon nodes (Desktop Only) ────────── */}
-        <div className="hidden sm:flex items-center mb-2 sm:mb-6 px-1">
-          {activeQuests.map((quest, i) => {
-            const NodeIcon = quest.Icon;
-
-            return (
-              <React.Fragment key={quest.id}>
-                {/* Node */}
-                <div className="relative flex flex-col items-center shrink-0">
-                  <motion.button
-                    aria-label={`${quest.title}${completedSteps.has(i) ? ' (completed)' : i === currentStep ? ' (current)' : ' (locked)'}`}
-                    onClick={() => {
-                      if (completedSteps.has(i) || i <= currentStep) setCurrentStep(i);
-                    }}
-                    className="w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center border-2 transition-colors relative outline-none"
-                    style={{
-                      backgroundColor: completedSteps.has(i)
-                        ? quest.color
-                        : i === currentStep
-                          ? quest.colorLight
-                          : '#f3f4f6',
-                      borderColor: completedSteps.has(i)
-                        ? quest.color
-                        : i === currentStep
-                          ? quest.color
-                          : '#e5e7eb',
-                      color: completedSteps.has(i)
-                        ? '#fff'
-                        : i === currentStep
-                          ? quest.color
-                          : '#9ca3af',
-                      cursor: completedSteps.has(i) || i <= currentStep ? 'pointer' : 'default',
-                    }}
-                    whileHover={completedSteps.has(i) || i <= currentStep ? { scale: 1.15 } : {}}
-                    whileTap={completedSteps.has(i) || i <= currentStep ? { scale: 0.92 } : {}}
-                  >
-                    {completedSteps.has(i) ? (
-                      <Check className="w-4 h-4 sm:w-5 sm:h-5" strokeWidth={3} />
-                    ) : (
-                      <NodeIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                    )}
-
-                    {/* Pulse ring on active node */}
-                    {i === currentStep && !completedSteps.has(i) && (
-                      <motion.div
-                        className="absolute inset-0 rounded-full border-2 pointer-events-none"
-                        style={{ borderColor: quest.color }}
-                        animate={{ scale: [1, 1.35, 1], opacity: [0.5, 0, 0.5] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                      />
-                    )}
-                  </motion.button>
-
-                  {/* Label under node */}
-                  <span className="absolute -bottom-5 text-[9px] sm:text-[10px] font-semibold text-gray-400 whitespace-nowrap hidden sm:block select-none">
-                    {quest.label}
-                  </span>
-                </div>
-
-                {/* Connector line */}
-                {i < activeQuests.length - 1 && (
-                  <div className="flex-1 h-[3px] mx-1 sm:mx-2 bg-gray-200 rounded-full relative overflow-hidden">
-                    {completedSteps.has(i) && (
-                      <motion.div
-                        className="absolute inset-0 rounded-full"
-                        style={{ backgroundColor: quest.color, transformOrigin: 'left' }}
-                        initial={{ scaleX: 0 }}
-                        animate={{ scaleX: 1 }}
-                        transition={{ duration: 0.4, delay: i * 0.08 }}
-                      />
-                    )}
-                  </div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
+        {/* ─── Restore Toast ─── */}
+        <AnimatePresence>
+          {restoreToast && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-orange-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-sm font-semibold"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Restored your saved progress
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {/* ─── Wizard Progress Bar ─── */}
+        {!isGoogleOnboarding && (
+          <WizardProgressBar
+            steps={WIZARD_STEPS}
+            currentStep={currentStep}
+            completedSteps={completedSteps}
+          />
+        )}
 
         {/* ─── Step Card ───────────────────────────────── */}
         <div className="relative">
@@ -5905,9 +6079,12 @@ function BusinessOnboardingInner() {
                     {formData.address && !showSuggestions && (
                       <div className="p-4 bg-orange-50/40 border border-orange-100/55 rounded-xl flex items-start gap-3">
                         <Check className="w-5 h-5 text-orange-600 shrink-0 mt-0.5" />
-                        <div className="text-left">
+                        <div className="text-left flex-1">
                           <div className="text-xs font-semibold text-orange-800">Verified Address:</div>
                           <div className="text-sm text-orange-950 font-medium">{formData.address}</div>
+                          {formData.postcode && (
+                            <div className="text-xs text-orange-700 font-bold mt-1 tracking-wide">Postcode: {formData.postcode}</div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -5924,7 +6101,187 @@ function BusinessOnboardingInner() {
                   </div>
                 )}
 
-                {/* ─── Step 3: Personal Details ─────── */}
+                {/* ─── Step 3: Borough Detected ─────── */}
+                {!isGoogleOnboarding && currentQuest.id === 'borough_detected' && (
+                  <div className="space-y-6">
+                    {isCheckingProximity || !proximityResult ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-4">
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                          className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full"
+                        />
+                        <p className="text-sm font-bold text-gray-500 animate-pulse">Verifying your business location...</p>
+                        <p className="text-xs text-gray-400">Checking local merchant network in your area</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="bg-purple-50/60 border border-purple-100 rounded-xl p-4">
+                          <p className="text-sm text-purple-900 font-medium leading-relaxed">
+                            We've matched your postcode to a local business district. Review the details below and confirm your borough to continue.
+                          </p>
+                        </div>
+
+                        {/* Borough card */}
+                        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+                          <div className="h-36 bg-gradient-to-br from-purple-500 to-indigo-600 flex items-end p-4">
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-5 h-5 text-white" />
+                              <span className="text-white font-bold text-lg">{selectedBorough}</span>
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-gray-700">Local Mall</span>
+                              <span className="text-sm text-gray-900 font-bold">{proximityResult?.localMallName || BOROUGH_DATA[selectedBorough]?.mallName || `${selectedBorough} Mall`}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-gray-700">Nearby Businesses</span>
+                              <span className="text-sm text-orange-600 font-bold">{proximityResult?.businessCount ?? '—'}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-gray-700">Active Shoppers</span>
+                              <span className="text-sm text-gray-900 font-bold">{proximityResult?.consumerCount ? (proximityResult.consumerCount >= 1000 ? `${(proximityResult.consumerCount / 1000).toFixed(1)}k` : String(proximityResult.consumerCount)) : '—'}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-gray-700">Postcode</span>
+                              <span className="text-sm text-gray-900 font-bold">{formData.postcode}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          <p className="text-xs text-gray-400 text-center">
+                            Not your area? <button onClick={() => setShowBoroughBrowser(true)} className="text-purple-600 font-bold hover:underline cursor-pointer">Browse other boroughs</button>
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* ─── Step 4: High Street Activation ─────── */}
+                {!isGoogleOnboarding && currentQuest.id === 'high_street_activation' && (
+                  <div className="space-y-6">
+                    <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
+                      <p className="text-sm text-orange-900 font-medium leading-relaxed">
+                        Your business is joining <strong>{selectedBorough}</strong>'s digital ecosystem. Here's what's available in your area.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
+                        <div className="flex items-center gap-3">
+                          <Store className="w-5 h-5 text-green-600" />
+                          <span className="text-sm font-bold text-gray-800">High Street Status</span>
+                        </div>
+                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">ACTIVE</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
+                        <div className="flex items-center gap-3">
+                          <Globe className="w-5 h-5 text-green-600" />
+                          <span className="text-sm font-bold text-gray-800">Virtual Hub</span>
+                        </div>
+                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">LIVE</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50/30 opacity-70">
+                        <div className="flex items-center gap-3">
+                          <Building2 className="w-5 h-5 text-gray-400" />
+                          <span className="text-sm font-bold text-gray-500">Physical Hub</span>
+                        </div>
+                        <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-bold">COMING SOON</span>
+                      </div>
+                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
+                        <div className="flex items-center gap-3">
+                          <Users className="w-5 h-5 text-green-600" />
+                          <span className="text-sm font-bold text-gray-800">Community Group</span>
+                        </div>
+                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">ACTIVE</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-4">
+                      <p className="text-xs text-amber-800 font-medium">
+                        <strong>{proximityResult?.businessCount ?? '—'}</strong> active merchants in <strong>{selectedBorough}</strong>. Your store will be listed in the local directory.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setShowLearnMoreModal(true)}
+                      className="text-sm text-orange-600 font-bold hover:underline cursor-pointer bg-transparent border-none mx-auto block"
+                    >
+                      Learn more about High Street Activation
+                    </button>
+                  </div>
+                )}
+
+                {/* ─── Step 5: Storefront Setup ─────── */}
+                {!isGoogleOnboarding && currentQuest.id === 'storefront' && (
+                  <div className="space-y-6">
+                    <div className="bg-cyan-50/60 border border-cyan-100 rounded-xl p-4">
+                      <p className="text-sm text-cyan-900 font-medium leading-relaxed">
+                        Add photos and a description to make your storefront stand out. Don't worry about dimensions — auto-crop is active.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Name</label>
+                      <Input
+                        type="text"
+                        value={formData.businessName}
+                        onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+                        className="h-12 rounded-xl border-gray-200 bg-white text-base placeholder:text-gray-300"
+                        placeholder="Your business name"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description</label>
+                      <textarea
+                        value={formData.shortDescription}
+                        onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
+                        rows={3}
+                        className="w-full rounded-xl border border-gray-200 bg-white text-base placeholder:text-gray-300 p-3 focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-0 outline-none resize-none"
+                        placeholder="Tell customers what your business is about..."
+                      />
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-bold text-gray-800 tracking-tight mb-2">Brand Logo</p>
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-24 h-24 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors overflow-hidden"
+                      >
+                        {formData.logo ? (
+                          <img src={formData.logo} alt="Logo" className="w-full h-full object-cover" />
+                        ) : (
+                          <Image className="w-6 h-6 text-gray-400" />
+                        )}
+                      </div>
+                      <input type="file" ref={fileInputRef} onChange={handleLogoChange} accept="image/*" className="hidden" />
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-bold text-gray-800 tracking-tight mb-2">Cover Image</p>
+                      <div
+                        onClick={() => coverInputRef.current?.click()}
+                        className="w-full aspect-[16/6] border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors overflow-hidden"
+                      >
+                        {coverImage ? (
+                          <img src={coverImage} alt="Cover" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="flex flex-col items-center gap-1">
+                            <Image className="w-6 h-6 text-gray-400" />
+                            <span className="text-xs text-gray-400 font-medium">Upload cover image</span>
+                          </div>
+                        )}
+                      </div>
+                      <input type="file" ref={coverInputRef} onChange={handleCoverChange} accept="image/*" className="hidden" />
+                    </div>
+                  </div>
+                )}
+
+                {/* ─── Step 6: Personal Details ─────── */}
                 {currentQuest.id === 'details' && (
                   <div className="space-y-6">
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
@@ -6041,6 +6398,17 @@ function BusinessOnboardingInner() {
                           </span>
                         </label>
                       </div>
+
+                    {submitError && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3"
+                      >
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-700 font-medium">{submitError}</p>
+                      </motion.div>
+                    )}
                   </div>
                 )}
 
@@ -6277,51 +6645,71 @@ function BusinessOnboardingInner() {
                         Choose the categories that best describe your business. This powers your dashboard insights, partnership recommendations, and how customers find you.
                       </p>
                     </div>
+
+                    {sectorsError && (
+                      <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-700 font-medium">Failed to load categories. Using offline data.</p>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Sector</label>
                       <p className="text-xs text-gray-500 -mt-1">Choose the broad industry your business belongs to</p>
-                      <select
-                        value={formData.sectorId}
-                        onChange={(e) => setFormData({ ...formData, sectorId: e.target.value, categoryId: '', subCategoryId: '' })}
-                        className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
-                      >
-                        <option value="">Select a Sector</option>
-                        {(Array.isArray(sectors) ? sectors : []).map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
+                      {sectorsLoading ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.sectorId}
+                          onChange={(e) => setFormData({ ...formData, sectorId: e.target.value, categoryId: '', subCategoryId: '' })}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        >
+                          <option value="">Select a Sector</option>
+                          {sectors?.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
 
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Primary Category</label>
                       <p className="text-xs text-gray-500 -mt-1">Narrow down to the specific group within your sector</p>
-                      <select
-                        value={formData.categoryId}
-                        onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subCategoryId: '' })}
-                        disabled={!formData.sectorId}
-                        className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">Select a Category</option>
-                        {(Array.isArray(categories) ? categories : []).map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                      {categoriesLoading ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.categoryId}
+                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subCategoryId: '' })}
+                          disabled={!formData.sectorId}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select a Category</option>
+                          {categories?.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
 
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Type</label>
                       <p className="text-xs text-gray-500 -mt-1">Pick the exact type that matches your operations (optional)</p>
-                      <select
-                        value={formData.subCategoryId}
-                        onChange={(e) => setFormData({ ...formData, subCategoryId: e.target.value })}
-                        disabled={!formData.categoryId}
-                        className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">Select a Business Type</option>
-                        {(Array.isArray(subcategories) ? subcategories : []).map(sc => (
-                          <option key={sc.id} value={sc.id}>{sc.name}</option>
-                        ))}
-                      </select>
+                      {subcategoriesLoading ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.subCategoryId}
+                          onChange={(e) => setFormData({ ...formData, subCategoryId: e.target.value })}
+                          disabled={!formData.categoryId}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select a Business Type</option>
+                          {subcategories?.map(sc => (
+                            <option key={sc.id} value={sc.id}>{sc.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   </div>
                 )}
@@ -6644,6 +7032,16 @@ function BusinessOnboardingInner() {
 
         {/* ─── Navigation ──────────────────────────────── */}
         <div className="fixed bottom-4 left-4 right-4 p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-gray-200 shadow-2xl z-55 sm:static sm:bg-transparent sm:border-none sm:shadow-none sm:p-0 sm:mt-8">
+          {submitError && !isGoogleOnboarding && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-3 max-w-2xl mx-auto"
+            >
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700 font-medium">{submitError}</p>
+            </motion.div>
+          )}
           <div className="max-w-2xl mx-auto flex items-center justify-between w-full">
             <button
               onClick={isGoogleOnboarding ? handleGoogleBack : handleBack}
@@ -6653,6 +7051,23 @@ function BusinessOnboardingInner() {
               <ChevronLeft className="w-4 h-4" />
               Back
             </button>
+
+            {/* Skip button for optional steps */}
+            {!isGoogleOnboarding && ['hours', 'booking_prefs', 'appointment_struct', 'service_zones', 'fulfillment'].includes(currentQuest.id) && (
+              <button
+                onClick={() => {
+                  const next = new Set(completedSteps);
+                  next.add(currentStep);
+                  setCompletedSteps(next);
+                  setParticleTrigger((p) => p + 1);
+                  setTimeout(() => setCurrentStep((c) => c + 1), 300);
+                }}
+                className="flex items-center gap-1 text-sm font-semibold px-4 py-2.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all"
+              >
+                Skip
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
 
             <motion.button
               whileHover={isSubmitting ? {} : { scale: 1.03 }}
@@ -6814,7 +7229,30 @@ function BusinessOnboardingInner() {
         )}
       </AnimatePresence>
 
-      {/* Platform Payment Modal */}
+      <ImageCropModal
+        open={cropModalOpen}
+        imageSrc={cropModalSrc}
+        aspect={cropModalAspect}
+        title={cropModalTitle}
+        onCancel={() => setCropModalOpen(false)}
+        onApply={(dataUrl) => {
+          if (cropModalTarget === 'logo') {
+            setFormData((prev: any) => ({ ...prev, logo: dataUrl }));
+          } else {
+            setCoverImage(dataUrl);
+          }
+          setCropModalOpen(false);
+        }}
+        onSkip={() => {
+          if (cropModalTarget === 'logo') {
+            setFormData((prev: any) => ({ ...prev, logo: cropModalSrc }));
+          } else {
+            setCoverImage(cropModalSrc);
+          }
+          setCropModalOpen(false);
+        }}
+      />
+      <HighStreetActivationModal open={showLearnMoreModal} onClose={() => setShowLearnMoreModal(false)} />
       <PlatformPaymentModal
         isOpen={showPlatformPaymentModal}
         onClose={() => {
@@ -6843,7 +7281,6 @@ function BusinessOnboardingInner() {
           }
         }}
       />
-
     </div>
   );
 }

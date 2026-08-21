@@ -71,4 +71,24 @@ export const businessApi = {
     const res = await apiClient.delete(`/business/${id}`);
     return res.data;
   },
+
+  register: async (data: any) => {
+    const res = await apiClient.post('/auth/register', data);
+    return res.data;
+  },
+
+  login: async (data: any) => {
+    const res = await apiClient.post('/auth/login', data);
+    return res.data;
+  },
+
+  sendOtp: async (email: string) => {
+    const res = await apiClient.post('/auth/send-otp', { email });
+    return res.data;
+  },
+
+  verifyOtp: async (email: string, code: string) => {
+    const res = await apiClient.post('/auth/verify-otp', { email, code });
+    return res.data;
+  },
 };

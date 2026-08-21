@@ -114,6 +114,14 @@ export interface RegisterData {
   phone?: string;
   firstName?: string;
   lastName?: string;
+  isOnGoogle?: boolean;
+  address?: string;
+  industry?: string;
+  category?: string;
+  description?: string;
+  website?: string;
+  openingHours?: string;
+  socialMedia?: string;
 }
 
 export interface ResetPasswordData {
