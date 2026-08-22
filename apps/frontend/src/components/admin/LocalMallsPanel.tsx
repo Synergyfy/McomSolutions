@@ -502,6 +502,11 @@ export default function LocalMallsPanel() {
   const [detailTab, setDetailTab] = useState<'overview' | 'businesses' | 'customers' | 'campaigns' | 'events' | 'rewards' | 'spin' | 'team' | 'analytics'>('overview');
   const [formData, setFormData] = useState<Partial<LocalMallData>>({});
   const [selectedLocalMalls, setSelectedLocalMalls] = useState<string[]>([]);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedManagerForAssign, setSelectedManagerForAssign] = useState('');
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeName, setMergeName] = useState('');
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const selectedMall = localMalls.find(m => m.id === selectedId) || null;
 
@@ -602,6 +607,83 @@ export default function LocalMallsPanel() {
     setView('detail');
   };
 
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleAssignManagerClick = () => {
+    if (selectedLocalMalls.length === 0) {
+      showToast('Select at least one LocalMall to assign a manager', 'error');
+      return;
+    }
+    setSelectedManagerForAssign('');
+    setAssignModalOpen(true);
+  };
+
+  const handleConfirmAssignManager = () => {
+    if (!selectedManagerForAssign) {
+      showToast('Select a manager to assign', 'error');
+      return;
+    }
+    const manager = MOCK_AFFILIATE_USERS.find(u => u.id === selectedManagerForAssign);
+    if (!manager) return;
+    setLocalMalls(prev => prev.map(m => {
+      if (!selectedLocalMalls.includes(m.id)) return m;
+      const alreadyHas = m.assignedAccountManagerIds.includes(manager.id);
+      if (alreadyHas) return m;
+      return {
+        ...m,
+        assignedAccountManagers: [...m.assignedAccountManagers, manager.name],
+        assignedAccountManagerIds: [...m.assignedAccountManagerIds, manager.id],
+      };
+    }));
+    showToast(`Assigned ${manager.name} to ${selectedLocalMalls.length} mall(s)`, 'success');
+    setAssignModalOpen(false);
+    setSelectedLocalMalls([]);
+  };
+
+  const handleMergeClick = () => {
+    if (selectedLocalMalls.length < 2) {
+      showToast('Select at least 2 LocalMalls to merge', 'error');
+      return;
+    }
+    const selectedNames = localMalls.filter(m => selectedLocalMalls.includes(m.id)).map(m => m.name).join(' + ');
+    setMergeName(`Merged: ${selectedNames}`);
+    setMergeModalOpen(true);
+  };
+
+  const handleConfirmMerge = () => {
+    if (!mergeName.trim()) {
+      showToast('Enter a name for the merged LocalMall', 'error');
+      return;
+    }
+    const mallsToMerge = localMalls.filter(m => selectedLocalMalls.includes(m.id));
+    if (mallsToMerge.length < 2) return;
+    const merged: LocalMallData = {
+      ...mallsToMerge[0],
+      id: String(Date.now()),
+      name: mergeName.trim(),
+      slug: mergeName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+      postcodes: [...new Set(mallsToMerge.flatMap(m => m.postcodes))],
+      additionalHighStreets: [...new Set(mallsToMerge.flatMap(m => m.additionalHighStreets))],
+      businesses: mallsToMerge.reduce((a, m) => a + m.businesses, 0),
+      customers: mallsToMerge.reduce((a, m) => a + m.customers, 0),
+      campaigns: mallsToMerge.reduce((a, m) => a + m.campaigns, 0),
+      events: mallsToMerge.reduce((a, m) => a + m.events, 0),
+      status: 'Active' as const,
+      createdDate: new Date().toISOString().split('T')[0],
+      assignedAccountManagers: [...new Set(mallsToMerge.flatMap(m => m.assignedAccountManagers))],
+      assignedAccountManagerIds: [...new Set(mallsToMerge.flatMap(m => m.assignedAccountManagerIds))],
+      assignedAgents: [...new Set(mallsToMerge.flatMap(m => m.assignedAgents))],
+      assignedAgentIds: [...new Set(mallsToMerge.flatMap(m => m.assignedAgentIds))],
+    };
+    setLocalMalls(prev => [...prev.filter(m => !selectedLocalMalls.includes(m.id)), merged]);
+    showToast(`Merged ${mallsToMerge.length} malls into "${merged.name}"`, 'success');
+    setMergeModalOpen(false);
+    setSelectedLocalMalls([]);
+  };
+
   // ─── RENDER: LIST VIEW ─────────────────────────────────────────────────
 
   if (view === 'list') {
@@ -620,11 +702,29 @@ export default function LocalMallsPanel() {
             <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
               <Download className="w-4 h-4" /> Export
             </button>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
-              <UserPlus className="w-4 h-4" /> Assign Manager
+            <button
+              onClick={handleAssignManagerClick}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm border transition-colors",
+                selectedLocalMalls.length === 0
+                  ? "bg-white border-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              )}
+              title={selectedLocalMalls.length === 0 ? "Select malls first" : `Assign to ${selectedLocalMalls.length} selected`}
+            >
+              <UserPlus className="w-4 h-4" /> Assign Manager {selectedLocalMalls.length > 0 && `(${selectedLocalMalls.length})`}
             </button>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
-              <GitMerge className="w-4 h-4" /> Merge
+            <button
+              onClick={handleMergeClick}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm border transition-colors",
+                selectedLocalMalls.length < 2
+                  ? "bg-white border-gray-200 text-gray-400 cursor-not-allowed opacity-60"
+                  : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+              )}
+              title={selectedLocalMalls.length < 2 ? "Select at least 2 malls" : `Merge ${selectedLocalMalls.length} selected`}
+            >
+              <GitMerge className="w-4 h-4" /> Merge {selectedLocalMalls.length > 1 && `(${selectedLocalMalls.length})`}
             </button>
             <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
               <Archive className="w-4 h-4" /> Archive
@@ -753,6 +853,85 @@ export default function LocalMallsPanel() {
             </div>
           </div>
         </div>
+
+        {/* Toast */}
+        {toast && (
+          <div className={cn("fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl shadow-lg text-xs font-bold z-50 flex items-center gap-2", toast.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white")}>
+            {toast.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            {toast.msg}
+          </div>
+        )}
+
+        {/* Assign Manager Modal */}
+        {assignModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setAssignModalOpen(false)} />
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Assign Manager</h3>
+                  <p className="text-xs text-gray-500 mt-1">Assign an account manager to {selectedLocalMalls.length} selected mall(s)</p>
+                </div>
+                <button onClick={() => setAssignModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"><X className="w-4 h-4 text-gray-400" /></button>
+              </div>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 rounded-xl">
+                  {localMalls.filter(m => selectedLocalMalls.includes(m.id)).map(m => (
+                    <span key={m.id} className="text-[10px] font-bold bg-white border border-gray-200 px-2 py-1 rounded-full">{m.name}</span>
+                  ))}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1.5">Select Manager</label>
+                  <select value={selectedManagerForAssign} onChange={e => setSelectedManagerForAssign(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue">
+                    <option value="">Choose an account manager...</option>
+                    {getAffiliatesByRole('account_manager').map(u => (
+                      <option key={u.id} value={u.id}>{u.name} — {u.email}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 mt-6">
+                <button onClick={() => setAssignModalOpen(false)} className="px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold">Cancel</button>
+                <button onClick={handleConfirmAssignManager} className="px-4 py-2.5 bg-brand-blue text-white rounded-xl hover:bg-brand-dark transition-colors text-xs font-bold shadow-sm">Assign</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Merge Modal */}
+        {mergeModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setMergeModalOpen(false)} />
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Merge LocalMalls</h3>
+                  <p className="text-xs text-gray-500 mt-1">Combine {selectedLocalMalls.length} malls into one. Businesses, customers and campaigns will be summed.</p>
+                </div>
+                <button onClick={() => setMergeModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"><X className="w-4 h-4 text-gray-400" /></button>
+              </div>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5 p-2 bg-amber-50 border border-amber-100 rounded-xl">
+                  {localMalls.filter(m => selectedLocalMalls.includes(m.id)).map(m => (
+                    <span key={m.id} className="text-[10px] font-bold bg-white border border-amber-200 text-amber-700 px-2 py-1 rounded-full">{m.name}</span>
+                  ))}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1.5">Merged LocalMall Name</label>
+                  <input type="text" value={mergeName} onChange={e => setMergeName(e.target.value)} placeholder="Merged LocalMall name" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-xs font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue" />
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Preview</p>
+                  <p className="text-xs text-gray-700">This will create a new LocalMall and remove the {selectedLocalMalls.length} selected ones. This cannot be undone.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 mt-6">
+                <button onClick={() => setMergeModalOpen(false)} className="px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold">Cancel</button>
+                <button onClick={handleConfirmMerge} className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition-colors text-xs font-bold shadow-sm"><GitMerge className="w-4 h-4" /> Merge</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

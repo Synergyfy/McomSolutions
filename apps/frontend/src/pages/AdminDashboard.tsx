@@ -92,11 +92,6 @@ export default function AdminDashboard() {
       case 'dashboard':
         return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
       case 'users':
-      case 'businesses':
-      case 'customers':
-      case 'agents':
-      case 'consultants':
-      case 'account-managers':
         return <UserManagementPanel />;
       case 'memberships':
       case 'packages':

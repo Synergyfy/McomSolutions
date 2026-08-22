@@ -4,26 +4,23 @@ import {
   Search, 
   Filter, 
   MoreVertical, 
-  MapPin, 
   Users, 
-  Building2, 
   Activity,
-  Globe,
   QrCode,
   CheckCircle2,
   Clock,
-  AlertCircle,
   BarChart3,
   Rocket,
   Store,
   Map as MapIcon,
   Rss,
-  ShoppingCart
+  ShoppingCart,
+  Loader2
 } from 'lucide-react';
 import HighStreetActivationWizard from './HighStreetActivationWizard';
+import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
 import { useAdminHighStreets } from '../../services/admin/hooks';
-import { Loader2 } from 'lucide-react';
 import type { HighStreet } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
@@ -34,9 +31,7 @@ export default function HighStreetsPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Pending' | 'Inactive'>('All');
   const [boroughFilter, setBoroughFilter] = useState('All Boroughs');
-  const [districtLayer, setDistrictLayer] = useState<'physical' | 'virtual'>('physical');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
-  const [hoveredZone, setHoveredZone] = useState<string | null>(null);
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -81,135 +76,19 @@ export default function HighStreetsPanel() {
 
       {/* Main Content Area */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Interactive Map Mockup Section */}
+        {/* Google Map Section */}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-gray-50 flex items-center justify-between">
             <div>
               <h3 className="font-bold text-gray-950 text-base">High Street Activity Map</h3>
               <div className="flex items-center gap-2 mt-1">
                 <span className="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-[9px] font-bold text-orange-600 ring-1 ring-inset ring-orange-200">Live View</span>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">District Overlay Active</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">Google Maps</span>
               </div>
-            </div>
-            <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200 shadow-inner">
-              <button
-                onClick={() => setDistrictLayer('physical')}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all",
-                  districtLayer === 'physical' 
-                    ? "bg-white text-orange-600 shadow-sm" 
-                    : "text-gray-500 hover:text-gray-700"
-                )}
-              >
-                <Building2 className="h-3.5 w-3.5" />
-                Physical
-              </button>
-              <button
-                onClick={() => setDistrictLayer('virtual')}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all",
-                  districtLayer === 'virtual' 
-                    ? "bg-white text-brand-blue shadow-sm" 
-                    : "text-gray-500 hover:text-gray-700"
-                )}
-              >
-                <Globe className="h-3.5 w-3.5" />
-                Virtual
-              </button>
             </div>
           </div>
-          <div className="p-6">
-            {/* Custom SVG Map Visualization */}
-            <div className="relative aspect-video rounded-2xl overflow-hidden border border-gray-150 bg-[#F3F4F6] flex items-center justify-center group shadow-inner">
-              <svg viewBox="0 0 800 450" className="w-full h-full text-gray-300">
-                {/* Background Grid Pattern */}
-                <defs>
-                  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E5E7EB" strokeWidth="1" />
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#grid)" />
-
-                {/* Stylized London Thames River */}
-                <path 
-                  d="M -50 300 Q 150 330 250 250 T 550 230 T 850 280" 
-                  fill="none" 
-                  stroke="#DBEAFE" 
-                  strokeWidth="32" 
-                  strokeLinecap="round" 
-                  className="opacity-75"
-                />
-                <path 
-                  d="M -50 300 Q 150 330 250 250 T 550 230 T 850 280" 
-                  fill="none" 
-                  stroke="#93C5FD" 
-                  strokeWidth="8" 
-                  strokeLinecap="round"
-                  className="opacity-50"
-                />
-
-                {/* District Zones Polygons (Interactive) */}
-                <polygon 
-                  points="180,80 320,60 350,160 190,180" 
-                  fill={districtLayer === 'physical' ? "rgba(249, 115, 22, 0.08)" : "rgba(59, 130, 246, 0.05)"}
-                  stroke={districtLayer === 'physical' ? "#F97316" : "#3B82F6"}
-                  strokeWidth="2" 
-                  strokeDasharray="4,4"
-                  className="cursor-pointer transition-all hover:fill-orange-500/20"
-                  onMouseEnter={() => setHoveredZone('Oxford Street Core - Active Hub')}
-                  onMouseLeave={() => setHoveredZone(null)}
-                />
-                <polygon 
-                  points="450,150 620,130 650,220 480,240" 
-                  fill={districtLayer === 'physical' ? "rgba(249, 115, 22, 0.05)" : "rgba(59, 130, 246, 0.08)"}
-                  stroke={districtLayer === 'physical' ? "#F97316" : "#3B82F6"}
-                  strokeWidth="2" 
-                  strokeDasharray="4,4"
-                  className="cursor-pointer transition-all hover:fill-blue-500/20"
-                  onMouseEnter={() => setHoveredZone('East London Virtual Hub')}
-                  onMouseLeave={() => setHoveredZone(null)}
-                />
-
-                {/* Live Hotspot Rings (Pulse effect mocked in SVG via CSS classes) */}
-                <circle cx="260" cy="120" r="15" className="fill-orange-400/30 animate-pulse" />
-                <circle cx="260" cy="120" r="5" className="fill-orange-600" />
-
-                <circle cx="530" cy="180" r="22" className="fill-brand-blue/20 animate-pulse" />
-                <circle cx="530" cy="180" r="6" className="fill-brand-blue" />
-
-                <circle cx="380" cy="270" r="12" className="fill-emerald-400/30 animate-pulse" />
-                <circle cx="380" cy="270" r="4" className="fill-emerald-500" />
-                
-                {/* Labels */}
-                <text x="210" y="50" className="text-[10px] font-bold fill-gray-500 uppercase tracking-widest">Oxford District</text>
-                <text x="510" y="110" className="text-[10px] font-bold fill-gray-500 uppercase tracking-widest">East Hub Zone</text>
-              </svg>
-
-              {/* Map Legend Overlay */}
-              <div className="absolute bottom-4 left-4 flex flex-col gap-2 z-10">
-                <div className="bg-white/95 backdrop-blur-sm p-3.5 rounded-2xl border border-gray-100 shadow-xl space-y-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm" />
-                    <span className="text-[10px] font-bold text-gray-700">High Traffic Hub</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-brand-blue shadow-sm" />
-                    <span className="text-[10px] font-bold text-gray-700">Activation Zone</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm" />
-                    <span className="text-[10px] font-bold text-gray-700">Participating Biz</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Hovered Zone Details Box */}
-              {hoveredZone && (
-                <div className="absolute top-4 right-4 bg-gray-900/90 backdrop-blur-sm px-4 py-2.5 rounded-xl border border-gray-800 shadow-xl text-white text-xs font-semibold">
-                  {hoveredZone}
-                </div>
-              )}
-            </div>
+          <div className="flex-1 min-h-[400px]">
+            <AdminHighStreetMap highStreets={filteredHighStreets} />
           </div>
         </div>
 
