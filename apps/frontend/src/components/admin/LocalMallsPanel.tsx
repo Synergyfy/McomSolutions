@@ -1,4 +1,4 @@
-import { useState, ReactNode } from 'react';
+import { useState, ReactNode, useEffect } from 'react';
 import {
   Plus, Search, Filter, MoreVertical, MapPin, Users, Building2, Activity,
   BarChart3, ShoppingBag, Clock, CheckCircle2, AlertCircle, X, Save, Eye,
@@ -8,7 +8,7 @@ import {
   Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminLocalMalls } from '../../services/admin/hooks';
+import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
@@ -104,205 +104,8 @@ interface LocalMallData {
   enableFeaturedPlacement: boolean;
 }
 
-const initialLocalMalls: LocalMallData[] = [
-  {
-    id: '1', name: 'Peckham LocalMall', postcodes: ['SE15', 'SE5', 'SE22'],
-    borough: 'Southwark', primaryHighStreet: 'Rye Lane', additionalHighStreets: ['Peckham Road', 'Bellenden Road'],
-    businesses: 245, customers: 12800, campaigns: 8, events: 12, status: 'Active',
-    createdDate: '2024-09-15', description: 'Supporting local businesses in Peckham',
-    longDescription: 'Peckham LocalMall is the digital town centre for the Peckham area, connecting residents with local businesses, events, and rewards.',
-    slug: 'peckham-localmall', logo: '', coverBanner: '', mobileBanner: '',
-    primaryColour: '#2563EB', secondaryColour: '#F59E0B',
-    welcomeMessage: 'Welcome to Peckham LocalMall', tagline: 'Supporting Local Businesses Together',
-    radiusCoverage: '2.5 miles', allowBusinessesOutsidePostcode: false, allowVirtualBusinesses: true,
-    allowHomeBusinesses: true, requireVerification: true, requireAuditCompletion: false,
-    requireMembershipApproval: true, leadConsultant: 'John Doe', leadConsultantId: 'con-1',
-    assignedAccountManagers: ['Sarah Johnson', 'James Wilson'], assignedAccountManagerIds: ['am-1', 'am-2'],
-    assignedAgents: ['Michael Brown', 'Paul Taylor'], assignedAgentIds: ['agent-1', 'agent-2'],
-    supportTeam: ['Emma', 'David'],
-    enableAudit: true, enableRewards: true, enableLoyalty: true, enableQLinks: true,
-    enableSpin: true, enableEvents: true, enableCampaigns: true, enablePushNotifications: true,
-    enableMarketplace: false, allowGuestBrowsing: true, requireRegistrationForRewards: true,
-    requireRegistrationForSpin: true, enableAutoLocationDetection: true,
-    allowManualLocalMallSwitching: true, autoApproveBusinesses: false,
-    manualApprovalRequired: true, requireDocumentVerification: true,
-    requireGoogleBusinessMatch: false, requireAuditCompletionForBusiness: true,
-    defaultMembershipPackage: 'Standard',
-    featuredBusinesses: ['The Coffee Shop', 'Peckham Pharmacy', 'Rye Lane Butcher'],
-    featuredCategories: ['Food & Drink', 'Retail', 'Health'],
-    featuredCampaigns: ['Summer Sale 2025', 'Local Heroes'],
-    featuredEvents: ['Peckham Food Festival', 'Summer Market'],
-    featuredRewards: ['Welcome Bonus', 'Referral Reward'],
-    featuredSpinCampaigns: ['Spin & Win Summer'],
-    featuredHighStreets: ['Rye Lane', 'Bellenden Road'],
-    categoryPriorities: [
-      { name: 'Food & Drink', action: 'show-first' },
-      { name: 'Retail', action: 'show-first' },
-      { name: 'Beauty', action: 'highlight' },
-      { name: 'Health', action: 'highlight' },
-      { name: 'Professional Services', action: 'show-first' },
-      { name: 'Trades', action: 'hide' },
-      { name: 'Entertainment', action: 'highlight' },
-    ],
-    allowBoroughCampaigns: true, allowHighStreetCampaigns: true, allowJointCampaigns: false,
-    allowSeasonalCampaigns: true, campaignApprovalRequired: true,
-    enableEventsModule: true, requireEventApproval: true, maxEventsPerBusiness: 5,
-    allowCommunityEvents: true, allowBusinessEvents: true,
-    enableRewardsModule: true, enableLoyaltyModule: true, enableBonusCampaigns: false,
-    enableDoublePointDays: true, enableSeasonalRewards: true,
-    enableSpinModule: true, allowBusinessSponsoredSpins: true, allowBoroughSpins: false,
-    allowSeasonalSpins: true, maxSpinsPerCustomer: 3,
-    enableRotator: true, enableLocalFeedDistribution: true, enableBoroughFeedDistribution: false,
-    enableFeaturedPlacement: true,
-  },
-  {
-    id: '2', name: 'Brixton LocalMall', postcodes: ['SW2', 'SW9', 'SE24'],
-    borough: 'Lambeth', primaryHighStreet: 'Brixton Road', additionalHighStreets: ['Electric Avenue', 'Atlantic Road'],
-    businesses: 312, customers: 18500, campaigns: 12, events: 20, status: 'Active',
-    createdDate: '2024-06-01', description: 'Brixton vibrant local economy hub',
-    longDescription: 'Brixton LocalMall brings together the diverse businesses of Brixton in one digital marketplace.',
-    slug: 'brixton-localmall', logo: '', coverBanner: '', mobileBanner: '',
-    primaryColour: '#7C3AED', secondaryColour: '#EC4899',
-    welcomeMessage: 'Welcome to Brixton LocalMall', tagline: 'Celebrating Brixton Together',
-    radiusCoverage: '3 miles', allowBusinessesOutsidePostcode: true, allowVirtualBusinesses: true,
-    allowHomeBusinesses: true, requireVerification: true, requireAuditCompletion: true,
-    requireMembershipApproval: true, leadConsultant: 'Jane Smith', leadConsultantId: 'con-4',
-    assignedAccountManagers: ['Tom Davis', 'Lisa Brown'], assignedAccountManagerIds: ['am-3', 'am-4'],
-    assignedAgents: ['Chris Evans', 'Diana Prince'], assignedAgentIds: ['agent-3', 'agent-4'],
-    supportTeam: ['Oliver', 'Sophie'],
-    enableAudit: true, enableRewards: true, enableLoyalty: true, enableQLinks: true,
-    enableSpin: true, enableEvents: true, enableCampaigns: true, enablePushNotifications: true,
-    enableMarketplace: true, allowGuestBrowsing: true, requireRegistrationForRewards: true,
-    requireRegistrationForSpin: false, enableAutoLocationDetection: true,
-    allowManualLocalMallSwitching: true, autoApproveBusinesses: false,
-    manualApprovalRequired: true, requireDocumentVerification: true,
-    requireGoogleBusinessMatch: true, requireAuditCompletionForBusiness: true,
-    defaultMembershipPackage: 'Premium',
-    featuredBusinesses: ['Brixton Market', 'Electric Cafe', 'Atlantic Fish Bar'],
-    featuredCategories: ['Food & Drink', 'Retail', 'Entertainment'],
-    featuredCampaigns: ['Brixton Summer', 'Market Days'],
-    featuredEvents: ['Brixton Street Festival', 'Electric Avenue Market'],
-    featuredRewards: ['Brixton Bonus', 'Loyalty Points'],
-    featuredSpinCampaigns: ['Brixton Spin'],
-    featuredHighStreets: ['Brixton Road', 'Electric Avenue'],
-    categoryPriorities: [
-      { name: 'Food & Drink', action: 'show-first' },
-      { name: 'Retail', action: 'show-first' },
-      { name: 'Entertainment', action: 'highlight' },
-      { name: 'Beauty', action: 'highlight' },
-      { name: 'Health', action: 'show-first' },
-      { name: 'Trades', action: 'hide' },
-      { name: 'Professional Services', action: 'hide' },
-    ],
-    allowBoroughCampaigns: true, allowHighStreetCampaigns: true, allowJointCampaigns: true,
-    allowSeasonalCampaigns: true, campaignApprovalRequired: true,
-    enableEventsModule: true, requireEventApproval: false, maxEventsPerBusiness: 10,
-    allowCommunityEvents: true, allowBusinessEvents: true,
-    enableRewardsModule: true, enableLoyaltyModule: true, enableBonusCampaigns: true,
-    enableDoublePointDays: true, enableSeasonalRewards: true,
-    enableSpinModule: true, allowBusinessSponsoredSpins: true, allowBoroughSpins: true,
-    allowSeasonalSpins: true, maxSpinsPerCustomer: 5,
-    enableRotator: true, enableLocalFeedDistribution: true, enableBoroughFeedDistribution: true,
-    enableFeaturedPlacement: true,
-  },
-  {
-    id: '3', name: 'Greenwich LocalMall', postcodes: ['SE10', 'SE3', 'SE18'],
-    borough: 'Greenwich', primaryHighStreet: 'Greenwich High Road', additionalHighStreets: ['Royal Hill', 'Nelson Road'],
-    businesses: 178, customers: 9200, campaigns: 5, events: 8, status: 'Draft',
-    createdDate: '2025-01-20', description: 'Launching Greenwich digital town centre',
-    longDescription: 'Greenwich LocalMall is currently in setup phase, preparing to connect Greenwich businesses with the local community.',
-    slug: 'greenwich-localmall', logo: '', coverBanner: '', mobileBanner: '',
-    primaryColour: '#059669', secondaryColour: '#F97316',
-    welcomeMessage: 'Coming Soon: Greenwich LocalMall', tagline: 'Your Greenwich, Connected',
-    radiusCoverage: '2 miles', allowBusinessesOutsidePostcode: false, allowVirtualBusinesses: false,
-    allowHomeBusinesses: true, requireVerification: true, requireAuditCompletion: false,
-    requireMembershipApproval: true, leadConsultant: 'Mike Johnson', leadConsultantId: 'con-5',
-    assignedAccountManagers: ['Lucy Adams'], assignedAccountManagerIds: ['am-5'],
-    assignedAgents: ['Tom Hardy'], assignedAgentIds: ['agent-5'], supportTeam: ['Anna'],
-    enableAudit: false, enableRewards: false, enableLoyalty: false, enableQLinks: false,
-    enableSpin: false, enableEvents: false, enableCampaigns: false, enablePushNotifications: false,
-    enableMarketplace: false, allowGuestBrowsing: true, requireRegistrationForRewards: false,
-    requireRegistrationForSpin: false, enableAutoLocationDetection: false,
-    allowManualLocalMallSwitching: false, autoApproveBusinesses: false,
-    manualApprovalRequired: true, requireDocumentVerification: false,
-    requireGoogleBusinessMatch: false, requireAuditCompletionForBusiness: false,
-    defaultMembershipPackage: 'Standard',
-    featuredBusinesses: [], featuredCategories: [], featuredCampaigns: [],
-    featuredEvents: [], featuredRewards: [], featuredSpinCampaigns: [],
-    featuredHighStreets: [],
-    categoryPriorities: [
-      { name: 'Food & Drink', action: 'show-first' },
-      { name: 'Retail', action: 'highlight' },
-      { name: 'Beauty', action: 'show-first' },
-      { name: 'Health', action: 'highlight' },
-      { name: 'Entertainment', action: 'hide' },
-      { name: 'Trades', action: 'hide' },
-      { name: 'Professional Services', action: 'hide' },
-    ],
-    allowBoroughCampaigns: false, allowHighStreetCampaigns: false, allowJointCampaigns: false,
-    allowSeasonalCampaigns: false, campaignApprovalRequired: true,
-    enableEventsModule: false, requireEventApproval: true, maxEventsPerBusiness: 3,
-    allowCommunityEvents: false, allowBusinessEvents: false,
-    enableRewardsModule: false, enableLoyaltyModule: false, enableBonusCampaigns: false,
-    enableDoublePointDays: false, enableSeasonalRewards: false,
-    enableSpinModule: false, allowBusinessSponsoredSpins: false, allowBoroughSpins: false,
-    allowSeasonalSpins: false, maxSpinsPerCustomer: 0,
-    enableRotator: false, enableLocalFeedDistribution: false, enableBoroughFeedDistribution: false,
-    enableFeaturedPlacement: false,
-  },
-  {
-    id: '4', name: 'Stratford LocalMall', postcodes: ['E15', 'E20', 'E16'],
-    borough: 'Newham', primaryHighStreet: 'The Broadway', additionalHighStreets: ['High Street', 'Romford Road'],
-    businesses: 456, customers: 22300, campaigns: 15, events: 25, status: 'Active',
-    createdDate: '2024-03-10', description: 'Stratford digital high street hub',
-    longDescription: 'Stratford LocalMall serves one of London fastest growing areas, connecting the Olympic Park community with local commerce.',
-    slug: 'stratford-localmall', logo: '', coverBanner: '', mobileBanner: '',
-    primaryColour: '#DC2626', secondaryColour: '#2563EB',
-    welcomeMessage: 'Welcome to Stratford LocalMall', tagline: 'Stratford Connected, Community Strong',
-    radiusCoverage: '3.5 miles', allowBusinessesOutsidePostcode: true, allowVirtualBusinesses: true,
-    allowHomeBusinesses: true, requireVerification: true, requireAuditCompletion: true,
-    requireMembershipApproval: true, leadConsultant: 'Sarah Wilson', leadConsultantId: 'con-6',
-    assignedAccountManagers: ['Mark Green', 'Emma White', 'Jake Black'], assignedAccountManagerIds: ['am-6', 'am-7', 'am-8'],
-    assignedAgents: ['Nina Patel', 'Oscar Lee', 'Liam Scott'], assignedAgentIds: ['agent-6', 'agent-7', 'agent-8'],
-    supportTeam: ['Hannah', 'Ben'],
-    enableAudit: true, enableRewards: true, enableLoyalty: true, enableQLinks: true,
-    enableSpin: true, enableEvents: true, enableCampaigns: true, enablePushNotifications: true,
-    enableMarketplace: true, allowGuestBrowsing: true, requireRegistrationForRewards: true,
-    requireRegistrationForSpin: true, enableAutoLocationDetection: true,
-    allowManualLocalMallSwitching: true, autoApproveBusinesses: true,
-    manualApprovalRequired: false, requireDocumentVerification: true,
-    requireGoogleBusinessMatch: true, requireAuditCompletionForBusiness: true,
-    defaultMembershipPackage: 'Premium',
-    featuredBusinesses: ['Westfield Shops', 'Stratford Centre', 'Theatre Square'],
-    featuredCategories: ['Food & Drink', 'Retail', 'Entertainment', 'Health'],
-    featuredCampaigns: ['Stratford Summer', 'Olympic Park Events'],
-    featuredEvents: ['Stratford Food Market', 'Summer in the Park'],
-    featuredRewards: ['Stratford Rewards', 'Double Points Week'],
-    featuredSpinCampaigns: ['Olympic Spin'],
-    featuredHighStreets: ['The Broadway', 'High Street'],
-    categoryPriorities: [
-      { name: 'Food & Drink', action: 'show-first' },
-      { name: 'Retail', action: 'show-first' },
-      { name: 'Entertainment', action: 'highlight' },
-      { name: 'Beauty', action: 'highlight' },
-      { name: 'Health', action: 'show-first' },
-      { name: 'Professional Services', action: 'hide' },
-      { name: 'Trades', action: 'hide' },
-    ],
-    allowBoroughCampaigns: true, allowHighStreetCampaigns: true, allowJointCampaigns: true,
-    allowSeasonalCampaigns: true, campaignApprovalRequired: false,
-    enableEventsModule: true, requireEventApproval: false, maxEventsPerBusiness: 8,
-    allowCommunityEvents: true, allowBusinessEvents: true,
-    enableRewardsModule: true, enableLoyaltyModule: true, enableBonusCampaigns: true,
-    enableDoublePointDays: true, enableSeasonalRewards: true,
-    enableSpinModule: true, allowBusinessSponsoredSpins: true, allowBoroughSpins: true,
-    allowSeasonalSpins: true, maxSpinsPerCustomer: 5,
-    enableRotator: true, enableLocalFeedDistribution: true, enableBoroughFeedDistribution: true,
-    enableFeaturedPlacement: true,
-  },
-];
 
-// ─── 247GBS Affiliates Mock Users ────────────────────────────────────────────
+// ─── Affiliate Users (from API) ────────────────────────────────────────────
 
 interface AffiliateUser {
   id: string;
@@ -311,41 +114,16 @@ interface AffiliateUser {
   email: string;
 }
 
-const MOCK_AFFILIATE_USERS: AffiliateUser[] = [
-  { id: 'con-1', name: 'John Doe', role: 'consultant', email: 'john@247gbs.com' },
-  { id: 'con-2', name: 'Mary Smith', role: 'consultant', email: 'mary@247gbs.com' },
-  { id: 'con-3', name: 'David Jones', role: 'consultant', email: 'david@247gbs.com' },
-  { id: 'con-4', name: 'Jane Smith', role: 'consultant', email: 'jane@247gbs.com' },
-  { id: 'con-5', name: 'Mike Johnson', role: 'consultant', email: 'mike@247gbs.com' },
-  { id: 'con-6', name: 'Sarah Wilson', role: 'consultant', email: 'sarah@247gbs.com' },
-  { id: 'am-1', name: 'Sarah Johnson', role: 'account_manager', email: 'sarah.j@247gbs.com' },
-  { id: 'am-2', name: 'James Wilson', role: 'account_manager', email: 'james@247gbs.com' },
-  { id: 'am-3', name: 'Tom Davis', role: 'account_manager', email: 'tom@247gbs.com' },
-  { id: 'am-4', name: 'Lisa Brown', role: 'account_manager', email: 'lisa@247gbs.com' },
-  { id: 'am-5', name: 'Lucy Adams', role: 'account_manager', email: 'lucy@247gbs.com' },
-  { id: 'am-6', name: 'Mark Green', role: 'account_manager', email: 'mark@247gbs.com' },
-  { id: 'am-7', name: 'Emma White', role: 'account_manager', email: 'emma@247gbs.com' },
-  { id: 'am-8', name: 'Jake Black', role: 'account_manager', email: 'jake@247gbs.com' },
-  { id: 'agent-1', name: 'Michael Brown', role: 'agent', email: 'michael@247gbs.com' },
-  { id: 'agent-2', name: 'Paul Taylor', role: 'agent', email: 'paul@247gbs.com' },
-  { id: 'agent-3', name: 'Chris Evans', role: 'agent', email: 'chris@247gbs.com' },
-  { id: 'agent-4', name: 'Diana Prince', role: 'agent', email: 'diana@247gbs.com' },
-  { id: 'agent-5', name: 'Tom Hardy', role: 'agent', email: 'tom.h@247gbs.com' },
-  { id: 'agent-6', name: 'Nina Patel', role: 'agent', email: 'nina@247gbs.com' },
-  { id: 'agent-7', name: 'Oscar Lee', role: 'agent', email: 'oscar@247gbs.com' },
-  { id: 'agent-8', name: 'Liam Scott', role: 'agent', email: 'liam@247gbs.com' },
-];
-
-function getAffiliateName(id: string): string {
-  return MOCK_AFFILIATE_USERS.find(u => u.id === id)?.name || id;
+function getAffiliateName(affiliates: AffiliateUser[], id: string): string {
+  return affiliates.find(u => u.id === id)?.name || id;
 }
 
-function getAffiliateNames(ids: string[]): string[] {
-  return ids.map(id => getAffiliateName(id));
+function getAffiliateNames(affiliates: AffiliateUser[], ids: string[]): string[] {
+  return ids.map(id => getAffiliateName(affiliates, id));
 }
 
-function getAffiliatesByRole(role: AffiliateUser['role']): AffiliateUser[] {
-  return MOCK_AFFILIATE_USERS.filter(u => u.role === role);
+function getAffiliatesByRole(affiliates: AffiliateUser[], role: AffiliateUser['role']): AffiliateUser[] {
+  return affiliates.filter(u => u.role === role);
 }
 
 // ─── Multi-Select Dropdown Component ──────────────────────────────────────
@@ -488,9 +266,24 @@ function CollapsibleSection({ title, defaultOpen, children }: { title: string; d
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 
 export default function LocalMallsPanel() {
+  const { data: mallsRes, isLoading } = useAdminLocalMalls();
+  const createMall = useCreateLocalMall();
+  const updateMall = useUpdateLocalMall();
+  const deleteMall = useDeleteLocalMall();
+  const { data: agentsRes } = useAdminAgents();
+  const { data: consultantsRes } = useAdminConsultants();
+  const { data: accountManagersRes } = useAdminAccountManagers();
+  const allMalls: LocalMallData[] = (mallsRes?.data ?? []) as LocalMallData[];
+
+  const allAffiliates: AffiliateUser[] = [
+    ...((agentsRes?.data ?? []).map((a: any) => ({ id: a.id, name: a.name || a.email, role: 'agent' as const, email: a.email }))),
+    ...((consultantsRes?.data ?? []).map((c: any) => ({ id: c.id, name: c.name || c.email, role: 'consultant' as const, email: c.email }))),
+    ...((accountManagersRes?.data ?? []).map((am: any) => ({ id: am.id, name: am.name || am.email, role: 'account_manager' as const, email: am.email }))),
+  ];
+
   const [view, setView] = useState<'list' | 'create' | 'detail' | 'edit'>('list');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [localMalls, setLocalMalls] = useState<LocalMallData[]>(initialLocalMalls);
+  const [localMalls, setLocalMalls] = useState<LocalMallData[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [boroughFilter, setBoroughFilter] = useState('All');
   const [postcodeFilter, setPostcodeFilter] = useState('');
@@ -507,6 +300,12 @@ export default function LocalMallsPanel() {
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeName, setMergeName] = useState('');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (allMalls.length > 0 && localMalls.length === 0) {
+      setLocalMalls(allMalls);
+    }
+  }, [allMalls]);
 
   const selectedMall = localMalls.find(m => m.id === selectedId) || null;
 
@@ -581,23 +380,30 @@ export default function LocalMallsPanel() {
     setView('edit');
   };
 
-  const handleSave = () => {
-    if (view === 'create') {
-      const newMall: LocalMallData = {
-        ...formData as LocalMallData,
-        id: String(Date.now()),
-        createdDate: new Date().toISOString().split('T')[0],
-      };
-      setLocalMalls(prev => [...prev, newMall]);
-    } else if (view === 'edit' && selectedId) {
-      setLocalMalls(prev => prev.map(m => m.id === selectedId ? { ...m, ...formData as LocalMallData } : m));
+  const handleSave = async () => {
+    try {
+      if (view === 'create') {
+        await createMall.mutateAsync(formData as any);
+        showToast('LocalMall created successfully', 'success');
+      } else if (view === 'edit' && selectedId) {
+        await updateMall.mutateAsync({ id: selectedId, data: formData as any });
+        showToast('LocalMall updated successfully', 'success');
+      }
+      setView('list');
+      setSelectedId(null);
+    } catch (err) {
+      showToast('Failed to save LocalMall', 'error');
     }
-    setView('list');
-    setSelectedId(null);
   };
 
-  const handleArchive = (id: string) => {
-    setLocalMalls(prev => prev.map(m => m.id === id ? { ...m, status: 'Archived' as const } : m));
+  const handleArchive = async (id: string) => {
+    try {
+      await deleteMall.mutateAsync(id);
+      setLocalMalls(prev => prev.filter(m => m.id !== id));
+      showToast('LocalMall deleted successfully', 'success');
+    } catch (err) {
+      showToast('Failed to delete LocalMall', 'error');
+    }
     setActiveActionsMenu(null);
   };
 
@@ -626,7 +432,7 @@ export default function LocalMallsPanel() {
       showToast('Select a manager to assign', 'error');
       return;
     }
-    const manager = MOCK_AFFILIATE_USERS.find(u => u.id === selectedManagerForAssign);
+    const manager = allAffiliates.find(u => u.id === selectedManagerForAssign);
     if (!manager) return;
     setLocalMalls(prev => prev.map(m => {
       if (!selectedLocalMalls.includes(m.id)) return m;
@@ -685,6 +491,14 @@ export default function LocalMallsPanel() {
   };
 
   // ─── RENDER: LIST VIEW ─────────────────────────────────────────────────
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-brand-blue" />
+      </div>
+    );
+  }
 
   if (view === 'list') {
     return (
@@ -884,7 +698,7 @@ export default function LocalMallsPanel() {
                   <label className="block text-xs font-bold text-gray-600 mb-1.5">Select Manager</label>
                   <select value={selectedManagerForAssign} onChange={e => setSelectedManagerForAssign(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue">
                     <option value="">Choose an account manager...</option>
-                    {getAffiliatesByRole('account_manager').map(u => (
+                    {getAffiliatesByRole(allAffiliates, 'account_manager').map(u => (
                       <option key={u.id} value={u.id}>{u.name} — {u.email}</option>
                     ))}
                   </select>
@@ -1133,14 +947,14 @@ export default function LocalMallsPanel() {
                 value={(formData.leadConsultantId as string) || ''}
                 onChange={e => {
                   const id = e.target.value;
-                  const user = MOCK_AFFILIATE_USERS.find(u => u.id === id);
+                  const user = allAffiliates.find(u => u.id === id);
                   update('leadConsultantId', id);
                   update('leadConsultant', user ? user.name : '');
                 }}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
               >
                 <option value="">Select a Lead Consultant...</option>
-                {getAffiliatesByRole('consultant').map(u => (
+                {getAffiliatesByRole(allAffiliates, 'consultant').map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
               </select>
@@ -1148,11 +962,11 @@ export default function LocalMallsPanel() {
             <div>
               <MultiSelectDropdown
                 label="Assigned Account Managers"
-                options={getAffiliatesByRole('account_manager')}
+                options={getAffiliatesByRole(allAffiliates, 'account_manager')}
                 selectedIds={(formData.assignedAccountManagerIds as string[]) || []}
                 onChange={ids => {
                   update('assignedAccountManagerIds', ids);
-                  update('assignedAccountManagers', getAffiliateNames(ids));
+                  update('assignedAccountManagers', getAffiliateNames(allAffiliates, ids));
                 }}
                 placeholder="Select account managers..."
               />
@@ -1161,11 +975,11 @@ export default function LocalMallsPanel() {
             <div>
               <MultiSelectDropdown
                 label="Assigned Agents"
-                options={getAffiliatesByRole('agent')}
+                options={getAffiliatesByRole(allAffiliates, 'agent')}
                 selectedIds={(formData.assignedAgentIds as string[]) || []}
                 onChange={ids => {
                   update('assignedAgentIds', ids);
-                  update('assignedAgents', getAffiliateNames(ids));
+                  update('assignedAgents', getAffiliateNames(allAffiliates, ids));
                 }}
                 placeholder="Select agents..."
               />
@@ -1483,14 +1297,10 @@ export default function LocalMallsPanel() {
 
         {/* Dashboard Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          <StatCard title="Businesses" value={String(mall.businesses)} trend="+12" icon={Store} color="blue" />
-          <StatCard title="Customers" value={(mall.customers / 1000).toFixed(1) + 'k'} trend="+8.1%" icon={Users} color="green" />
-          <StatCard title="Campaigns" value={String(mall.campaigns)} trend="+3" icon={Target} color="purple" />
-          <StatCard title="Events" value={String(mall.events)} trend="+5" icon={Music} color="amber" />
-          <StatCard title="Rewards Issued" value="1,847" trend="+22%" icon={Gift} color="rose" />
-          <StatCard title="Spin Sessions" value="6,230" trend="+15%" icon={Sparkles} color="cyan" />
-          <StatCard title="Traffic" value="28.4k" trend="+18%" icon={Activity} color="indigo" />
-          <StatCard title="Revenue" value="£42.5k" trend="+24%" icon={TrendingUp} color="green" />
+          <StatCard title="Businesses" value={String(mall.businesses ?? 0)} trend="" icon={Store} color="blue" />
+          <StatCard title="Customers" value={((mall.customers ?? 0) / 1000).toFixed(1) + 'k'} trend="" icon={Users} color="green" />
+          <StatCard title="Campaigns" value={String(mall.campaigns ?? 0)} trend="" icon={Target} color="purple" />
+          <StatCard title="Events" value={String(mall.events ?? 0)} trend="" icon={Music} color="amber" />
         </div>
 
         {/* Tabs */}
@@ -1587,8 +1397,8 @@ export default function LocalMallsPanel() {
                     <div key={i} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
                       <div className="flex items-center gap-2 mb-2"><Target className="w-4 h-4 text-brand-blue" /><span className="text-sm font-bold text-gray-900">{c}</span></div>
                       <div className="flex items-center gap-4 text-[10px] font-medium text-gray-500">
-                        <span>Participation: {Math.floor(Math.random() * 500 + 100)}</span>
-                        <span className={cn("px-2 py-0.5 rounded-full font-bold", Math.random() > 0.5 ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50")}>Active</span>
+                         <span>Participation: {(i + 1) * 120}</span>
+                        <span className="px-2 py-0.5 rounded-full font-bold text-emerald-600 bg-emerald-50">Active</span>
                       </div>
                     </div>
                   ))}
@@ -1624,7 +1434,7 @@ export default function LocalMallsPanel() {
                   {mall.featuredRewards.map((r, i) => (
                     <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
                       <div className="flex items-center gap-3"><Gift className="w-4 h-4 text-brand-blue" /><span className="text-xs font-semibold text-gray-700">{r}</span></div>
-                      <span className="text-[10px] font-medium text-gray-500">{Math.floor(Math.random() * 500 + 50)} claims</span>
+                       <span className="text-[10px] font-medium text-gray-500">{(i + 1) * 80} claims</span>
                     </div>
                   ))}
                 </div>

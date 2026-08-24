@@ -6,7 +6,6 @@ import {
   MoreVertical, 
   Users, 
   Activity,
-  QrCode,
   CheckCircle2,
   Clock,
   BarChart3,
@@ -14,24 +13,44 @@ import {
   Store,
   Map as MapIcon,
   Rss,
-  ShoppingCart,
-  Loader2
+  Loader2,
+  X,
+  Save,
+  Target,
+  User,
+  Info
 } from 'lucide-react';
 import HighStreetActivationWizard from './HighStreetActivationWizard';
 import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
-import { useAdminHighStreets } from '../../services/admin/hooks';
+import { useAdminHighStreets, useAdminAuditLogs, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers } from '../../services/admin/hooks';
 import type { HighStreet } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
   const { data: hsRes, isLoading } = useAdminHighStreets();
   const allHighStreets: HighStreet[] = hsRes?.data ?? [];
+  const { data: logsRes } = useAdminAuditLogs({ page: 1, limit: 10 });
+  const activities = (logsRes?.data ?? []) as any[];
+  const { data: boroughsRes } = useAdminBoroughs();
+  const allBoroughs = (boroughsRes?.data ?? []) as { id: string; name: string }[];
+  const boroughNames = ['All Boroughs', ...allBoroughs.map(b => b.name)];
+  const updateHighStreet = useUpdateHighStreet();
+  const { data: managersRes } = useAdminAccountManagers();
+  const managers = (managersRes?.data ?? []) as { id: string; firstName: string; lastName: string; email: string }[];
 
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Pending' | 'Inactive'>('All');
   const [boroughFilter, setBoroughFilter] = useState('All Boroughs');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
+
+  const [ecosystemModal, setEcosystemModal] = useState<HighStreet | null>(null);
+  const [assignModal, setAssignModal] = useState<HighStreet | null>(null);
+  const [assignManagerId, setAssignManagerId] = useState('');
+  const [analyticsModal, setAnalyticsModal] = useState<HighStreet | null>(null);
+  const [campaignModal, setCampaignModal] = useState<HighStreet | null>(null);
+  const [campaignName, setCampaignName] = useState('');
+  const [campaignDescription, setCampaignDescription] = useState('');
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -40,6 +59,20 @@ export default function HighStreetsPanel() {
     const matchesBorough = boroughFilter === 'All Boroughs' || hs.borough === boroughFilter;
     return matchesSearch && matchesStatus && matchesBorough;
   });
+
+  const handleAssignManager = async () => {
+    if (!assignModal || !assignManagerId) return;
+    await updateHighStreet.mutateAsync({ id: assignModal.id, data: { assignedTo: assignManagerId } as any });
+    setAssignModal(null);
+    setAssignManagerId('');
+  };
+
+  const handleLaunchCampaign = async () => {
+    if (!campaignModal || !campaignName) return;
+    setCampaignModal(null);
+    setCampaignName('');
+    setCampaignDescription('');
+  };
 
   if (isLoading) {
     return (
@@ -83,7 +116,7 @@ export default function HighStreetsPanel() {
               <h3 className="font-bold text-gray-950 text-base">High Street Activity Map</h3>
               <div className="flex items-center gap-2 mt-1">
                 <span className="inline-flex items-center rounded-full bg-orange-50 px-2 py-0.5 text-[9px] font-bold text-orange-600 ring-1 ring-inset ring-orange-200">Live View</span>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">Google Maps</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">OpenStreetMap</span>
               </div>
             </div>
           </div>
@@ -131,7 +164,7 @@ export default function HighStreetsPanel() {
             <div className="space-y-3">
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Borough</label>
               <div className="flex flex-wrap gap-2">
-                {['All Boroughs', 'Westminster', 'Camden', 'Tower Hamlets'].map((borough) => (
+                {boroughNames.map((borough) => (
                   <button 
                     key={borough}
                     onClick={() => setBoroughFilter(borough)}
@@ -168,41 +201,36 @@ export default function HighStreetsPanel() {
             </div>
 
             <div className="space-y-4">
-              <FeedItem 
-                icon={ShoppingCart} 
-                iconColor="text-brand-blue" 
-                bgColor="bg-blue-50"
-                title="Marylebone Zone spike detected"
-                details="(+22% foot traffic)."
-                time="2m ago"
-                location="Borough: Westminster"
-                indicatorColor="bg-brand-blue"
-              />
-              <FeedItem 
-                icon={Rocket} 
-                iconColor="text-orange-600" 
-                bgColor="bg-orange-50"
-                title="Hackney Virtual Hub successfully deployed."
-                time="14m ago"
-                location="District: East"
-                indicatorColor="bg-orange-700"
-              />
-              <FeedItem 
-                icon={QrCode} 
-                iconColor="text-emerald-600" 
-                bgColor="bg-emerald-50"
-                title="QR Engagement Milestone reached in Islington."
-                time="32m ago"
-                location="Users: 5,000+"
-                indicatorColor="bg-emerald-600"
-              />
+              {activities.length > 0 ? activities.slice(0, 5).map((item: any) => {
+                const colorMap: Record<string, { icon: string; bg: string; indicator: string }> = {
+                  info: { icon: 'text-brand-blue', bg: 'bg-blue-50', indicator: 'bg-brand-blue' },
+                  success: { icon: 'text-emerald-600', bg: 'bg-emerald-50', indicator: 'bg-emerald-600' },
+                  warning: { icon: 'text-orange-600', bg: 'bg-orange-50', indicator: 'bg-orange-700' },
+                };
+                const colors = colorMap[item.severity || 'info'] || colorMap.info;
+                return (
+                  <FeedItem
+                    key={item.id}
+                    icon={Activity}
+                    iconColor={colors.icon}
+                    bgColor={colors.bg}
+                    title={item.action || item.title}
+                    details={item.details}
+                    time={item.timestamp ? new Date(item.timestamp).toLocaleString() : ''}
+                    location={item.adminName ? `By: ${item.adminName}` : ''}
+                    indicatorColor={colors.indicator}
+                  />
+                );
+              }) : (
+                <p className="text-xs text-gray-400 text-center py-4">No recent activity</p>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* High Street List */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-visible">
         <div className="p-6 border-b border-gray-50 flex items-center justify-between">
           <h3 className="font-bold text-gray-950 text-base">High Street Inventory</h3>
           <button className="flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 hover:shadow transition-all">
@@ -239,29 +267,32 @@ export default function HighStreetsPanel() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center font-bold text-sm text-gray-800">{hs.businessCount}</td>
-                    <td className="px-6 py-4 text-right relative">
+                    <td className="px-6 py-4 text-right">
                       <button 
-                        onClick={() => setActiveActionsMenu(activeActionsMenu === hs.id ? null : hs.id)}
-                        className="p-1.5 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-gray-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveActionsMenu(activeActionsMenu === hs.id ? null : hs.id);
+                        }}
+                        className="p-1.5 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-gray-700 relative z-50"
                       >
-                        <MoreVertical className="h-4.5 w-4.5" />
+                        <MoreVertical className="h-4 w-4" />
                       </button>
                       
                       {activeActionsMenu === hs.id && (
                         <>
-                          <div className="fixed inset-0 z-30" onClick={() => setActiveActionsMenu(null)} />
-                          <div className="absolute right-6 top-10 mt-1 w-48 bg-white rounded-2xl shadow-xl border border-gray-200 p-2 z-40 text-left">
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
+                          <div className="fixed inset-0 z-[60]" onClick={() => setActiveActionsMenu(null)} />
+                          <div className="fixed right-8 w-48 bg-white rounded-2xl shadow-xl border border-gray-200 p-2 z-[70] text-left" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                            <button onClick={() => { setEcosystemModal(hs); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
                               <Activity className="h-4 w-4 text-gray-400" /> Manage Ecosystem
                             </button>
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
+                            <button onClick={() => { setAssignModal(hs); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
                               <Users className="h-4 w-4 text-gray-400" /> Assign Manager
                             </button>
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
+                            <button onClick={() => { setAnalyticsModal(hs); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
                               <BarChart3 className="h-4 w-4 text-gray-400" /> View Analytics
                             </button>
                             <div className="h-px bg-gray-100 my-1" />
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-orange-50 transition-colors text-xs font-bold text-orange-600">
+                            <button onClick={() => { setCampaignModal(hs); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-orange-50 transition-colors text-xs font-bold text-orange-600">
                               <Rocket className="h-4 w-4 text-orange-500" /> Launch Campaign
                             </button>
                           </div>
@@ -285,8 +316,170 @@ export default function HighStreetsPanel() {
       {/* Activation Wizard */}
       <HighStreetActivationWizard 
         open={isWizardOpen} 
-        onOpenChange={setIsWizardOpen} 
+        onOpenChange={setIsWizardOpen}
+        onCreated={() => {}} 
       />
+
+      {/* Manage Ecosystem Modal */}
+      {ecosystemModal && (
+        <Modal onClose={() => setEcosystemModal(null)} title="Manage Ecosystem" icon={Activity}>
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">High Street</span>
+                <span className="font-bold text-gray-900">{ecosystemModal.name}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Borough</span>
+                <span className="font-bold text-gray-900">{ecosystemModal.borough}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Status</span>
+                <span className={cn("font-bold", ecosystemModal.status === 'Active' ? 'text-emerald-600' : 'text-amber-600')}>{ecosystemModal.status}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Businesses</span>
+                <span className="font-bold text-gray-900">{ecosystemModal.businessCount}</span>
+              </div>
+            </div>
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-3">
+              <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-700 font-semibold">Ecosystem management allows you to configure platform access, view business registrations, and manage local integrations for this high street.</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Assign Manager Modal */}
+      {assignModal && (
+        <Modal onClose={() => { setAssignModal(null); setAssignManagerId(''); }} title="Assign Manager" icon={User}>
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500 font-medium">Assign an account manager to oversee this high street.</p>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Select Manager</label>
+              <select
+                value={assignManagerId}
+                onChange={e => setAssignManagerId(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm"
+              >
+                <option value="">Choose a manager</option>
+                {managers.map(m => (
+                  <option key={m.id} value={m.id}>{m.firstName} {m.lastName} — {m.email}</option>
+                ))}
+              </select>
+              {managers.length === 0 && (
+                <p className="text-[11px] text-amber-600 font-medium mt-1.5">No account managers found. Create one in User Management first.</p>
+              )}
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setAssignModal(null); setAssignManagerId(''); }} className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-all">
+                Cancel
+              </button>
+              <button 
+                onClick={handleAssignManager} 
+                disabled={!assignManagerId || updateHighStreet.isPending}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-orange-100 transition-all disabled:opacity-50"
+              >
+                {updateHighStreet.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Assign
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* View Analytics Modal */}
+      {analyticsModal && (
+        <Modal onClose={() => setAnalyticsModal(null)} title="View Analytics" icon={BarChart3}>
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">High Street</span>
+                <span className="font-bold text-gray-900">{analyticsModal.name}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Total Businesses</span>
+                <span className="font-bold text-gray-900">{analyticsModal.businessCount}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Status</span>
+                <span className={cn("font-bold", analyticsModal.status === 'Active' ? 'text-emerald-600' : 'text-amber-600')}>{analyticsModal.status}</span>
+              </div>
+            </div>
+            <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl flex gap-3">
+              <Target className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-purple-700 font-semibold">Detailed analytics for this high street will be available once the analytics dashboard is fully integrated with the backend.</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Launch Campaign Modal */}
+      {campaignModal && (
+        <Modal onClose={() => { setCampaignModal(null); setCampaignName(''); setCampaignDescription(''); }} title="Launch Campaign" icon={Rocket}>
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500 font-medium">Create a campaign for <span className="font-bold text-gray-900">{campaignModal.name}</span>.</p>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Campaign Name</label>
+              <input
+                type="text"
+                placeholder="e.g. Summer Rewards Push"
+                value={campaignName}
+                onChange={e => setCampaignName(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all font-semibold text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">Description</label>
+              <textarea
+                placeholder="Brief description of the campaign..."
+                value={campaignDescription}
+                onChange={e => setCampaignDescription(e.target.value)}
+                rows={3}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all font-semibold text-sm resize-none"
+              />
+            </div>
+            <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl flex gap-3">
+              <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 font-semibold">Campaign creation will be fully functional once the backend campaign endpoint is implemented.</p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => { setCampaignModal(null); setCampaignName(''); setCampaignDescription(''); }} className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-all">
+                Cancel
+              </button>
+              <button 
+                onClick={handleLaunchCampaign} 
+                disabled={!campaignName}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-orange-100 transition-all disabled:opacity-50"
+              >
+                <Rocket className="h-4 w-4" /> Launch
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Modal({ onClose, title, icon: Icon, children }: { onClose: () => void; title: string; icon: any; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl w-full max-w-md border border-gray-100 shadow-2xl overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-start">
+          <div>
+            <div className="flex items-center gap-2 text-orange-600 mb-1">
+              <Icon className="h-4 w-4" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">High Street</span>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-xl transition-all">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
     </div>
   );
 }

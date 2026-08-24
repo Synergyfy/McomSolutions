@@ -28,13 +28,16 @@ import {
   Download
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminBoroughs } from '../../services/admin/hooks';
+import { useAdminBoroughs, useCreateBorough, useAdminAccountManagers } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
 import type { Borough } from '../../services/admin/types';
 
 export default function BoroughsPanel() {
   const { data: boroughsRes, isLoading } = useAdminBoroughs();
   const boroughs: Borough[] = boroughsRes?.data ?? [];
+  const createBorough = useCreateBorough();
+  const { data: managersRes } = useAdminAccountManagers({ page: 1, limit: 100 });
+  const managers = (managersRes?.data ?? []) as { id: string; firstName: string; lastName: string; email: string }[];
 
   const [selectedBoroughId, setSelectedBoroughId] = useState<string | null>(null);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
@@ -49,9 +52,11 @@ export default function BoroughsPanel() {
   // New Borough Form State
   const [newBorough, setNewBorough] = useState({
     name: '',
-    adminName: '',
-    activity: 'High',
-    bizCount: '0'
+    manager: '',
+    populationActivity: 'High',
+    area: '',
+    region: '',
+    businessCount: 0,
   });
 
   const selectedBorough = boroughs.find(b => b.id === selectedBoroughId);
@@ -96,7 +101,7 @@ export default function BoroughsPanel() {
 
           <div className="space-y-4 py-2 text-left">
             <div>
-              <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Borough Name</label>
+              <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Borough Name *</label>
               <input 
                 type="text" 
                 placeholder="e.g. Southwark" 
@@ -106,22 +111,28 @@ export default function BoroughsPanel() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Assigned Admin</label>
-              <input 
-                type="text" 
-                placeholder="e.g. John Doe" 
+              <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Assigned Admin *</label>
+              <select 
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900"
-                value={newBorough.adminName}
-                onChange={e => setNewBorough({ ...newBorough, adminName: e.target.value })}
-              />
+                value={newBorough.manager}
+                onChange={e => setNewBorough({ ...newBorough, manager: e.target.value })}
+              >
+                <option value="">Select admin</option>
+                {managers.map(m => (
+                  <option key={m.id} value={`${m.firstName} ${m.lastName}`}>{m.firstName} {m.lastName} — {m.email}</option>
+                ))}
+              </select>
+              {managers.length === 0 && (
+                <p className="text-[11px] text-amber-600 font-medium mt-1.5">No account managers found. Create one in User Management first.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Activity Level</label>
+                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Activity Level *</label>
                 <select 
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900"
-                  value={newBorough.activity}
-                  onChange={e => setNewBorough({ ...newBorough, activity: e.target.value })}
+                  value={newBorough.populationActivity}
+                  onChange={e => setNewBorough({ ...newBorough, populationActivity: e.target.value })}
                 >
                   <option value="High">High</option>
                   <option value="Medium">Medium</option>
@@ -130,13 +141,35 @@ export default function BoroughsPanel() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Initial Biz Count</label>
+                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Initial Businesses</label>
                 <input 
                   type="number" 
                   placeholder="0" 
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900"
-                  value={newBorough.bizCount}
-                  onChange={e => setNewBorough({ ...newBorough, bizCount: e.target.value })}
+                  value={newBorough.businessCount || ''}
+                  onChange={e => setNewBorough({ ...newBorough, businessCount: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Area *</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Central London" 
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900"
+                  value={newBorough.area}
+                  onChange={e => setNewBorough({ ...newBorough, area: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Region *</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. South" 
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900"
+                  value={newBorough.region}
+                  onChange={e => setNewBorough({ ...newBorough, region: e.target.value })}
                 />
               </div>
             </div>
@@ -150,13 +183,30 @@ export default function BoroughsPanel() {
               Cancel
             </button>
             <button 
-              onClick={() => {
-                console.log("Confirming Onboarding:", newBorough);
+              onClick={async () => {
+                if (!newBorough.name || !newBorough.manager || !newBorough.area || !newBorough.region) return;
+                await createBorough.mutateAsync({
+                  name: newBorough.name,
+                  manager: newBorough.manager,
+                  populationActivity: newBorough.populationActivity,
+                  businessCount: newBorough.businessCount,
+                  area: newBorough.area,
+                  region: newBorough.region,
+                  rewardsParticipation: '0%',
+                  healthScore: 0,
+                  activeCampaigns: 0,
+                  engagement: '0%',
+                  health: 'N/A',
+                  activity: 'Pending Onboarding',
+                });
+                setNewBorough({ name: '', manager: '', populationActivity: 'High', area: '', region: '', businessCount: 0 });
                 setIsOnboardOpen(false);
               }}
-              className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-105 transition-all"
+              disabled={!newBorough.name || !newBorough.manager || !newBorough.area || !newBorough.region || createBorough.isPending}
+              className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              Confirm Onboarding
+              {createBorough.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {createBorough.isPending ? 'Creating...' : 'Confirm Onboarding'}
             </button>
           </div>
         </div>
@@ -264,10 +314,10 @@ export default function BoroughsPanel() {
           {activeDetailTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard2 title="Total Businesses" value="1,284" trend="+12.4%" icon={Store} color="orange" />
-                <StatCard2 title="Active Customers" value="42.5k" trend="+8.1%" icon={Users} color="blue" />
-                <StatCard2 title="Footfall Density" value="8.2k/day" trend="-2.3%" icon={Activity} color="indigo" trendDown />
-                <StatCard2 title="MCOM Impact" value="£1.42M" trend="+18.8%" icon={Zap} color="emerald" />
+                <StatCard2 title="Total Businesses" value={String(boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0))} trend="" icon={Store} color="orange" />
+                <StatCard2 title="Active Boroughs" value={String(boroughs.length)} trend="" icon={Building2} color="blue" />
+                <StatCard2 title="Active Campaigns" value={String(boroughs.reduce((s, b) => s + (b.activeCampaigns ?? 0), 0))} trend="" icon={Activity} color="indigo" />
+                <StatCard2 title="Health Score" value={boroughs.length > 0 ? (boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length).toFixed(0) + '%' : '—'} trend="" icon={Zap} color="emerald" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -550,7 +600,7 @@ export default function BoroughsPanel() {
                         onClick={() => setActiveActionsMenu(activeActionsMenu === b.id ? null : b.id)}
                         className="p-1.5 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-gray-705"
                       >
-                        <MoreVertical className="h-4.5 w-4.5" />
+                        <MoreVertical className="h-4 w-4" />
                       </button>
 
                       {activeActionsMenu === b.id && (
@@ -635,7 +685,7 @@ function StatCard2({ title, value, trend, icon: Icon, color, trendDown }: any) {
     <div className="bg-white rounded-2xl border border-gray-150 p-5 space-y-2.5">
       <div className="flex items-center justify-between">
         <div className={cn("p-2 rounded-xl", theme.bg, theme.text)}>
-          <Icon className="h-4.5 w-4.5" />
+          <Icon className="h-4 w-4" />
         </div>
         <span className={cn(
           "text-[10px] font-bold px-2 py-0.5 rounded-full border",
