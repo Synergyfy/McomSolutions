@@ -261,6 +261,8 @@ export interface HighStreet {
   borough: string
   status: string
   businessCount: number
+  lat?: number
+  lng?: number
 }
 
 export interface LocalMall {

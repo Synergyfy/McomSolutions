@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Users, Building2, UserCircle, Gem, Package, CreditCard, RefreshCw,
-  ToggleLeft, Shield, KeyRound, UserPlus, Store, Grid, Rocket, DollarSign, Receipt,
+  LayoutDashboard, Users, Building2, Gem, RefreshCw,
+  Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search, HelpCircle,
-  ChevronRight, Briefcase, ShoppingBag
+  ChevronRight, ShoppingBag
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
 
 export type AdminTab =
-  'dashboard' | 'users' | 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers'
-  | 'memberships' | 'packages' | 'pricing' | 'subscriptions'
-  | 'platform-access' | 'platform-directory' | 'platform-launch'
+  'dashboard' | 'users'
+  | 'memberships' | 'subscriptions'
+  | 'platform-access'
   | 'permissions' | 'auth' | 'registration-flow' | 'business-profile'
   | 'payments' | 'billing'
   | 'api-keys' | 'integrations'
@@ -47,28 +47,19 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'User Management',
     items: [
       { tab: 'users', icon: Users, label: 'All Users' },
-      { tab: 'businesses', icon: Building2, label: 'Businesses' },
-      { tab: 'customers', icon: UserCircle, label: 'Customers' },
-      { tab: 'agents', icon: Briefcase, label: 'Agents' },
-      { tab: 'consultants', icon: Users, label: 'Consultants' },
-      { tab: 'account-managers', icon: UserCircle, label: 'Account Managers' },
     ],
   },
   {
     label: 'Plans & Billing',
     items: [
-      { tab: 'memberships', icon: Gem, label: 'Memberships' },
-      { tab: 'packages', icon: Package, label: 'Packages' },
-      { tab: 'pricing', icon: CreditCard, label: 'Pricing' },
+      { tab: 'memberships', icon: Gem, label: 'Plans & Billing' },
       { tab: 'subscriptions', icon: RefreshCw, label: 'Subscriptions' },
     ],
   },
   {
     label: 'Platforms',
     items: [
-      { tab: 'platform-access', icon: ToggleLeft, label: 'Access Control' },
-      { tab: 'platform-directory', icon: Grid, label: 'Directory' },
-      { tab: 'platform-launch', icon: Rocket, label: 'Launch Control' },
+      { tab: 'platform-access', icon: Rocket, label: 'Platforms' },
     ],
   },
   {

@@ -7,7 +7,24 @@ import {
   Hash, CalendarDays, ToggleLeft, AlignLeft, Type,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminData, AssessmentQuestion, AssessmentFieldType } from '../../context/AdminDataContext';
+import { useAssessmentQuestions, useCreateAssessmentQuestion, useUpdateAssessmentQuestion, useDeleteAssessmentQuestion, useReorderAssessmentQuestions } from '../../services/admin/hooks';
+import { Loader2 } from 'lucide-react';
+
+interface AssessmentQuestion {
+  id: string;
+  question: string;
+  type: 'text' | 'textarea' | 'single-choice' | 'multi-choice' | 'number' | 'date' | 'rating' | 'yes-no';
+  fieldType: 'text' | 'textarea' | 'single-choice' | 'multi-choice' | 'number' | 'date' | 'rating' | 'yes-no';
+  options?: string[];
+  required: boolean;
+  section: string;
+  icon?: string;
+  iconName?: string;
+  hint?: string;
+  enabled?: boolean;
+  order: number;
+}
+type AssessmentFieldType = AssessmentQuestion['type'];
 
 const ICON_OPTIONS: { name: string; icon: any }[] = [
   { name: 'Clock', icon: Clock },
@@ -47,13 +64,13 @@ const FIELD_TYPES: { value: AssessmentFieldType; label: string; icon: any; descr
 ];
 
 export default function AssessmentPanel() {
-  const {
-    assessmentQuestions,
-    addAssessmentQuestion,
-    updateAssessmentQuestion,
-    deleteAssessmentQuestion,
-    reorderAssessmentQuestions,
-  } = useAdminData();
+  const { data: questionsRes, isLoading } = useAssessmentQuestions();
+  const createQuestion = useCreateAssessmentQuestion();
+  const updateQuestion = useUpdateAssessmentQuestion();
+  const deleteQuestion = useDeleteAssessmentQuestion();
+  const reorderQuestions = useReorderAssessmentQuestions();
+
+  const assessmentQuestions: AssessmentQuestion[] = (questionsRes?.data ?? []) as AssessmentQuestion[];
 
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<AssessmentQuestion | null>(null);
@@ -66,7 +83,7 @@ export default function AssessmentPanel() {
   });
 
   const sorted = [...assessmentQuestions].sort((a, b) => a.order - b.order);
-  const enabledCount = sorted.filter(q => q.enabled).length;
+  const enabledCount = sorted.filter(q => (q as any).enabled !== false).length;
 
   const openAdd = () => {
     setEditing(null);
@@ -92,21 +109,23 @@ export default function AssessmentPanel() {
     if ((form.fieldType === 'single-choice' || form.fieldType === 'multi-choice') && cleanOptions.length < 2) return;
 
     if (editing) {
-      updateAssessmentQuestion(editing.id, {
+      updateQuestion.mutate({ id: editing.id, data: {
         question: form.question.trim(),
-        iconName: form.iconName,
-        fieldType: form.fieldType,
-        hint: form.hint.trim(),
-        options: cleanOptions,
-      });
+        icon: form.iconName,
+        type: form.fieldType,
+        required: true,
+        section: 'General',
+        options: cleanOptions.length > 0 ? cleanOptions : undefined,
+      }});
     } else {
-      addAssessmentQuestion({
+      createQuestion.mutate({
         question: form.question.trim(),
-        iconName: form.iconName,
-        fieldType: form.fieldType,
-        hint: form.hint.trim(),
-        options: cleanOptions,
+        icon: form.iconName,
+        type: form.fieldType,
+        required: true,
+        section: 'General',
         enabled: true,
+        options: cleanOptions.length > 0 ? cleanOptions : undefined,
       });
     }
     setShowModal(false);
@@ -120,7 +139,7 @@ export default function AssessmentPanel() {
     } else if (direction === 'down' && idx < ids.length - 1) {
       [ids[idx], ids[idx + 1]] = [ids[idx + 1], ids[idx]];
     }
-    reorderAssessmentQuestions(ids);
+    reorderQuestions.mutate(ids);
   };
 
   const updateOption = (index: number, value: string) => {
@@ -255,7 +274,7 @@ export default function AssessmentPanel() {
                 {/* Actions */}
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={() => updateAssessmentQuestion(q.id, { enabled: !q.enabled })}
+                    onClick={() => updateQuestion.mutate({ id: q.id, data: { enabled: !(q as any).enabled } })}
                     className={cn(
                       "p-2 rounded-lg transition-colors",
                       q.enabled ? "text-green-600 hover:bg-green-50" : "text-gray-400 hover:bg-gray-50"
@@ -272,7 +291,7 @@ export default function AssessmentPanel() {
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => deleteAssessmentQuestion(q.id)}
+                    onClick={() => deleteQuestion.mutate(q.id)}
                     className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
                     title="Delete"
                   >
