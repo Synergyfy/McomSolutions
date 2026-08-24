@@ -69,6 +69,18 @@ export class AdminController {
     return this.adminService.getStats();
   }
 
+  @Get('analytics')
+  @ApiOperation({ summary: 'Get analytics with period-over-period growth and revenue breakdown' })
+  async getAnalytics() {
+    return this.adminService.getAnalytics();
+  }
+
+  @Get('dropdowns')
+  @ApiOperation({ summary: 'Get dropdown options (membership tiers, platforms, permissions, sources)' })
+  async getDropdowns() {
+    return this.adminService.getDropdowns();
+  }
+
   // ─── Business Users Management ────────────────────────
   @Get('users/businesses')
   @ApiOperation({ summary: 'List businesses' })

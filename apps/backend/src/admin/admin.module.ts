@@ -4,7 +4,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AdminController } from './admin.controller';
 import { AdminAuthController } from './admin-auth.controller';
+import { AdminOpsController } from './admin-ops.controller';
 import { AdminService } from './admin.service';
+import { AdminOpsService } from './admin-ops.service';
 
 @Module({
   imports: [
@@ -18,8 +20,8 @@ import { AdminService } from './admin.service';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AdminController, AdminAuthController],
-  providers: [AdminService],
-  exports: [AdminService],
+  controllers: [AdminController, AdminAuthController, AdminOpsController],
+  providers: [AdminService, AdminOpsService],
+  exports: [AdminService, AdminOpsService],
 })
 export class AdminModule {}

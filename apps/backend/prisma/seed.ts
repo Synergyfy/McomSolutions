@@ -1,5 +1,6 @@
 import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -352,11 +353,19 @@ async function main() {
   // 15. Seed API Keys
   console.log('Seeding API keys...');
   await prisma.systemApiKey.deleteMany();
+  const seedKeys = [
+    { name: 'Production API', rawKey: 'mcom_prod_a1b2c3d4e5f6', permissions: ['Read', 'Write'], status: 'Active' },
+    { name: 'Development API', rawKey: 'mcom_dev_6f5e4d3c2b1a', permissions: ['Read', 'Write', 'Admin'], status: 'Active' },
+  ];
   await prisma.systemApiKey.createMany({
-    data: [
-      { name: 'Production API', key: 'mcom_prod_a1b2c3d4e5f6', permissions: ['Read', 'Write'], status: 'Active', lastUsed: new Date() },
-      { name: 'Development API', key: 'mcom_dev_6f5e4d3c2b1a', permissions: ['Read', 'Write', 'Admin'], status: 'Active', lastUsed: new Date() },
-    ],
+    data: seedKeys.map((k) => ({
+      name: k.name,
+      key: k.rawKey.slice(-4),
+      keyHash: crypto.createHash('sha256').update(k.rawKey).digest('hex'),
+      permissions: k.permissions,
+      status: k.status,
+      lastUsed: new Date(),
+    })),
   });
 
   // 16. Seed Boroughs

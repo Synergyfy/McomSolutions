@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import {
   CreateBusinessUserDto,
   CreateCustomerUserDto,
@@ -199,6 +199,109 @@ export class AdminService {
           recurringRevenue,
         },
         platforms: platformList,
+      },
+    };
+  }
+
+  // ─── Analytics (growth + revenue breakdown) ─────────────
+  async getAnalytics() {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [businessesThisMonth, businessesLastMonth, customersThisMonth, customersLastMonth] =
+      await Promise.all([
+        this.prisma.user.count({ where: { role: Role.BUSINESS, createdAt: { gte: startOfThisMonth } } }),
+        this.prisma.user.count({ where: { role: Role.BUSINESS, createdAt: { gte: startOfLastMonth, lt: startOfThisMonth } } }),
+        this.prisma.user.count({ where: { role: Role.CUSTOMER, createdAt: { gte: startOfThisMonth } } }),
+        this.prisma.user.count({ where: { role: Role.CUSTOMER, createdAt: { gte: startOfLastMonth, lt: startOfThisMonth } } }),
+      ]);
+
+    const [revenueThisMonth, revenueLastMonth] = await Promise.all([
+      this.prisma.adminPayment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'Completed', date: { gte: startOfThisMonth } },
+      }),
+      this.prisma.adminPayment.aggregate({
+        _sum: { amount: true },
+        where: { status: 'Completed', date: { gte: startOfLastMonth, lt: startOfThisMonth } },
+      }),
+    ]);
+
+    const growthPercent = (current: number, previous: number) => {
+      if (previous <= 0) return current > 0 ? 100 : 0;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
+    const revenueBreakdown = await this.prisma.adminPayment.groupBy({
+      by: ['type'],
+      where: { status: 'Completed' },
+      _sum: { amount: true },
+    });
+    const totalRevenue = revenueBreakdown.reduce((sum, r) => sum + (r._sum.amount ?? 0), 0);
+    const breakdown = revenueBreakdown.map((r) => ({
+      type: r.type,
+      amount: r._sum.amount ?? 0,
+      percentage: totalRevenue > 0 ? Math.round(((r._sum.amount ?? 0) / totalRevenue) * 100) : 0,
+    }));
+
+    return {
+      success: true,
+      data: {
+        growth: {
+          businessGrowth: growthPercent(businessesThisMonth, businessesLastMonth),
+          customerGrowth: growthPercent(customersThisMonth, customersLastMonth),
+          revenueGrowth: growthPercent(revenueThisMonth._sum.amount ?? 0, revenueLastMonth._sum.amount ?? 0),
+        },
+        revenueBreakdown: breakdown,
+        totalRevenue,
+      },
+    };
+  }
+
+  // ─── Dropdown Options (UserManagementPanel) ─────────────
+  async getDropdowns() {
+    const [plans, platforms, permissionRoles] = await Promise.all([
+      this.prisma.membershipPlan.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.ecosystemPlatform.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.permissionRole.findMany(),
+    ]);
+
+    const permissionSet = new Set<string>();
+    for (const pr of permissionRoles) {
+      const perms = pr.permissions as Record<string, boolean>;
+      if (perms && typeof perms === 'object') {
+        for (const key of Object.keys(perms)) permissionSet.add(key);
+      }
+    }
+
+    const humanize = (key: string) =>
+      key
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+
+    const permissions = Array.from(permissionSet);
+
+    const sourceOptions = [
+      'GBS Loyalty',
+      'Mcom Mall',
+      'Mcom Rewards',
+      'Mcom Spin',
+      'GBS Audit',
+      'GBS Expo',
+      'McomQ Link',
+    ];
+
+    return {
+      success: true,
+      data: {
+        membershipTiers: plans.map((p) => p.name),
+        platforms: platforms.map((p) => p.name),
+        permissions,
+        permissionLabels: permissions.map(humanize),
+        sources: sourceOptions,
+        registrationSources: sourceOptions,
+        permissionRoles: permissionRoles.map((pr) => ({ role: pr.role, permissions: pr.permissions })),
       },
     };
   }
@@ -1544,10 +1647,18 @@ export class AdminService {
           borough: dto.borough,
           primaryHighStreet: dto.primaryHighStreet,
           additionalHighStreets: dto.additionalHighStreets,
+          businesses: dto.businesses ?? 0,
+          customers: dto.customers ?? 0,
+          campaigns: dto.campaigns ?? 0,
+          events: dto.events ?? 0,
           status: dto.status || 'Active',
+          createdDate: dto.createdDate ? new Date(dto.createdDate) : new Date(),
           description: dto.description,
           longDescription: dto.longDescription,
           slug: dto.slug,
+          logo: dto.logo,
+          coverBanner: dto.coverBanner,
+          mobileBanner: dto.mobileBanner,
           primaryColour: dto.primaryColour,
           secondaryColour: dto.secondaryColour,
           welcomeMessage: dto.welcomeMessage,
@@ -1560,10 +1671,64 @@ export class AdminService {
           requireAuditCompletion: dto.requireAuditCompletion ?? false,
           requireMembershipApproval: dto.requireMembershipApproval ?? true,
           leadConsultant: dto.leadConsultant,
+          leadConsultantId: dto.leadConsultantId,
           assignedAccountManagers: dto.assignedAccountManagers || [],
+          assignedAccountManagerIds: dto.assignedAccountManagerIds || [],
           assignedAgents: dto.assignedAgents || [],
+          assignedAgentIds: dto.assignedAgentIds || [],
           supportTeam: dto.supportTeam || [],
+          enableAudit: dto.enableAudit ?? true,
+          enableRewards: dto.enableRewards ?? true,
+          enableLoyalty: dto.enableLoyalty ?? true,
+          enableQLinks: dto.enableQLinks ?? true,
+          enableSpin: dto.enableSpin ?? true,
+          enableEvents: dto.enableEvents ?? true,
+          enableCampaigns: dto.enableCampaigns ?? true,
+          enablePushNotifications: dto.enablePushNotifications ?? true,
+          enableMarketplace: dto.enableMarketplace ?? false,
+          allowGuestBrowsing: dto.allowGuestBrowsing ?? true,
+          requireRegistrationForRewards: dto.requireRegistrationForRewards ?? true,
+          requireRegistrationForSpin: dto.requireRegistrationForSpin ?? true,
+          enableAutoLocationDetection: dto.enableAutoLocationDetection ?? true,
+          allowManualLocalMallSwitching: dto.allowManualLocalMallSwitching ?? true,
+          autoApproveBusinesses: dto.autoApproveBusinesses ?? false,
+          manualApprovalRequired: dto.manualApprovalRequired ?? true,
+          requireDocumentVerification: dto.requireDocumentVerification ?? true,
+          requireGoogleBusinessMatch: dto.requireGoogleBusinessMatch ?? false,
+          requireAuditCompletionForBusiness: dto.requireAuditCompletionForBusiness ?? true,
+          defaultMembershipPackage: dto.defaultMembershipPackage,
+          featuredBusinesses: dto.featuredBusinesses || [],
+          featuredCategories: dto.featuredCategories || [],
+          featuredCampaigns: dto.featuredCampaigns || [],
+          featuredEvents: dto.featuredEvents || [],
+          featuredRewards: dto.featuredRewards || [],
+          featuredSpinCampaigns: dto.featuredSpinCampaigns || [],
+          featuredHighStreets: dto.featuredHighStreets || [],
           categoryPriorities: dto.categoryPriorities || {},
+          allowBoroughCampaigns: dto.allowBoroughCampaigns ?? true,
+          allowHighStreetCampaigns: dto.allowHighStreetCampaigns ?? true,
+          allowJointCampaigns: dto.allowJointCampaigns ?? false,
+          allowSeasonalCampaigns: dto.allowSeasonalCampaigns ?? true,
+          campaignApprovalRequired: dto.campaignApprovalRequired ?? true,
+          enableEventsModule: dto.enableEventsModule ?? true,
+          requireEventApproval: dto.requireEventApproval ?? true,
+          maxEventsPerBusiness: dto.maxEventsPerBusiness ?? 5,
+          allowCommunityEvents: dto.allowCommunityEvents ?? true,
+          allowBusinessEvents: dto.allowBusinessEvents ?? true,
+          enableRewardsModule: dto.enableRewardsModule ?? true,
+          enableLoyaltyModule: dto.enableLoyaltyModule ?? true,
+          enableBonusCampaigns: dto.enableBonusCampaigns ?? false,
+          enableDoublePointDays: dto.enableDoublePointDays ?? true,
+          enableSeasonalRewards: dto.enableSeasonalRewards ?? true,
+          enableSpinModule: dto.enableSpinModule ?? true,
+          allowBusinessSponsoredSpins: dto.allowBusinessSponsoredSpins ?? true,
+          allowBoroughSpins: dto.allowBoroughSpins ?? false,
+          allowSeasonalSpins: dto.allowSeasonalSpins ?? true,
+          maxSpinsPerCustomer: dto.maxSpinsPerCustomer ?? 3,
+          enableRotator: dto.enableRotator ?? true,
+          enableLocalFeedDistribution: dto.enableLocalFeedDistribution ?? true,
+          enableBoroughFeedDistribution: dto.enableBoroughFeedDistribution ?? false,
+          enableFeaturedPlacement: dto.enableFeaturedPlacement ?? true,
         },
       });
 
@@ -1578,16 +1743,23 @@ export class AdminService {
     const mallExists = await this.prisma.localMall.findUnique({ where: { id } });
     if (!mallExists) throw new NotFoundException('Local mall not found');
 
-    const mall = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.localMall.update({
-        where: { id },
-        data: updates,
+    try {
+      const mall = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.localMall.update({
+          where: { id },
+          data: updates,
+        });
+        await this.logAuditTx(tx, 'LocalMall Updated', 'LocalMall', id, `Updated LocalMall settings`, adminName);
+        return result;
       });
-      await this.logAuditTx(tx, 'LocalMall Updated', 'LocalMall', id, `Updated LocalMall settings`, adminName);
-      return result;
-    });
 
-    return { success: true, data: mall };
+      return { success: true, data: mall };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('A local mall with this slug already exists');
+      }
+      throw error;
+    }
   }
 
   async deleteLocalMall(id: string, adminName?: string) {
