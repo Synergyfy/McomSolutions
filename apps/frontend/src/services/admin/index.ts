@@ -422,4 +422,289 @@ export const adminApi = {
     const res = await apiClient.get('/admin/packages/external/platforms')
     return res.data as ApiResponse<string[]>
   },
+
+  // ─── Analytics ────────────────────────────────────────
+  getAnalytics: async () => {
+    const res = await apiClient.get('/admin/analytics')
+    return res.data as ApiResponse<{
+      growth: { businessGrowth: number; customerGrowth: number; revenueGrowth: number }
+      revenueBreakdown: { type: string; amount: number; percentage: number }[]
+      totalRevenue: number
+    }>
+  },
+
+  // ─── Dropdowns ────────────────────────────────────────
+  getDropdowns: async () => {
+    const res = await apiClient.get('/admin/dropdowns')
+    return res.data as ApiResponse<{
+      membershipTiers: string[]
+      platforms: string[]
+      permissions: string[]
+      permissionLabels: { key: string; label: string }[]
+      sources: string[]
+      registrationSources: string[]
+      permissionRoles: string[]
+    }>
+  },
+
+  // ─── Borough Metrics & Stats ──────────────────────────
+  getBoroughStats: async (id: string) => {
+    const res = await apiClient.get(`/admin/localities/boroughs/${id}/stats`)
+    return res.data as ApiResponse<{
+      borough: any
+      stats: { totalBusinesses: number; activeCustomers: number; footfallDensityPerDay: number; mcomImpact: number }
+      trends: { businessGrowth: number; customerGrowth: number; footfallTrend: number; revenueTrend: number }
+      chart: { footfall: number[]; revenue: number[]; months: string[] }
+    }>
+  },
+
+  getBoroughMetrics: async (id: string) => {
+    const res = await apiClient.get(`/admin/localities/boroughs/${id}/metrics`)
+    return res.data as ApiResponse<any[]>
+  },
+
+  createBoroughMetric: async (boroughId: string, data: any) => {
+    const res = await apiClient.post(`/admin/localities/boroughs/${boroughId}/metrics`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateBoroughMetric: async (metricId: string, data: any) => {
+    const res = await apiClient.put(`/admin/localities/boroughs/metrics/${metricId}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteBoroughMetric: async (metricId: string) => {
+    const res = await apiClient.delete(`/admin/localities/boroughs/metrics/${metricId}`)
+    return res.data
+  },
+
+  // ─── Activities (Feed) ────────────────────────────────
+  getActivities: async (params?: { highStreetId?: string; page?: number; limit?: number }) => {
+    const res = await apiClient.get('/admin/activities', { params })
+    return res.data as PaginatedResponse<any>
+  },
+
+  createActivity: async (data: { title: string; description?: string; severity?: string; highStreetId?: string }) => {
+    const res = await apiClient.post('/admin/activities', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateActivity: async (id: string, data: Partial<{ title: string; description: string; severity: string }>) => {
+    const res = await apiClient.put(`/admin/activities/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteActivity: async (id: string) => {
+    const res = await apiClient.delete(`/admin/activities/${id}`)
+    return res.data
+  },
+
+  // ─── Programme Management ─────────────────────────────
+  // Phases
+  getProgrammePhases: async () => {
+    const res = await apiClient.get('/admin/programme/phases')
+    return res.data as ApiResponse<any[]>
+  },
+
+  getProgrammePhase: async (id: string) => {
+    const res = await apiClient.get(`/admin/programme/phases/${id}`)
+    return res.data as ApiResponse<any>
+  },
+
+  createProgrammePhase: async (data: any) => {
+    const res = await apiClient.post('/admin/programme/phases', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateProgrammePhase: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/programme/phases/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteProgrammePhase: async (id: string) => {
+    const res = await apiClient.delete(`/admin/programme/phases/${id}`)
+    return res.data
+  },
+
+  // Readiness Gates
+  getProgrammeGates: async () => {
+    const res = await apiClient.get('/admin/programme/gates')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createProgrammeGate: async (data: any) => {
+    const res = await apiClient.post('/admin/programme/gates', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateProgrammeGate: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/programme/gates/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteProgrammeGate: async (id: string) => {
+    const res = await apiClient.delete(`/admin/programme/gates/${id}`)
+    return res.data
+  },
+
+  // Support Agents
+  getProgrammeAgents: async () => {
+    const res = await apiClient.get('/admin/programme/agents')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createProgrammeAgent: async (data: any) => {
+    const res = await apiClient.post('/admin/programme/agents', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateProgrammeAgent: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/programme/agents/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteProgrammeAgent: async (id: string) => {
+    const res = await apiClient.delete(`/admin/programme/agents/${id}`)
+    return res.data
+  },
+
+  // Business Programme Records
+  getProgrammeBusinesses: async () => {
+    const res = await apiClient.get('/admin/programme/businesses')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createProgrammeBusiness: async (data: any) => {
+    const res = await apiClient.post('/admin/programme/businesses', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateProgrammeBusiness: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/programme/businesses/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteProgrammeBusiness: async (id: string) => {
+    const res = await apiClient.delete(`/admin/programme/businesses/${id}`)
+    return res.data
+  },
+
+  programmeBusinessAction: async (id: string, data: { action: string; days?: number }) => {
+    const res = await apiClient.post(`/admin/programme/businesses/${id}/action`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  getProgrammeBusinessTasks: async (id: string) => {
+    const res = await apiClient.get(`/admin/programme/businesses/${id}/tasks`)
+    return res.data as ApiResponse<Record<string, string>>
+  },
+
+  updateProgrammeBusinessTask: async (id: string, data: { missionId: string; status: string }) => {
+    const res = await apiClient.put(`/admin/programme/businesses/${id}/tasks`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  // ─── System — API Keys ────────────────────────────────
+  getApiKeys: async () => {
+    const res = await apiClient.get('/admin/system/api-keys')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createApiKey: async (data: { name: string; permissions?: string[] }) => {
+    const res = await apiClient.post('/admin/system/api-keys', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateApiKey: async (id: string, data: Partial<{ name: string; permissions: string[]; active: boolean }>) => {
+    const res = await apiClient.put(`/admin/system/api-keys/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteApiKey: async (id: string) => {
+    const res = await apiClient.delete(`/admin/system/api-keys/${id}`)
+    return res.data
+  },
+
+  // ─── System — Integrations ────────────────────────────
+  getIntegrations: async () => {
+    const res = await apiClient.get('/admin/system/integrations')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createIntegration: async (data: { name: string; type: string; config?: any }) => {
+    const res = await apiClient.post('/admin/system/integrations', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateIntegration: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/system/integrations/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteIntegration: async (id: string) => {
+    const res = await apiClient.delete(`/admin/system/integrations/${id}`)
+    return res.data
+  },
+
+  // ─── System — Health, Jobs, Error Logs ────────────────
+  getSystemHealth: async () => {
+    const res = await apiClient.get('/admin/system/health')
+    return res.data as ApiResponse<any>
+  },
+
+  getSystemJobs: async () => {
+    const res = await apiClient.get('/admin/system/jobs')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createSystemJob: async (data: { name: string; type: string; payload?: any }) => {
+    const res = await apiClient.post('/admin/system/jobs', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateSystemJob: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/system/jobs/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteSystemJob: async (id: string) => {
+    const res = await apiClient.delete(`/admin/system/jobs/${id}`)
+    return res.data
+  },
+
+  getSystemErrorLogs: async (params?: { page?: number; limit?: number }) => {
+    const res = await apiClient.get('/admin/system/error-logs', { params })
+    return res.data as PaginatedResponse<any>
+  },
+
+  createSystemErrorLog: async (data: { level: string; message: string; source?: string; stack?: string }) => {
+    const res = await apiClient.post('/admin/system/error-logs', data)
+    return res.data as ApiResponse<any>
+  },
+
+  // ─── Assessment Questions ─────────────────────────────
+  getAssessmentQuestions: async () => {
+    const res = await apiClient.get('/admin/assessment/questions')
+    return res.data as ApiResponse<any[]>
+  },
+
+  createAssessmentQuestion: async (data: any) => {
+    const res = await apiClient.post('/admin/assessment/questions', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateAssessmentQuestion: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/assessment/questions/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteAssessmentQuestion: async (id: string) => {
+    const res = await apiClient.delete(`/admin/assessment/questions/${id}`)
+    return res.data
+  },
+
+  reorderAssessmentQuestions: async (orderedIds: string[]) => {
+    const res = await apiClient.put('/admin/assessment/questions/reorder', { orderedIds })
+    return res.data as ApiResponse<any>
+  },
 }

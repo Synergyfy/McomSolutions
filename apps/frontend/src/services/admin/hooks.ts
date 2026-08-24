@@ -647,3 +647,438 @@ export const useSupportedPlatforms = () => {
     staleTime: 1000 * 60 * 60,
   })
 }
+// ─── Analytics ──────────────────────────────────────────
+export const useAdminAnalytics = () => {
+  return useQuery({
+    queryKey: ['admin', 'analytics'],
+    queryFn: () => adminApi.getAnalytics(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+// ─── Dropdowns ──────────────────────────────────────────
+export const useAdminDropdowns = () => {
+  return useQuery({
+    queryKey: ['admin', 'dropdowns'],
+    queryFn: () => adminApi.getDropdowns(),
+    staleTime: 1000 * 60 * 30,
+  })
+}
+
+// ─── Borough Stats ──────────────────────────────────────
+export const useBoroughStats = (id: string) => {
+  return useQuery({
+    queryKey: ['admin', 'boroughStats', id],
+    queryFn: () => adminApi.getBoroughStats(id),
+    staleTime: 1000 * 60 * 5,
+    enabled: !!id,
+  })
+}
+
+export const useBoroughMetrics = (id: string) => {
+  return useQuery({
+    queryKey: ['admin', 'boroughMetrics', id],
+    queryFn: () => adminApi.getBoroughMetrics(id),
+    staleTime: 1000 * 60 * 5,
+    enabled: !!id,
+  })
+}
+
+export const useCreateBoroughMetric = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ boroughId, data }: { boroughId: string; data: any }) =>
+      adminApi.createBoroughMetric(boroughId, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughStats', variables.boroughId] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughMetrics', variables.boroughId] })
+    },
+  })
+}
+
+export const useUpdateBoroughMetric = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ metricId, data }: { metricId: string; data: any }) =>
+      adminApi.updateBoroughMetric(metricId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughStats'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughMetrics'] })
+    },
+  })
+}
+
+export const useDeleteBoroughMetric = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (metricId: string) => adminApi.deleteBoroughMetric(metricId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughStats'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughMetrics'] })
+    },
+  })
+}
+
+// ─── Activities (Feed) ──────────────────────────────────
+export const useAdminActivities = (params?: { highStreetId?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'activities', params],
+    queryFn: () => adminApi.getActivities(params),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateActivity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { title: string; description?: string; severity?: string; highStreetId?: string }) =>
+      adminApi.createActivity(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'activities'] }),
+  })
+}
+
+export const useUpdateActivity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ title: string; description: string; severity: string }> }) =>
+      adminApi.updateActivity(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'activities'] }),
+  })
+}
+
+export const useDeleteActivity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteActivity(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'activities'] }),
+  })
+}
+
+// ─── Programme Management ───────────────────────────────
+// Phases
+export const useProgrammePhases = () => {
+  return useQuery({
+    queryKey: ['admin', 'programmePhases'],
+    queryFn: () => adminApi.getProgrammePhases(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateProgrammePhase = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createProgrammePhase(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmePhases'] }),
+  })
+}
+
+export const useUpdateProgrammePhase = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateProgrammePhase(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmePhases'] }),
+  })
+}
+
+export const useDeleteProgrammePhase = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteProgrammePhase(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmePhases'] }),
+  })
+}
+
+// Readiness Gates
+export const useProgrammeGates = () => {
+  return useQuery({
+    queryKey: ['admin', 'programmeGates'],
+    queryFn: () => adminApi.getProgrammeGates(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateProgrammeGate = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createProgrammeGate(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeGates'] }),
+  })
+}
+
+export const useUpdateProgrammeGate = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateProgrammeGate(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeGates'] }),
+  })
+}
+
+export const useDeleteProgrammeGate = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteProgrammeGate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeGates'] }),
+  })
+}
+
+// Support Agents
+export const useProgrammeAgents = () => {
+  return useQuery({
+    queryKey: ['admin', 'programmeAgents'],
+    queryFn: () => adminApi.getProgrammeAgents(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateProgrammeAgent = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createProgrammeAgent(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeAgents'] }),
+  })
+}
+
+export const useUpdateProgrammeAgent = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateProgrammeAgent(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeAgents'] }),
+  })
+}
+
+export const useDeleteProgrammeAgent = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteProgrammeAgent(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeAgents'] }),
+  })
+}
+
+// Business Programme Records
+export const useProgrammeBusinesses = () => {
+  return useQuery({
+    queryKey: ['admin', 'programmeBusinesses'],
+    queryFn: () => adminApi.getProgrammeBusinesses(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateProgrammeBusiness = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createProgrammeBusiness(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinesses'] }),
+  })
+}
+
+export const useUpdateProgrammeBusiness = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateProgrammeBusiness(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinesses'] }),
+  })
+}
+
+export const useDeleteProgrammeBusiness = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteProgrammeBusiness(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinesses'] }),
+  })
+}
+
+export const useProgrammeBusinessAction = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { action: string; days?: number } }) =>
+      adminApi.programmeBusinessAction(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinesses'] }),
+  })
+}
+
+export const useProgrammeBusinessTasks = (id: string) => {
+  return useQuery({
+    queryKey: ['admin', 'programmeBusinessTasks', id],
+    queryFn: () => adminApi.getProgrammeBusinessTasks(id),
+    staleTime: 1000 * 60 * 2,
+    enabled: !!id,
+  })
+}
+
+export const useUpdateProgrammeBusinessTask = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { missionId: string; status: string } }) =>
+      adminApi.updateProgrammeBusinessTask(id, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinessTasks', variables.id] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'programmeBusinesses'] })
+    },
+  })
+}
+
+// ─── System — API Keys ──────────────────────────────────
+export const useAdminApiKeys = () => {
+  return useQuery({
+    queryKey: ['admin', 'apiKeys'],
+    queryFn: () => adminApi.getApiKeys(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateApiKey = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; permissions?: string[] }) => adminApi.createApiKey(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
+  })
+}
+
+export const useUpdateApiKey = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ name: string; permissions: string[]; active: boolean }> }) =>
+      adminApi.updateApiKey(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
+  })
+}
+
+export const useDeleteApiKey = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteApiKey(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
+  })
+}
+
+// ─── System — Integrations ──────────────────────────────
+export const useAdminIntegrations = () => {
+  return useQuery({
+    queryKey: ['admin', 'integrations'],
+    queryFn: () => adminApi.getIntegrations(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateIntegration = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; type: string; config?: any }) => adminApi.createIntegration(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
+  })
+}
+
+export const useUpdateIntegration = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateIntegration(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
+  })
+}
+
+export const useDeleteIntegration = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteIntegration(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
+  })
+}
+
+// ─── System — Health, Jobs, Error Logs ──────────────────
+export const useSystemHealth = () => {
+  return useQuery({
+    queryKey: ['admin', 'systemHealth'],
+    queryFn: () => adminApi.getSystemHealth(),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useSystemJobs = () => {
+  return useQuery({
+    queryKey: ['admin', 'systemJobs'],
+    queryFn: () => adminApi.getSystemJobs(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateSystemJob = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; type: string; payload?: any }) => adminApi.createSystemJob(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'systemJobs'] }),
+  })
+}
+
+export const useUpdateSystemJob = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateSystemJob(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'systemJobs'] }),
+  })
+}
+
+export const useDeleteSystemJob = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteSystemJob(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'systemJobs'] }),
+  })
+}
+
+export const useSystemErrorLogs = (params?: { page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'systemErrorLogs', params],
+    queryFn: () => adminApi.getSystemErrorLogs(params),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateSystemErrorLog = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { level: string; message: string; source?: string; stack?: string }) =>
+      adminApi.createSystemErrorLog(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'systemErrorLogs'] }),
+  })
+}
+
+// ─── Assessment Questions ───────────────────────────────
+export const useAssessmentQuestions = () => {
+  return useQuery({
+    queryKey: ['admin', 'assessmentQuestions'],
+    queryFn: () => adminApi.getAssessmentQuestions(),
+    staleTime: 1000 * 60 * 5,
+  })
+}
+
+export const useCreateAssessmentQuestion = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createAssessmentQuestion(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
+  })
+}
+
+export const useUpdateAssessmentQuestion = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateAssessmentQuestion(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
+  })
+}
+
+export const useDeleteAssessmentQuestion = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteAssessmentQuestion(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
+  })
+}
+
+export const useReorderAssessmentQuestions = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (orderedIds: string[]) => adminApi.reorderAssessmentQuestions(orderedIds),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
+  })
+}

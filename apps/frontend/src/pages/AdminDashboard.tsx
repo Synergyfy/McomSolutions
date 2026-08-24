@@ -19,9 +19,9 @@ import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import AssessmentPanel from '../components/admin/AssessmentPanel';
 
 const ADMIN_TABS: AdminTab[] = [
-  'dashboard', 'users', 'businesses', 'customers', 'agents', 'consultants', 'account-managers',
-  'memberships', 'packages', 'pricing', 'subscriptions',
-  'platform-access', 'platform-directory', 'platform-launch',
+  'dashboard', 'users',
+  'memberships', 'subscriptions',
+  'platform-access',
   'permissions', 'auth', 'registration-flow', 'business-profile',
   'payments', 'billing',
   'api-keys', 'integrations',
@@ -48,18 +48,9 @@ export default function AdminDashboard() {
     const map: Record<AdminTab, { title: string; subtitle: string }> = {
       dashboard: { title: 'Ecosystem Dashboard', subtitle: 'Master overview of the entire MCOM ecosystem' },
       users: { title: 'User Management', subtitle: 'Manage all ecosystem users across roles' },
-      businesses: { title: 'Business Management', subtitle: 'Master business control and verification' },
-      customers: { title: 'Customer Management', subtitle: 'Manage customer profiles and loyalty' },
-      agents: { title: 'Agent Management', subtitle: 'Manage agents and their permissions' },
-      consultants: { title: 'Consultant Management', subtitle: 'Manage ecosystem consultants' },
-      'account-managers': { title: 'Account Manager Management', subtitle: 'Manage account managers and assignments' },
       memberships: { title: 'Membership Management', subtitle: 'Create and manage ecosystem membership tiers' },
-      packages: { title: 'Package Management', subtitle: 'Create platform-specific packages' },
-      pricing: { title: 'Pricing Management', subtitle: 'Centralized pricing engine' },
       subscriptions: { title: 'Subscription Management', subtitle: 'Control all ecosystem subscriptions' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
-      'platform-directory': { title: 'Platform Directory', subtitle: 'Manage the platform directory' },
-      'platform-launch': { title: 'Platform Launch Control', subtitle: 'Manage platform launching rules' },
       permissions: { title: 'Permission Management', subtitle: 'Role and permission control matrix' },
       auth: { title: 'Authentication Management', subtitle: 'Manage login, registration, and security policies' },
       'registration-flow': { title: 'Registration Flow Management', subtitle: 'Control the onboarding process' },
@@ -92,21 +83,12 @@ export default function AdminDashboard() {
       case 'dashboard':
         return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
       case 'users':
-      case 'businesses':
-      case 'customers':
-      case 'agents':
-      case 'consultants':
-      case 'account-managers':
         return <UserManagementPanel />;
       case 'memberships':
-      case 'packages':
-      case 'pricing':
         return <PlanManagementPanel />;
       case 'subscriptions':
         return <SubscriptionManagementPanel />;
       case 'platform-access':
-      case 'platform-directory':
-      case 'platform-launch':
         return <PlatformPanel />;
       case 'permissions':
         return <PermissionPanel />;

@@ -9,11 +9,12 @@ import {
   User, HeadphonesIcon, Briefcase, ToggleLeft,
   GripVertical, ArrowUpDown, Download, Upload,
   FileText, Calendar, Target, Check, X, Lock,
-  ChevronLeft, ChevronsLeft, ChevronsRight
+  ChevronLeft, ChevronsLeft, ChevronsRight, Loader2
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../../lib/programmeData';
 import type { ProgrammePhase, ProgrammeMission } from '../../lib/programmeData';
 import { cn } from '../../lib/utils';
+import { useProgrammePhases, useProgrammeGates, useProgrammeAgents, useProgrammeBusinesses, useProgrammeBusinessAction } from '../../services/admin/hooks';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -236,22 +237,9 @@ function BusinessActionModal({
   );
 }
 
-const MOCK_SUPPORT: SupportAgent[] = [
-  { id: 'agent-1', name: 'John Smith', role: 'agent', email: 'john@mcom.com' },
-  { id: 'agent-2', name: 'Sarah Jones', role: 'agent', email: 'sarah@mcom.com' },
-  { id: 'am-1', name: 'Emily Davis', role: 'account_manager', email: 'emily@mcom.com' },
-  { id: 'am-2', name: 'Michael Brown', role: 'account_manager', email: 'michael@mcom.com' },
-  { id: 'con-1', name: 'David Wilson', role: 'consultant', email: 'david@mcom.com' },
-  { id: 'con-2', name: 'Lisa Taylor', role: 'consultant', email: 'lisa@mcom.com' },
-];
+// ─── Support agents now come from API via useProgrammeAgents() ────────────────
 
-const MOCK_BUSINESSES: BusinessProgrammeRecord[] = [
-  { id: 'b1', businessName: 'Toby Barbers', sector: 'Hospitality', currentDay: 17, status: 'active', agentId: 'agent-1', agentName: 'John Smith', accountManagerId: 'am-1', accountManagerName: 'Emily Davis', consultantId: null, consultantName: '', completedMissions: [], startedAt: '2026-06-20', extendedBy: 0 },
-  { id: 'b2', businessName: 'Jane\'s Café', sector: 'Food & Beverage', currentDay: 4, status: 'paused', agentId: 'agent-2', agentName: 'Sarah Jones', accountManagerId: null, accountManagerName: '', consultantId: null, consultantName: '', completedMissions: [], startedAt: '2026-07-03', extendedBy: 0 },
-  { id: 'b3', businessName: 'Green Grocers', sector: 'Retail', currentDay: 8, status: 'active', agentId: 'agent-1', agentName: 'John Smith', accountManagerId: 'am-2', accountManagerName: 'Michael Brown', consultantId: 'con-1', consultantName: 'David Wilson', completedMissions: [], startedAt: '2026-06-28', extendedBy: 5 },
-  { id: 'b4', businessName: 'TechFix Ltd', sector: 'Technology', currentDay: 45, status: 'active', agentId: 'agent-2', agentName: 'Sarah Jones', accountManagerId: 'am-1', accountManagerName: 'Emily Davis', consultantId: 'con-2', consultantName: 'Lisa Taylor', completedMissions: [], startedAt: '2026-05-15', extendedBy: 0 },
-  { id: 'b5', businessName: 'Bright Smiles Dental', sector: 'Health & Wellness', currentDay: 90, status: 'completed', agentId: 'agent-1', agentName: 'John Smith', accountManagerId: null, accountManagerName: '', consultantId: null, consultantName: '', completedMissions: [], startedAt: '2026-03-01', extendedBy: 0 },
-];
+// ─── Business programme records now come from API via useProgrammeBusinesses() ────────────────
 
 // ─── Task Editor Modal ──────────────────────────────
 
@@ -542,28 +530,26 @@ function TaskEditorModal({
 // ─── Config Section ─────────────────────────────────
 
 function ConfigSection() {
-  const [phases, setPhases] = useState<ProgrammePhase[]>(() => {
-    const saved = localStorage.getItem('adminProgrammePhases');
-    return saved ? JSON.parse(saved) : PROGRAMME_PHASES;
-  });
+  const { data: phasesRes, isLoading: phasesLoading } = useProgrammePhases();
+  const { data: gatesRes, isLoading: gatesLoading } = useProgrammeGates();
+  const [phases, setPhases] = useState<ProgrammePhase[]>([]);
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
-  const [gates, setGates] = useState<ReadinessGate[]>(() => {
-    const saved = localStorage.getItem('adminReadinessGates');
-    return saved ? JSON.parse(saved) : DEFAULT_GATES;
-  });
+  const [gates, setGates] = useState<ReadinessGate[]>(DEFAULT_GATES);
+
+  useEffect(() => {
+    if (phasesRes?.data) setPhases(phasesRes.data);
+    else if (!phasesLoading) setPhases(PROGRAMME_PHASES);
+  }, [phasesRes, phasesLoading]);
+
+  useEffect(() => {
+    if (gatesRes?.data) setGates(gatesRes.data);
+    else if (!gatesLoading) setGates(DEFAULT_GATES);
+  }, [gatesRes, gatesLoading]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
   const [taskFormData, setTaskFormData] = useState<TaskFormData>(EMPTY_TASK);
-
-  useEffect(() => {
-    localStorage.setItem('adminProgrammePhases', JSON.stringify(phases));
-  }, [phases]);
-
-  useEffect(() => {
-    localStorage.setItem('adminReadinessGates', JSON.stringify(gates));
-  }, [gates]);
 
   const totalMissions = phases.reduce((s, p) => s + p.missions.length, 0);
 
@@ -836,18 +822,17 @@ function ConfigSection() {
 }
 
 function BusinessesSection() {
-  const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>(() => {
-    const saved = localStorage.getItem('adminBusinessProgrammes');
-    return saved ? JSON.parse(saved) : MOCK_BUSINESSES;
-  });
+  const { data: bizRes, isLoading } = useProgrammeBusinesses();
+  const businessAction = useProgrammeBusinessAction();
+  const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessProgrammeRecord | null>(null);
   const [showOverridePanel, setShowOverridePanel] = useState(false);
   const [actionModal, setActionModal] = useState<{ type: BusinessAction; business: BusinessProgrammeRecord } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('adminBusinessProgrammes', JSON.stringify(businesses));
-  }, [businesses]);
+    if (bizRes?.data) setBusinesses(bizRes.data as BusinessProgrammeRecord[]);
+  }, [bizRes]);
 
   const filtered = businesses.filter(b =>
     b.businessName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -899,6 +884,7 @@ function BusinessesSection() {
     else if (action === 'extend' && value) extendProgramme(b, value);
     else if (action === 'skipPhase') skipPhase(b);
     else if (action === 'reset') resetBusiness(b);
+    businessAction.mutate({ id: b.id, data: { action, days: value } });
     setActionModal(null);
   };
 
@@ -1048,15 +1034,19 @@ function BusinessesSection() {
 }
 
 function SupportSection() {
-  const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>(() => {
-    const saved = localStorage.getItem('adminBusinessProgrammes');
-    return saved ? JSON.parse(saved) : MOCK_BUSINESSES;
-  });
+  const { data: bizRes } = useProgrammeBusinesses();
+  const { data: agentsRes } = useProgrammeAgents();
+  const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>([]);
   const [selectedBiz, setSelectedBiz] = useState<string | null>(null);
 
-  const agents = MOCK_SUPPORT.filter(a => a.role === 'agent');
-  const accountManagers = MOCK_SUPPORT.filter(a => a.role === 'account_manager');
-  const consultants = MOCK_SUPPORT.filter(a => a.role === 'consultant');
+  useEffect(() => {
+    if (bizRes?.data) setBusinesses(bizRes.data as BusinessProgrammeRecord[]);
+  }, [bizRes]);
+
+  const allAgents = ((agentsRes?.data ?? []) as SupportAgent[]);
+  const agents = allAgents.filter(a => a.role === 'agent');
+  const accountManagers = allAgents.filter(a => a.role === 'account_manager');
+  const consultants = allAgents.filter(a => a.role === 'consultant');
 
   const assign = (bId: string, field: 'agentId' | 'accountManagerId' | 'consultantId', agent: SupportAgent | null) => {
     setBusinesses(prev => prev.map(b => {
@@ -1074,7 +1064,6 @@ function SupportSection() {
       }
       return { ...b, ...updates };
     }));
-    localStorage.setItem('adminBusinessProgrammes', JSON.stringify(businesses));
   };
 
   const getAssignedName = (b: BusinessProgrammeRecord, field: 'agentId' | 'accountManagerId' | 'consultantId', nameField: 'agentName' | 'accountManagerName' | 'consultantName') => {
@@ -1140,10 +1129,12 @@ function SupportSection() {
 }
 
 function MonitoringSection() {
-  const [businesses] = useState<BusinessProgrammeRecord[]>(() => {
-    const saved = localStorage.getItem('adminBusinessProgrammes');
-    return saved ? JSON.parse(saved) : MOCK_BUSINESSES;
-  });
+  const { data: bizRes } = useProgrammeBusinesses();
+  const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>([]);
+
+  useEffect(() => {
+    if (bizRes?.data) setBusinesses(bizRes.data as BusinessProgrammeRecord[]);
+  }, [bizRes]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1199,10 +1190,10 @@ function MonitoringSection() {
 
   const getOverallTaskCount = (): { completed: number; total: number } => {
     const total = PROGRAMME_PHASES.reduce((s, p) => s + p.missions.length, 0);
-    const allMissionIds = PROGRAMME_PHASES.flatMap(p => p.missions.map(m => m.id));
-    const bizTaskStatuses = localStorage.getItem('businessTaskStatuses');
-    const parsed = bizTaskStatuses ? JSON.parse(bizTaskStatuses) : {};
-    const completed = Object.values(parsed).filter(v => v === 'completed').length;
+    const allMissionIds = new Set(PROGRAMME_PHASES.flatMap(p => p.missions.map(m => m.id)));
+    const completed = businesses.reduce((count, b) => {
+      return count + (b.completedMissions?.filter(m => allMissionIds.has(m)).length ?? 0);
+    }, 0);
     return { completed, total };
   };
 
