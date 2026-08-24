@@ -3,6 +3,7 @@ import { PaymentService } from './payment.service';
 import { ConfigService } from '@nestjs/config';
 import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { InternalServerErrorException } from '@nestjs/common';
 
 const mockSetupIntents = {
@@ -48,8 +49,19 @@ describe('PaymentService', () => {
   };
 
   const mockPrisma = {
-    businessProfile: {},
-    billingTransaction: {},
+    businessProfile: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    billingTransaction: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+    },
+  };
+
+  const mockConnectorsService = {
+    syncMembership: jest.fn(),
+    syncPackage: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -61,6 +73,7 @@ describe('PaymentService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: PricingService, useValue: mockPricingService },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ServiceConnectorsService, useValue: mockConnectorsService },
       ],
     }).compile();
 
@@ -78,6 +91,7 @@ describe('PaymentService', () => {
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
+          { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -109,6 +123,7 @@ describe('PaymentService', () => {
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
+          { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -169,6 +184,7 @@ describe('PaymentService', () => {
           },
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
+          { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -216,6 +232,7 @@ describe('PaymentService', () => {
           },
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
+          { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);

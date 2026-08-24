@@ -12,10 +12,14 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:staging": "dotenv -e .env.staging -- prisma migrate deploy",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test": "jest --maxWorkers=2 --forceExit",
+    "test:unit": "jest --maxWorkers=2 --forceExit",
+    "test:run": "jest --runInBand --forceExit",
+    "test:watch": "jest --watch --maxWorkers=1",
+    "test:cov": "jest --coverage --maxWorkers=2 --forceExit",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand --forceExit",
+    "test:all": "npm run test:unit && npm run test:e2e",
+    "test:migrate": "dotenv -e .env.test -- prisma migrate deploy",
     "postinstall": "prisma generate"
   },
   "dependencies": {

@@ -460,7 +460,8 @@ model SystemIntegration {
 model SystemApiKey {
   id          String    @id @default(cuid())
   name        String    @map("name")
-  key         String    @unique @map("key")
+  key         String    @unique @map("key") // last 4 chars (suffix) for display
+  keyHash     String    @unique @map("key_hash") // SHA-256 of the raw key (for verification)
   permissions String[]  @map("permissions")
   status      String    @default("Active") @map("status") // Active, Revoked
   lastUsed    DateTime? @map("last_used")
@@ -497,6 +498,7 @@ model Borough {
   activity             String   @map("activity")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
+  metrics              BoroughMetric[]
 
   @@map("boroughs")
 }
@@ -509,6 +511,8 @@ model HighStreet {
   businessCount Int      @default(0) @map("business_count")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+
+  activities    ActivityFeed[]
 
   @@map("high_streets")
 }
@@ -606,4 +610,224 @@ model LocalMall {
   updatedAt                           DateTime @updatedAt @map("updated_at")
 
   @@map("local_malls")
+}
+
+// ─── PROGRAMME MANAGEMENT (ProgrammeManagementPanel) ────────────────────────
+
+enum ProgrammeStatus {
+  active
+  paused
+  completed
+  extended
+}
+
+enum SubmissionType {
+  internal_platform
+  external_link
+  image_upload
+  text_input
+  digit_input
+}
+
+enum TaskStatus {
+  not_started
+  in_progress
+  completed
+}
+
+model ProgrammePhase {
+  id          String            @id @default(cuid())
+  name        String            @map("name")
+  dayStart    Int               @map("day_start")
+  dayEnd      Int               @map("day_end")
+  description String            @map("description")
+  color       String            @default("sky") @map("color")
+  order       Int               @default(0) @map("order")
+  missions    Json              @map("missions")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  businesses  BusinessProgramme[]
+
+  @@index([order])
+  @@map("programme_phases")
+}
+
+model ReadinessGate {
+  id                String   @id @default(cuid())
+  name              String   @map("name")
+  minProgressPercent Int     @map("min_progress_percent")
+  isEnabled         Boolean  @default(true) @map("is_enabled")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("readiness_gates")
+}
+
+model BusinessProgramme {
+  id                  String            @id @default(cuid())
+  businessId          String?           @map("business_id")
+  businessName        String            @map("business_name")
+  sector              String            @map("sector")
+  currentDay          Int               @default(1) @map("current_day")
+  status              ProgrammeStatus   @default(active) @map("status")
+  agentId             String?           @map("agent_id")
+  agentName           String            @map("agent_name")
+  accountManagerId    String?           @map("account_manager_id")
+  accountManagerName  String            @map("account_manager_name")
+  consultantId        String?           @map("consultant_id")
+  consultantName      String            @map("consultant_name")
+  completedMissions   String[]          @map("completed_missions")
+  startedAt           DateTime          @default(now()) @map("started_at")
+  extendedBy          Int               @default(0) @map("extended_by")
+  phaseId             String?           @map("phase_id")
+  phase               ProgrammePhase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  taskStatuses        ProgrammeTaskStatus[]
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@index([agentId])
+  @@index([status])
+  @@index([phaseId])
+  @@map("business_programmes")
+}
+
+model ProgrammeTaskStatus {
+  id                   String          @id @default(cuid())
+  businessProgrammeId  String          @map("business_programme_id")
+  businessProgramme    BusinessProgramme @relation(fields: [businessProgrammeId], references: [id], onDelete: Cascade)
+  missionId            String          @map("mission_id")
+  status               TaskStatus      @default(not_started) @map("status")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@unique([businessProgrammeId, missionId])
+  @@index([businessProgrammeId])
+  @@map("programme_task_statuses")
+}
+
+enum SupportAgentRole {
+  agent
+  account_manager
+  consultant
+}
+
+model SupportAgent {
+  id        String          @id @default(cuid())
+  name      String          @map("name")
+  role      SupportAgentRole @map("role")
+  email     String          @unique @map("email")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@index([role])
+  @@map("support_agents")
+}
+
+// ─── ASSESSMENT (AssessmentPanel) ────────────────────────────────────────────
+
+enum AssessmentFieldType {
+  single_choice
+  multi_choice
+  text
+  textarea
+  number
+  date
+  rating
+  yes_no
+}
+
+model AssessmentQuestion {
+  id        String              @id @default(cuid())
+  question  String              @map("question")
+  iconName  String              @map("icon_name")
+  fieldType AssessmentFieldType @map("field_type")
+  options   String[]            @map("options")
+  hint      String              @map("hint")
+  enabled   Boolean             @default(true) @map("enabled")
+  order     Int                 @default(0) @map("order")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  @@index([order])
+  @@map("assessment_questions")
+}
+
+// ─── ACTIVITY FEED (HighStreetsPanel operational feed) ───────────────────────
+
+enum ActivitySeverity {
+  info
+  success
+  warning
+  danger
+}
+
+model ActivityFeed {
+  id          String           @id @default(cuid())
+  type        String           @map("type")
+  title       String           @map("title")
+  details     String?          @map("details")
+  location    String?          @map("location")
+  severity    ActivitySeverity @default(info) @map("severity")
+  source      String?          @map("source")
+  highStreetId String?         @map("high_street_id")
+  highStreet  HighStreet?      @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([highStreetId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("activity_feed")
+}
+
+// ─── BOROUGH METRICS (BoroughsPanel detail stats) ────────────────────────────
+
+model BoroughMetric {
+  id             String   @id @default(cuid())
+  boroughId      String   @map("borough_id")
+  borough        Borough  @relation(fields: [boroughId], references: [id], onDelete: Cascade)
+  month          String   @map("month") // YYYY-MM
+  footfall       Int      @default(0) @map("footfall")
+  revenue        Float    @default(0) @map("revenue")
+  activeCustomers Int     @default(0) @map("active_customers")
+  businesses     Int      @default(0) @map("businesses")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([boroughId, month])
+  @@index([boroughId])
+  @@index([month])
+  @@map("borough_metrics")
+}
+
+// ─── SYSTEM DEVELOPER CENTER (SystemPanel) ───────────────────────────────────
+
+model BackgroundJob {
+  id          String   @id @default(cuid())
+  name        String   @map("name")
+  status      String   @default("pending") @map("status") // pending, running, completed, failed
+  progress    Int      @default(0) @map("progress")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  error       String?  @map("error")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("background_jobs")
+}
+
+model ErrorLog {
+  id        String   @id @default(cuid())
+  level     String   @default("error") @map("level") // error, warn, info
+  message   String   @map("message")
+  stack     String?  @map("stack")
+  source    String?  @map("source")
+  path      String?  @map("path")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([level])
+  @@index([createdAt])
+  @@map("error_logs")
 }

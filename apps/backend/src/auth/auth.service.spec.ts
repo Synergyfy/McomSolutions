@@ -17,6 +17,9 @@ describe('AuthService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    platformPackage: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   const mockJwtService = {

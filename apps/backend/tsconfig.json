@@ -17,6 +17,7 @@
     "strictBindCallApply": false,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false
+    "noFallthroughCasesInSwitch": false,
+    "isolatedModules": true
   }
 }
