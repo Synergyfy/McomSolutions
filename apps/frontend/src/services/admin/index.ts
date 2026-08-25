@@ -39,6 +39,8 @@ import type {
   CreatePackageInput,
   ExternalPlan,
   CreateExternalPlanInput,
+  Campaign,
+  CreateCampaignInput,
 } from './types'
 
 export const adminApi = {
@@ -484,12 +486,12 @@ export const adminApi = {
     return res.data as PaginatedResponse<any>
   },
 
-  createActivity: async (data: { title: string; description?: string; severity?: string; highStreetId?: string }) => {
+  createActivity: async (data: { type: string; title: string; details?: string; location?: string; severity?: string; source?: string; highStreetId?: string }) => {
     const res = await apiClient.post('/admin/activities', data)
     return res.data as ApiResponse<any>
   },
 
-  updateActivity: async (id: string, data: Partial<{ title: string; description: string; severity: string }>) => {
+  updateActivity: async (id: string, data: Partial<{ type: string; title: string; details: string; location: string; severity: string; source: string; highStreetId: string }>) => {
     const res = await apiClient.put(`/admin/activities/${id}`, data)
     return res.data as ApiResponse<any>
   },
@@ -615,7 +617,7 @@ export const adminApi = {
     return res.data as ApiResponse<any>
   },
 
-  updateApiKey: async (id: string, data: Partial<{ name: string; permissions: string[]; active: boolean }>) => {
+  updateApiKey: async (id: string, data: Partial<{ name: string; permissions: string[]; status: string }>) => {
     const res = await apiClient.put(`/admin/system/api-keys/${id}`, data)
     return res.data as ApiResponse<any>
   },
@@ -657,7 +659,7 @@ export const adminApi = {
     return res.data as ApiResponse<any[]>
   },
 
-  createSystemJob: async (data: { name: string; type: string; payload?: any }) => {
+  createSystemJob: async (data: { name: string; status?: string; progress?: number; error?: string }) => {
     const res = await apiClient.post('/admin/system/jobs', data)
     return res.data as ApiResponse<any>
   },
@@ -706,5 +708,36 @@ export const adminApi = {
   reorderAssessmentQuestions: async (orderedIds: string[]) => {
     const res = await apiClient.put('/admin/assessment/questions/reorder', { orderedIds })
     return res.data as ApiResponse<any>
+  },
+
+  // ─── Campaigns ─────────────────────────────────────────
+  getCampaigns: async (params?: { locationType?: string; locationId?: string; page?: number; limit?: number }) => {
+    const res = await apiClient.get('/admin/campaigns', { params })
+    return res.data as PaginatedResponse<Campaign>
+  },
+
+  getCampaign: async (id: string) => {
+    const res = await apiClient.get(`/admin/campaigns/${id}`)
+    return res.data as ApiResponse<Campaign>
+  },
+
+  createCampaign: async (data: CreateCampaignInput) => {
+    const res = await apiClient.post('/admin/campaigns', data)
+    return res.data as ApiResponse<Campaign>
+  },
+
+  updateCampaign: async (id: string, data: Partial<CreateCampaignInput>) => {
+    const res = await apiClient.patch(`/admin/campaigns/${id}`, data)
+    return res.data as ApiResponse<Campaign>
+  },
+
+  deleteCampaign: async (id: string) => {
+    const res = await apiClient.delete(`/admin/campaigns/${id}`)
+    return res.data
+  },
+
+  campaignAction: async (id: string, data: { action: 'pause' | 'resume' | 'complete' }) => {
+    const res = await apiClient.post(`/admin/campaigns/${id}/action`, data)
+    return res.data as ApiResponse<Campaign>
   },
 }

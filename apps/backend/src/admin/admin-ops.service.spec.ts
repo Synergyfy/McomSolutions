@@ -64,6 +64,13 @@ describe('AdminOpsService', () => {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
     },
+    externalPlan: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     user: {
       count: jest.fn().mockResolvedValue(0),
     },
@@ -131,6 +138,63 @@ describe('AdminOpsService', () => {
       expect(mockPrisma.assessmentQuestion.findMany).toHaveBeenCalledWith({
         orderBy: { order: 'asc' },
       });
+    });
+  });
+
+  describe('External Plans', () => {
+    it('getSupportedPlatforms returns the known external platforms', async () => {
+      const result = await service.getSupportedPlatforms();
+      expect(result.success).toBe(true);
+      expect(result.data).toContain('MCOM Mall');
+      expect(result.data).toContain('MCOM Rewards');
+    });
+
+    it('getExternalPlans filters by platform when provided', async () => {
+      mockPrisma.externalPlan.findMany.mockResolvedValue([]);
+      await service.getExternalPlans('MCOM Mall');
+      expect(mockPrisma.externalPlan.findMany).toHaveBeenCalledWith({
+        where: { platform: 'MCOM Mall' },
+        orderBy: { name: 'asc' },
+      });
+    });
+
+    it('createExternalPlan serializes Decimal prices to numbers', async () => {
+      const decimal = new Prisma.Decimal('9.99');
+      mockPrisma.externalPlan.create.mockImplementation(({ data }) =>
+        Promise.resolve({
+          id: 'p1',
+          name: data.name,
+          platform: data.platform,
+          monthlyPrice: decimal,
+          quarterlyPrice: null,
+          annualPrice: null,
+          features: data.features ?? [],
+          configuration: null,
+          isActive: data.isActive,
+          isDefault: data.isDefault,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }),
+      );
+      const result = await service.createExternalPlan({
+        name: 'MCOM Mall Basic',
+        platform: 'MCOM Mall',
+        monthlyPrice: 9.99,
+      } as any);
+      expect(result.data.monthlyPrice).toBe(9.99);
+    });
+
+    it('getExternalPlan throws NotFoundException when missing', async () => {
+      mockPrisma.externalPlan.findUnique.mockResolvedValue(null);
+      await expect(service.getExternalPlan('nope')).rejects.toThrow(NotFoundException);
+    });
+
+    it('deleteExternalPlan deletes an existing plan', async () => {
+      mockPrisma.externalPlan.findUnique.mockResolvedValue({ id: 'p1', name: 'Plan' });
+      mockPrisma.externalPlan.delete.mockResolvedValue({ id: 'p1' });
+      const result = await service.deleteExternalPlan('p1');
+      expect(result.success).toBe(true);
+      expect(mockPrisma.externalPlan.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
     });
   });
 

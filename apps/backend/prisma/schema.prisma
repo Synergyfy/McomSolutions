@@ -306,6 +306,35 @@ model PackageTemplate {
   @@map("package_templates")
 }
 
+model ExternalPlan {
+  id                     String   @id @default(cuid())
+  name                   String   @map("name")
+  platform               String   @map("platform") // MCOM Mall, MCOM Rewards, MCOM Spin, GBS Audit, GBS Expo
+  description            String?  @map("description")
+  monthlyPrice           Decimal? @map("monthly_price")
+  quarterlyPrice         Decimal? @map("quarterly_price")
+  annualPrice            Decimal? @map("annual_price")
+  features               String[] @map("features")
+  configuration          Json?    @map("configuration")
+  isActive               Boolean  @default(true) @map("is_active")
+  isDefault              Boolean  @default(false) @map("is_default")
+  type                   String?  @map("type")
+  trialDuration          Int?     @map("trial_duration")
+  seasonId               String?  @map("season_id")
+  stripeMonthlyPriceId   String?  @map("stripe_monthly_price_id")
+  stripeQuarterlyPriceId String?  @map("stripe_quarterly_price_id")
+  stripeAnnualPriceId    String?  @map("stripe_annual_price_id")
+  paypalMonthlyPlanId    String?  @map("paypal_monthly_plan_id")
+  paypalQuarterlyPlanId  String?  @map("paypal_quarterly_plan_id")
+  paypalAnnualPlanId     String?  @map("paypal_annual_plan_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@index([platform])
+  @@index([platform, isActive])
+  @@map("external_plans")
+}
+
 model EcosystemSubscription {
   id           String   @id @default(cuid())
   businessId   String   @map("business_id")
@@ -509,6 +538,9 @@ model HighStreet {
   borough       String   @map("borough")
   status        String   @default("Active") @map("status")
   businessCount Int      @default(0) @map("business_count")
+  lat           Float?   @map("lat")
+  lng           Float?   @map("lng")
+  assignedTo    String?  @map("assigned_to")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -830,4 +862,32 @@ model ErrorLog {
   @@index([level])
   @@index([createdAt])
   @@map("error_logs")
+}
+
+// ─── CAMPAIGNS (HighStreetsPanel / BoroughsPanel) ────────────────────────────
+
+enum CampaignStatus {
+  active
+  paused
+  completed
+  draft
+}
+
+model Campaign {
+  id           String         @id @default(cuid())
+  name         String         @map("name")
+  description  String?        @map("description")
+  locationType String         @map("location_type") // high_street | borough | local_mall
+  locationId   String?        @map("location_id")
+  locationName String?        @map("location_name")
+  status       CampaignStatus @default(draft) @map("status")
+  startDate    DateTime?      @map("start_date")
+  endDate      DateTime?      @map("end_date")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  @@index([locationType])
+  @@index([status])
+  @@index([locationId])
+  @@map("campaigns")
 }

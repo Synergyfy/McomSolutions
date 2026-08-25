@@ -157,7 +157,7 @@ export default function LoginPage() {
         localStorage.setItem('business_user', JSON.stringify(user));
         setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
 
-        await performRedirect(user.role === 'BUSINESS' ? 'mcom-mall' : undefined);
+        await performRedirect();
       } catch (err: any) {
         setError('Google authentication failed. Please try again.');
       } finally {

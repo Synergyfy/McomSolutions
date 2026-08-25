@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { 
   Plus, 
   Search, 
@@ -16,27 +16,30 @@ import {
   Loader2,
   X,
   Save,
-  Target,
   User,
-  Info
+  Info,
+  AlertTriangle
 } from 'lucide-react';
 import HighStreetActivationWizard from './HighStreetActivationWizard';
 import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
-import { useAdminHighStreets, useAdminAuditLogs, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers } from '../../services/admin/hooks';
-import type { HighStreet } from '../../services/admin/types';
+import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
+import type { HighStreet, AccountManager } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
   const { data: hsRes, isLoading } = useAdminHighStreets();
   const allHighStreets: HighStreet[] = hsRes?.data ?? [];
-  const { data: logsRes } = useAdminAuditLogs({ page: 1, limit: 10 });
-  const activities = (logsRes?.data ?? []) as any[];
+  const { data: activitiesRes } = useAdminActivities({ page: 1, limit: 10 });
+  const activities = (activitiesRes?.data ?? []) as any[];
   const { data: boroughsRes } = useAdminBoroughs();
   const allBoroughs = (boroughsRes?.data ?? []) as { id: string; name: string }[];
   const boroughNames = ['All Boroughs', ...allBoroughs.map(b => b.name)];
   const updateHighStreet = useUpdateHighStreet();
+  const createCampaign = useCreateCampaign();
+  const { data: campaignsRes } = useAdminCampaigns({ locationType: 'high_street' });
+  const campaigns = (campaignsRes?.data ?? []) as any[];
   const { data: managersRes } = useAdminAccountManagers();
-  const managers = (managersRes?.data ?? []) as { id: string; firstName: string; lastName: string; email: string }[];
+  const managers = (managersRes?.data ?? []) as AccountManager[];
 
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +54,7 @@ export default function HighStreetsPanel() {
   const [campaignModal, setCampaignModal] = useState<HighStreet | null>(null);
   const [campaignName, setCampaignName] = useState('');
   const [campaignDescription, setCampaignDescription] = useState('');
+  const [campaignError, setCampaignError] = useState('');
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -69,9 +73,22 @@ export default function HighStreetsPanel() {
 
   const handleLaunchCampaign = async () => {
     if (!campaignModal || !campaignName) return;
-    setCampaignModal(null);
-    setCampaignName('');
-    setCampaignDescription('');
+    setCampaignError('');
+    try {
+      await createCampaign.mutateAsync({
+        name: campaignName,
+        description: campaignDescription || undefined,
+        locationType: 'high_street',
+        locationId: campaignModal.id,
+        locationName: campaignModal.name,
+        status: 'active',
+      });
+      setCampaignModal(null);
+      setCampaignName('');
+      setCampaignDescription('');
+    } catch {
+      setCampaignError('Failed to launch campaign. Please try again.');
+    }
   };
 
   if (isLoading) {
@@ -214,10 +231,10 @@ export default function HighStreetsPanel() {
                     icon={Activity}
                     iconColor={colors.icon}
                     bgColor={colors.bg}
-                    title={item.action || item.title}
+                    title={item.title || item.type || 'Activity'}
                     details={item.details}
-                    time={item.timestamp ? new Date(item.timestamp).toLocaleString() : ''}
-                    location={item.adminName ? `By: ${item.adminName}` : ''}
+                    time={item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}
+                    location={item.location || ''}
                     indicatorColor={colors.indicator}
                   />
                 );
@@ -364,7 +381,7 @@ export default function HighStreetsPanel() {
               >
                 <option value="">Choose a manager</option>
                 {managers.map(m => (
-                  <option key={m.id} value={m.id}>{m.firstName} {m.lastName} — {m.email}</option>
+                  <option key={m.id} value={m.id}>{m.name} — {m.email}</option>
                 ))}
               </select>
               {managers.length === 0 && (
@@ -389,7 +406,10 @@ export default function HighStreetsPanel() {
       )}
 
       {/* View Analytics Modal */}
-      {analyticsModal && (
+      {analyticsModal && (() => {
+        const hsCampaigns = campaigns.filter(c => c.locationId === analyticsModal.id);
+        const hsActivities = activities.filter(a => a.highStreetId === analyticsModal.id);
+        return (
         <Modal onClose={() => setAnalyticsModal(null)} title="View Analytics" icon={BarChart3}>
           <div className="space-y-4">
             <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
@@ -405,14 +425,39 @@ export default function HighStreetsPanel() {
                 <span className="text-gray-500 font-semibold">Status</span>
                 <span className={cn("font-bold", analyticsModal.status === 'Active' ? 'text-emerald-600' : 'text-amber-600')}>{analyticsModal.status}</span>
               </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Campaigns</span>
+                <span className="font-bold text-gray-900">{hsCampaigns.filter(c => c.status === 'active').length} active · {hsCampaigns.length} total</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Feed Items</span>
+                <span className="font-bold text-gray-900">{hsActivities.length}</span>
+              </div>
             </div>
-            <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl flex gap-3">
-              <Target className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-purple-700 font-semibold">Detailed analytics for this high street will be available once the analytics dashboard is fully integrated with the backend.</p>
+
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Recent Activity</h4>
+              {hsActivities.length > 0 ? (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {hsActivities.slice(0, 6).map((a: any) => (
+                    <div key={a.id} className="flex items-start gap-2.5 p-3 bg-gray-50 border border-gray-100 rounded-xl">
+                      <Activity className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-gray-800 truncate">{a.title || a.type}</p>
+                        {a.details && <p className="text-[11px] text-gray-500 mt-0.5">{a.details}</p>}
+                        <p className="text-[10px] text-gray-400 mt-1">{a.createdAt ? new Date(a.createdAt).toLocaleString() : ''}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 py-2">No activity recorded for this high street yet.</p>
+              )}
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {/* Launch Campaign Modal */}
       {campaignModal && (
@@ -439,20 +484,22 @@ export default function HighStreetsPanel() {
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue focus:ring-1 focus:ring-brand-blue outline-none transition-all font-semibold text-sm resize-none"
               />
             </div>
-            <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl flex gap-3">
-              <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-700 font-semibold">Campaign creation will be fully functional once the backend campaign endpoint is implemented.</p>
-            </div>
+            {campaignError && (
+              <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-3">
+                <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 font-semibold">{campaignError}</p>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
-              <button onClick={() => { setCampaignModal(null); setCampaignName(''); setCampaignDescription(''); }} className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-all">
+              <button onClick={() => { setCampaignModal(null); setCampaignName(''); setCampaignDescription(''); setCampaignError(''); }} className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-all">
                 Cancel
               </button>
               <button 
                 onClick={handleLaunchCampaign} 
-                disabled={!campaignName}
+                disabled={!campaignName || createCampaign.isPending}
                 className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-orange-100 transition-all disabled:opacity-50"
               >
-                <Rocket className="h-4 w-4" /> Launch
+                {createCampaign.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />} {createCampaign.isPending ? 'Launching...' : 'Launch'}
               </button>
             </div>
           </div>
@@ -462,7 +509,7 @@ export default function HighStreetsPanel() {
   );
 }
 
-function Modal({ onClose, title, icon: Icon, children }: { onClose: () => void; title: string; icon: any; children: React.ReactNode }) {
+function Modal({ onClose, title, icon: Icon, children }: { onClose: () => void; title: string; icon: any; children: ReactNode }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl w-full max-w-md border border-gray-100 shadow-2xl overflow-hidden">

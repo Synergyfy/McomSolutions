@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -34,6 +35,7 @@ import {
   CreateBackgroundJobDto,
   CreateBoroughMetricDto,
   CreateErrorLogDto,
+  CreateExternalPlanDto,
   CreateSystemApiKeyDto,
   CreateSystemIntegrationDto,
   ReorderAssessmentQuestionsDto,
@@ -41,6 +43,7 @@ import {
   UpdateAssessmentQuestionDto,
   UpdateBackgroundJobDto,
   UpdateBoroughMetricDto,
+  UpdateExternalPlanDto,
   UpdateSystemApiKeyDto,
   UpdateSystemIntegrationDto,
 } from './dto/admin-ops.dto';
@@ -52,6 +55,58 @@ import {
 @Controller('admin')
 export class AdminOpsController {
   constructor(private readonly adminOpsService: AdminOpsService) {}
+
+  // ─── External Platform Packages ───────────────────────
+  @Get('packages/external/platforms')
+  @ApiOperation({ summary: 'List supported external platform names for dropdown' })
+  @ApiOkResponse({ description: 'Supported platform names' })
+  getSupportedPlatforms() {
+    return this.adminOpsService.getSupportedPlatforms();
+  }
+
+  @Get('packages/external')
+  @ApiOperation({ summary: 'List external platform plans' })
+  @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Filter by platform' })
+  @ApiOkResponse({ description: 'List of external plans' })
+  getExternalPlans(@Query('platform') platform?: string) {
+    return this.adminOpsService.getExternalPlans(platform);
+  }
+
+  @Post('packages/external')
+  @ApiOperation({ summary: 'Create an external platform plan' })
+  @ApiBody({ type: CreateExternalPlanDto })
+  @ApiCreatedResponse({ description: 'External plan created' })
+  createExternalPlan(@Body() dto: CreateExternalPlanDto) {
+    return this.adminOpsService.createExternalPlan(dto);
+  }
+
+  @Get('packages/external/:id')
+  @ApiOperation({ summary: 'Get a single external plan' })
+  @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Platform (informational)' })
+  @ApiOkResponse({ description: 'External plan' })
+  @ApiNotFoundResponse({ description: 'External plan not found' })
+  getExternalPlan(@Param('id') id: string) {
+    return this.adminOpsService.getExternalPlan(id);
+  }
+
+  @Patch('packages/external/:id')
+  @ApiOperation({ summary: 'Update an external plan' })
+  @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Platform (informational)' })
+  @ApiBody({ type: UpdateExternalPlanDto })
+  @ApiOkResponse({ description: 'External plan updated' })
+  @ApiNotFoundResponse({ description: 'External plan not found' })
+  updateExternalPlan(@Param('id') id: string, @Body() dto: UpdateExternalPlanDto) {
+    return this.adminOpsService.updateExternalPlan(id, dto);
+  }
+
+  @Delete('packages/external/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete an external plan' })
+  @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Platform (informational)' })
+  @ApiNotFoundResponse({ description: 'External plan not found' })
+  async deleteExternalPlan(@Param('id') id: string) {
+    await this.adminOpsService.deleteExternalPlan(id);
+  }
 
   // ─── System API Keys ──────────────────────────────────
   @Get('system/api-keys')
@@ -135,6 +190,14 @@ export class AdminOpsController {
     return this.adminOpsService.createAssessmentQuestion(dto);
   }
 
+  @Put('assessment/questions/reorder')
+  @ApiOperation({ summary: 'Reorder assessment questions' })
+  @ApiBody({ type: ReorderAssessmentQuestionsDto })
+  @ApiOkResponse({ description: 'Questions reordered' })
+  reorderAssessmentQuestions(@Body() dto: ReorderAssessmentQuestionsDto) {
+    return this.adminOpsService.reorderAssessmentQuestions(dto);
+  }
+
   @Put('assessment/questions/:id')
   @ApiOperation({ summary: 'Update an assessment question' })
   @ApiBody({ type: UpdateAssessmentQuestionDto })
@@ -142,14 +205,6 @@ export class AdminOpsController {
   @ApiNotFoundResponse({ description: 'Assessment question not found' })
   updateAssessmentQuestion(@Param('id') id: string, @Body() dto: UpdateAssessmentQuestionDto) {
     return this.adminOpsService.updateAssessmentQuestion(id, dto);
-  }
-
-  @Put('assessment/questions/reorder')
-  @ApiOperation({ summary: 'Reorder assessment questions' })
-  @ApiBody({ type: ReorderAssessmentQuestionsDto })
-  @ApiOkResponse({ description: 'Questions reordered' })
-  reorderAssessmentQuestions(@Body() dto: ReorderAssessmentQuestionsDto) {
-    return this.adminOpsService.reorderAssessmentQuestions(dto);
   }
 
   @Delete('assessment/questions/:id')

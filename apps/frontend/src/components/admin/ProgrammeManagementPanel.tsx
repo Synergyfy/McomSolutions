@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Rocket, Settings, Users, BarChart3, Shield, Crown,
@@ -14,7 +14,19 @@ import {
 import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../../lib/programmeData';
 import type { ProgrammePhase, ProgrammeMission } from '../../lib/programmeData';
 import { cn } from '../../lib/utils';
-import { useProgrammePhases, useProgrammeGates, useProgrammeAgents, useProgrammeBusinesses, useProgrammeBusinessAction } from '../../services/admin/hooks';
+import {
+  useProgrammePhases,
+  useProgrammeGates,
+  useProgrammeAgents,
+  useProgrammeBusinesses,
+  useProgrammeBusinessAction,
+  useCreateProgrammePhase,
+  useUpdateProgrammePhase,
+  useDeleteProgrammePhase,
+  useCreateProgrammeGate,
+  useUpdateProgrammeGate,
+  useDeleteProgrammeGate,
+} from '../../services/admin/hooks';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -50,13 +62,6 @@ interface SupportAgent {
 }
 
 type SubTab = 'config' | 'businesses' | 'monitoring';
-
-const DEFAULT_GATES: ReadinessGate[] = [
-  { id: 'gate-audit', name: 'Audit Access', minProgressPercent: 80, isEnabled: true },
-  { id: 'gate-expo', name: 'Expo Publishing', minProgressPercent: 60, isEnabled: true },
-  { id: 'gate-campaign', name: 'Campaign Creation', minProgressPercent: 40, isEnabled: true },
-  { id: 'gate-advanced', name: 'Advanced Tools', minProgressPercent: 20, isEnabled: true },
-];
 
 const INTERNAL_PLATFORMS = [
   { id: 'mall', name: 'MCOM Mall' },
@@ -534,16 +539,37 @@ function ConfigSection() {
   const { data: gatesRes, isLoading: gatesLoading } = useProgrammeGates();
   const [phases, setPhases] = useState<ProgrammePhase[]>([]);
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
-  const [gates, setGates] = useState<ReadinessGate[]>(DEFAULT_GATES);
+  const [gates, setGates] = useState<ReadinessGate[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const createPhase = useCreateProgrammePhase();
+  const updatePhaseMutation = useUpdateProgrammePhase();
+  const deletePhaseMutation = useDeleteProgrammePhase();
+  const createGate = useCreateProgrammeGate();
+  const updateGateMutation = useUpdateProgrammeGate();
+  const deleteGateMutation = useDeleteProgrammeGate();
+
+  const initialPhases = useRef<ProgrammePhase[]>([]);
+  const initialGates = useRef<ReadinessGate[]>([]);
 
   useEffect(() => {
-    if (phasesRes?.data) setPhases(phasesRes.data);
-    else if (!phasesLoading) setPhases(PROGRAMME_PHASES);
+    if (phasesRes?.data) {
+      initialPhases.current = phasesRes.data;
+      setPhases(phasesRes.data);
+    } else if (!phasesLoading) {
+      initialPhases.current = [];
+      setPhases([]);
+    }
   }, [phasesRes, phasesLoading]);
 
   useEffect(() => {
-    if (gatesRes?.data) setGates(gatesRes.data);
-    else if (!gatesLoading) setGates(DEFAULT_GATES);
+    if (gatesRes?.data) {
+      initialGates.current = gatesRes.data;
+      setGates(gatesRes.data);
+    } else if (!gatesLoading) {
+      initialGates.current = [];
+      setGates([]);
+    }
   }, [gatesRes, gatesLoading]);
 
   // Modal state
@@ -598,8 +624,64 @@ function ConfigSection() {
   };
 
   const resetToDefault = () => {
-    setPhases(PROGRAMME_PHASES);
-    setGates(DEFAULT_GATES);
+    setPhases(initialPhases.current);
+    setGates(initialGates.current);
+  };
+
+  const toPhasePayload = (phase: ProgrammePhase, order: number) => ({
+    name: phase.name,
+    dayStart: phase.dayStart,
+    dayEnd: phase.dayEnd,
+    description: phase.description,
+    color: phase.color,
+    order,
+    missions: phase.missions as unknown as Record<string, unknown>[],
+  });
+
+  const handleSaveAll = async () => {
+    const initialPhaseIds = new Set(initialPhases.current.map(p => p.id));
+    const initialGateIds = new Set(initialGates.current.map(g => g.id));
+    const ops: Promise<unknown>[] = [];
+
+    phases.forEach((phase, index) => {
+      if (initialPhaseIds.has(phase.id)) {
+        ops.push(updatePhaseMutation.mutateAsync({ id: phase.id, data: toPhasePayload(phase, index) }));
+      } else {
+        ops.push(createPhase.mutateAsync(toPhasePayload(phase, index)));
+      }
+    });
+    initialPhases.current.forEach(p => {
+      if (!phases.some(lp => lp.id === p.id)) {
+        ops.push(deletePhaseMutation.mutateAsync(p.id));
+      }
+    });
+
+    gates.forEach(gate => {
+      if (initialGateIds.has(gate.id)) {
+        ops.push(updateGateMutation.mutateAsync({
+          id: gate.id,
+          data: { name: gate.name, minProgressPercent: gate.minProgressPercent, isEnabled: gate.isEnabled },
+        }));
+      } else {
+        ops.push(createGate.mutateAsync({
+          name: gate.name,
+          minProgressPercent: gate.minProgressPercent,
+          isEnabled: gate.isEnabled,
+        }));
+      }
+    });
+    initialGates.current.forEach(g => {
+      if (!gates.some(lg => lg.id === g.id)) {
+        ops.push(deleteGateMutation.mutateAsync(g.id));
+      }
+    });
+
+    setSaving(true);
+    try {
+      await Promise.all(ops);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openAddTask = (phaseId: string) => {
@@ -691,7 +773,10 @@ function ConfigSection() {
           <h3 className="font-bold text-gray-900">Phases & Tasks</h3>
           <div className="flex items-center gap-2">
             <button onClick={resetToDefault} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Reset Default
+              <RefreshCw className="w-3.5 h-3.5" /> Revert
+            </button>
+            <button onClick={handleSaveAll} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs hover:bg-emerald-700 transition-colors disabled:opacity-50">
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save Changes
             </button>
             <button onClick={addPhase} className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white rounded-lg font-bold text-xs hover:bg-brand-dark transition-colors">
               <Plus className="w-3.5 h-3.5" /> Add Phase

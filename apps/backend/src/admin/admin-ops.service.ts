@@ -14,6 +14,7 @@ import {
   CreateBackgroundJobDto,
   CreateBoroughMetricDto,
   CreateErrorLogDto,
+  CreateExternalPlanDto,
   CreateSystemApiKeyDto,
   CreateSystemIntegrationDto,
   ReorderAssessmentQuestionsDto,
@@ -21,6 +22,7 @@ import {
   UpdateAssessmentQuestionDto,
   UpdateBackgroundJobDto,
   UpdateBoroughMetricDto,
+  UpdateExternalPlanDto,
   UpdateSystemApiKeyDto,
   UpdateSystemIntegrationDto,
 } from './dto/admin-ops.dto';
@@ -396,6 +398,110 @@ export class AdminOpsService {
         },
       },
     };
+  }
+
+  // ─── External Platform Packages ─────────────────────────
+  private static readonly EXTERNAL_PLATFORMS = [
+    'MCOM Mall',
+    'MCOM Rewards',
+    'MCOM Spin',
+    'GBS Audit',
+    'GBS Expo',
+  ];
+
+  getSupportedPlatforms() {
+    return { success: true, data: AdminOpsService.EXTERNAL_PLATFORMS };
+  }
+
+  async getExternalPlans(platform?: string) {
+    const where: Prisma.ExternalPlanWhereInput = platform ? { platform } : {};
+    const plans = await this.prisma.externalPlan.findMany({
+      where,
+      orderBy: { name: 'asc' },
+    });
+    return { success: true, data: plans.map((p) => this.serializeExternalPlan(p)) };
+  }
+
+  async createExternalPlan(dto: CreateExternalPlanDto) {
+    const plan = await this.prisma.externalPlan.create({
+      data: {
+        name: dto.name,
+        platform: dto.platform,
+        description: dto.description,
+        monthlyPrice: dto.monthlyPrice ?? null,
+        quarterlyPrice: dto.quarterlyPrice ?? null,
+        annualPrice: dto.annualPrice ?? null,
+        features: dto.features ?? [],
+        configuration: (dto.configuration as Prisma.InputJsonValue) ?? undefined,
+        isActive: dto.isActive ?? true,
+        isDefault: dto.isDefault ?? false,
+        type: dto.type,
+        trialDuration: dto.trialDuration,
+        seasonId: dto.seasonId,
+        stripeMonthlyPriceId: dto.stripeMonthlyPriceId,
+        stripeQuarterlyPriceId: dto.stripeQuarterlyPriceId,
+        stripeAnnualPriceId: dto.stripeAnnualPriceId,
+        paypalMonthlyPlanId: dto.paypalMonthlyPlanId,
+        paypalQuarterlyPlanId: dto.paypalQuarterlyPlanId,
+        paypalAnnualPlanId: dto.paypalAnnualPlanId,
+      },
+    });
+    await this.logAudit('External Plan Created', 'ExternalPlan', dto.name, `Created external plan "${dto.name}" (${dto.platform})`, 'Admin', 'Plans');
+    return { success: true, data: this.serializeExternalPlan(plan) };
+  }
+
+  async getExternalPlan(id: string) {
+    const plan = await this.ensureExternalPlan(id);
+    return { success: true, data: this.serializeExternalPlan(plan) };
+  }
+
+  async updateExternalPlan(id: string, dto: UpdateExternalPlanDto) {
+    await this.ensureExternalPlan(id);
+    const data: Prisma.ExternalPlanUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.monthlyPrice !== undefined) data.monthlyPrice = dto.monthlyPrice;
+    if (dto.quarterlyPrice !== undefined) data.quarterlyPrice = dto.quarterlyPrice;
+    if (dto.annualPrice !== undefined) data.annualPrice = dto.annualPrice;
+    if (dto.features !== undefined) data.features = dto.features;
+    if (dto.configuration !== undefined) data.configuration = dto.configuration as Prisma.InputJsonValue;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+    if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
+    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.trialDuration !== undefined) data.trialDuration = dto.trialDuration;
+    if (dto.seasonId !== undefined) data.seasonId = dto.seasonId;
+    if (dto.stripeMonthlyPriceId !== undefined) data.stripeMonthlyPriceId = dto.stripeMonthlyPriceId;
+    if (dto.stripeQuarterlyPriceId !== undefined) data.stripeQuarterlyPriceId = dto.stripeQuarterlyPriceId;
+    if (dto.stripeAnnualPriceId !== undefined) data.stripeAnnualPriceId = dto.stripeAnnualPriceId;
+    if (dto.paypalMonthlyPlanId !== undefined) data.paypalMonthlyPlanId = dto.paypalMonthlyPlanId;
+    if (dto.paypalQuarterlyPlanId !== undefined) data.paypalQuarterlyPlanId = dto.paypalQuarterlyPlanId;
+    if (dto.paypalAnnualPlanId !== undefined) data.paypalAnnualPlanId = dto.paypalAnnualPlanId;
+
+    const plan = await this.prisma.externalPlan.update({ where: { id }, data });
+    await this.logAudit('External Plan Updated', 'ExternalPlan', id, `Updated external plan "${dto.name ?? id}"`, 'Admin', 'Plans');
+    return { success: true, data: this.serializeExternalPlan(plan) };
+  }
+
+  async deleteExternalPlan(id: string) {
+    const plan = await this.ensureExternalPlan(id);
+    await this.prisma.externalPlan.delete({ where: { id } });
+    await this.logAudit('External Plan Deleted', 'ExternalPlan', plan.name, `Deleted external plan "${plan.name}"`, 'Admin', 'Plans');
+    return { success: true };
+  }
+
+  private serializeExternalPlan(plan: any) {
+    return {
+      ...plan,
+      monthlyPrice: plan.monthlyPrice !== null ? Number(plan.monthlyPrice) : undefined,
+      quarterlyPrice: plan.quarterlyPrice !== null ? Number(plan.quarterlyPrice) : undefined,
+      annualPrice: plan.annualPrice !== null ? Number(plan.annualPrice) : undefined,
+    };
+  }
+
+  private async ensureExternalPlan(id: string) {
+    const p = await this.prisma.externalPlan.findUnique({ where: { id } });
+    if (!p) throw new NotFoundException('External plan not found');
+    return p;
   }
 
   // ─── Background Jobs ──────────────────────────────────

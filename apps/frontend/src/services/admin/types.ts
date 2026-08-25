@@ -515,3 +515,28 @@ export interface CreateExternalPlanInput {
   paypalQuarterlyPlanId?: string
   paypalAnnualPlanId?: string
 }
+
+export interface Campaign {
+  id: string
+  name: string
+  description?: string
+  locationType: 'high_street' | 'borough' | 'local_mall'
+  locationId?: string
+  locationName?: string
+  status: 'active' | 'paused' | 'completed' | 'draft'
+  startDate?: string
+  endDate?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCampaignInput {
+  name: string
+  description?: string
+  locationType: 'high_street' | 'borough' | 'local_mall'
+  locationId?: string
+  locationName?: string
+  status?: 'active' | 'paused' | 'completed' | 'draft'
+  startDate?: string
+  endDate?: string
+}

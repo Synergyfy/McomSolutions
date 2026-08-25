@@ -10,6 +10,7 @@ import { NotificationModule } from './notification/notification.module';
 import { DataSharingModule } from './data-sharing/data-sharing.module';
 import { AdminModule } from './admin/admin.module';
 import { ProgrammeModule } from './programme/programme.module';
+import { CampaignModule } from './campaign/campaign.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
@@ -31,6 +32,7 @@ import { RedisModule } from './redis/redis.module';
     DataSharingModule,
     AdminModule,
     ProgrammeModule,
+    CampaignModule,
     ServiceConnectorsModule,
   ],
   controllers: [],
