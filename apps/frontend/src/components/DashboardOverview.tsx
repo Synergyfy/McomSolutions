@@ -501,7 +501,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         >
           <h3 className="font-bold text-gray-900 text-sm sm:text-base mb-4 sm:mb-5">Support</h3>
           <div className="space-y-3">
-            <button className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+            <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
               <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
                 <User className="w-5 h-5 text-white" />
               </div>
@@ -511,7 +511,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               </div>
               <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
             </button>
-            <button className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+            <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
               <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
                 <HeadphonesIcon className="w-5 h-5 text-white" />
               </div>
@@ -521,7 +521,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               </div>
               <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
             </button>
-            <button className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+            <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
               <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
                 <Users className="w-5 h-5 text-white" />
               </div>

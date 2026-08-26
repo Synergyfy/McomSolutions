@@ -13,6 +13,8 @@ interface AdminAuthContextType {
   admin: AdminUser | null;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  setAdminUser: (admin: AdminUser | null) => void;
+  syncAdmin: () => void;
   loading: boolean;
   error: string | null;
 }
@@ -35,7 +37,16 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isAuthenticated = !!admin && !!localStorage.getItem('auth_token');
+  const syncAdmin = useCallback(() => {
+    setAdmin(loadAdmin());
+  }, []);
+
+  const setAdminUser = useCallback((user: AdminUser | null) => {
+    setAdmin(user);
+  }, []);
+
+  const currentAdmin = admin || loadAdmin();
+  const isAuthenticated = !!currentAdmin && !!localStorage.getItem('auth_token');
 
   const login = useCallback(async (email: string, password: string) => {
     setLoading(true);
@@ -60,7 +71,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AdminAuthContext.Provider value={{ isAuthenticated, admin, login, logout, loading, error }}>
+    <AdminAuthContext.Provider value={{ isAuthenticated, admin: currentAdmin, login, logout, setAdminUser, syncAdmin, loading, error }}>
       {children}
     </AdminAuthContext.Provider>
   );

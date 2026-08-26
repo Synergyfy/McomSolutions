@@ -470,6 +470,15 @@ export interface PlanConfiguration {
   featureFlags?: PlanFeatureFlags
 }
 
+export interface PlatformInfo {
+  name: string
+  clientId: string | null
+  platformSlug?: string | null
+  isNamed: boolean
+  hasBillingApi: boolean
+  billingApiUrl?: string | null
+}
+
 export interface ExternalPlan {
   id: string
   name: string
@@ -539,4 +548,85 @@ export interface CreateCampaignInput {
   status?: 'active' | 'paused' | 'completed' | 'draft'
   startDate?: string
   endDate?: string
+}
+
+// ─── Mcom Console (dynamic app registry) ───────────────────────────────
+export const CONSOLE_ALLOWED_SCOPES = ['profile', 'email', 'business', 'membership', 'packages'] as const
+
+export interface SsoClientListItem {
+  id: string
+  clientId: string
+  name: string
+  platformSlug: string | null
+  isActive: boolean
+  isSystemApp: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SsoClientDetail extends SsoClientListItem {
+  description: string | null
+  appUrl: string | null
+  billingApiUrl: string | null
+  redirectUris: string[]
+  corsOrigins: string[]
+  scopes: string[]
+  webhookUrl: string | null
+  logoUrl: string | null
+  clientSecret: string
+  apiKey: string
+  hmacSecret: string | null
+  webhookSecret: string | null
+  webhookFailCount: number
+  lastWebhookAt: string | null
+}
+
+export interface RegisterAppInput {
+  name: string
+  clientId: string
+  platformSlug?: string
+  description?: string
+  appUrl?: string
+  billingApiUrl?: string
+  redirectUris: string[]
+  corsOrigins: string[]
+  scopes: string[]
+  webhookUrl?: string
+}
+
+export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>
+
+export interface PlainSecrets {
+  clientSecret: string
+  apiKey: string
+  hmacSecret: string
+  webhookSecret: string
+}
+
+export interface RegisterAppResult {
+  client: SsoClientDetail
+  plainSecrets: PlainSecrets
+}
+
+export interface AppHealthResult {
+  reachable: boolean
+  latencyMs: number
+}
+
+export interface ConsoleAuditLog {
+  id: string
+  adminId: string
+  clientId: string
+  action: string
+  changes: Record<string, unknown> | null
+  ip: string | null
+  userAgent: string | null
+  createdAt: string
+}
+
+export interface ConsoleAuditQuery {
+  page?: number
+  limit?: number
+  clientId?: string
+  action?: string
 }

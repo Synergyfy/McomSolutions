@@ -26,6 +26,7 @@ import {
   UpdateSystemApiKeyDto,
   UpdateSystemIntegrationDto,
 } from './dto/admin-ops.dto';
+import { PlatformInfo } from '../service-connectors/connectors/connector.interface';
 
 @Injectable()
 export class AdminOpsService {
@@ -401,16 +402,44 @@ export class AdminOpsService {
   }
 
   // ─── External Platform Packages ─────────────────────────
-  private static readonly EXTERNAL_PLATFORMS = [
-    'MCOM Mall',
-    'MCOM Rewards',
-    'MCOM Spin',
-    'GBS Audit',
-    'GBS Expo',
+  private static readonly NAMED_PLATFORMS: PlatformInfo[] = [
+    { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
+    { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
   ];
 
-  getSupportedPlatforms() {
-    return { success: true, data: AdminOpsService.EXTERNAL_PLATFORMS };
+  async getSupportedPlatforms(): Promise<{ success: boolean; data: PlatformInfo[] }> {
+    const namedNames = new Set(AdminOpsService.NAMED_PLATFORMS.map((p) => p.name.toLowerCase()));
+
+    // Find active SSO clients with billingApiUrl configured in Console
+    const dbClients = await this.prisma.ssoClient.findMany({
+      where: {
+        isActive: true,
+        billingApiUrl: { not: null },
+      },
+      select: {
+        name: true,
+        clientId: true,
+        platformSlug: true,
+        billingApiUrl: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const dynamicPlatforms: PlatformInfo[] = dbClients
+      .filter((client) => !namedNames.has(client.name.toLowerCase()))
+      .map((client) => ({
+        name: client.name,
+        clientId: client.clientId,
+        platformSlug: client.platformSlug,
+        isNamed: false,
+        hasBillingApi: true,
+        billingApiUrl: client.billingApiUrl,
+      }));
+
+    return {
+      success: true,
+      data: [...AdminOpsService.NAMED_PLATFORMS, ...dynamicPlatforms],
+    };
   }
 
   async getExternalPlans(platform?: string) {

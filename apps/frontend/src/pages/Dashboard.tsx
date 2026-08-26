@@ -30,7 +30,7 @@ const DASHBOARD_TABS = [
 
 export default function Dashboard() {
   const location = useLocation();
-  const pathTab = location.pathname.split('/')[2] || 'overview';
+  const pathTab = location.pathname.replace(/^\/dashboard\/?/, '').split('/')[0] || 'overview';
   const activeTab = (DASHBOARD_TABS as readonly string[]).includes(pathTab) ? pathTab : 'overview';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -215,33 +215,32 @@ export default function Dashboard() {
         </header>
 
         <div className="p-4 sm:p-6 lg:p-12">
-          {showFirstWelcome ? (
-            <FirstDashboardWelcome
-              onDismiss={() => {
-                setShowFirstWelcome(false);
-                localStorage.removeItem('firstDashboardLogin');
-              }}
-            />
-          ) : (
-            <>
-              {activeTab === 'overview' && <DashboardOverview onNavigate={handleNav} />}
-              {activeTab === 'all-products' && <DashboardAllProducts />}
-              {activeTab === 'access' && <DashboardAccess />}
-              {activeTab === 'notifications' && <DashboardNotifications />}
-              {activeTab === 'memberships' && <DashboardMemberships />}
-              {activeTab === 'packages' && <DashboardPackages />}
-              {activeTab === 'billing' && <DashboardBilling />}
-              {activeTab === 'business-profile' && <DashboardBusinessProfile />}
-              {activeTab === 'support' && <DashboardSupport />}
-              {activeTab === 'settings' && <DashboardSettings />}
-            </>
+          {activeTab === 'overview' && (
+            showFirstWelcome ? (
+              <FirstDashboardWelcome
+                onDismiss={() => {
+                  setShowFirstWelcome(false);
+                  localStorage.removeItem('firstDashboardLogin');
+                }}
+              />
+            ) : (
+              <DashboardOverview onNavigate={handleNav} />
+            )
           )}
+          {activeTab === 'all-products' && <DashboardAllProducts />}
+          {activeTab === 'access' && <DashboardAccess />}
+          {activeTab === 'notifications' && <DashboardNotifications />}
+          {activeTab === 'memberships' && <DashboardMemberships />}
+          {activeTab === 'packages' && <DashboardPackages />}
+          {activeTab === 'billing' && <DashboardBilling />}
+          {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+          {activeTab === 'support' && <DashboardSupport />}
+          {activeTab === 'settings' && <DashboardSettings />}
         </div>
       </main>
 
       {/* Mobile Bottom Tab Nav - 3 tabs + More */}
-      {!showFirstWelcome && (
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 flex items-center justify-around px-1 pt-1.5 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 flex items-center justify-around px-1 pt-1.5 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
           <button onClick={() => handleNav('overview')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "text-orange-600" : "text-gray-400")}>
             <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "bg-orange-50" : "")}>
               <LayoutDashboard className="w-5 h-5" />
@@ -267,7 +266,6 @@ export default function Dashboard() {
             <span className="text-[10px] font-bold leading-none">More</span>
           </button>
         </nav>
-      )}
 
       {/* More Sheet */}
       <AnimatePresence>

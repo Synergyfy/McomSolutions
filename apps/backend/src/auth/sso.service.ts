@@ -3,11 +3,15 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { calculatePermissions } from '../data-sharing/permissions.util';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class SsoService {
+  private readonly memCache = new Map<string, { data: any; exp: number }>();
+  private static readonly MEM_TTL_MS = 30_000;
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -255,6 +259,16 @@ export class SsoService {
 
     const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
+    const membershipLevel = user.businessProfile?.membershipLevel || 'Bronze';
+    const membershipStatus = user.businessProfile?.membershipStatus || 'active';
+    const packages = user.businessProfile?.packages ?? [];
+    const permissions = calculatePermissions(
+      user.role,
+      membershipLevel,
+      membershipStatus,
+      packages,
+    );
+
     return {
       sub: user.id,
       email: user.email,
@@ -263,38 +277,82 @@ export class SsoService {
       lastName: user.lastName,
       name,
       businessId: user.businessProfile?.id || null,
-      membershipLevel: user.businessProfile?.membershipLevel || 'Bronze',
+      membershipLevel,
       membershipTier: user.businessProfile?.membershipTier || 'Normal',
-      membershipStatus: user.businessProfile?.membershipStatus || 'active',
+      membershipStatus,
       phone: user.businessProfile?.phone || null,
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
-      packages: user.businessProfile?.packages.map(pkg => ({
+      packages: packages.map(pkg => ({
         platform: pkg.platform,
         packageName: pkg.packageName,
         status: pkg.status,
         limits: pkg.limits,
-      })) || [],
+      })),
+      permissions,
     };
   }
 
   async getClientByClientId(clientId: string) {
+    // L1: in-memory cache (fastest, no network)
+    const mem = this.memCache.get(clientId);
+    if (mem && mem.exp > Date.now()) {
+      return mem.data;
+    }
+
+    // L2: Redis cache (shared across instances)
     const cacheKey = `sso_client:${clientId}`;
     const cached = await this.redisService.get<any>(cacheKey);
     if (cached) {
+      this.memCache.set(clientId, { data: cached, exp: Date.now() + SsoService.MEM_TTL_MS });
       return cached;
     }
 
+    // L3: PostgreSQL (source of truth)
     const client = await this.prisma.ssoClient.findUnique({
       where: { clientId },
     });
 
     if (client) {
-      // Cache client object in Redis for 5 minutes (300s)
+      // Cache client object in Redis for 5 minutes (300s) and L1 for 30s
       await this.redisService.set(cacheKey, client, 300);
+      this.memCache.set(clientId, { data: client, exp: Date.now() + SsoService.MEM_TTL_MS });
     }
 
     return client;
+  }
+
+  async invalidateMemCache(clientId?: string) {
+    if (clientId) {
+      this.memCache.delete(clientId);
+    } else {
+      this.memCache.clear();
+    }
+  }
+
+  /**
+   * Flattens `corsOrigins` from all active SsoClient records.
+   * Redis-cached under `cors:all_origins` (60s TTL) — used by main.ts CORS bootstrap
+   * and the 60s polling refresh.
+   */
+  async getAllCorsOrigins(): Promise<string[]> {
+    const cacheKey = 'cors:all_origins';
+    const cached = await this.redisService.get<string[]>(cacheKey);
+    if (cached) return cached;
+
+    const clients = await this.prisma.ssoClient.findMany({
+      where: { isActive: true },
+      select: { corsOrigins: true },
+    });
+
+    const origins = [...new Set(clients.flatMap((c) => c.corsOrigins ?? []))];
+    await this.redisService.set(cacheKey, origins, 60);
+    return origins;
+  }
+
+  /** Invalidates the CORS origin cache whenever a console write changes origins. */
+  async invalidateCorsCache(): Promise<void> {
+    await this.redisService.del('cors:all_origins');
   }
 
   async registerClient(data: any) {
@@ -314,6 +372,7 @@ export class SsoService {
     });
 
     await this.redisService.del(`sso_client:${data.clientId}`);
+    this.memCache.delete(data.clientId);
     return created;
   }
 
@@ -345,14 +404,17 @@ export class SsoService {
 
     // Invalidate Redis cache instantly on update
     await this.redisService.del(`sso_client:${clientId}`);
+    this.memCache.delete(clientId);
     return updated;
   }
 
   async clearClientCache(clientId?: string) {
     if (clientId) {
       await this.redisService.del(`sso_client:${clientId}`);
+      this.memCache.delete(clientId);
     } else {
       await this.redisService.delPattern('sso_client:*');
+      this.memCache.clear();
     }
     return { success: true, message: 'SSO Client cache invalidated' };
   }

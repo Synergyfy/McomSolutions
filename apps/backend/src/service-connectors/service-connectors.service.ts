@@ -11,17 +11,17 @@ export class ServiceConnectorsService {
   constructor(private readonly connectorFactory: ConnectorFactory) {}
 
   async createPlan(platform: string, input: CreateExternalPlanInput): Promise<ExternalPlan> {
-    const connector = this.connectorFactory.getConnector(platform)
+    const connector = await this.connectorFactory.getConnector(platform)
     return connector.createPlan(input)
   }
 
   async getPlans(platform: string): Promise<ExternalPlan[]> {
-    const connector = this.connectorFactory.getConnector(platform)
+    const connector = await this.connectorFactory.getConnector(platform)
     return connector.getPlans()
   }
 
   async getPlanById(platform: string, id: string): Promise<ExternalPlan> {
-    const connector = this.connectorFactory.getConnector(platform)
+    const connector = await this.connectorFactory.getConnector(platform)
     return connector.getPlanById(id)
   }
 
@@ -30,12 +30,12 @@ export class ServiceConnectorsService {
     id: string,
     input: UpdateExternalPlanInput,
   ): Promise<ExternalPlan> {
-    const connector = this.connectorFactory.getConnector(platform)
+    const connector = await this.connectorFactory.getConnector(platform)
     return connector.updatePlan(id, input)
   }
 
   async deletePlan(platform: string, id: string): Promise<void> {
-    const connector = this.connectorFactory.getConnector(platform)
+    const connector = await this.connectorFactory.getConnector(platform)
     return connector.deletePlan(id)
   }
 

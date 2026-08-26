@@ -39,6 +39,7 @@ import type {
   CreatePackageInput,
   ExternalPlan,
   CreateExternalPlanInput,
+  PlatformInfo,
   Campaign,
   CreateCampaignInput,
 } from './types'
@@ -422,7 +423,7 @@ export const adminApi = {
 
   getSupportedPlatforms: async () => {
     const res = await apiClient.get('/admin/packages/external/platforms')
-    return res.data as ApiResponse<string[]>
+    return res.data as ApiResponse<PlatformInfo[]>
   },
 
   // ─── Analytics ────────────────────────────────────────

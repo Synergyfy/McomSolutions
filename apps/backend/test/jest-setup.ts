@@ -68,3 +68,6 @@ process.env.MCOM_MALL_API_URL = 'http://localhost:3001';
 process.env.MCOM_REWARDS_API_URL = 'http://localhost:4000';
 process.env.MCOM_SOLUTION_API_KEY = 'test-solution-api-key';
 process.env.MCOM_REWARDS_API_KEY = 'test-rewards-api-key';
+
+// ─── Mcom Console Encryption ──────────────────────────────────────────────────
+process.env.CONSOLE_ENCRYPTION_KEY = '86d3b8c8ad1519806cd90234050daebe4d2dc95f1ea9d83d780cc73ebed00a3b';

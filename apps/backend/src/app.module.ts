@@ -12,6 +12,7 @@ import { AdminModule } from './admin/admin.module';
 import { ProgrammeModule } from './programme/programme.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
+import { ConsoleModule } from './console/console.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 import { RedisModule } from './redis/redis.module';
@@ -34,6 +35,7 @@ import { RedisModule } from './redis/redis.module';
     ProgrammeModule,
     CampaignModule,
     ServiceConnectorsModule,
+    ConsoleModule,
   ],
   controllers: [],
   providers: [],

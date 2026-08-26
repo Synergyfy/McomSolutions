@@ -92,3 +92,12 @@ export interface ServiceConnector {
   updatePlan(id: string, input: UpdateExternalPlanInput): Promise<ExternalPlan>
   deletePlan(id: string): Promise<void>
 }
+
+export interface PlatformInfo {
+  name: string
+  clientId: string | null
+  platformSlug?: string | null
+  isNamed: boolean
+  hasBillingApi: boolean
+  billingApiUrl?: string | null
+}

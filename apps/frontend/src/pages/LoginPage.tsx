@@ -3,10 +3,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../services/auth/hooks';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { setAdminUser } = useAdminAuth();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -97,13 +99,15 @@ export default function LoginPage() {
     try {
       const res = await login({ email, password });
       if (res?.user?.role === 'ADMIN') {
-        localStorage.setItem('admin_user', JSON.stringify({
+        const adminData = {
           id: res.user.id,
           email: res.user.email,
-          name: res.user.name || 'System Admin',
+          name: res.user.name || `${res.user.firstName || ''} ${res.user.lastName || ''}`.trim() || 'System Admin',
           role: 'ADMIN',
-        }));
-        window.location.href = '/admin';
+        };
+        localStorage.setItem('admin_user', JSON.stringify(adminData));
+        setAdminUser(adminData);
+        navigate('/admin');
         return;
       }
       await performRedirect();

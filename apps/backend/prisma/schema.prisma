@@ -160,12 +160,62 @@ model SsoClient {
   apiKey       String?       @unique @map("api_key")
   isActive     Boolean       @default(true) @map("is_active")
   authCodes    SsoAuthCode[]
+  ssoSessions  SsoSession[]
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
+  // ── MCOM CONSOLE FIELDS (additive — safe migration) ─────────────────────
+  description     String?   @map("description")
+  appUrl          String?   @map("app_url")
+  billingApiUrl   String?   @map("billing_api_url")
+  hmacSecret      String?   @map("hmac_secret")
+  webhookSecret   String?   @map("webhook_secret")
+  webhookUrl      String?   @map("webhook_url")
+  platformSlug    String?   @unique @map("platform_slug")
+  corsOrigins     String[]  @default([]) @map("cors_origins")
+  isSystemApp     Boolean   @default(false) @map("is_system_app")
+  metadata        Json?     @map("metadata")
+  lastWebhookAt   DateTime? @map("last_webhook_at")
+  webhookFailCount Int      @default(0) @map("webhook_fail_count")
+
   @@index([clientId])
   @@index([apiKey])
+  @@index([platformSlug])
+  @@index([isActive])
   @@map("sso_clients")
+}
+
+model AppWebhookLog {
+  id           String    @id @default(cuid())
+  clientId     String    @map("client_id")
+  event        String    @map("event")
+  payload      Json      @map("payload")
+  statusCode   Int?      @map("status_code")
+  responseBody String?   @map("response_body")
+  deliveredAt  DateTime? @map("delivered_at")
+  failed       Boolean   @default(false) @map("failed")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([clientId, createdAt])
+  @@map("app_webhook_logs")
+}
+
+model ConsoleAuditLog {
+  id        String   @id @default(cuid())
+  adminId   String   @map("admin_id")
+  clientId  String   @map("client_id")
+  action    String   @map("action")
+  changes   Json?    @map("changes")
+  ip        String?  @map("ip")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("console_audit_logs")
 }
 
 model SsoAuthCode {
@@ -190,12 +240,14 @@ model SsoSession {
   userId       String   @map("user_id")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   clientId     String   @map("client_id")
+  client       SsoClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
   accessToken  String   @unique @map("access_token")
   refreshToken String   @unique @map("refresh_token")
   expiresAt    DateTime @map("expires_at")
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([userId])
+  @@index([clientId])
   @@index([accessToken])
   @@index([refreshToken])
   @@map("sso_sessions")

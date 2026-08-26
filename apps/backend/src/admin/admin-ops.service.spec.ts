@@ -74,6 +74,9 @@ describe('AdminOpsService', () => {
     user: {
       count: jest.fn().mockResolvedValue(0),
     },
+    ssoClient: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: 'log-1' }),
     },
@@ -142,11 +145,22 @@ describe('AdminOpsService', () => {
   });
 
   describe('External Plans', () => {
-    it('getSupportedPlatforms returns the known external platforms', async () => {
+    it('getSupportedPlatforms returns named platforms and dynamic DB clients', async () => {
+      mockPrisma.ssoClient.findMany.mockResolvedValue([
+        {
+          name: 'Mcom vCard',
+          clientId: 'mcom-vcard',
+          platformSlug: 'vcard',
+          billingApiUrl: 'https://api.vcard.mcom.com',
+        },
+      ]);
       const result = await service.getSupportedPlatforms();
       expect(result.success).toBe(true);
-      expect(result.data).toContain('MCOM Mall');
-      expect(result.data).toContain('MCOM Rewards');
+      expect(result.data).toEqual([
+        { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
+        { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
+        { name: 'Mcom vCard', clientId: 'mcom-vcard', platformSlug: 'vcard', isNamed: false, hasBillingApi: true, billingApiUrl: 'https://api.vcard.mcom.com' },
+      ]);
     });
 
     it('getExternalPlans filters by platform when provided', async () => {
