@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  UnauthorizedException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -24,7 +25,7 @@ export class PaymentService {
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
-      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-06-24.dahlia' });
+      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
     }
 
     const paypalEnv = this.config.get<string>('PAYPAL_ENV') || 'sandbox';
@@ -263,6 +264,9 @@ export class PaymentService {
       where: { id: userId },
       include: { businessProfile: true },
     });
+    if (!user) {
+      throw new UnauthorizedException('Session expired. Please log in again.');
+    }
     if (user?.businessProfile?.id) {
       return user.businessProfile.id;
     }

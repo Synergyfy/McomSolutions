@@ -636,6 +636,9 @@ export class BusinessService {
             membershipTier: 'Free',
           },
         },
+        wallet: {
+          create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+        },
       },
       include: { businessProfile: true },
     });

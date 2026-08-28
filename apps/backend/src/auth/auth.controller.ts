@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -62,6 +62,9 @@ export class AuthController {
       where: { id: req.user.userId },
       include: { businessProfile: { include: { packages: true } } },
     });
+    if (!user) {
+      throw new UnauthorizedException('Session expired. Please log in again.');
+    }
     const { password, ...result } = user;
     return result;
   }
