@@ -20,12 +20,13 @@ import DashboardAccess from '../components/DashboardAccess';
 import DashboardNotifications from '../components/DashboardNotifications';
 import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
+import DashboardWallet from '../components/DashboardWallet';
 import FirstDashboardWelcome from '../components/FirstDashboardWelcome';
 
 const DASHBOARD_TABS = [
   'overview', 'all-products', 'access', 'notifications',
   'memberships', 'packages', 'billing', 'business-profile',
-  'support', 'settings',
+  'support', 'settings', 'wallet',
 ] as const;
 
 export default function Dashboard() {
@@ -112,6 +113,7 @@ export default function Dashboard() {
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Account</span>
           </div>
           <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
+          <NavItem icon={Wallet} label="Wallet" active={activeTab === 'wallet'} onClick={() => handleNav('wallet')} />
           <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
           <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => handleNav('support')} />
           <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
@@ -233,6 +235,7 @@ export default function Dashboard() {
           {activeTab === 'memberships' && <DashboardMemberships />}
           {activeTab === 'packages' && <DashboardPackages />}
           {activeTab === 'billing' && <DashboardBilling />}
+          {activeTab === 'wallet' && <DashboardWallet />}
           {activeTab === 'business-profile' && <DashboardBusinessProfile />}
           {activeTab === 'support' && <DashboardSupport />}
           {activeTab === 'settings' && <DashboardSettings />}
@@ -309,6 +312,7 @@ export default function Dashboard() {
                     <SheetItem icon={CreditCard} label="Memberships" active={activeTab==='memberships'} onClick={() => handleNav('memberships')} />
                     <SheetItem icon={PackageOpen} label="Packages" active={activeTab==='packages'} onClick={() => handleNav('packages')} />
                     <SheetItem icon={Wallet} label="Billing" active={activeTab==='billing'} onClick={() => handleNav('billing')} />
+                    <SheetItem icon={Wallet} label="Wallet" active={activeTab==='wallet'} onClick={() => handleNav('wallet')} />
                   </div>
                 </div>
                 <div>

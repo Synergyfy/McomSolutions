@@ -1,5 +1,6 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { BusinessModule } from './business/business.module';
@@ -13,6 +14,7 @@ import { ProgrammeModule } from './programme/programme.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { ConsoleModule } from './console/console.module';
+import { WalletModule } from './wallet/wallet.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 import { RedisModule } from './redis/redis.module';
@@ -22,6 +24,9 @@ import { RedisModule } from './redis/redis.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    // Global rate limiter — registered ONCE here. Per-route @Throttle()
+    // overrides live in the controllers (Console, Wallet partner/admin).
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
     RedisModule,
     PrismaModule,
     AuthModule,
@@ -36,6 +41,7 @@ import { RedisModule } from './redis/redis.module';
     CampaignModule,
     ServiceConnectorsModule,
     ConsoleModule,
+    WalletModule,
   ],
   controllers: [],
   providers: [],

@@ -121,7 +121,7 @@ export class BusinessService {
           headers: {
             'Content-Type': 'application/json',
             'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.rating,places.types,places.internationalPhoneNumber,places.userRatingCount',
+            'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.rating,places.types,places.internationalPhoneNumber,places.userRatingCount,places.location,places.photos,places.websiteUri,places.regularOpeningHours',
           },
         },
       );
@@ -130,6 +130,11 @@ export class BusinessService {
       return places.map((place: any) => {
         const types = place.types || [];
         const primaryType = types[0] || 'establishment';
+        const photoName = place.photos?.[0]?.name;
+        const heroImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${apiKey}` : '';
+        const thumbImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${apiKey}` : '';
+        const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${apiKey}`);
+
         return {
           googlePlaceId: place.id,
           placeId: place.id,
@@ -142,6 +147,14 @@ export class BusinessService {
           rating: place.rating || 0,
           userRatingsTotal: place.userRatingCount || 0,
           user_ratings_total: place.userRatingCount || 0,
+          lat: place.location?.latitude || 0,
+          lng: place.location?.longitude || 0,
+          website: place.websiteUri || '',
+          heroImg,
+          thumbImg,
+          allPhotos,
+          hours: place.regularOpeningHours?.weekdayDescriptions?.[new Date().getDay()] || (place.regularOpeningHours?.openNow ? 'Open now' : 'Closed'),
+          isOpenNow: place.regularOpeningHours?.openNow ?? false,
           types: types,
           googleCategoryId: `gcid:${primaryType}`,
         };
@@ -171,6 +184,8 @@ export class BusinessService {
         rating: 4.5,
         userRatingsTotal: 312,
         user_ratings_total: 312,
+        lat: 51.5390,
+        lng: -0.1426,
         types: ['coffee_shop', 'establishment'],
         googleCategoryId: 'gcid:coffee_shop',
       },
@@ -186,6 +201,8 @@ export class BusinessService {
         rating: 4.8,
         userRatingsTotal: 189,
         user_ratings_total: 189,
+        lat: 51.5430,
+        lng: -0.1490,
         types: ['bakery', 'establishment'],
         googleCategoryId: 'gcid:bakery',
       },
@@ -201,6 +218,8 @@ export class BusinessService {
         rating: 4.3,
         userRatingsTotal: 97,
         user_ratings_total: 97,
+        lat: 51.5370,
+        lng: -0.1450,
         types: ['clothing_store', 'establishment'],
         googleCategoryId: 'gcid:clothing_store',
       },
@@ -233,7 +252,7 @@ export class BusinessService {
         {
           headers: {
             'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': 'id,displayName,formattedAddress,rating,types,internationalPhoneNumber,websiteUri,regularOpeningHours,userRatingCount',
+            'X-Goog-FieldMask': 'id,displayName,formattedAddress,rating,types,internationalPhoneNumber,websiteUri,regularOpeningHours,userRatingCount,location,photos',
           },
         },
       );
@@ -245,19 +264,36 @@ export class BusinessService {
 
       const types = place.types || [];
       const primaryType = types[0] || 'establishment';
+      const photoName = place.photos?.[0]?.name;
+      const heroImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${apiKey}` : '';
+      const thumbImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${apiKey}` : '';
+      const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${apiKey}`);
 
       return {
+        googlePlaceId: place.id,
+        placeId: place.id,
+        place_id: place.id,
         name: place.displayName?.text || 'Business Name',
         formattedAddress: place.formattedAddress || '',
+        formatted_address: place.formattedAddress || '',
         postcode: this.extractPostcode(place.formattedAddress || ''),
         internationalPhoneNumber: place.internationalPhoneNumber || '',
+        businessPhone: place.internationalPhoneNumber || '',
         website: place.websiteUri || '',
         rating: place.rating || 0,
         userRatingsTotal: place.userRatingCount || 0,
+        user_ratings_total: place.userRatingCount || 0,
+        lat: place.location?.latitude || 0,
+        lng: place.location?.longitude || 0,
+        heroImg,
+        thumbImg,
+        allPhotos,
         openingHours: place.regularOpeningHours ? {
           open_now: place.regularOpeningHours.openNow ?? false,
           weekday_text: place.regularOpeningHours.weekdayDescriptions || [],
         } : null,
+        hours: place.regularOpeningHours?.weekdayDescriptions?.[new Date().getDay()] || (place.regularOpeningHours?.openNow ? 'Open now' : 'Closed'),
+        isOpenNow: place.regularOpeningHours?.openNow ?? false,
         types: types,
         googleCategoryId: `gcid:${primaryType}`,
       };

@@ -300,35 +300,41 @@ export class AuthService {
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
-    // Create user and business profile
-    const newUser = await this.prisma.user.create({
-      data: {
-        email,
-        password: passwordHash,
-        role: Role.BUSINESS,
-        businessProfile: {
-          create: {
-            businessName: data.businessName || 'My New Business',
-            businessType: data.businessType || 'retail',
-            country: data.country || 'United Kingdom',
-            phone: data.phone || '',
-            email: email,
-            isOnGoogle: data.isOnGoogle || false,
-            googlePlaceId: data.googlePlaceId || null,
-            address: data.address || '',
-            postcode: data.postcode || '',
-            industry: data.industry || '',
-            category: data.category || '',
-            description: data.description || '',
-            website: data.website || '',
-            openingHours: data.openingHours || '',
-            socialMedia: data.socialMedia || '',
+    // Create user, business profile, and wallet atomically
+    const newUser = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          password: passwordHash,
+          role: Role.BUSINESS,
+          businessProfile: {
+            create: {
+              businessName: data.businessName || 'My New Business',
+              businessType: data.businessType || 'retail',
+              country: data.country || 'United Kingdom',
+              phone: data.phone || '',
+              email: email,
+              isOnGoogle: data.isOnGoogle || false,
+              googlePlaceId: data.googlePlaceId || null,
+              address: data.address || '',
+              postcode: data.postcode || '',
+              industry: data.industry || '',
+              category: data.category || '',
+              description: data.description || '',
+              website: data.website || '',
+              openingHours: data.openingHours || '',
+              socialMedia: data.socialMedia || '',
+            },
+          },
+          wallet: {
+            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
           },
         },
-      },
-      include: {
-        businessProfile: true,
-      },
+        include: {
+          businessProfile: true,
+        },
+      });
+      return user;
     });
 
     return this.login(newUser);
@@ -347,14 +353,24 @@ export class AuthService {
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
-    const newUser = await this.prisma.user.create({
-      data: {
-        email,
-        password: passwordHash,
-        role: Role.CUSTOMER,
-        firstName: data.firstName || '',
-        lastName: data.lastName || '',
-      },
+    // Create user + wallet atomically
+    const newUser = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          password: passwordHash,
+          role: Role.CUSTOMER,
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
+          wallet: {
+            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+          },
+          customerProfile: {
+            create: {},
+          },
+        },
+      });
+      return user;
     });
 
     return this.login(newUser);

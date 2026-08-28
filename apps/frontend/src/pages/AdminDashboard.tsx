@@ -18,6 +18,7 @@ import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import AssessmentPanel from '../components/admin/AssessmentPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
+import { WalletPanel } from '../components/admin/wallet/WalletPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -30,6 +31,7 @@ const ADMIN_TABS: AdminTab[] = [
   'notifications', 'support',
   'audit-logs',
   'console',
+  'wallet',
   'programme',
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
@@ -67,6 +69,7 @@ export default function AdminDashboard() {
       support: { title: 'Support Management', subtitle: 'Manage support tickets and assignments' },
       'audit-logs': { title: 'Audit Logs', subtitle: 'Track all admin activity in the ecosystem' },
       'console': { title: 'MCOM Console', subtitle: 'Register and manage ecosystem applications' },
+      'wallet': { title: 'Wallet Management', subtitle: 'View and manage user wallets and transactions across all platforms' },
       'programme': { title: '90-Day Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
@@ -113,6 +116,8 @@ export default function AdminDashboard() {
         return <CommunicationPanel />;
       case 'console':
         return <ConsolePanel />;
+      case 'wallet':
+        return <WalletPanel />;
       case 'programme':
         return <ProgrammeManagementPanel />;
       case 'audit-logs':

@@ -47,23 +47,23 @@ export class RegisterAppDto {
 
   @ApiPropertyOptional({ example: 'https://vcard.mcom.com', description: 'Frontend URL of the app' })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   appUrl?: string;
 
   @ApiPropertyOptional({ example: 'https://api.vcard.mcom.com', description: 'Backend URL used by the Generic Connector for plan management' })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   billingApiUrl?: string;
 
   @ApiProperty({ example: ['https://vcard.mcom.com/auth/callback'], description: 'Allowed OAuth redirect callback URLs' })
   @IsArray()
-  @IsUrl({}, { each: true, message: 'Invalid redirect URI' })
+  @IsUrl({ require_tld: false }, { each: true, message: 'Invalid redirect URI' })
   @ArrayMaxSize(20)
   redirectUris: string[];
 
   @ApiProperty({ example: ['https://vcard.mcom.com'], description: 'Allowed CORS origins (scheme + hostname only)' })
   @IsArray()
-  @IsUrl({}, { each: true, message: 'Invalid CORS origin' })
+  @IsUrl({ require_tld: false }, { each: true, message: 'Invalid CORS origin' })
   @ArrayMaxSize(20)
   corsOrigins: string[];
 
@@ -75,7 +75,7 @@ export class RegisterAppDto {
 
   @ApiPropertyOptional({ example: 'https://api.vcard.mcom.com/webhooks', description: 'Where McomSolutions POSTs lifecycle events' })
   @IsOptional()
-  @IsUrl()
+  @IsUrl({ require_tld: false })
   webhookUrl?: string;
 
   @ApiPropertyOptional({ example: false, description: 'Only super-admins should set this — makes the app non-deletable' })

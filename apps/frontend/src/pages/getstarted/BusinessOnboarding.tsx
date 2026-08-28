@@ -9,9 +9,9 @@ import {
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu,   Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { apiClient, setSharedAuthCookies } from '../../services/api';
+import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
 import { businessApi } from '../../services/business';
-import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser } from '../../services/auth/hooks';
+import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../../services/auth/hooks';
 import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
@@ -66,9 +66,6 @@ function useCreateUser() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Registering user during onboarding:', data);
-      if (USE_MOCK) {
-        return { data: { id: 'mock-user-' + Date.now(), email: data.email, firstName: data.businessName } };
-      }
       const res = await businessApi.register({
         email: data.email,
         password: data.password,
@@ -88,11 +85,6 @@ function useLogin() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Logging in user during onboarding:', data);
-      if (USE_MOCK) {
-        const mockToken = 'mock-jwt-' + Date.now();
-        localStorage.setItem('auth_token', mockToken);
-        return { data: { accessToken: mockToken, user: { id: 'mock-user', email: data.email, role: 'BUSINESS' } } };
-      }
       const res = await businessApi.login({
         email: data.email,
         password: data.password,
@@ -108,10 +100,6 @@ function useSendOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      if (USE_MOCK) {
-        console.log('[MOCK] OTP sent to', data.email, '(code: 123456)');
-        return { success: true };
-      }
       await businessApi.sendOtp(data.email);
       return { success: true };
     },
@@ -125,10 +113,6 @@ function useValidateOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
-      if (USE_MOCK) {
-        const valid = data.otp === '123456' || data.otp?.length === 6;
-        return { data: { valid } };
-      }
       const res = await businessApi.verifyOtp(data.email, data.otp);
       return { data: { valid: res.valid } };
     },
@@ -139,8 +123,12 @@ function useValidateOtp() {
 function useCheckEmail() {
   return {
     mutateAsync: async (email: string) => {
-      // Simulate check, auth handles duplicate emails on registration
-      return { exists: false };
+      try {
+        const res = await apiClient.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
+        return res.data;
+      } catch {
+        return { exists: false };
+      }
     },
     isPending: false,
   };
@@ -149,18 +137,20 @@ function useCheckEmail() {
 function useAddListing() {
   return {
     mutateAsync: async (data: any) => {
-      console.log('Mock: Adding listing via complete onboarding', data);
-      return { data: { id: 'listing-999' } };
+      const res = await apiClient.put('/business/profile', data);
+      return { data: res.data };
     },
     isPending: false,
   };
 }
 
-// Replaced by import from ../../hooks/useCategoryData
-
 async function uploadFile(file: File) {
-  console.log('Mock: Uploading file', file.name);
-  return { secure_url: URL.createObjectURL(file) } as any;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiClient.post('/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
 }
 
 const useDispatch = () => (action: any) => console.log('Dispatch:', action);
@@ -173,109 +163,16 @@ const Cookies = {
   get: (key: string) => null,
 };
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.VITE_MOCK_API === 'true';
-
-const mockFallback = (endpoint: string, fallbackData: any) => {
-  console.warn(`[MOCK] Using mock data for: ${endpoint}`);
-  return { data: fallbackData };
-};
-
 const api = {
   post: async (endpoint: string, payload: any): Promise<{ data: any }> => {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    try {
-      if (USE_MOCK) {
-        if (cleanEndpoint.includes('/localmall/onboarding/check-location')) {
-          return mockFallback(cleanEndpoint, { status: 'active', resolvedArea: 'Westminster Borough', tier: 'high_street' });
-        }
-        if (cleanEndpoint.includes('/claim/start')) {
-          return mockFallback(cleanEndpoint, { authUrl: 'about:blank#mock' });
-        }
-        if (cleanEndpoint.includes('/google-business/complete-onboarding')) {
-          return mockFallback(cleanEndpoint, {
-            auth: { accessToken: 'mock-jwt-token-abc123', refreshToken: 'mock-refresh' },
-            user: { id: 'mock-user-' + Date.now(), firstName: payload.firstName, lastName: payload.lastName, email: payload.email, role: 'BUSINESS', businessName: payload.businessName },
-            listing: { id: 'mock-listing-' + Date.now(), businessName: payload.businessName },
-          });
-        }
-        return mockFallback(cleanEndpoint, { success: true });
-      }
-      const res = await apiClient.post(cleanEndpoint, payload);
-      return res;
-    } catch (err: any) {
-      if (err?.code === 'ERR_NETWORK' || err?.code === 'ECONNABORTED' || !err?.response) {
-        console.warn(`[MOCK] Backend unreachable — using mock for: ${cleanEndpoint}`);
-        if (cleanEndpoint.includes('/localmall/onboarding/check-location')) {
-          return mockFallback(cleanEndpoint, { status: 'active', resolvedArea: 'Westminster Borough', tier: 'high_street' });
-        }
-        if (cleanEndpoint.includes('/claim/start')) {
-          return mockFallback(cleanEndpoint, { authUrl: 'about:blank#mock' });
-        }
-        if (cleanEndpoint.includes('/google-business/complete-onboarding')) {
-          return mockFallback(cleanEndpoint, {
-            auth: { accessToken: 'mock-jwt-token-abc123', refreshToken: 'mock-refresh' },
-            user: { id: 'mock-user-' + Date.now(), firstName: payload.firstName, lastName: payload.lastName, email: payload.email, role: 'BUSINESS', businessName: payload.businessName },
-            listing: { id: 'mock-listing-' + Date.now(), businessName: payload.businessName },
-          });
-        }
-        return mockFallback(cleanEndpoint, { success: true });
-      }
-      throw err;
-    }
+    const res = await apiClient.post(cleanEndpoint, payload);
+    return res;
   },
   get: async (endpoint: string): Promise<{ data: any }> => {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    try {
-      if (USE_MOCK) {
-        if (cleanEndpoint.includes('/business/search-address')) {
-          return mockFallback(cleanEndpoint, [
-            { displayName: '10 Downing Street, Westminster, London, SW1A 2AA', line1: '10 Downing Street', line2: 'Westminster', city: 'London', postcode: 'SW1A 2AA', country: 'UK' },
-            { displayName: '221B Baker Street, Marylebone, London, NW1 6XE', line1: '221B Baker Street', line2: 'Marylebone', city: 'London', postcode: 'NW1 6XE', country: 'UK' },
-          ]);
-        }
-        if (cleanEndpoint.includes('/sectors')) {
-          return mockFallback(cleanEndpoint, SECTORS);
-        }
-        if (cleanEndpoint.includes('/categories')) {
-          return mockFallback(cleanEndpoint, CATEGORIES);
-        }
-        if (cleanEndpoint.includes('/subcategories')) {
-          return mockFallback(cleanEndpoint, SUBCATEGORIES);
-        }
-        if (cleanEndpoint.includes('/google-business/map-category')) {
-          return mockFallback(cleanEndpoint, { sectorId: 'hospitality-food', categoryId: 'dining', subCategoryId: 'fine-dining' });
-        }
-        if (cleanEndpoint.includes('/google-business')) {
-          return mockFallback(cleanEndpoint, { businesses: [] });
-        }
-        return mockFallback(cleanEndpoint, { success: true });
-      }
-      const res = await apiClient.get(cleanEndpoint);
-      return res;
-    } catch (err: any) {
-      if (err?.code === 'ERR_NETWORK' || err?.code === 'ECONNABORTED' || !err?.response) {
-        console.warn(`[MOCK] Backend unreachable — using mock for: ${cleanEndpoint}`);
-        if (cleanEndpoint.includes('/business/search-address')) {
-          return mockFallback(cleanEndpoint, [
-            { displayName: '10 Downing Street, Westminster, London, SW1A 2AA', line1: '10 Downing Street', line2: 'Westminster', city: 'London', postcode: 'SW1A 2AA', country: 'UK' },
-          ]);
-        }
-        if (cleanEndpoint.includes('/sectors')) {
-          return mockFallback(cleanEndpoint, SECTORS);
-        }
-        if (cleanEndpoint.includes('/categories')) {
-          return mockFallback(cleanEndpoint, CATEGORIES);
-        }
-        if (cleanEndpoint.includes('/subcategories')) {
-          return mockFallback(cleanEndpoint, SUBCATEGORIES);
-        }
-        if (cleanEndpoint.includes('/google-business/map-category')) {
-          return mockFallback(cleanEndpoint, { sectorId: 'hospitality-food', categoryId: 'dining', subCategoryId: 'fine-dining' });
-        }
-        return mockFallback(cleanEndpoint, { businesses: [] });
-      }
-      throw err;
-    }
+    const res = await apiClient.get(cleanEndpoint);
+    return res;
   },
   defaults: apiClient.defaults,
 };
@@ -695,7 +592,36 @@ function BusinessOnboardingInner() {
     reader.readAsDataURL(file);
   };
   const router = useRouter();
+  const logout = useLogout();
   const [searchParams] = useSearchParams();
+
+  const handleLogout = () => {
+    localStorage.removeItem('businessOnboardingState');
+    localStorage.removeItem('businessOnboarding');
+    localStorage.removeItem('businessOnboardingStep');
+    localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('business_user');
+    localStorage.removeItem('pendingPlatformPurchase');
+    localStorage.removeItem('onboardingPaymentSuccess');
+    localStorage.removeItem('firstDashboardLogin');
+    clearSharedAuthCookies();
+    logout();
+  };
+
+  const handleRestartOnboarding = () => {
+    localStorage.removeItem('businessOnboardingState');
+    localStorage.removeItem('businessOnboarding');
+    localStorage.removeItem('businessOnboardingStep');
+    localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('business_user');
+    localStorage.removeItem('pendingPlatformPurchase');
+    localStorage.removeItem('onboardingPaymentSuccess');
+    clearSharedAuthCookies();
+    window.location.reload();
+  };
+
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
 
@@ -868,90 +794,76 @@ function BusinessOnboardingInner() {
     setSearchError(null);
     setHasSearched(true);
     try {
-      const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-      if (!googleApiKey) {
-        setSearchError('Google Maps API key is not configured.');
-        return;
-      }
       const queryText = `${searchName} ${searchLoc}`.trim();
-      const params = new URLSearchParams({
-        query: queryText,
-        key: googleApiKey,
-        maxresults: '20',
-      });
-      const res = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`);
-      if (!res.ok) throw new Error(`Google Places API error: ${res.status}`);
-      const data = await res.json();
-      if (data.status !== 'OK') {
-        setSearchError(
-          `Google Places API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`
-        );
-        return;
-      }
+      const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
+      const raw = res?.data;
+      const list = Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.places)
+        ? raw.places
+        : Array.isArray(raw?.results)
+        ? raw.results
+        : Array.isArray(raw?.businesses)
+        ? raw.businesses
+        : [];
 
-      // Legacy Text Search doesn't return phone/website. Enrich the first
-      // results with Place Details (parallel, capped) to preserve the fields
-      // the preview screen expects.
-      const results = data.results || [];
-      const details = await Promise.all(
-        results.slice(0, 10).map(async (r: any) => {
-          try {
-            const dParams = new URLSearchParams({
-              place_id: r.place_id,
-              fields: 'formatted_phone_number,international_phone_number,website,opening_hours',
-              key: googleApiKey,
-            });
-            const dRes = await fetch(
-              `https://maps.googleapis.com/maps/api/place/details/json?${dParams.toString()}`
-            );
-            if (!dRes.ok) return null;
-            const dData = await dRes.json();
-            return dData.status === 'OK' ? dData.result : null;
-          } catch {
-            return null;
-          }
-        })
-      );
-      const detailMap = new Map<string, any>();
-      results.slice(0, 10).forEach((r: any, i: number) => {
-        if (details[i]) detailMap.set(r.place_id, details[i]);
-      });
+      const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
-      const places = results.map((p: any) => {
-        const detail = detailMap.get(p.place_id);
-        const photoRef = p.photos?.[0]?.photo_reference;
-        const heroPhotoUrl = photoRef
+      const places = list.map((p: any) => {
+        const placeId = p.place_id || p.placeId || p.googlePlaceId || p.id;
+        const name = p.name || p.displayName?.text || 'Business Name';
+        const formatted_address = p.formatted_address || p.formattedAddress || p.vicinity || '';
+        const types = p.types || [];
+        const primaryType = types[0] || 'establishment';
+        const photoRef = p.photos?.[0]?.photo_reference || p.photos?.[0]?.photoReference;
+        const photoName = p.photos?.[0]?.name;
+
+        const heroPhotoUrl = p.heroImg || (photoName
+          ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${googleApiKey}`
+          : photoRef
           ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoRef}&key=${googleApiKey}`
-          : '';
-        const thumbPhotoUrl = photoRef
+          : '');
+
+        const thumbPhotoUrl = p.thumbImg || (photoName
+          ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${googleApiKey}`
+          : photoRef
           ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${photoRef}&key=${googleApiKey}`
-          : '';
-        const allPhotoUrls = (p.photos || []).slice(0, 5).map((ph: any) =>
-          `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
-        );
+          : '');
+
+        const allPhotoUrls = p.allPhotos || (p.photos || []).slice(0, 5).map((ph: any) =>
+          ph.name
+            ? `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${googleApiKey}`
+            : ph.photo_reference
+            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
+            : ''
+        ).filter(Boolean);
 
         const weekdayText =
-          detail?.opening_hours?.weekday_text || p.opening_hours?.weekday_text || [];
+          p.openingHours?.weekday_text || p.opening_hours?.weekday_text || [];
         const hoursText =
-          weekdayText[new Date().getDay()] || (p.opening_hours?.open_now ? 'Open now' : 'Closed');
+          p.hours || weekdayText[new Date().getDay()] || (p.isOpenNow || p.opening_hours?.open_now ? 'Open now' : 'Closed');
         const isOpen =
-          detail?.opening_hours?.open_now ?? p.opening_hours?.open_now ?? false;
+          p.isOpenNow ?? p.openingHours?.open_now ?? p.opening_hours?.open_now ?? false;
 
         return {
-          place_id: p.place_id,
-          name: p.name || 'Unknown',
-          formatted_address: p.formatted_address || p.vicinity || '',
-          lat: p.geometry?.location?.lat || 0,
-          lng: p.geometry?.location?.lng || 0,
-          types: p.types || [],
-          primaryType: p.types?.[0] || '',
-          primaryTypeDisplayName: p.types?.[0] || '',
-          formatted_phone_number: detail?.formatted_phone_number || p.formatted_phone_number || '',
+          place_id: placeId,
+          placeId: placeId,
+          googlePlaceId: placeId,
+          name: name,
+          formatted_address: formatted_address,
+          formattedAddress: formatted_address,
+          postcode: p.postcode || extractPostcode(formatted_address),
+          lat: p.lat || p.location?.latitude || p.geometry?.location?.lat || 0,
+          lng: p.lng || p.location?.longitude || p.geometry?.location?.lng || 0,
+          types: types,
+          primaryType: primaryType,
+          primaryTypeDisplayName: primaryType.replace(/_/g, ' '),
+          formatted_phone_number: p.formatted_phone_number || p.businessPhone || p.internationalPhoneNumber || p.international_phone_number || '',
           international_phone_number:
-            detail?.international_phone_number || p.international_phone_number || '',
-          website: detail?.website || p.website || '',
+            p.international_phone_number || p.internationalPhoneNumber || p.businessPhone || '',
+          website: p.website || p.websiteUri || '',
           rating: p.rating || 0,
-          user_ratings_total: p.user_ratings_total || 0,
+          user_ratings_total: p.user_ratings_total || p.userRatingsTotal || p.userRatingCount || 0,
           photos: p.photos || [],
           heroImg: heroPhotoUrl,
           thumbImg: thumbPhotoUrl,
@@ -960,10 +872,11 @@ function BusinessOnboardingInner() {
           isOpenNow: isOpen,
         };
       });
+
       setSearchResults(places);
     } catch (err: any) {
-      setSearchError('Failed to search businesses.');
-      console.error(err);
+      setSearchError('Failed to search businesses. Please check your network or try a different search term.');
+      console.error('Business search failed:', err);
     } finally {
       setIsSearching(false);
     }
@@ -979,25 +892,7 @@ function BusinessOnboardingInner() {
     setIsSubmitting(true);
     setSubmitError(null);
 
-    // ─── MOCK MODE: Skip OAuth, go straight to review ───
-    if (USE_MOCK) {
-      const b = selectedPreviewBusiness;
-      try {
-        const mapRes = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(b.googleCategoryId || '')}`);
-        if (mapRes.data) {
-          setGoogleSectorId(mapRes.data.sectorId || '');
-          setGoogleCategoryId(mapRes.data.categoryId || '');
-          setGoogleSubCategoryId(mapRes.data.subCategoryId || '');
-        }
-      } catch { /* proceed without mapping */ }
-      setGooglePhoneInput(b.businessPhone || '');
-      setGoogleStep('review_claim');
-      setShowConnectGooglePage(false);
-      setIsSubmitting(false);
-      return;
-    }
-
-    // ─── REAL MODE: OAuth popup flow ───
+    // ─── OAuth popup flow ───
     try {
       const returnUrl = `${window.location.origin}/getstarted/business`;
       const res = await api.post('claim/start', {
@@ -1134,37 +1029,35 @@ function BusinessOnboardingInner() {
       const postcode = b.postcode || extractPostcode(address) || '';
       const phone = googlePhoneInput || b.businessPhone || b.formatted_phone_number || '';
 
-      if (!USE_MOCK) {
-        // ─── REAL MODE: Call backend to complete onboarding ───
-        const res = await api.post('google-business/complete-onboarding', {
-          email: googleEmail,
-          password: formData.password,
-          firstName: ownerFirstName,
-          lastName: ownerLastName,
-          businessType: ownerBusinessType,
-          googlePlaceId: b.googlePlaceId || b.place_id || '',
-          businessName,
-          businessPhone: phone,
-          address,
-          postcode,
-          sectorId: googleSectorId,
-          categoryId: googleCategoryId,
-          subCategoryId: googleSubCategoryId,
-          logoUrl: b.heroImg || '',
-          source: searchParams.get('source') || 'direct',
-        });
+      // Call backend to complete onboarding
+      const res = await api.post('google-business/complete-onboarding', {
+        email: googleEmail,
+        password: formData.password,
+        firstName: ownerFirstName,
+        lastName: ownerLastName,
+        businessType: ownerBusinessType,
+        googlePlaceId: b.googlePlaceId || b.place_id || '',
+        businessName,
+        businessPhone: phone,
+        address,
+        postcode,
+        sectorId: googleSectorId,
+        categoryId: googleCategoryId,
+        subCategoryId: googleSubCategoryId,
+        logoUrl: b.heroImg || '',
+        source: searchParams.get('source') || 'direct',
+      });
 
-        const { auth, user, listing } = res.data;
-        api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
-        setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
-        dispatch(setAuthTokens({ accessToken: auth.accessToken, refreshToken: auth.refreshToken }));
-        dispatch(setUserData({
-          id: user?.id || user?._id || 'mock_user_id',
-          userName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : `${ownerFirstName} ${ownerLastName}`,
-          userRole: user?.role || 'owner',
-          packageInfo: user?.packageInfo ? { planType: user.packageInfo.planType } : null,
-        }));
-      }
+      const { auth, user, listing } = res.data;
+      api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
+      setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
+      dispatch(setAuthTokens({ accessToken: auth.accessToken, refreshToken: auth.refreshToken }));
+      dispatch(setUserData({
+        id: user?.id || user?._id || 'user_id',
+        userName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : `${ownerFirstName} ${ownerLastName}`,
+        userRole: user?.role || 'owner',
+        packageInfo: user?.packageInfo ? { planType: user.packageInfo.planType } : null,
+      }));
 
       // ─── BOTH MODES: Sync form data and proceed ───
       setFormData((prev: any) => ({
@@ -1563,13 +1456,8 @@ function BusinessOnboardingInner() {
     }
     setIsCheckingProximity(true);
     try {
-      let result: any;
-      if (USE_MOCK) {
-        result = { status: 'active', resolvedArea: 'Westminster Borough', tier: 'high_street' };
-      } else {
-        const res = await apiClient.post('/localmall/onboarding/check-location', { postcode }, { timeout: 10000 });
-        result = res.data;
-      }
+      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode }, { timeout: 10000 });
+      const result = res.data;
       setProximityResult(result);
       if (result.resolvedArea) {
         const key = result.resolvedArea.includes('Borough')
@@ -2561,6 +2449,17 @@ function BusinessOnboardingInner() {
                     </div>
                   );
                 })
+              ) : searchError ? (
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-600 text-xs font-semibold space-y-2">
+                  <AlertCircle className="w-6 h-6 mx-auto text-red-500" />
+                  <p>{searchError}</p>
+                  <button
+                    onClick={handleSearch}
+                    className="mt-2 px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors"
+                  >
+                    Retry Search
+                  </button>
+                </div>
               ) : (
                 <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-center text-gray-500 text-xs font-semibold">
                   {hasSearched
@@ -3674,17 +3573,8 @@ function BusinessOnboardingInner() {
           source: searchParams.get('source') || 'direct',
         };
 
-        let resData: any;
-        if (USE_MOCK) {
-          resData = {
-            auth: { accessToken: 'mock-jwt-token-abc123', refreshToken: 'mock-refresh' },
-            user: { id: 'mock-user-' + Date.now(), firstName: onboardingPayload.firstName, lastName: onboardingPayload.lastName, email: onboardingPayload.email, role: 'BUSINESS', businessName: onboardingPayload.businessName },
-            listing: { id: 'mock-listing-' + Date.now(), businessName: onboardingPayload.businessName },
-          };
-        } else {
-          const res = await apiClient.post('/google-business/complete-onboarding', onboardingPayload);
-          resData = res.data;
-        }
+        const res = await apiClient.post('/google-business/complete-onboarding', onboardingPayload);
+        const resData = res.data;
 
         const { auth, user, listing } = resData;
 
@@ -4398,22 +4288,20 @@ function BusinessOnboardingInner() {
                     </button>
                   )}
                 </div>
-                <button
-                  onClick={() => {
-                    localStorage.removeItem('businessOnboardingState');
-                    localStorage.removeItem('businessOnboarding');
-                    localStorage.removeItem('businessOnboardingStep');
-                    localStorage.removeItem('businessOnboardingCompleted');
-                    localStorage.removeItem('auth_token');
-                    localStorage.removeItem('business_user');
-                    localStorage.removeItem('pendingPlatformPurchase');
-                    document.cookie = "packageInfo=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
-                    window.location.reload();
-                  }}
-                  className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
-                >
-                  <LogOut className="w-4 h-4" /> Restart Onboarding
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRestartOnboarding}
+                    className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                  >
+                    <RefreshCw className="w-4 h-4" /> Restart Onboarding
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                  >
+                    <LogOut className="w-4 h-4" /> Log Out
+                  </button>
+                </div>
               </div>
             <div className="text-center max-w-3xl mx-auto mb-12">
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
@@ -4708,22 +4596,18 @@ function BusinessOnboardingInner() {
     return (
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex justify-end mb-6">
+          <div className="flex justify-between items-center mb-6">
             <button
-              onClick={() => {
-                localStorage.removeItem('businessOnboardingState');
-                localStorage.removeItem('businessOnboarding');
-                localStorage.removeItem('businessOnboardingStep');
-                localStorage.removeItem('businessOnboardingCompleted');
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('business_user');
-                localStorage.removeItem('pendingPlatformPurchase');
-                document.cookie = "packageInfo=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
-                window.location.reload();
-              }}
+              onClick={handleRestartOnboarding}
               className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
             >
-              <LogOut className="w-4 h-4" /> Restart Onboarding
+              <RefreshCw className="w-4 h-4" /> Restart Onboarding
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+            >
+              <LogOut className="w-4 h-4" /> Log Out
             </button>
           </div>
           <div className="text-center max-w-3xl mx-auto mb-12">
@@ -4958,6 +4842,22 @@ function BusinessOnboardingInner() {
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
+
+            {/* Top Bar with Restart and Logout */}
+            <div className="flex justify-between items-center mb-6">
+              <button
+                onClick={handleRestartOnboarding}
+                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Restart
+              </button>
+              <button
+                onClick={handleLogout}
+                className="text-xs font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              >
+                <LogOut className="w-3.5 h-3.5" /> Log Out
+              </button>
+            </div>
 
             {/* Header */}
             <div className="text-center mb-6">
@@ -5610,6 +5510,25 @@ function BusinessOnboardingInner() {
       />
 
       <div className="relative z-10 max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-32 sm:pb-20">
+        {/* ─── Top Header Bar with Logout ─── */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <span className="font-extrabold text-base tracking-tight text-gray-900">
+              Business Onboarding
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-xs font-semibold text-gray-500 hover:text-red-600 bg-white border border-gray-200/80 hover:border-red-200 hover:bg-red-50/50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" /> Log Out
+          </button>
+        </div>
+
         {/* ─── Restore Toast ─── */}
         <AnimatePresence>
           {restoreToast && (
@@ -7529,14 +7448,36 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
           <CheckCircle2 className="w-5 h-5 text-orange-600" style={{fontVariationSettings: "'FILL' 1"}} />
           <span className="font-bold text-lg text-orange-600 tracking-tight">MCOMMALL</span>
         </div>
-        <button 
-          onClick={() => router.push('/dashboard')}
-          className="text-sm font-medium text-gray-500 hover:bg-orange-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1"
-          aria-label="Save & Exit"
-        >
-          <span className="hidden sm:inline">Save & Exit</span>
-          <X className="w-5 h-5 sm:hidden" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => {
+              localStorage.removeItem('businessOnboardingState');
+              localStorage.removeItem('businessOnboarding');
+              localStorage.removeItem('businessOnboardingStep');
+              localStorage.removeItem('businessOnboardingCompleted');
+              localStorage.removeItem('auth_token');
+              localStorage.removeItem('business_user');
+              localStorage.removeItem('pendingPlatformPurchase');
+              localStorage.removeItem('onboardingPaymentSuccess');
+              localStorage.removeItem('firstDashboardLogin');
+              clearSharedAuthCookies();
+              router.push('/login');
+            }}
+            className="text-sm font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1.5 cursor-pointer"
+            aria-label="Log Out"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Log Out</span>
+          </button>
+          <button 
+            onClick={() => router.push('/dashboard')}
+            className="text-sm font-medium text-gray-500 hover:bg-orange-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1"
+            aria-label="Save & Exit"
+          >
+            <span className="hidden sm:inline">Save & Exit</span>
+            <X className="w-5 h-5 sm:hidden" />
+          </button>
+        </div>
       </header>
 
       <main id="welcome-checklist-main" className="pt-24 pb-32 px-4 md:max-w-xl md:mx-auto relative">

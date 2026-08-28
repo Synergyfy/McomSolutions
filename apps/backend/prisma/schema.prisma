@@ -60,6 +60,8 @@ model User {
   accountManagerProfile AccountManagerProfile?
   ssoSessions        SsoSession[]
   resetCodes         PasswordResetCode[]
+  wallet             Wallet?
+  walletTopUps       WalletTopUpRequest[]
 }
 
 model BusinessProfile {
@@ -942,4 +944,199 @@ model Campaign {
   @@index([status])
   @@index([locationId])
   @@map("campaigns")
+}
+
+// ─── CENTRALIZED WALLET SYSTEM ────────────────────────────────────────────────
+
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+  SUSPENDED
+  CLOSED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionCategory {
+  TOP_UP
+  REWARD
+  REFUND
+  ADMIN_CREDIT
+  TRANSFER_IN
+  SUBSCRIPTION
+  PURCHASE
+  SERVICE_FEE
+  ADMIN_DEBIT
+  TRANSFER_OUT
+  HOLD_CAPTURE
+}
+
+enum TransactionStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  REVERSED
+}
+
+enum HoldStatus {
+  ACTIVE
+  CAPTURED
+  RELEASED
+  EXPIRED
+}
+
+enum TopUpStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Wallet {
+  id                 String        @id @default(cuid())
+  userId             String        @unique @map("user_id")
+  balance            Decimal       @default(0) @db.Decimal(18, 4) @map("balance")
+  currency           String        @default("MCOM") @map("currency")
+  status             WalletStatus  @default(ACTIVE) @map("status")
+
+  dailyDebitLimit    Decimal?      @db.Decimal(18, 4) @map("daily_debit_limit")
+  monthlyDebitLimit  Decimal?      @db.Decimal(18, 4) @map("monthly_debit_limit")
+  maxBalance         Decimal?      @db.Decimal(18, 4) @map("max_balance")
+
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  lastTransactionAt  DateTime?     @map("last_transaction_at")
+
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions       WalletTransaction[]
+  holds              WalletHold[]
+  topUpRequests      WalletTopUpRequest[]
+  auditLogs          WalletAuditLog[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id                String              @id @default(cuid())
+  walletId          String              @map("wallet_id")
+
+  type              TransactionType     @map("type")
+  amount            Decimal             @db.Decimal(18, 4) @map("amount")
+  balanceBefore     Decimal             @db.Decimal(18, 4) @map("balance_before")
+  balanceAfter      Decimal             @db.Decimal(18, 4) @map("balance_after")
+  currency          String              @default("MCOM") @map("currency")
+
+  platformClientId  String?             @map("platform_client_id")
+  platformName      String?             @map("platform_name")
+  platformSlug      String?             @map("platform_slug")
+
+  category          TransactionCategory @map("category")
+  reference         String?             @map("reference")
+  description       String?             @map("description")
+  metadata          Json?               @map("metadata")
+
+  idempotencyKey    String?             @unique @map("idempotency_key")
+
+  status            TransactionStatus   @default(COMPLETED) @map("status")
+  failureReason     String?             @map("failure_reason")
+  holdId            String?             @map("hold_id")
+  initiatedBy       String?             @map("initiated_by")
+  ipAddress         String?             @map("ip_address")
+
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  wallet            Wallet              @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  hold              WalletHold?         @relation(fields: [holdId], references: [id], onDelete: SetNull)
+
+  @@index([walletId])
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([platformClientId])
+  @@index([platformSlug])
+  @@index([category])
+  @@index([type])
+  @@index([createdAt(sort: Desc)])
+  @@index([idempotencyKey])
+  @@index([reference])
+  @@index([status])
+  @@index([walletId, platformSlug, createdAt(sort: Desc)])
+  @@map("wallet_transactions")
+}
+
+model WalletHold {
+  id               String     @id @default(cuid())
+  walletId         String     @map("wallet_id")
+  amount           Decimal    @db.Decimal(18, 4) @map("amount")
+  platformClientId String     @map("platform_client_id")
+  platformName     String     @map("platform_name")
+  reference        String?    @map("reference")
+  description      String?    @map("description")
+  status           HoldStatus @default(ACTIVE) @map("status")
+  expiresAt        DateTime   @map("expires_at")
+  capturedAt       DateTime?  @map("captured_at")
+  releasedAt       DateTime?  @map("released_at")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  wallet       Wallet              @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@index([walletId])
+  @@index([platformClientId])
+  @@index([expiresAt])
+  @@index([status])
+  @@map("wallet_holds")
+}
+
+model WalletAuditLog {
+  id        String   @id @default(cuid())
+  walletId  String   @map("wallet_id")
+  adminId   String   @map("admin_id")
+  action    String   @map("action")
+  reason    String   @map("reason")
+  changes   Json?    @map("changes")
+  ip        String?  @map("ip")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([adminId])
+  @@index([createdAt(sort: Desc)])
+  @@map("wallet_audit_logs")
+}
+
+model WalletTopUpRequest {
+  id             String     @id @default(cuid())
+  walletId       String     @map("wallet_id")
+  userId         String     @map("user_id")
+  amount         Decimal    @db.Decimal(18, 4) @map("amount")
+  currency       String     @default("GBP") @map("currency")
+  walletCurrency String     @default("MCOM") @map("wallet_currency")
+  exchangeRate   Decimal    @default(1) @db.Decimal(10, 6) @map("exchange_rate")
+
+  provider       String     @map("provider")
+  providerRef    String?    @unique @map("provider_ref")
+  providerStatus String?    @map("provider_status")
+
+  status         TopUpStatus @default(PENDING) @map("status")
+  transactionId  String?    @map("transaction_id")
+
+  createdAt      DateTime   @default(now()) @map("created_at")
+  completedAt    DateTime?  @map("completed_at")
+
+  wallet         Wallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([providerRef])
+  @@index([status])
+  @@map("wallet_top_up_requests")
 }

@@ -6,6 +6,8 @@ import { Eye, EyeOff, ShieldCheck, RefreshCw, X, ArrowRight, Gift, MapPin, Compa
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
 
+import { apiClient } from '../services/api';
+
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
   CUSTOMER: 'CUSTOMER' as const,
@@ -55,11 +57,14 @@ function useValidateOtp() {
 }
 
 function useCheckEmail() {
-  const [isPending, setIsPending] = useState(false);
   return {
     mutateAsync: async (email: string) => {
-      // Direct pass-through
-      return { exists: false };
+      try {
+        const res = await apiClient.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
+        return res.data;
+      } catch {
+        return { exists: false };
+      }
     },
     isPending: false,
   };

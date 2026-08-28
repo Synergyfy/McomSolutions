@@ -110,6 +110,13 @@ export default function LoginPage() {
         navigate('/admin');
         return;
       }
+
+      // If business user without completed onboarding, take to /getstarted/business
+      if (res?.user?.role === 'BUSINESS' && (!res?.user?.isOnboarded || !res?.user?.businessId)) {
+        navigate('/getstarted/business');
+        return;
+      }
+
       await performRedirect();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
@@ -160,6 +167,12 @@ export default function LoginPage() {
         localStorage.setItem('auth_token', auth.accessToken);
         localStorage.setItem('business_user', JSON.stringify(user));
         setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
+
+        // If the user has not completed onboarding, take them directly to /getstarted/business
+        if (user?.role === 'BUSINESS' && (!user?.isOnboarded || !user?.businessId)) {
+          navigate('/getstarted/business');
+          return;
+        }
 
         await performRedirect();
       } catch (err: any) {

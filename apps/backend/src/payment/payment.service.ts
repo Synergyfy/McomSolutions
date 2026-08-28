@@ -24,7 +24,7 @@ export class PaymentService {
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
-      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
+      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-06-24.dahlia' });
     }
 
     const paypalEnv = this.config.get<string>('PAYPAL_ENV') || 'sandbox';
