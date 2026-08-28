@@ -19,10 +19,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   private async seedDefaultSsoClients() {
     try {
+      // NOTE — HMAC secret resolution for these seeded clients:
+      // They have no per-client `hmacSecret` (that requires the Admin Console to
+      // generate + AES-256-GCM encrypt one). The WalletHmacGuard / HmacAuthGuard
+      // therefore fall back to: (1) per-client env var MCOM_{CLIENT}_SECRET,
+      // then (2) the global SSO_API_SECRET. Issue per-client HMAC secrets via the
+      // Mcom Console (`POST /api/v1/admin/console/apps/:clientId/rotate-hmac`)
+      // before enabling wallet operations on each platform in production.
       const clients = [
         {
           clientId: 'mcom-mall',
           name: 'MCOM Mall',
+          platformSlug: 'mall',
           rawSecret: 'mall_secret_123',
           redirectUris: [
             'https://mcommall.vercel.app/auth/callback',
@@ -39,6 +47,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         {
           clientId: 'mcom-loyalty',
           name: 'MCOM Loyalty',
+          platformSlug: 'rewards',
           rawSecret: 'loyalty_secret_123',
           redirectUris: [
             'https://mcomloyalty.vercel.app/auth/callback',
@@ -56,6 +65,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         {
           clientId: '247gbs',
           name: '247GBS',
+          platformSlug: 'audit',
           rawSecret: 'gbs_secret_123',
           redirectUris: [
             'https://247gbs.vercel.app/auth/callback',
@@ -82,17 +92,25 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
               name: client.name,
               redirectUris: client.redirectUris,
               scopes: client.scopes,
-              apiKey: client.apiKey
+              apiKey: client.apiKey,
+              platformSlug: client.platformSlug ?? null,
             }
           });
           console.log(`[Seed] Created default SSO client: ${client.clientId}`);
         } else {
           // Preserve custom URIs added directly to DB, only append missing defaults if any
           const mergedUris = Array.from(new Set([...existing.redirectUris, ...client.redirectUris]));
+          const updates: Record<string, any> = {};
           if (mergedUris.length !== existing.redirectUris.length) {
+            updates.redirectUris = mergedUris;
+          }
+          if (client.platformSlug && existing.platformSlug !== client.platformSlug) {
+            updates.platformSlug = client.platformSlug;
+          }
+          if (Object.keys(updates).length > 0) {
             await this.ssoClient.update({
               where: { clientId: client.clientId },
-              data: { redirectUris: mergedUris }
+              data: updates,
             });
           }
         }

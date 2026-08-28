@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { calculatePermissions } from './permissions.util';
 
 @Injectable()
 export class DataSharingService {
@@ -167,52 +168,6 @@ export class DataSharingService {
   }
 
   private calculatePermissions(role: string, membershipLevel: string, membershipStatus: string, packages: any[]) {
-    // If they are admin, they have all permissions
-    if (role === 'ADMIN') {
-      return {
-        canAccessMall: true,
-        canAccessRewards: true,
-        canAccessSpin: true,
-        canAccessAudit: true,
-        canAccessExpo: true,
-      };
-    }
-
-    // Default permissions
-    const permissions = {
-      canAccessMall: false,
-      canAccessRewards: false,
-      canAccessSpin: false,
-      canAccessAudit: false,
-      canAccessExpo: false,
-    };
-
-    // If membership is inactive, they don't have access to paid platforms unless specified
-    if (membershipStatus !== 'active') {
-      return permissions;
-    }
-
-    // Check packages for explicit access
-    packages.forEach(pkg => {
-      if (pkg.status === 'active') {
-        const platform = pkg.platform.toLowerCase();
-        if (platform === 'mall') permissions.canAccessMall = true;
-        if (platform === 'rewards') permissions.canAccessRewards = true;
-        if (platform === 'spin') permissions.canAccessSpin = true;
-        if (platform === 'audit') permissions.canAccessAudit = true;
-        if (platform === 'expo') permissions.canAccessExpo = true;
-      }
-    });
-
-    // Platinum membership grants access to everything by default
-    if (membershipLevel === 'Platinum') {
-      permissions.canAccessMall = true;
-      permissions.canAccessRewards = true;
-      permissions.canAccessSpin = true;
-      permissions.canAccessAudit = true;
-      permissions.canAccessExpo = true;
-    }
-
-    return permissions;
+    return calculatePermissions(role, membershipLevel, membershipStatus, packages);
   }
 }

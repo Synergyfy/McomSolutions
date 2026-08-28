@@ -17,6 +17,7 @@ describe('SsoService', () => {
     set: jest.fn(),
     del: jest.fn(),
     setex: jest.fn(),
+    delPattern: jest.fn(),
   };
 
   const mockPrisma = {
@@ -311,6 +312,67 @@ describe('SsoService', () => {
       mockPrisma.ssoClient.findMany.mockResolvedValue(clients);
       const result = await service.listClients();
       expect(result).toEqual(clients);
+    });
+  });
+
+  // ─── getClientByClientId (multi-layer cache) ──────
+  describe('getClientByClientId', () => {
+    it('should hit Redis (L2) when L1 miss and cache into L1', async () => {
+      const client = { id: 1, clientId: 'mcom-mall' };
+      mockRedisService.get.mockResolvedValue(client);
+      const result = await service.getClientByClientId('mcom-mall');
+      expect(result).toEqual(client);
+      expect(mockRedisService.get).toHaveBeenCalledWith('sso_client:mcom-mall');
+      // L1 now warm — second call should skip Redis
+      mockRedisService.get.mockClear();
+      const second = await service.getClientByClientId('mcom-mall');
+      expect(second).toEqual(client);
+      expect(mockRedisService.get).not.toHaveBeenCalled();
+    });
+
+    it('should hit DB (L3) on Redis miss and populate caches', async () => {
+      const client = { id: 1, clientId: 'new-app' };
+      mockRedisService.get.mockResolvedValue(null);
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(client);
+      const result = await service.getClientByClientId('new-app');
+      expect(result).toEqual(client);
+      expect(mockRedisService.set).toHaveBeenCalledWith('sso_client:new-app', client, 300);
+    });
+
+    it('should return null when not found anywhere', async () => {
+      mockRedisService.get.mockResolvedValue(null);
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      expect(await service.getClientByClientId('missing')).toBeNull();
+    });
+  });
+
+  // ─── getAllCorsOrigins ────────────────────────────
+  describe('getAllCorsOrigins', () => {
+    it('should return cached origins from Redis when present', async () => {
+      mockRedisService.get.mockResolvedValue(['https://vcard.mcom.com']);
+      const result = await service.getAllCorsOrigins();
+      expect(result).toEqual(['https://vcard.mcom.com']);
+      expect(mockPrisma.ssoClient.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should flatten unique origins from active clients and cache for 60s', async () => {
+      mockRedisService.get.mockResolvedValue(null);
+      mockPrisma.ssoClient.findMany.mockResolvedValue([
+        { corsOrigins: ['https://vcard.mcom.com', 'https://app.vcard.mcom.com'] },
+        { corsOrigins: ['https://vcard.mcom.com'] },
+        { corsOrigins: [] },
+      ]);
+      const result = await service.getAllCorsOrigins();
+      expect(result).toEqual(['https://vcard.mcom.com', 'https://app.vcard.mcom.com']);
+      expect(mockRedisService.set).toHaveBeenCalledWith('cors:all_origins', result, 60);
+    });
+  });
+
+  // ─── invalidateCorsCache ──────────────────────────
+  describe('invalidateCorsCache', () => {
+    it('should delete the cors:all_origins Redis key', async () => {
+      await service.invalidateCorsCache();
+      expect(mockRedisService.del).toHaveBeenCalledWith('cors:all_origins');
     });
   });
 });

@@ -5,24 +5,30 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { ConfigService } from '@nestjs/config';
+import { SsoService } from '../../auth/sso.service';
+import { decrypt } from '../../console/crypto.util';
+import { verifyHmac } from '../hmac.util';
 
 /**
- * HMAC-SHA256 Service-to-Service Authentication Guard
+ * HMAC Service-to-Service Authentication Guard
  *
- * Validates that inbound requests from MCOM platform services are
- * signed with the correct shared secret for their service ID.
- * Zero database queries — secrets are read from environment variables.
+ * Supports two signing schemes, resolved by header:
  *
- * Required headers:
- *   X-Service-Id  : e.g. "mcom-rewards"
- *   X-Timestamp   : Unix timestamp (seconds) when the request was created
- *   X-Signature   : HMAC-SHA256(serviceId + ":" + timestamp, sharedSecret) as hex
+ * 1) LEGACY SCHEME (unchanged — backward compatibility is non-negotiable):
+ *    Headers: X-Service-Id, X-Timestamp, X-Signature
+ *    Message: HMAC-SHA256(serviceId:timestamp, secret)
+ *    Secret:  per-service env var (MCOM_{SERVICE_ID_UPPER}_SECRET) → SSO_API_SECRET
  *
- * Secret resolution (in priority order):
- *   1. Per-service env var: MCOM_{SERVICE_ID_UPPER}_SECRET (e.g. MCOM_MALL_SECRET)
- *   2. Shared fallback: SSO_API_SECRET (all services use the same secret)
- *
- * Replay protection: requests older than 5 minutes are rejected.
+ * 2) NEW SCHEME (Console-registered apps — additive):
+ *    Headers: X-Mcom-Client-ID, X-Mcom-Signature: sha256=<hmac-hex>
+ *    Message: HMAC-SHA256(requestBody, secret)
+ *    Secret:  3-tier fallback
+ *      Tier 1 — per-client `hmacSecret` from DB (encrypted at rest)
+ *      Tier 2 — per-service env var MCOM_{CLIENT_ID_UPPER}_SECRET
+ *      Tier 3 — global SSO_API_SECRET
+ *    Existing callers WITHOUT X-Mcom-Client-ID skip Tiers 1/2 and behave exactly
+ *    as before (legacy scheme).
  */
 
 /** Map of allowed service IDs to their env-var key names for per-service secrets */
@@ -38,9 +44,89 @@ const REPLAY_WINDOW_SECONDS = 300; // 5 minutes
 
 @Injectable()
 export class HmacAuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(
+    private readonly ssoService: SsoService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
 
+    const clientId: string | undefined = request.headers['x-mcom-client-id'];
+
+    // ─── NEW SCHEME: X-Mcom-Client-ID present ────────────────────────────────
+    if (clientId) {
+      return this.verifyNewScheme(request, clientId);
+    }
+
+    // ─── LEGACY SCHEME: preserved byte-for-byte ──────────────────────────────
+    return this.verifyLegacyScheme(request);
+  }
+
+  // ─── NEW SCHEME (Console-registered apps) ──────────────────────────────────
+
+  private async verifyNewScheme(request: any, clientId: string): Promise<boolean> {
+    const signature: string | undefined = request.headers['x-mcom-signature'];
+    if (!signature) {
+      throw new UnauthorizedException('Missing required header: X-Mcom-Signature');
+    }
+
+    const secret = await this.resolveSecret(clientId);
+    const body = this.rawBody(request);
+
+    if (!verifyHmac(body, signature, secret)) {
+      throw new UnauthorizedException('Invalid HMAC signature');
+    }
+
+    request.serviceClient = { serviceId: clientId, name: clientId };
+    return true;
+  }
+
+  private async resolveSecret(clientId: string): Promise<string> {
+    // Tier 1: per-client secret from DB (new apps registered via Console)
+    const client = await this.ssoService.getClientByClientId(clientId);
+    if (client?.hmacSecret) {
+      try {
+        const key = this.configService.get<string>('CONSOLE_ENCRYPTION_KEY');
+        if (key) {
+          return decrypt(client.hmacSecret, key);
+        }
+      } catch {
+        // fall through to env/global tiers if decryption fails
+      }
+    }
+
+    // Tier 2: per-service env var (existing apps: MCOM_MALL_SECRET, etc.)
+    const envKey = `MCOM_${clientId.replace(/-/g, '_').toUpperCase()}_SECRET`;
+    const envSecret = this.configService.get<string>(envKey);
+    if (envSecret) {
+      return envSecret;
+    }
+
+    // Tier 3: global shared secret (original fallback — unchanged)
+    const globalSecret = this.configService.get<string>('SSO_API_SECRET');
+    if (!globalSecret) {
+      throw new UnauthorizedException(
+        `No HMAC secret configured for client "${clientId}". Set SSO_API_SECRET or ${envKey}.`,
+      );
+    }
+    return globalSecret;
+  }
+
+  private rawBody(request: any): string | Buffer {
+    if (request.rawBody && request.rawBody.length > 0) {
+      return request.rawBody;
+    }
+    // Fallback when rawBody is unavailable (e.g. unit tests without rawBody enabled)
+    if (request.body !== undefined && request.body !== null) {
+      return typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+    }
+    return '';
+  }
+
+  // ─── LEGACY SCHEME (unchanged) ─────────────────────────────────────────────
+
+  private verifyLegacyScheme(request: any): boolean {
     const serviceId: string | undefined = request.headers['x-service-id'];
     const timestamp: string | undefined = request.headers['x-timestamp'];
     const signature: string | undefined = request.headers['x-signature'];

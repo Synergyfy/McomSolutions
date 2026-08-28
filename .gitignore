@@ -22,5 +22,4 @@ yarn-error.log*
 .vscode/
 .idea/
 
-# Prisma
-/apps/backend/prisma/migrations/
+

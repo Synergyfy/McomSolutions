@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ClipboardList, Settings as SettingsIcon, Terminal, Crown, Search, Trash2, Download, RefreshCw, Eye, EyeOff, Shield, Save, Loader2 } from 'lucide-react';
+import { ClipboardList, Settings as SettingsIcon, Terminal, Crown, Search, Trash2, Download, RefreshCw, Eye, EyeOff, Shield, Save, Loader2, Activity, Plus, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminAuditLogs, useAdminSettings, useAdminPlans, useAdminPlatforms, useAdminPackages, useAdminPermissions, useClearAuditLogs, useUpdateSettings } from '../../services/admin/hooks';
+import { useAdminAuditLogs, useAdminSettings, useAdminPlans, useAdminPlatforms, useAdminPackages, useAdminPermissions, useClearAuditLogs, useUpdateSettings, useSystemHealth, useSystemJobs, useCreateSystemJob, useUpdateSystemJob, useDeleteSystemJob, useSystemErrorLogs } from '../../services/admin/hooks';
 
 export default function SystemPanel() {
   const [tab, setTab] = useState<'audit' | 'settings' | 'developer' | 'super'>('audit');
@@ -37,6 +37,22 @@ function AuditLogsPanel() {
     l.targetName.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleExport = () => {
+    const rows = filtered.map((l: any) => [
+      l.action, l.adminName, `${l.targetType}: ${l.targetName}`, l.details, l.category, new Date(l.timestamp).toISOString(),
+    ]);
+    const csv = [['Action', 'Admin', 'Target', 'Details', 'Category', 'Timestamp'], ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -51,7 +67,7 @@ function AuditLogsPanel() {
         <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input type="text" placeholder="Search logs..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-64" /></div>
         <div className="flex gap-2">
           <button onClick={() => clearLogs.mutate()} className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" />Clear All</button>
-          <button className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-blue-50 hover:text-brand-blue transition-all flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Export</button>
+          <button onClick={handleExport} className="px-3 py-2 bg-gray-50 rounded-xl text-xs font-bold text-gray-500 hover:bg-blue-50 hover:text-brand-blue transition-all flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Export</button>
         </div>
       </div>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -155,14 +171,135 @@ function SystemSettingsPanel() {
 }
 
 function DeveloperCenterPanel() {
+  const [devTab, setDevTab] = useState<'health' | 'jobs' | 'errors'>('health');
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <DevCard title="API Documentation" desc="Complete API reference for the MCOM ecosystem." icon={Terminal} />
-      <DevCard title="Webhooks" desc="Configure webhook endpoints for real-time events." icon={RefreshCw} />
-      <DevCard title="System Health" desc="Monitor system performance and uptime." icon={Shield} />
-      <DevCard title="Background Jobs" desc="View and manage background job queues." icon={SettingsIcon} />
-      <DevCard title="Error Logs" desc="Review application errors and stack traces." icon={ClipboardList} />
-      <DevCard title="Integration Logs" desc="Track third-party integration activity." icon={Search} />
+    <div>
+      <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm mb-6 w-fit">
+        {[
+          { id: 'health', label: 'System Health', icon: Shield },
+          { id: 'jobs', label: 'Background Jobs', icon: SettingsIcon },
+          { id: 'errors', label: 'Error Logs', icon: ClipboardList },
+        ].map(t => (
+          <button key={t.id} onClick={() => setDevTab(t.id as any)} className={cn("px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2", devTab === t.id ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}><t.icon className="w-3.5 h-3.5" />{t.label}</button>
+        ))}
+      </div>
+      {devTab === 'health' && <SystemHealthTab />}
+      {devTab === 'jobs' && <BackgroundJobsTab />}
+      {devTab === 'errors' && <ErrorLogsTab />}
+    </div>
+  );
+}
+
+function SystemHealthTab() {
+  const { data: res, isLoading } = useSystemHealth();
+  if (isLoading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-brand-blue" /></div>;
+  const d = res?.data ?? ({} as any);
+  const healthy = d.status === 'healthy';
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <HealthCard icon={healthy ? CheckCircle2 : XCircle} label="Status" value={d.status || 'unknown'} tone={healthy ? 'green' : 'red'} />
+      <HealthCard icon={Activity} label="Uptime" value={`${Math.floor(d.uptime || 0)}s`} tone="blue" />
+      <HealthCard icon={SettingsIcon} label="Database" value={d.services?.database ?? 'unknown'} tone={d.services?.database === 'ok' ? 'green' : 'red'} />
+      <HealthCard icon={Loader2} label="DB Latency" value={`${Math.round(d.services?.databaseLatencyMs ?? 0)}ms`} tone="blue" />
+      {d.error && <div className="md:col-span-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 font-medium">{d.error}</div>}
+    </div>
+  );
+}
+
+function BackgroundJobsTab() {
+  const { data: res, isLoading } = useSystemJobs();
+  const createJob = useCreateSystemJob();
+  const updateJob = useUpdateSystemJob();
+  const deleteJob = useDeleteSystemJob();
+  const jobs = (res?.data ?? []) as any[];
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [status, setStatus] = useState('pending');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div><h3 className="font-bold text-gray-900">Background Jobs</h3><p className="text-xs text-gray-400">Scheduled and queued background jobs.</p></div>
+        <button onClick={() => setShowCreate(v => !v)} className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-brand-dark transition-colors"><Plus className="w-3.5 h-3.5" /> Create Job</button>
+      </div>
+
+      {showCreate && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Job Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Expire subscriptions" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
+              <option value="pending">Pending</option><option value="running">Running</option><option value="completed">Completed</option><option value="failed">Failed</option>
+            </select>
+          </div>
+          <button onClick={async () => { if (!name) return; await createJob.mutateAsync({ name, status }); setName(''); setShowCreate(false); }} className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-colors">Create</button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-blue" /></div>
+      ) : jobs.length === 0 ? (
+        <div className="flex items-center justify-center py-16 rounded-2xl bg-white border border-gray-100"><p className="text-sm text-gray-400 font-medium">No background jobs.</p></div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
+          {jobs.map((j: any) => (
+            <div key={j.id} className="flex items-center gap-4 p-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-gray-900 text-sm truncate">{j.name}</p>
+                  <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold", j.status === 'completed' ? 'bg-green-50 text-green-700' : j.status === 'failed' ? 'bg-red-50 text-red-600' : j.status === 'running' ? 'bg-blue-50 text-brand-blue' : 'bg-gray-100 text-gray-500')}>{j.status}</span>
+                  {typeof j.progress === 'number' && <span className="text-[10px] font-bold text-gray-400">{j.progress}%</span>}
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400">
+                  {j.startedAt && <span>Started: {new Date(j.startedAt).toLocaleString()}</span>}
+                  {j.completedAt && <span>Completed: {new Date(j.completedAt).toLocaleString()}</span>}
+                  {j.error && <span className="text-red-500 font-bold">{j.error}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                {j.status !== 'completed' && j.status !== 'failed' && (
+                  <button onClick={() => updateJob.mutate({ id: j.id, data: { status: 'completed' } })} className="p-2 rounded-lg hover:bg-green-50 text-gray-400 hover:text-green-600" title="Mark complete"><CheckCircle2 className="w-4 h-4" /></button>
+                )}
+                <button onClick={() => deleteJob.mutate(j.id)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500" title="Delete"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ErrorLogsTab() {
+  const { data: res, isLoading } = useSystemErrorLogs({ page: 1, limit: 100 });
+  const logs = (res?.data ?? []) as any[];
+  return (
+    <div className="space-y-4">
+      <div><h3 className="font-bold text-gray-900">Error Logs</h3><p className="text-xs text-gray-400">Recent application errors and stack traces.</p></div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-brand-blue" /></div>
+      ) : logs.length === 0 ? (
+        <div className="flex items-center justify-center py-16 rounded-2xl bg-white border border-gray-100"><p className="text-sm text-gray-400 font-medium">No error logs.</p></div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-50">
+          {logs.map((l: any) => (
+            <div key={l.id} className="p-4">
+              <div className="flex items-center gap-2">
+                <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold", l.level === 'error' ? 'bg-red-50 text-red-600' : l.level === 'warn' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-brand-blue')}>{l.level}</span>
+                <span className="text-xs font-bold text-gray-700 truncate">{l.message}</span>
+                <span className="ml-auto text-[11px] text-gray-400 whitespace-nowrap">{new Date(l.createdAt).toLocaleString()}</span>
+              </div>
+              {(l.source || l.path) && (
+                <div className="mt-1 text-[11px] text-gray-400">{l.source && <span className="font-bold text-gray-500">{l.source}</span>} {l.path && <code className="font-mono">{l.path}</code>}</div>
+              )}
+              {l.stack && <pre className="mt-2 p-3 bg-gray-50 rounded-lg text-[11px] text-gray-500 overflow-x-auto whitespace-pre-wrap">{l.stack}</pre>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -214,8 +351,13 @@ function SuperAdminPanel() {
   );
 }
 
-function DevCard({ title, desc, icon: Icon }: any) {
-  return <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all cursor-pointer"><div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center mb-3 text-brand-blue"><Icon className="w-5 h-5" /></div><h3 className="font-bold text-sm text-gray-900 mb-1">{title}</h3><p className="text-xs text-gray-500">{desc}</p></div>;
+function HealthCard({ icon: Icon, label, value, tone }: any) {
+  const toneMap: Record<string, string> = {
+    green: 'text-emerald-600 bg-emerald-50',
+    red: 'text-red-600 bg-red-50',
+    blue: 'text-brand-blue bg-blue-50',
+  };
+  return <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5"><div className={cn("w-10 h-10 rounded-xl flex items-center justify-center mb-3", toneMap[tone] || toneMap.blue)}><Icon className="w-5 h-5" /></div><div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</div><div className="text-2xl font-bold text-gray-900 capitalize">{value}</div></div>;
 }
 
 function SuperStat({ label, value }: any) {

@@ -42,7 +42,7 @@ import {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN)
-@Controller('programme')
+@Controller('admin/programme')
 export class ProgrammeController {
   constructor(private readonly programmeService: ProgrammeService) {}
 

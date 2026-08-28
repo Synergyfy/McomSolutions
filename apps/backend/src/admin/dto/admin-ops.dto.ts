@@ -8,12 +8,13 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Max,
   Min,
 } from 'class-validator';
-import { PartialType } from '@nestjs/swagger';
+import { OmitType, PartialType } from '@nestjs/swagger';
 
 // ─── System API Keys ───────────────────────────────────────────────
 export class CreateSystemApiKeyDto {
@@ -279,3 +280,109 @@ export class CreateErrorLogDto {
   @IsString()
   path?: string;
 }
+
+// ─── External Platform Packages ───────────────────────────────────────
+export class CreateExternalPlanDto {
+  @ApiProperty({ example: 'MCOM Mall Basic', description: 'Plan name' })
+  @IsString()
+  @IsNotEmpty()
+  @Min(2)
+  name: string;
+
+  @ApiProperty({ example: 'MCOM Mall', description: 'External platform this plan belongs to' })
+  @IsString()
+  @IsNotEmpty()
+  platform: string;
+
+  @ApiPropertyOptional({ example: 'Entry tier for MCOM Mall merchants', description: 'Plan description' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 9.99, description: 'Monthly price (minor-unit decimal)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  monthlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 24.99, description: 'Quarterly price (minor-unit decimal)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quarterlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 89.99, description: 'Annual price (minor-unit decimal)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  annualPrice?: number;
+
+  @ApiPropertyOptional({ type: [String], example: ['Online store', 'Inventory sync'], description: 'Included features' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
+  @ApiPropertyOptional({ example: { quotas: { products: 100 }, featureFlags: { loyalty: true } }, description: 'Arbitrary plan configuration (quotas/feature flags)' })
+  @IsOptional()
+  @IsObject()
+  configuration?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ example: true, description: 'Whether the plan is currently active' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: 'Whether this is the default plan for its platform' })
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @ApiPropertyOptional({ example: 'standard', description: 'Plan type/category' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 14, description: 'Trial duration in days' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  trialDuration?: number;
+
+  @ApiPropertyOptional({ example: 'season_2026', description: 'Related season ID' })
+  @IsOptional()
+  @IsString()
+  seasonId?: string;
+
+  @ApiPropertyOptional({ example: 'price_1ABC', description: 'Stripe monthly price ID' })
+  @IsOptional()
+  @IsString()
+  stripeMonthlyPriceId?: string;
+
+  @ApiPropertyOptional({ example: 'price_1DEF', description: 'Stripe quarterly price ID' })
+  @IsOptional()
+  @IsString()
+  stripeQuarterlyPriceId?: string;
+
+  @ApiPropertyOptional({ example: 'price_1GHI', description: 'Stripe annual price ID' })
+  @IsOptional()
+  @IsString()
+  stripeAnnualPriceId?: string;
+
+  @ApiPropertyOptional({ example: 'P-ABC123', description: 'PayPal monthly plan ID' })
+  @IsOptional()
+  @IsString()
+  paypalMonthlyPlanId?: string;
+
+  @ApiPropertyOptional({ example: 'P-DEF456', description: 'PayPal quarterly plan ID' })
+  @IsOptional()
+  @IsString()
+  paypalQuarterlyPlanId?: string;
+
+  @ApiPropertyOptional({ example: 'P-GHI789', description: 'PayPal annual plan ID' })
+  @IsOptional()
+  @IsString()
+  paypalAnnualPlanId?: string;
+}
+
+export class UpdateExternalPlanDto extends OmitType(PartialType(CreateExternalPlanDto), ['platform'] as const) {}

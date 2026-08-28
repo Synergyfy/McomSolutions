@@ -20,6 +20,12 @@ describe('AuthService', () => {
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    $transaction: jest.fn((fnOrOps: any) => {
+      // Interactive transactions run the callback against the mock itself.
+      if (typeof fnOrOps === 'function') return fnOrOps(mockPrisma);
+      // Array form resolves all operations.
+      return Promise.all(fnOrOps);
+    }),
   };
 
   const mockJwtService = {

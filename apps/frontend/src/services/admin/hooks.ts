@@ -32,6 +32,7 @@ import type {
   UpdateTicketInput,
   ExternalPlan,
   CreateExternalPlanInput,
+  CreateCampaignInput,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -731,7 +732,7 @@ export const useAdminActivities = (params?: { highStreetId?: string; page?: numb
 export const useCreateActivity = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { title: string; description?: string; severity?: string; highStreetId?: string }) =>
+    mutationFn: (data: { type: string; title: string; details?: string; location?: string; severity?: string; source?: string; highStreetId?: string }) =>
       adminApi.createActivity(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'activities'] }),
   })
@@ -740,7 +741,7 @@ export const useCreateActivity = () => {
 export const useUpdateActivity = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<{ title: string; description: string; severity: string }> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ type: string; title: string; details: string; location: string; severity: string; source: string; highStreetId: string }> }) =>
       adminApi.updateActivity(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'activities'] }),
   })
@@ -937,7 +938,7 @@ export const useCreateApiKey = () => {
 export const useUpdateApiKey = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<{ name: string; permissions: string[]; active: boolean }> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Partial<{ name: string; permissions: string[]; status: string }> }) =>
       adminApi.updateApiKey(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
   })
@@ -1004,7 +1005,7 @@ export const useSystemJobs = () => {
 export const useCreateSystemJob = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string; type: string; payload?: any }) => adminApi.createSystemJob(data),
+    mutationFn: (data: { name: string; status?: string; progress?: number; error?: string }) => adminApi.createSystemJob(data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'systemJobs'] }),
   })
 }
@@ -1080,5 +1081,48 @@ export const useReorderAssessmentQuestions = () => {
   return useMutation({
     mutationFn: (orderedIds: string[]) => adminApi.reorderAssessmentQuestions(orderedIds),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
+  })
+}
+
+// ─── Campaigns ─────────────────────────────────────────
+export const useAdminCampaigns = (params?: { locationType?: string; locationId?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'campaigns', params],
+    queryFn: () => adminApi.getCampaigns(params),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateCampaign = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateCampaignInput) => adminApi.createCampaign(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'campaigns'] }),
+  })
+}
+
+export const useUpdateCampaign = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateCampaignInput> }) =>
+      adminApi.updateCampaign(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'campaigns'] }),
+  })
+}
+
+export const useDeleteCampaign = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteCampaign(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'campaigns'] }),
+  })
+}
+
+export const useCampaignAction = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { action: 'pause' | 'resume' | 'complete' } }) =>
+      adminApi.campaignAction(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'campaigns'] }),
   })
 }

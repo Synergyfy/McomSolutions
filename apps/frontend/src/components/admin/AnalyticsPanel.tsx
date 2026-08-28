@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { BarChart3, FileText, Download, TrendingUp, Users, DollarSign, Activity } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminStats } from '../../services/admin/hooks';
+import { useAdminStats, useAdminAnalytics } from '../../services/admin/hooks';
 
 export default function AnalyticsPanel() {
   const [tab, setTab] = useState<'analytics' | 'reports'>('analytics');
@@ -18,6 +18,7 @@ export default function AnalyticsPanel() {
 
 function AnalyticsCenter() {
   const { data: stats, isLoading } = useAdminStats();
+  const { data: analyticsRes } = useAdminAnalytics();
 
   if (isLoading) {
     return (
@@ -28,19 +29,19 @@ function AnalyticsCenter() {
   }
 
   const d = stats?.data;
-  const totalRevenue = d?.revenueStats.totalCompleted ?? 0;
-  const activeSubs = d?.membershipStats.active ?? 0;
-  const totalBusinesses = d?.ecosystemStats.totalBusinesses ?? 0;
-  const totalCustomers = d?.ecosystemStats.totalCustomers ?? 0;
+  const totalRevenue = d?.revenueStats.totalCompleted ?? analyticsRes?.data?.totalRevenue ?? 0;
   const totalPlatformUsers = d?.ecosystemStats.totalPlatformUsers ?? 0;
   const platforms = d?.platforms ?? [];
+
+  const growth = analyticsRes?.data?.growth ?? { businessGrowth: 0, customerGrowth: 0, revenueGrowth: 0 };
+  const revenueBreakdown = analyticsRes?.data?.revenueBreakdown ?? [];
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <AnalyticCard label="Business Growth" value={`+${Math.floor(totalBusinesses * 0.15)}%`} icon={TrendingUp} color="text-blue-600" bg="bg-blue-50" />
-        <AnalyticCard label="Customer Growth" value={`+${Math.floor(totalCustomers * 0.22)}%`} icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
-        <AnalyticCard label="Revenue Growth" value={`+${Math.floor(totalRevenue * 0.12)}%`} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
+        <AnalyticCard label="Business Growth" value={`${growth.businessGrowth >= 0 ? '+' : ''}${growth.businessGrowth}%`} icon={TrendingUp} color="text-blue-600" bg="bg-blue-50" />
+        <AnalyticCard label="Customer Growth" value={`${growth.customerGrowth >= 0 ? '+' : ''}${growth.customerGrowth}%`} icon={Users} color="text-emerald-600" bg="bg-emerald-50" />
+        <AnalyticCard label="Revenue Growth" value={`${growth.revenueGrowth >= 0 ? '+' : ''}${growth.revenueGrowth}%`} icon={DollarSign} color="text-amber-600" bg="bg-amber-50" />
         <AnalyticCard label="Platform Activity" value={`${totalPlatformUsers}`} icon={Activity} color="text-purple-600" bg="bg-purple-50" />
       </div>
 
@@ -48,14 +49,18 @@ function AnalyticsCenter() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Revenue Analytics</h3>
           <div className="text-3xl font-bold text-gray-900 mb-4">£{totalRevenue.toLocaleString()}</div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs"><span className="text-gray-500">Membership Revenue</span><span className="font-bold">{Math.floor(totalRevenue * 0.6).toLocaleString()}</span></div>
-            <div className="w-full h-1.5 bg-gray-100 rounded-full"><div className="h-full w-[60%] bg-brand-blue rounded-full" /></div>
-            <div className="flex justify-between text-xs"><span className="text-gray-500">Package Revenue</span><span className="font-bold">{Math.floor(totalRevenue * 0.3).toLocaleString()}</span></div>
-            <div className="w-full h-1.5 bg-gray-100 rounded-full"><div className="h-full w-[30%] bg-emerald-500 rounded-full" /></div>
-            <div className="flex justify-between text-xs"><span className="text-gray-500">One-time Revenue</span><span className="font-bold">{Math.floor(totalRevenue * 0.1).toLocaleString()}</span></div>
-            <div className="w-full h-1.5 bg-gray-100 rounded-full"><div className="h-full w-[10%] bg-amber-500 rounded-full" /></div>
-          </div>
+          {revenueBreakdown.length > 0 ? (
+            <div className="space-y-3">
+              {revenueBreakdown.map((item: any) => (
+                <div key={item.type}>
+                  <div className="flex justify-between text-xs"><span className="text-gray-500">{item.type}</span><span className="font-bold">£{item.amount.toLocaleString()} · {item.percentage}%</span></div>
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full mt-1"><div className="h-full bg-brand-blue rounded-full" style={{ width: `${Math.min(item.percentage, 100)}%` }} /></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">No revenue breakdown available.</p>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

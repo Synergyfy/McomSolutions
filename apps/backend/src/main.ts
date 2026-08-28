@@ -6,36 +6,65 @@ import cookieParser from 'cookie-parser';
 
 import express from 'express';
 import { join } from 'path';
+import { SsoService } from './auth/sso.service';
+
+// Static origins remain the hard fallback — never removed, only added to.
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://mcommall.vercel.app',
+  'https://mcomloyalty.vercel.app',
+  'https://mcom-solutions-backend.vercel.app',
+  'https://centralhubsolution.com',
+  'https://www.centralhubsolution.com'
+];
+
+const corsOriginSet = new Set<string>();
+
+async function refreshCorsOrigins(ssoService: SsoService) {
+  try {
+    const dbOrigins = await ssoService.getAllCorsOrigins();
+    const envOrigins = [
+      process.env.FRONTEND_URL,
+      process.env.MCOM_MALL_API_URL,
+      process.env.MCOM_REWARDS_API_URL,
+    ].filter((o): o is string => Boolean(o && o.trim()));
+
+    corsOriginSet.clear();
+    [...defaultOrigins, ...envOrigins, ...dbOrigins].forEach((o) => corsOriginSet.add(o));
+  } catch (err: any) {
+    console.warn('[CORS] Failed to refresh DB origins — falling back to static set:', err?.message);
+    corsOriginSet.clear();
+    [...defaultOrigins].forEach((o) => corsOriginSet.add(o));
+  }
+}
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+  });
 
   app.use(cookieParser());
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
-  // Enable CORS
-  const defaultOrigins = [
-    'http://localhost:5173',
-    'http://localhost:3000',
-    'https://mcommall.vercel.app',
-    'https://mcomloyalty.vercel.app',
-    'https://mcom-solutions-backend.vercel.app',
-    'https://centralhubsolution.com',
-    'https://www.centralhubsolution.com'
-  ];
-  const envOrigins = [
-    process.env.FRONTEND_URL,
-    process.env.MCOM_MALL_API_URL,
-    process.env.MCOM_REWARDS_API_URL,
-  ].filter((o): o is string => Boolean(o && o.trim()));
-
-  const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+  // ─── Dynamic CORS ──────────────────────────────────────────────────────────
+  // Static + env origins are seeded at boot; DB-registered app origins are
+  // merged in at boot and refreshed every 60 seconds via getAllCorsOrigins().
+  const ssoService = app.get(SsoService);
+  await refreshCorsOrigins(ssoService);
+  setInterval(() => refreshCorsOrigins(ssoService), 60_000);
 
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || corsOriginSet.has(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'ngrok-skip-browser-warning'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mcom-Client-ID', 'X-Mcom-Signature', 'X-Idempotency-Key', 'ngrok-skip-browser-warning'],
   });
 
   // Global prefix

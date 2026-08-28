@@ -330,6 +330,23 @@ export default function LocalMallsPanel() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────
 
+  const handleExportMalls = () => {
+    const rows = filteredMalls.map(m => [
+      m.name, m.borough, m.status, m.postcodes.join(' | '), m.primaryHighStreet,
+      m.businesses, m.customers, m.campaigns, m.events, m.slug,
+    ]);
+    const csv = [['Name', 'Borough', 'Status', 'Postcodes', 'Primary High Street', 'Businesses', 'Customers', 'Campaigns', 'Events', 'Slug'], ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `local-malls-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleCreate = () => {
     setFormData({
       name: '', description: '', longDescription: '', slug: '', status: 'Draft',
@@ -427,26 +444,32 @@ export default function LocalMallsPanel() {
     setAssignModalOpen(true);
   };
 
-  const handleConfirmAssignManager = () => {
+  const handleConfirmAssignManager = async () => {
     if (!selectedManagerForAssign) {
       showToast('Select a manager to assign', 'error');
       return;
     }
     const manager = allAffiliates.find(u => u.id === selectedManagerForAssign);
     if (!manager) return;
-    setLocalMalls(prev => prev.map(m => {
-      if (!selectedLocalMalls.includes(m.id)) return m;
-      const alreadyHas = m.assignedAccountManagerIds.includes(manager.id);
-      if (alreadyHas) return m;
-      return {
-        ...m,
-        assignedAccountManagers: [...m.assignedAccountManagers, manager.name],
-        assignedAccountManagerIds: [...m.assignedAccountManagerIds, manager.id],
-      };
-    }));
-    showToast(`Assigned ${manager.name} to ${selectedLocalMalls.length} mall(s)`, 'success');
-    setAssignModalOpen(false);
-    setSelectedLocalMalls([]);
+    try {
+      await Promise.all(localMalls
+        .filter(m => selectedLocalMalls.includes(m.id))
+        .map(m => {
+          if (m.assignedAccountManagerIds.includes(manager.id)) return Promise.resolve();
+          return updateMall.mutateAsync({
+            id: m.id,
+            data: {
+              assignedAccountManagers: [...m.assignedAccountManagers, manager.name],
+              assignedAccountManagerIds: [...m.assignedAccountManagerIds, manager.id],
+            } as any,
+          });
+        }));
+      showToast(`Assigned ${manager.name} to ${selectedLocalMalls.length} mall(s)`, 'success');
+      setAssignModalOpen(false);
+      setSelectedLocalMalls([]);
+    } catch {
+      showToast('Failed to assign manager', 'error');
+    }
   };
 
   const handleMergeClick = () => {
@@ -459,7 +482,7 @@ export default function LocalMallsPanel() {
     setMergeModalOpen(true);
   };
 
-  const handleConfirmMerge = () => {
+  const handleConfirmMerge = async () => {
     if (!mergeName.trim()) {
       showToast('Enter a name for the merged LocalMall', 'error');
       return;
@@ -484,10 +507,15 @@ export default function LocalMallsPanel() {
       assignedAgents: [...new Set(mallsToMerge.flatMap(m => m.assignedAgents))],
       assignedAgentIds: [...new Set(mallsToMerge.flatMap(m => m.assignedAgentIds))],
     };
-    setLocalMalls(prev => [...prev.filter(m => !selectedLocalMalls.includes(m.id)), merged]);
-    showToast(`Merged ${mallsToMerge.length} malls into "${merged.name}"`, 'success');
-    setMergeModalOpen(false);
-    setSelectedLocalMalls([]);
+    try {
+      await createMall.mutateAsync(merged as any);
+      await Promise.all(mallsToMerge.map(m => deleteMall.mutateAsync(m.id)));
+      showToast(`Merged ${mallsToMerge.length} malls into "${merged.name}"`, 'success');
+      setMergeModalOpen(false);
+      setSelectedLocalMalls([]);
+    } catch {
+      showToast('Failed to merge LocalMalls', 'error');
+    }
   };
 
   // ─── RENDER: LIST VIEW ─────────────────────────────────────────────────
@@ -513,7 +541,7 @@ export default function LocalMallsPanel() {
             <button onClick={handleCreate} className="flex items-center gap-2 px-4 py-2.5 bg-brand-blue text-white rounded-xl hover:bg-brand-dark transition-colors text-xs font-bold shadow-sm">
               <Plus className="w-4 h-4" /> Create LocalMall
             </button>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
+            <button onClick={handleExportMalls} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
               <Download className="w-4 h-4" /> Export
             </button>
             <button

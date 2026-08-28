@@ -25,19 +25,23 @@ import {
   TrendingUp,
   Zap,
   Edit3,
-  Download
+  Download,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminBoroughs, useCreateBorough, useAdminAccountManagers } from '../../services/admin/hooks';
+import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
-import type { Borough } from '../../services/admin/types';
+import type { Borough, AccountManager } from '../../services/admin/types';
 
 export default function BoroughsPanel() {
   const { data: boroughsRes, isLoading } = useAdminBoroughs();
   const boroughs: Borough[] = boroughsRes?.data ?? [];
   const createBorough = useCreateBorough();
   const { data: managersRes } = useAdminAccountManagers({ page: 1, limit: 100 });
-  const managers = (managersRes?.data ?? []) as { id: string; firstName: string; lastName: string; email: string }[];
+  const managers = (managersRes?.data ?? []) as AccountManager[];
+  const { data: campaignsRes } = useAdminCampaigns({ locationType: 'borough' });
+  const boroughCampaigns = (campaignsRes?.data ?? []) as any[];
+  const createCampaign = useCreateCampaign();
 
   const [selectedBoroughId, setSelectedBoroughId] = useState<string | null>(null);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
@@ -48,6 +52,52 @@ export default function BoroughsPanel() {
   // Modals for detail view
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
+  const [campaignForm, setCampaignForm] = useState({ name: '', description: '' });
+  const [campaignError, setCampaignError] = useState('');
+
+  const handleLaunchCampaign = async () => {
+    if (!selectedBorough || !campaignForm.name) return;
+    setCampaignError('');
+    try {
+      await createCampaign.mutateAsync({
+        name: campaignForm.name,
+        description: campaignForm.description || undefined,
+        locationType: 'borough',
+        locationId: selectedBorough.id,
+        locationName: selectedBorough.name,
+        status: 'active',
+      });
+      setIsNewCampaignOpen(false);
+      setCampaignForm({ name: '', description: '' });
+    } catch {
+      setCampaignError('Failed to launch campaign. Please try again.');
+    }
+  };
+
+  const updateBorough = useUpdateBorough();
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [editProfile, setEditProfile] = useState({ name: '', area: '', region: '' });
+
+  const openEditProfile = () => {
+    if (!selectedBorough) return;
+    setEditProfile({
+      name: selectedBorough.name,
+      area: selectedBorough.area || '',
+      region: selectedBorough.region || '',
+    });
+    setIsEditProfileOpen(true);
+  };
+
+  const saveEditProfile = async () => {
+    if (!selectedBorough) return;
+    setIsSavingProfile(true);
+    try {
+      await updateBorough.mutateAsync({ id: selectedBorough.id, data: editProfile as any });
+      setIsEditProfileOpen(false);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   // New Borough Form State
   const [newBorough, setNewBorough] = useState({
@@ -60,6 +110,11 @@ export default function BoroughsPanel() {
   });
 
   const selectedBorough = boroughs.find(b => b.id === selectedBoroughId);
+  const { data: boroughStatsRes } = useBoroughStats(selectedBoroughId ?? '');
+  const chartData = boroughStatsRes?.data?.chart ?? { footfall: [], revenue: [], months: [] };
+  const chartValues: number[] = chartData.footfall?.length ? chartData.footfall : [];
+  const chartLabels: string[] = chartData.months?.length ? chartData.months : [];
+  const chartMax = chartValues.length ? Math.max(...chartValues) : 1;
 
   const filteredBoroughs = boroughs.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -119,7 +174,7 @@ export default function BoroughsPanel() {
               >
                 <option value="">Select admin</option>
                 {managers.map(m => (
-                  <option key={m.id} value={`${m.firstName} ${m.lastName}`}>{m.firstName} {m.lastName} — {m.email}</option>
+                  <option key={m.id} value={m.name}>{m.name} — {m.email}</option>
                 ))}
               </select>
               {managers.length === 0 && (
@@ -277,7 +332,7 @@ export default function BoroughsPanel() {
 
           <div className="flex items-center gap-3">
             <button 
-              onClick={() => setIsEditProfileOpen(true)}
+              onClick={openEditProfile}
               className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-600 hover:text-gray-800 bg-white border border-gray-250 hover:bg-gray-50 transition-all shadow-sm flex items-center gap-2"
             >
               <Edit3 className="h-4 w-4" /> Edit Profile
@@ -334,23 +389,28 @@ export default function BoroughsPanel() {
                     </div>
                   </div>
                   <div className="h-60 flex items-end gap-2.5 pt-4">
-                    {[45, 60, 40, 75, 85, 55, 95, 110, 65, 100, 125, 140].map((h, i) => (
-                      <div key={i} className="flex-1 group relative flex flex-col items-center">
-                        <div 
-                          className={cn(
-                            "w-full rounded-t-lg transition-all duration-300 group-hover:brightness-95",
-                            i === 11 ? "bg-orange-600" : "bg-orange-100"
-                          )} 
-                          style={{ height: `${h}px` }} 
-                        />
-                        <div className="absolute bottom-full mb-1 bg-gray-900 text-white text-[9px] py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity font-bold">
-                          {h}%
+                    {chartValues.length === 0 ? (
+                      <div className="flex-1 flex items-center justify-center text-xs text-gray-400 font-semibold">No trend data yet.</div>
+                    ) : chartValues.map((h, i) => {
+                      const heightPct = Math.max(8, Math.round((h / chartMax) * 100));
+                      return (
+                        <div key={i} className="flex-1 group relative flex flex-col items-center">
+                          <div 
+                            className={cn(
+                              "w-full rounded-t-lg transition-all duration-300 group-hover:brightness-95",
+                              i === chartValues.length - 1 ? "bg-orange-600" : "bg-orange-100"
+                            )} 
+                            style={{ height: `${heightPct}%` }} 
+                          />
+                          <div className="absolute bottom-full mb-1 bg-gray-900 text-white text-[9px] py-1 px-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity font-bold">
+                            {h}
+                          </div>
+                          <div className="mt-2 text-[9px] font-bold text-gray-400 uppercase">
+                            {chartLabels[i] ?? `M${i + 1}`}
+                          </div>
                         </div>
-                        <div className="mt-2 text-[9px] font-bold text-gray-400 uppercase">
-                          {['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'][i]}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -389,13 +449,41 @@ export default function BoroughsPanel() {
             </div>
           )}
 
-          {activeDetailTab === 'campaigns' && (
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-in fade-in duration-300">
-              <Rocket className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-              <h4 className="font-bold text-sm text-gray-800">Campaigns Control</h4>
-              <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto mt-1">{selectedBorough.activeCampaigns} active marketing and incentive campaigns currently live.</p>
+          {activeDetailTab === 'campaigns' && (() => {
+            const boroughCampaignsList = boroughCampaigns.filter(c => c.locationId === selectedBorough.id);
+            return (
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-4">
+                <Rocket className="h-5 w-5 text-orange-500" />
+                <h4 className="font-bold text-sm text-gray-800">Campaigns Control</h4>
+                <span className="ml-auto text-xs font-bold text-gray-400">{boroughCampaignsList.filter(c => c.status === 'active').length} active · {boroughCampaignsList.length} total</span>
+              </div>
+              {boroughCampaignsList.length > 0 ? (
+                <div className="space-y-3 text-left">
+                  {boroughCampaignsList.map((c) => (
+                    <div key={c.id} className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-sm text-gray-900 truncate">{c.name}</p>
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            c.status === 'active' ? 'bg-green-50 text-green-700' : c.status === 'paused' ? 'bg-amber-50 text-amber-700' : c.status === 'completed' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'
+                          )}>{c.status}</span>
+                        </div>
+                        {c.description && <p className="text-xs text-gray-500 mt-1">{c.description}</p>}
+                        {c.endDate && <p className="text-[10px] text-gray-400 mt-1">Ends {new Date(c.endDate).toLocaleDateString()}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6">
+                  <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto">No campaigns launched for {selectedBorough.name} yet. Use "New Campaign" to launch one.</p>
+                </div>
+              )}
             </div>
-          )}
+            );
+          })()}
 
           {activeDetailTab === 'community' && (
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-in fade-in duration-300">
@@ -420,20 +508,20 @@ export default function BoroughsPanel() {
               <div className="space-y-4 text-left">
                 <div>
                   <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Borough Name</label>
-                  <input type="text" defaultValue={selectedBorough.name} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
+                  <input type="text" value={editProfile.name} onChange={e => setEditProfile({ ...editProfile, name: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Area Designation</label>
-                  <input type="text" defaultValue={selectedBorough.area} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
+                  <input type="text" value={editProfile.area} onChange={e => setEditProfile({ ...editProfile, area: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Region</label>
-                  <input type="text" defaultValue={selectedBorough.region} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
+                  <input type="text" value={editProfile.region} onChange={e => setEditProfile({ ...editProfile, region: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-2.5">
                 <button onClick={() => setIsEditProfileOpen(false)} className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all">Cancel</button>
-                <button onClick={() => setIsEditProfileOpen(false)} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg transition-all">Save Changes</button>
+                <button onClick={saveEditProfile} disabled={isSavingProfile} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg transition-all disabled:opacity-50 flex items-center gap-2">{isSavingProfile && <Loader2 className="w-4 h-4 animate-spin" />}Save Changes</button>
               </div>
             </div>
           </div>
@@ -453,26 +541,22 @@ export default function BoroughsPanel() {
               <div className="space-y-4 text-left">
                 <div>
                   <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Campaign Name</label>
-                  <input type="text" placeholder="e.g. Summer High Street Boost" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Budget</label>
-                    <input type="number" placeholder="£" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Target Audience</label>
-                    <input type="text" placeholder="e.g. All Residents" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
-                  </div>
+                  <input type="text" placeholder="e.g. Summer High Street Boost" value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Description</label>
-                  <input type="text" placeholder="Campaign details..." className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
+                  <input type="text" placeholder="Campaign details..." value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
                 </div>
+                {campaignError && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-3">
+                    <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-700 font-semibold">{campaignError}</p>
+                  </div>
+                )}
               </div>
               <div className="mt-6 flex justify-end gap-2.5">
-                <button onClick={() => setIsNewCampaignOpen(false)} className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-755 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all">Cancel</button>
-                <button onClick={() => setIsNewCampaignOpen(false)} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg transition-all">Launch Campaign</button>
+                <button onClick={() => { setIsNewCampaignOpen(false); setCampaignForm({ name: '', description: '' }); setCampaignError(''); }} className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-755 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all">Cancel</button>
+                <button onClick={handleLaunchCampaign} disabled={!campaignForm.name || createCampaign.isPending} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg transition-all disabled:opacity-50 flex items-center gap-2">{createCampaign.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Launch Campaign</button>
               </div>
             </div>
           </div>

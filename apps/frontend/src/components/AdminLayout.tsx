@@ -5,7 +5,7 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search, HelpCircle,
-  ChevronRight, ShoppingBag
+  ChevronRight, ShoppingBag, AppWindow, Wallet
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -20,6 +20,8 @@ export type AdminTab =
   | 'analytics' | 'reports'
   | 'notifications' | 'support'
   | 'audit-logs'
+  | 'console'
+  | 'wallet'
   | 'programme'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
@@ -77,6 +79,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'payments', icon: DollarSign, label: 'Payments' },
       { tab: 'billing', icon: Receipt, label: 'Billing' },
+      { tab: 'wallet', icon: Wallet, label: 'Wallet Management' },
     ],
   },
   {
@@ -84,6 +87,12 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'api-keys', icon: Code, label: 'API Keys' },
       { tab: 'integrations', icon: Puzzle, label: 'Integrations' },
+    ],
+  },
+  {
+    label: 'Console',
+    items: [
+      { tab: 'console', icon: AppWindow, label: 'MCOM Console' },
     ],
   },
   {

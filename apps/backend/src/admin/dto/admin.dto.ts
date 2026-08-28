@@ -654,6 +654,21 @@ export class CreateHighStreetDto {
   @IsOptional()
   @IsNumber()
   businessCount?: number;
+
+  @ApiPropertyOptional({ example: 51.5074, description: 'Latitude coordinate' })
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @ApiPropertyOptional({ example: -0.1278, description: 'Longitude coordinate' })
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+
+  @ApiPropertyOptional({ example: 'agent_john', description: 'Assigned support agent / owner' })
+  @IsOptional()
+  @IsString()
+  assignedTo?: string;
 }
 
 export class CreateLocalMallDto {
@@ -1281,6 +1296,21 @@ export class UpdateHighStreetDto {
   @IsOptional()
   @IsNumber()
   businessCount?: number;
+
+  @ApiPropertyOptional({ example: 51.5074, description: 'Latitude coordinate' })
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @ApiPropertyOptional({ example: -0.1278, description: 'Longitude coordinate' })
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
+
+  @ApiPropertyOptional({ example: 'agent_john', description: 'Assigned support agent / owner' })
+  @IsOptional()
+  @IsString()
+  assignedTo?: string;
 }
 
 export class UpdateLocalMallDto {

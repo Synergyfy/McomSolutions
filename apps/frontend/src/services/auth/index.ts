@@ -79,6 +79,10 @@ export const authApi = {
     localStorage.removeItem('businessOnboarding');
     localStorage.removeItem('businessOnboardingStep');
     localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('businessOnboardingState');
+    localStorage.removeItem('pendingPlatformPurchase');
+    localStorage.removeItem('onboardingPaymentSuccess');
+    localStorage.removeItem('firstDashboardLogin');
     clearSharedAuthCookies();
   },
 };

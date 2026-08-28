@@ -3,10 +3,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../services/auth/hooks';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { setAdminUser } = useAdminAuth();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -97,15 +99,24 @@ export default function LoginPage() {
     try {
       const res = await login({ email, password });
       if (res?.user?.role === 'ADMIN') {
-        localStorage.setItem('admin_user', JSON.stringify({
+        const adminData = {
           id: res.user.id,
           email: res.user.email,
-          name: res.user.name || 'System Admin',
+          name: res.user.name || `${res.user.firstName || ''} ${res.user.lastName || ''}`.trim() || 'System Admin',
           role: 'ADMIN',
-        }));
-        window.location.href = '/admin';
+        };
+        localStorage.setItem('admin_user', JSON.stringify(adminData));
+        setAdminUser(adminData);
+        navigate('/admin');
         return;
       }
+
+      // If business user without completed onboarding, take to /getstarted/business
+      if (res?.user?.role === 'BUSINESS' && (!res?.user?.isOnboarded || !res?.user?.businessId)) {
+        navigate('/getstarted/business');
+        return;
+      }
+
       await performRedirect();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
@@ -157,7 +168,13 @@ export default function LoginPage() {
         localStorage.setItem('business_user', JSON.stringify(user));
         setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
 
-        await performRedirect(user.role === 'BUSINESS' ? 'mcom-mall' : undefined);
+        // If the user has not completed onboarding, take them directly to /getstarted/business
+        if (user?.role === 'BUSINESS' && (!user?.isOnboarded || !user?.businessId)) {
+          navigate('/getstarted/business');
+          return;
+        }
+
+        await performRedirect();
       } catch (err: any) {
         setError('Google authentication failed. Please try again.');
       } finally {

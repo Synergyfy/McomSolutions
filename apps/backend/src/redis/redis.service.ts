@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis, { RedisOptions } from 'ioredis';
 
@@ -133,6 +133,45 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       }
     }
     this.memoryCache.delete(key);
+  }
+
+  /**
+   * Atomically set a key only if it does not already exist (SET NX EX).
+   * Used for distributed wallet locks.
+   *
+   * Financial safety: distributed locks MUST NOT fall back to in-memory —
+   * an in-memory lock does not coordinate across instances and would allow
+   * double-spend under horizontal scale. When Redis is unavailable this throws
+   * 503, suspending balance-modifying operations rather than running unlocked.
+   *
+   * The single-process in-memory fallback is preserved ONLY in test mode
+   * (NODE_ENV=test) so the suite runs without a Redis server.
+   *
+   * @returns true if the key was acquired, false if it already existed.
+   */
+  async setNx(key: string, value: any, ttlSeconds = 10): Promise<boolean> {
+    if (!this.isRedisAvailable || !this.client) {
+      if (process.env.NODE_ENV === 'test') {
+        const cached = this.memoryCache.get(key);
+        if (cached && Date.now() < cached.expiresAt) {
+          return false;
+        }
+        this.memoryCache.set(key, {
+          value,
+          expiresAt: Date.now() + ttlSeconds * 1000,
+        });
+        return true;
+      }
+      throw new ServiceUnavailableException('Redis unavailable — wallet operations suspended');
+    }
+
+    try {
+      const result = await this.client.set(key, JSON.stringify(value), 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    } catch (e: any) {
+      this.logger.warn(`Redis setNx error for key ${key}: ${e.message}`);
+      throw new ServiceUnavailableException('Redis unavailable — wallet operations suspended');
+    }
   }
 
   async delPattern(pattern: string): Promise<void> {
