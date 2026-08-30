@@ -55,6 +55,14 @@ export class RegisterAppDto {
   @IsUrl({ require_tld: false })
   billingApiUrl?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://api.vcard.mcom.com/api/v1/system/plans/schema',
+    description: 'Optional override for the plan configuration schema endpoint (defaults to <billingApiUrl>/api/v1/system/plans/schema)',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  planSchemaEndpoint?: string;
+
   @ApiProperty({ example: ['https://vcard.mcom.com/auth/callback'], description: 'Allowed OAuth redirect callback URLs' })
   @IsArray()
   @IsUrl({ require_tld: false }, { each: true, message: 'Invalid redirect URI' })

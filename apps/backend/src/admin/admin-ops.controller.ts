@@ -80,13 +80,31 @@ export class AdminOpsController {
     return this.adminOpsService.createExternalPlan(dto);
   }
 
+  // NOTE: declared BEFORE `packages/external/:id` so the literal `schema` and `seasons`
+  // segments are not captured as a plan id.
+  @Get('packages/external/schema')
+  @ApiOperation({ summary: 'Get an external platform plan configuration schema (quotas + feature flags)' })
+  @ApiQuery({ name: 'platform', example: 'Mcom vCard', description: 'Platform name', required: true })
+  @ApiOkResponse({ description: 'Plan schema (or null when the platform has no schema endpoint)' })
+  getExternalPlanSchema(@Query('platform') platform: string) {
+    return this.adminOpsService.getExternalPlanSchema(platform);
+  }
+
+  @Get('packages/external/seasons')
+  @ApiOperation({ summary: 'Get available seasons from an external platform' })
+  @ApiQuery({ name: 'platform', example: 'Mcom vCard', description: 'Platform name', required: true })
+  @ApiOkResponse({ description: 'List of external seasons' })
+  getExternalPlatformSeasons(@Query('platform') platform: string) {
+    return this.adminOpsService.getExternalPlatformSeasons(platform);
+  }
+
   @Get('packages/external/:id')
   @ApiOperation({ summary: 'Get a single external plan' })
   @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Platform (informational)' })
   @ApiOkResponse({ description: 'External plan' })
   @ApiNotFoundResponse({ description: 'External plan not found' })
-  getExternalPlan(@Param('id') id: string) {
-    return this.adminOpsService.getExternalPlan(id);
+  getExternalPlan(@Param('id') id: string, @Query('platform') platform?: string) {
+    return this.adminOpsService.getExternalPlan(id, platform);
   }
 
   @Patch('packages/external/:id')
@@ -95,8 +113,8 @@ export class AdminOpsController {
   @ApiBody({ type: UpdateExternalPlanDto })
   @ApiOkResponse({ description: 'External plan updated' })
   @ApiNotFoundResponse({ description: 'External plan not found' })
-  updateExternalPlan(@Param('id') id: string, @Body() dto: UpdateExternalPlanDto) {
-    return this.adminOpsService.updateExternalPlan(id, dto);
+  updateExternalPlan(@Param('id') id: string, @Query('platform') platform: string, @Body() dto: UpdateExternalPlanDto) {
+    return this.adminOpsService.updateExternalPlan(id, platform, dto);
   }
 
   @Delete('packages/external/:id')
@@ -104,8 +122,8 @@ export class AdminOpsController {
   @ApiOperation({ summary: 'Delete an external plan' })
   @ApiQuery({ name: 'platform', required: false, example: 'MCOM Mall', description: 'Platform (informational)' })
   @ApiNotFoundResponse({ description: 'External plan not found' })
-  async deleteExternalPlan(@Param('id') id: string) {
-    await this.adminOpsService.deleteExternalPlan(id);
+  async deleteExternalPlan(@Param('id') id: string, @Query('platform') platform: string) {
+    await this.adminOpsService.deleteExternalPlan(id, platform);
   }
 
   // ─── System API Keys ──────────────────────────────────

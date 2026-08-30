@@ -58,10 +58,12 @@ export class ConnectorFactory {
     }
 
     if (client && client.billingApiUrl) {
+      const metadata = (client.metadata ?? {}) as Record<string, unknown>;
       return new GenericHttpConnector({
         name: client.name,
         apiKey: client.apiKey ?? '',
         billingApiUrl: client.billingApiUrl,
+        planSchemaEndpoint: (metadata.planSchemaEndpoint as string | null | undefined) ?? null,
       });
     }
 

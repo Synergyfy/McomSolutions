@@ -1,11 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminOpsService } from './admin-ops.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 describe('AdminOpsService', () => {
   let service: AdminOpsService;
+
+  const mockConnectorsService = {
+    getPlans: jest.fn().mockResolvedValue([]),
+    getPlanSchema: jest.fn().mockResolvedValue(null),
+    getSeasons: jest.fn().mockResolvedValue([]),
+    createPlan: jest.fn(),
+    updatePlan: jest.fn(),
+    deletePlan: jest.fn(),
+    getPlanById: jest.fn(),
+  };
 
   const mockPrisma = {
     $queryRaw: jest.fn().mockResolvedValue([{ 1: 1 }]),
@@ -70,6 +81,8 @@ describe('AdminOpsService', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      upsert: jest.fn().mockResolvedValue({}),
     },
     user: {
       count: jest.fn().mockResolvedValue(0),
@@ -87,6 +100,10 @@ describe('AdminOpsService', () => {
       providers: [
         AdminOpsService,
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: ServiceConnectorsService,
+          useValue: mockConnectorsService,
+        },
       ],
     }).compile();
 
@@ -152,6 +169,7 @@ describe('AdminOpsService', () => {
           clientId: 'mcom-vcard',
           platformSlug: 'vcard',
           billingApiUrl: 'https://api.vcard.mcom.com',
+          metadata: { planSchemaEndpoint: 'https://api.vcard.mcom.com/api/v1/system/plans/schema' },
         },
       ]);
       const result = await service.getSupportedPlatforms();
@@ -159,43 +177,69 @@ describe('AdminOpsService', () => {
       expect(result.data).toEqual([
         { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
         { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
-        { name: 'Mcom vCard', clientId: 'mcom-vcard', platformSlug: 'vcard', isNamed: false, hasBillingApi: true, billingApiUrl: 'https://api.vcard.mcom.com' },
+        {
+          name: 'Mcom vCard',
+          clientId: 'mcom-vcard',
+          platformSlug: 'vcard',
+          isNamed: false,
+          hasBillingApi: true,
+          billingApiUrl: 'https://api.vcard.mcom.com',
+          planSchemaEndpoint: 'https://api.vcard.mcom.com/api/v1/system/plans/schema',
+        },
       ]);
     });
 
-    it('getExternalPlans filters by platform when provided', async () => {
-      mockPrisma.externalPlan.findMany.mockResolvedValue([]);
-      await service.getExternalPlans('MCOM Mall');
-      expect(mockPrisma.externalPlan.findMany).toHaveBeenCalledWith({
-        where: { platform: 'MCOM Mall' },
-        orderBy: { name: 'asc' },
-      });
+    it('getExternalPlanSchema delegates to the connectors service', async () => {
+      const schema = {
+        quotas: [{ key: 'maxVCards', label: 'Max VCards', type: 'number', unlimited: true }],
+        featureFlags: [{ key: 'allowNfc', label: 'Allow NFC', type: 'boolean' }],
+      };
+      mockConnectorsService.getPlanSchema.mockResolvedValue(schema);
+      const result = await service.getExternalPlanSchema('Mcom vCard');
+      expect(mockConnectorsService.getPlanSchema).toHaveBeenCalledWith('Mcom vCard');
+      expect(result).toEqual({ success: true, data: schema });
     });
 
-    it('createExternalPlan serializes Decimal prices to numbers', async () => {
+    it('getExternalPlatformSeasons delegates to the connectors service', async () => {
+      const seasons = [{ id: 's-1', name: 'Summer 2026', isActive: true }];
+      mockConnectorsService.getSeasons.mockResolvedValue(seasons);
+      const result = await service.getExternalPlatformSeasons('Mcom vCard');
+      expect(mockConnectorsService.getSeasons).toHaveBeenCalledWith('Mcom vCard');
+      expect(result).toEqual({ success: true, data: seasons });
+    });
+
+    it('getExternalPlans live-fetches from the platform connector when platform is provided', async () => {
+      mockConnectorsService.getPlans.mockResolvedValue([
+        { id: 'p1', name: 'Mall Basic', monthlyPrice: 9.99 },
+      ]);
+      const result = await service.getExternalPlans('MCOM Mall');
+      expect(mockConnectorsService.getPlans).toHaveBeenCalledWith('MCOM Mall');
+      expect(result.data).toEqual([{ id: 'p1', name: 'Mall Basic', monthlyPrice: 9.99 }]);
+    });
+
+    it('createExternalPlan returns the plan from the target platform connector', async () => {
       const decimal = new Prisma.Decimal('9.99');
-      mockPrisma.externalPlan.create.mockImplementation(({ data }) =>
-        Promise.resolve({
-          id: 'p1',
-          name: data.name,
-          platform: data.platform,
-          monthlyPrice: decimal,
-          quarterlyPrice: null,
-          annualPrice: null,
-          features: data.features ?? [],
-          configuration: null,
-          isActive: data.isActive,
-          isDefault: data.isDefault,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }),
-      );
+      mockConnectorsService.createPlan.mockResolvedValue({
+        id: 'p1',
+        name: 'MCOM Mall Basic',
+        monthlyPrice: decimal,
+        quarterlyPrice: null,
+        annualPrice: null,
+        features: [],
+        configuration: null,
+        isActive: true,
+        isDefault: false,
+      });
       const result = await service.createExternalPlan({
         name: 'MCOM Mall Basic',
         platform: 'MCOM Mall',
         monthlyPrice: 9.99,
       } as any);
-      expect(result.data.monthlyPrice).toBe(9.99);
+      expect(mockConnectorsService.createPlan).toHaveBeenCalledWith(
+        'MCOM Mall',
+        expect.objectContaining({ name: 'MCOM Mall Basic', monthlyPrice: 9.99 }),
+      );
+      expect(result.data.monthlyPrice).toBe(decimal);
     });
 
     it('getExternalPlan throws NotFoundException when missing', async () => {
@@ -205,10 +249,10 @@ describe('AdminOpsService', () => {
 
     it('deleteExternalPlan deletes an existing plan', async () => {
       mockPrisma.externalPlan.findUnique.mockResolvedValue({ id: 'p1', name: 'Plan' });
-      mockPrisma.externalPlan.delete.mockResolvedValue({ id: 'p1' });
-      const result = await service.deleteExternalPlan('p1');
+      const result = await service.deleteExternalPlan('p1', 'MCOM Mall');
       expect(result.success).toBe(true);
-      expect(mockPrisma.externalPlan.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+      expect(mockConnectorsService.deletePlan).toHaveBeenCalledWith('MCOM Mall', 'p1');
+      expect(mockPrisma.externalPlan.deleteMany).toHaveBeenCalledWith({ where: { id: 'p1' } });
     });
   });
 

@@ -30,6 +30,7 @@ describe('SsoService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     ssoSession: {
       findUnique: jest.fn(),
@@ -186,7 +187,7 @@ describe('SsoService', () => {
 
     it('should exchange code and return tokens on success', async () => {
       mockPrisma.ssoAuthCode.findUnique.mockResolvedValue(validAuthCode);
-      mockPrisma.ssoAuthCode.update.mockResolvedValue({ ...validAuthCode, used: true });
+      mockPrisma.ssoAuthCode.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-1',
         email: 'test@test.com',

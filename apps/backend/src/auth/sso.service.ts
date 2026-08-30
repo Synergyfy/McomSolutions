@@ -20,7 +20,7 @@ export class SsoService {
   ) {}
 
   generateToken(payload: Record<string, any>): string {
-    const secret = this.configService.get<string>('SSO_JWT_SECRET') || 'default-sso-jwt-secret';
+    const secret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
     return this.jwtService.sign(payload, {
       secret,
       expiresIn: '5m',
@@ -89,11 +89,15 @@ export class SsoService {
       throw new UnauthorizedException('Redirect URI mismatch');
     }
 
-    // Mark code as used immediately to prevent reuse (OAuth specification)
-    await this.prisma.ssoAuthCode.update({
-      where: { code },
+    // Atomically mark code as used to prevent race conditions on concurrent requests
+    const updateResult = await this.prisma.ssoAuthCode.updateMany({
+      where: { code, used: false },
       data: { used: true },
     });
+
+    if (updateResult.count === 0) {
+      throw new UnauthorizedException('Authorization code has already been used');
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: authCode.userId },
@@ -105,13 +109,14 @@ export class SsoService {
     }
 
     // Generate tokens
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
 
     const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
-    const payload = {
+    const accessPayload = {
+      jti: crypto.randomUUID(),
       sub: user.id,
       email: user.email,
       role: user.role,
@@ -120,12 +125,22 @@ export class SsoService {
       scopes: authCode.scopes,
     };
 
-    const accessToken = this.jwtService.sign(payload, {
+    const refreshPayload = {
+      jti: crypto.randomUUID(),
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      name,
+      businessId: user.businessProfile?.id || null,
+      scopes: authCode.scopes,
+    };
+
+    const accessToken = this.jwtService.sign(accessPayload, {
       secret: jwtSecret,
       expiresIn: parseInt(accessTokenTtl, 10),
     });
 
-    const refreshToken = this.jwtService.sign(payload, {
+    const refreshToken = this.jwtService.sign(refreshPayload, {
       secret: jwtSecret,
       expiresIn: parseInt(refreshTokenTtl, 10),
     });
@@ -179,7 +194,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
     let payload: any;
     try {
       payload = this.jwtService.verify(refreshToken, { secret: jwtSecret });
@@ -199,6 +214,7 @@ export class SsoService {
 
     const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
     const newPayload = {
+      jti: crypto.randomUUID(),
       sub: user.id,
       email: user.email,
       role: user.role,
@@ -240,7 +256,7 @@ export class SsoService {
   }
 
   async getUserInfoFromToken(accessToken: string) {
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
     let payload: any;
     try {
       payload = this.jwtService.verify(accessToken, { secret: jwtSecret });

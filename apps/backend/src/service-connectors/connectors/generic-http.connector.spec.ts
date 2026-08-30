@@ -59,6 +59,61 @@ describe('GenericHttpConnector', () => {
     });
   });
 
+  describe('getPlanSchema', () => {
+    it('should return the schema unwrapped from the envelope', async () => {
+      const schema = {
+        quotas: [{ key: 'maxVCards', label: 'Max VCards', type: 'number', unlimited: true }],
+        featureFlags: [{ key: 'allowNfc', label: 'Allow NFC', type: 'boolean' }],
+      };
+      mockInstance.get.mockResolvedValue({ data: { data: schema, success: true } });
+      const result = await connector.getPlanSchema();
+      expect(mockInstance.get).toHaveBeenCalledWith('/system/plans/schema');
+      expect(result).toEqual(schema);
+    });
+
+    it('should accept a bare schema body (no envelope)', async () => {
+      const schema = {
+        quotas: [{ key: 'maxVCards', label: 'Max VCards', type: 'number', unlimited: true }],
+        featureFlags: [],
+      };
+      mockInstance.get.mockResolvedValue({ data: schema });
+      const result = await connector.getPlanSchema();
+      expect(result).toEqual(schema);
+    });
+
+    it('should return null when the service returns 404 (no schema endpoint)', async () => {
+      const apiError = {
+        isAxiosError: true,
+        response: { status: 404, data: { message: 'Not found' } },
+      };
+      mockInstance.get.mockRejectedValue(apiError);
+      const result = await connector.getPlanSchema();
+      expect(result).toBeNull();
+    });
+
+    it('should return null on network failure without throwing', async () => {
+      const networkError = { isAxiosError: true, code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' };
+      mockInstance.get.mockRejectedValue(networkError);
+      const result = await connector.getPlanSchema();
+      expect(result).toBeNull();
+    });
+
+    it('should call the custom planSchemaEndpoint when provided', async () => {
+      connector = new GenericHttpConnector({
+        ...client,
+        planSchemaEndpoint: 'https://schema.vcard.mcom.com/plans',
+      });
+      const schema = { quotas: [], featureFlags: [{ key: 'allowNfc', label: 'NFC', type: 'boolean' }] };
+      (axios.get as jest.Mock).mockResolvedValue({ data: schema });
+      const result = await connector.getPlanSchema();
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://schema.vcard.mcom.com/plans',
+        expect.objectContaining({ timeout: 8000 }),
+      );
+      expect(result).toEqual(schema);
+    });
+  });
+
   describe('error handling', () => {
     it('should throw HttpException(502) on network failure', async () => {
       const networkError = { isAxiosError: true, code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' };
@@ -82,6 +137,28 @@ describe('GenericHttpConnector', () => {
     it('should throw HttpException(502) for non-axios errors', async () => {
       mockInstance.get.mockRejectedValue(new Error('boom'));
       await expect(connector.getPlans()).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('getSeasons', () => {
+    it('should fetch and map seasons from /system/seasons', async () => {
+      const rawSeasons = [
+        { id: 's-1', name: 'Summer 2026', startDate: '2026-06-01', endDate: '2026-08-31', status: 'ACTIVE' },
+        { id: 's-2', name: 'Winter 2026', startDate: '2026-11-01', endDate: '2026-12-31', status: 'INACTIVE' },
+      ];
+      mockInstance.get.mockResolvedValue({ data: rawSeasons });
+      const seasons = await connector.getSeasons();
+      expect(mockInstance.get).toHaveBeenCalledWith('/system/seasons');
+      expect(seasons).toEqual([
+        { id: 's-1', name: 'Summer 2026', startDate: '2026-06-01', endDate: '2026-08-31', isActive: true, status: 'ACTIVE' },
+        { id: 's-2', name: 'Winter 2026', startDate: '2026-11-01', endDate: '2026-12-31', isActive: false, status: 'INACTIVE' },
+      ]);
+    });
+
+    it('should return empty array on failure without throwing', async () => {
+      mockInstance.get.mockRejectedValue(new Error('Endpoint not found'));
+      const seasons = await connector.getSeasons();
+      expect(seasons).toEqual([]);
     });
   });
 });

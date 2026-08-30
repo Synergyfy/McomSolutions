@@ -12,6 +12,8 @@ import {
   useUpdatePackage,
   useDeletePackage,
   useExternalPlans,
+  useExternalPlanSchema,
+  useExternalPlatformSeasons,
   useCreateExternalPlan,
   useUpdateExternalPlan,
   useDeleteExternalPlan,
@@ -22,7 +24,10 @@ import type {
   CreatePackageInput,
   CreateExternalPlanInput,
   ExternalPlan,
+  ExternalSeason,
   PlatformInfo,
+  PlanSchema,
+  PlanSchemaField,
 } from '../../services/admin/types';
 
 export default function PlanManagementPanel() {
@@ -47,10 +52,10 @@ export default function PlanManagementPanel() {
   const [editPackage, setEditPackage] = useState<number | null>(null);
 
   // Dynamic external plan modal state
-  const [addPlatformPlan, setAddPlatformPlan] = useState<string | null>(null);
-  const [editExternalPlan, setEditExternalPlan] = useState<{ plan: ExternalPlan; platform: string } | null>(null);
-  const [confirmEditPlan, setConfirmEditPlan] = useState<{ plan: ExternalPlan; platform: string } | null>(null);
-  const [deleteExternalPlanTarget, setDeleteExternalPlanTarget] = useState<{ plan: ExternalPlan; platform: string } | null>(null);
+  const [addPlatformPlan, setAddPlatformPlan] = useState<PlatformInfo | null>(null);
+  const [editExternalPlan, setEditExternalPlan] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
+  const [confirmEditPlan, setConfirmEditPlan] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
+  const [deleteExternalPlanTarget, setDeleteExternalPlanTarget] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
 
   const membershipPlans = plansRes?.data ?? [];
   const packages = packagesRes?.data ?? [];
@@ -183,9 +188,9 @@ export default function PlanManagementPanel() {
               <PlatformPlansSection
                 key={platform.name}
                 platform={platform}
-                onAddPlan={() => setAddPlatformPlan(platform.name)}
-                onEditPlan={(plan) => setConfirmEditPlan({ plan, platform: platform.name })}
-                onDeletePlan={(plan) => setDeleteExternalPlanTarget({ plan, platform: platform.name })}
+                onAddPlan={() => setAddPlatformPlan(platform)}
+                onEditPlan={(plan) => setConfirmEditPlan({ plan, platform })}
+                onDeletePlan={(plan) => setDeleteExternalPlanTarget({ plan, platform })}
               />
             ))
           )}
@@ -314,8 +319,8 @@ export default function PlanManagementPanel() {
         {/* Dynamic External Plan Modals */}
         {addPlatformPlan && (
           <ExternalPlanFormModal
-            title={`Create ${addPlatformPlan} Plan`}
-            platformName={addPlatformPlan}
+            title={`Create ${addPlatformPlan.name} Plan`}
+            platform={addPlatformPlan}
             onClose={() => setAddPlatformPlan(null)}
             onSave={(data: CreateExternalPlanInput) =>
               createExternalPlan.mutateAsync(data).then(() => true).catch(() => false)
@@ -324,13 +329,13 @@ export default function PlanManagementPanel() {
         )}
         {editExternalPlan && (
           <ExternalPlanFormModal
-            title={`Edit ${editExternalPlan.platform} Plan`}
-            platformName={editExternalPlan.platform}
+            title={`Edit ${editExternalPlan.platform.name} Plan`}
+            platform={editExternalPlan.platform}
             initial={editExternalPlan.plan}
             onClose={() => setEditExternalPlan(null)}
             onSave={(data: Partial<CreateExternalPlanInput>) =>
               updateExternalPlan
-                .mutateAsync({ id: editExternalPlan.plan.id, platform: editExternalPlan.platform, data })
+                .mutateAsync({ id: editExternalPlan.plan.id, platform: editExternalPlan.platform.name, data })
                 .then(() => true)
                 .catch(() => false)
             }
@@ -341,7 +346,7 @@ export default function PlanManagementPanel() {
         {confirmEditPlan && (
           <ConfirmModal
             title="Edit Plan"
-            message={`You're about to edit "${confirmEditPlan.plan.name}" on ${confirmEditPlan.platform}. Do you want to proceed?`}
+            message={`You're about to edit "${confirmEditPlan.plan.name}" on ${confirmEditPlan.platform.name}. Do you want to proceed?`}
             confirmLabel="Yes, Edit"
             confirmColor="bg-brand-blue hover:bg-blue-600"
             isSubmitting={updateExternalPlan.isPending}
@@ -355,12 +360,12 @@ export default function PlanManagementPanel() {
         {deleteExternalPlanTarget && (
           <ConfirmModal
             title="Delete Plan"
-            message={`Are you sure you want to delete "${deleteExternalPlanTarget.plan.name}" from ${deleteExternalPlanTarget.platform}? This action cannot be undone.`}
+            message={`Are you sure you want to delete "${deleteExternalPlanTarget.plan.name}" from ${deleteExternalPlanTarget.platform.name}? This action cannot be undone.`}
             confirmLabel="Yes, Delete"
             isSubmitting={deleteExternalPlan.isPending}
             onConfirm={() => {
               deleteExternalPlan.mutate(
-                { id: deleteExternalPlanTarget.plan.id, platform: deleteExternalPlanTarget.platform },
+                { id: deleteExternalPlanTarget.plan.id, platform: deleteExternalPlanTarget.platform.name },
                 { onSuccess: () => setDeleteExternalPlanTarget(null) }
               );
             }}
@@ -569,19 +574,23 @@ function ConfirmModal({
 
 function ExternalPlanFormModal({
   title,
-  platformName,
+  platform,
   initial,
   onClose,
   onSave,
 }: {
   title: string;
-  platformName: string;
+  platform: PlatformInfo;
   initial?: ExternalPlan;
   onClose: () => void;
   onSave: (data: CreateExternalPlanInput) => Promise<boolean>;
 }) {
+  const platformName = platform.name;
+  const { data: schemaRes, isLoading: schemaLoading } = useExternalPlanSchema(platformName);
+  const { data: seasonsRes, isLoading: seasonsLoading } = useExternalPlatformSeasons(platformName);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [manualSeasonMode, setManualSeasonMode] = useState(false);
 
   const buildInitialState = (): CreateExternalPlanInput => {
     if (initial) {
@@ -622,6 +631,103 @@ function ExternalPlanFormModal({
 
   const isMall = platformName.toLowerCase().includes('mall');
   const isRewards = platformName.toLowerCase().includes('reward') || platformName.toLowerCase().includes('loyalty');
+  const availableSeasons: ExternalSeason[] = seasonsRes?.data ?? [];
+
+  // Schema-driven vs hardcoded fallback field definitions.
+  const schema: PlanSchema | null = schemaRes?.data ?? null;
+  const hasSchema = !!schema && (schema.quotas.length > 0 || schema.featureFlags.length > 0);
+
+  const schemaQuotaFields = hasSchema ? schema!.quotas : [];
+  const schemaFlagFields = hasSchema ? schema!.featureFlags : [];
+
+  // Fallback (no schema) definitions for Mall / Rewards.
+  const fallbackQuotaFields: PlanSchemaField[] = isMall
+    ? [
+        { key: 'maxListings', label: 'Max Listings', type: 'number', unlimited: true },
+        { key: 'maxProducts', label: 'Max Products', type: 'number', unlimited: true },
+        { key: 'maxServices', label: 'Max Services', type: 'number', unlimited: true },
+        { key: 'maxGiftCardTemplates', label: 'Gift Card Templates', type: 'number', unlimited: true },
+        { key: 'maxCouponTemplates', label: 'Coupon Templates', type: 'number', unlimited: true },
+        { key: 'maxLoyaltyPrograms', label: 'Loyalty Programs', type: 'number', unlimited: true },
+        { key: 'maxImagesPerListing', label: 'Images Per Listing', type: 'number', unlimited: false },
+        { key: 'featuredListingAllowance', label: 'Featured Allowance', type: 'number', unlimited: false },
+        { key: 'allowProductListing', label: 'Allow Product Listing', type: 'boolean' },
+        { key: 'allowServiceListing', label: 'Allow Service Listing', type: 'boolean' },
+      ]
+    : isRewards
+      ? [
+          { key: 'maxActiveCampaigns', label: 'Max Active Campaigns', type: 'number', unlimited: true },
+          { key: 'maxActiveRewards', label: 'Max Active Rewards', type: 'number', unlimited: true },
+          { key: 'maxRewardsPerCampaign', label: 'Max Rewards Per Campaign', type: 'number', unlimited: false },
+          { key: 'monthlyPointsAllowance', label: 'Monthly Points Allowance', type: 'number', unlimited: false },
+          { key: 'monthlyStampsAllowance', label: 'Monthly Stamps Allowance', type: 'number', unlimited: false },
+          { key: 'monthlyRewardBudget', label: 'Monthly Reward Budget (GBP)', type: 'number', unlimited: false },
+          { key: 'maxTeamMembers', label: 'Max Team Members', type: 'number', unlimited: true },
+          { key: 'maxRewardPoints', label: 'Max Reward Points', type: 'number', unlimited: false },
+        ]
+      : [];
+
+  const fallbackFlagFields: PlanSchemaField[] = isMall
+    ? [
+        { key: 'priorityInSearch', label: 'Priority in Search', type: 'boolean' },
+        { key: 'advancedAnalytics', label: 'Advanced Analytics', type: 'boolean' },
+        { key: 'dedicatedSupport', label: 'Dedicated Support', type: 'boolean' },
+        { key: 'allowCustomBranding', label: 'Custom Branding', type: 'boolean' },
+        { key: 'allowGroupCreation', label: 'Group Creation', type: 'boolean' },
+      ]
+    : isRewards
+      ? [
+          { key: 'canCreateCampaignFromScratch', label: 'Create Campaign From Scratch', type: 'boolean' },
+          { key: 'canEditAdminTemplates', label: 'Edit Admin Templates', type: 'boolean' },
+          { key: 'hasAccessToAdvancedAnalytics', label: 'Advanced Analytics', type: 'boolean' },
+          { key: 'hasAccessToCRM', label: 'CRM Access', type: 'boolean' },
+          { key: 'canUpdateReward', label: 'Update Reward', type: 'boolean' },
+          { key: 'canCreateRewardFromScratch', label: 'Create Reward From Scratch', type: 'boolean' },
+        ]
+      : [];
+
+  // Custom quota/flag rows — only available in fallback mode so any platform stays workable.
+  const [customQuotaFields, setCustomQuotaFields] = useState<PlanSchemaField[]>([]);
+  const [customFlagFields, setCustomFlagFields] = useState<PlanSchemaField[]>([]);
+  const [customKeyInput, setCustomKeyInput] = useState('');
+  const [customType, setCustomType] = useState<'number' | 'boolean'>('number');
+
+  const quotaFields = [...(hasSchema ? schemaQuotaFields : fallbackQuotaFields), ...customQuotaFields];
+  const flagFields = [...(hasSchema ? schemaFlagFields : fallbackFlagFields), ...customFlagFields];
+
+  const addCustomField = () => {
+    const key = customKeyInput.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!key) return;
+    if (customType === 'boolean') {
+      if (!flagFields.some((f) => f.key === key)) {
+        setCustomFlagFields((prev) => [...prev, { key, label: key, type: 'boolean' }]);
+      }
+    } else {
+      if (!quotaFields.some((f) => f.key === key)) {
+        setCustomQuotaFields((prev) => [...prev, { key, label: key, type: 'number', unlimited: false }]);
+      }
+    }
+    setCustomKeyInput('');
+  };
+
+  const removeCustomField = (key: string) => {
+    setCustomQuotaFields((prev) => prev.filter((f) => f.key !== key));
+    setCustomFlagFields((prev) => prev.filter((f) => f.key !== key));
+    setForm((prev) => {
+      const quotas = { ...prev.configuration?.quotas };
+      const featureFlags = { ...prev.configuration?.featureFlags };
+      delete (quotas as Record<string, unknown>)[key];
+      delete (featureFlags as Record<string, unknown>)[key];
+      return {
+        ...prev,
+        configuration: {
+          ...prev.configuration,
+          quotas,
+          featureFlags,
+        },
+      };
+    });
+  };
 
   const addFeature = () => {
     const val = featureInput.trim();
@@ -691,6 +797,22 @@ function ExternalPlanFormModal({
     }));
   };
 
+  const toggleQuotaBoolean = (key: string) => {
+    setForm((prev) => {
+      const currentVal = prev.configuration?.quotas?.[key as keyof typeof prev.configuration.quotas];
+      return {
+        ...prev,
+        configuration: {
+          ...prev.configuration,
+          quotas: {
+            ...prev.configuration?.quotas,
+            [key]: currentVal ? undefined : true,
+          },
+        },
+      };
+    });
+  };
+
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
@@ -732,47 +854,6 @@ function ExternalPlanFormModal({
   const fieldClass =
     "w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20";
   const fieldErrorClass = "border-red-300 focus:ring-red-200";
-
-  // Mall Quota definitions
-  const mallQuotas = [
-    { key: 'maxListings', label: 'Max Listings', unlimited: true },
-    { key: 'maxProducts', label: 'Max Products', unlimited: true },
-    { key: 'maxServices', label: 'Max Services', unlimited: true },
-    { key: 'maxGiftCardTemplates', label: 'Gift Card Templates', unlimited: true },
-    { key: 'maxCouponTemplates', label: 'Coupon Templates', unlimited: true },
-    { key: 'maxLoyaltyPrograms', label: 'Loyalty Programs', unlimited: true },
-    { key: 'maxImagesPerListing', label: 'Images Per Listing', unlimited: false },
-    { key: 'featuredListingAllowance', label: 'Featured Allowance', unlimited: false },
-  ];
-
-  // Rewards Quota definitions
-  const rewardsQuotas = [
-    { key: 'maxActiveCampaigns', label: 'Max Active Campaigns', unlimited: true },
-    { key: 'maxActiveRewards', label: 'Max Active Rewards', unlimited: true },
-    { key: 'maxRewardsPerCampaign', label: 'Max Rewards Per Campaign', unlimited: false },
-    { key: 'monthlyPointsAllowance', label: 'Monthly Points Allowance', unlimited: false },
-    { key: 'monthlyStampsAllowance', label: 'Monthly Stamps Allowance', unlimited: false },
-    { key: 'monthlyRewardBudget', label: 'Monthly Reward Budget (GBP)', unlimited: false },
-    { key: 'maxTeamMembers', label: 'Max Team Members', unlimited: true },
-    { key: 'maxRewardPoints', label: 'Max Reward Points', unlimited: false },
-  ];
-
-  const mallFlags = [
-    { key: 'priorityInSearch', label: 'Priority in Search' },
-    { key: 'advancedAnalytics', label: 'Advanced Analytics' },
-    { key: 'dedicatedSupport', label: 'Dedicated Support' },
-    { key: 'allowCustomBranding', label: 'Custom Branding' },
-    { key: 'allowGroupCreation', label: 'Group Creation' },
-  ];
-
-  const rewardsFlags = [
-    { key: 'canCreateCampaignFromScratch', label: 'Create Campaign From Scratch' },
-    { key: 'canEditAdminTemplates', label: 'Edit Admin Templates' },
-    { key: 'hasAccessToAdvancedAnalytics', label: 'Advanced Analytics' },
-    { key: 'hasAccessToCRM', label: 'CRM Access' },
-    { key: 'canUpdateReward', label: 'Update Reward' },
-    { key: 'canCreateRewardFromScratch', label: 'Create Reward From Scratch' },
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
@@ -875,16 +956,73 @@ function ExternalPlanFormModal({
               </Field>
             )}
             {form.type === 'SEASONAL' && (
-              <Field label="Season ID" error={errors.seasonId}>
-                <input
-                  value={form.seasonId || ''}
-                  onChange={(e) => {
-                    setForm((prev) => ({ ...prev, seasonId: e.target.value }));
-                    setErrors((prev) => ({ ...prev, seasonId: '' }));
-                  }}
-                  className={cn(fieldClass, errors.seasonId && fieldErrorClass)}
-                  placeholder="Valid season UUID"
-                />
+              <Field label="Season" error={errors.seasonId}>
+                {seasonsLoading ? (
+                  <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
+                    Loading available seasons from {platformName}...
+                  </div>
+                ) : availableSeasons.length > 0 && !manualSeasonMode ? (
+                  <div className="space-y-1.5">
+                    <select
+                      value={form.seasonId || ''}
+                      onChange={(e) => {
+                        setForm((prev) => ({ ...prev, seasonId: e.target.value }));
+                        setErrors((prev) => ({ ...prev, seasonId: '' }));
+                      }}
+                      className={cn(fieldClass, errors.seasonId && fieldErrorClass)}
+                    >
+                      <option value="">Select a Season...</option>
+                      {availableSeasons.map((s) => {
+                        const statusText = s.status || (s.isActive ? 'Active' : 'Inactive');
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({statusText})
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setManualSeasonMode(true)}
+                        className="text-[11px] font-bold text-brand-blue hover:underline"
+                      >
+                        Enter Season UUID manually
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <input
+                      value={form.seasonId || ''}
+                      onChange={(e) => {
+                        setForm((prev) => ({ ...prev, seasonId: e.target.value }));
+                        setErrors((prev) => ({ ...prev, seasonId: '' }));
+                      }}
+                      className={cn(fieldClass, errors.seasonId && fieldErrorClass)}
+                      placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                    />
+                    <div className="flex items-center justify-between text-[11px]">
+                      {availableSeasons.length === 0 ? (
+                        <span className="text-gray-400 font-medium">
+                          No active seasons returned from {platformName}.
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      {availableSeasons.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setManualSeasonMode(false)}
+                          className="text-brand-blue font-bold hover:underline"
+                        >
+                          Select from season dropdown
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </Field>
             )}
           </div>
@@ -1000,149 +1138,179 @@ function ExternalPlanFormModal({
             </div>
           </div>
 
-          {/* Quotas for Mall */}
-          {isMall && (
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Mall Quotas</h5>
-              <div className="grid grid-cols-2 gap-3">
-                {mallQuotas.map(({ key, label, unlimited }) => {
-                  const isUnlimitedChecked = isUnlimited(key);
-                  return (
-                    <div key={key} className="bg-gray-50 rounded-xl p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="text-[9px] font-bold text-gray-400 uppercase">{label}</div>
-                        {unlimited && (
-                          <label className="flex items-center gap-1 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={isUnlimitedChecked}
-                              onChange={() => toggleUnlimited(key)}
-                              className="w-3 h-3 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
-                            />
-                            <span className="text-[9px] font-bold text-gray-400">Unlimited</span>
-                          </label>
-                        )}
-                      </div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={getQuotaDisplayValue(key)}
-                        onChange={(e) => updateQuota(key, e.target.value)}
-                        disabled={isUnlimitedChecked}
-                        placeholder={isUnlimitedChecked ? 'Unlimited' : '0'}
-                        className={cn(
-                          "w-full bg-transparent border-none focus:ring-0 text-sm font-bold",
-                          isUnlimitedChecked && "opacity-40 cursor-not-allowed"
-                        )}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { key: 'allowProductListing', label: 'Allow Product Listing' },
-                  { key: 'allowServiceListing', label: 'Allow Service Listing' },
-                ].map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      const currentVal = form.configuration?.quotas?.[key as keyof typeof form.configuration.quotas];
-                      setForm((prev) => ({
-                        ...prev,
-                        configuration: {
-                          ...prev.configuration,
-                          quotas: {
-                            ...prev.configuration?.quotas,
-                            [key]: currentVal ? undefined : true,
-                          },
-                        },
-                      }));
-                    }}
-                    className={cn(
-                      "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left",
-                      form.configuration?.quotas?.[key as keyof typeof form.configuration.quotas]
-                        ? "bg-green-50 border-green-200 text-green-700"
-                        : "bg-gray-50 border-gray-200 text-gray-400"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+          {/* Quotas & Feature Flags (schema-driven with hardcoded fallback) */}
+          {schemaLoading ? (
+            <div className="flex items-center justify-center py-8 text-gray-400 bg-gray-50 rounded-2xl">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading {platformName} plan schema...
             </div>
-          )}
+          ) : (
+            (quotaFields.length > 0 || flagFields.length > 0) && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configuration</h5>
+                  {hasSchema ? (
+                    <span className="px-2 py-0.5 bg-blue-50 text-brand-blue border border-blue-100 rounded text-[9px] font-bold uppercase tracking-wider">
+                      Schema: {platformName}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded text-[9px] font-bold uppercase tracking-wider">
+                      Fallback Config
+                    </span>
+                  )}
+                </div>
 
-          {/* Quotas for Rewards */}
-          {isRewards && (
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Rewards Quotas</h5>
-              <div className="grid grid-cols-2 gap-3">
-                {rewardsQuotas.map(({ key: quotaKey, label, unlimited }) => {
-                  const isUnlimitedChecked = isUnlimited(quotaKey);
-                  return (
-                    <div key={quotaKey} className="bg-gray-50 rounded-xl p-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="text-[9px] font-bold text-gray-400 uppercase">{label}</div>
-                        {unlimited && (
-                          <label className="flex items-center gap-1 cursor-pointer select-none">
+                {quotaFields.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quotas</h5>
+                    <div className="grid grid-cols-2 gap-3">
+                      {quotaFields.map((field) =>
+                        field.type === 'boolean' ? (
+                          <button
+                            key={field.key}
+                            type="button"
+                            onClick={() => toggleQuotaBoolean(field.key)}
+                            className={cn(
+                              "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between gap-2",
+                              form.configuration?.quotas?.[field.key as keyof typeof form.configuration.quotas]
+                                ? "bg-green-50 border-green-200 text-green-700"
+                                : "bg-gray-50 border-gray-200 text-gray-400"
+                            )}
+                          >
+                            <span>{field.label}</span>
+                            {customQuotaFields.some((f) => f.key === field.key) && (
+                              <span
+                                role="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeCustomField(field.key);
+                                }}
+                                className="p-1 rounded-lg hover:bg-red-100 hover:text-red-500 transition-all"
+                              >
+                                <X className="w-3 h-3" />
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <div key={field.key} className="bg-gray-50 rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-[9px] font-bold text-gray-400 uppercase">{field.label}</div>
+                              {field.unlimited && (
+                                <label className="flex items-center gap-1 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={isUnlimited(field.key)}
+                                    onChange={() => toggleUnlimited(field.key)}
+                                    className="w-3 h-3 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
+                                  />
+                                  <span className="text-[9px] font-bold text-gray-400">Unlimited</span>
+                                </label>
+                              )}
+                              {customQuotaFields.some((f) => f.key === field.key) && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeCustomField(field.key)}
+                                  className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
                             <input
-                              type="checkbox"
-                              checked={isUnlimitedChecked}
-                              onChange={() => toggleUnlimited(quotaKey)}
-                              className="w-3 h-3 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
+                              type="number"
+                              min="0"
+                              value={getQuotaDisplayValue(field.key)}
+                              onChange={(e) => updateQuota(field.key, e.target.value)}
+                              disabled={isUnlimited(field.key)}
+                              placeholder={isUnlimited(field.key) ? 'Unlimited' : '0'}
+                              className={cn(
+                                "w-full bg-transparent border-none focus:ring-0 text-sm font-bold",
+                                isUnlimited(field.key) && "opacity-40 cursor-not-allowed"
+                              )}
                             />
-                            <span className="text-[9px] font-bold text-gray-400">Unlimited</span>
-                          </label>
-                        )}
-                      </div>
-                      <input
-                        type="number"
-                        min="0"
-                        value={getQuotaDisplayValue(quotaKey)}
-                        onChange={(e) => updateQuota(quotaKey, e.target.value)}
-                        disabled={isUnlimitedChecked}
-                        placeholder={isUnlimitedChecked ? 'Unlimited' : '0'}
-                        className={cn(
-                          "w-full bg-transparent border-none focus:ring-0 text-sm font-bold",
-                          isUnlimitedChecked && "opacity-40 cursor-not-allowed"
-                        )}
-                      />
+                          </div>
+                        )
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                  </div>
+                )}
 
-          {/* Feature Flags */}
-          {(isMall || isRewards) && (
-            <div className="space-y-4">
-              <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Feature Flags</h5>
-              <div className="grid grid-cols-2 gap-3">
-                {(isMall ? mallFlags : rewardsFlags).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() =>
-                      updateFeatureFlag(
-                        key,
-                        !form.configuration?.featureFlags?.[key as keyof typeof form.configuration.featureFlags]
-                      )
-                    }
-                    className={cn(
-                      "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left",
-                      form.configuration?.featureFlags?.[key as keyof typeof form.configuration.featureFlags]
-                        ? "bg-green-50 border-green-200 text-green-700"
-                        : "bg-gray-50 border-gray-200 text-gray-400"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {flagFields.length > 0 && (
+                  <div className="space-y-3">
+                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Feature Flags</h5>
+                    <div className="grid grid-cols-2 gap-3">
+                      {flagFields.map((field) => (
+                        <button
+                          key={field.key}
+                          type="button"
+                          onClick={() =>
+                            updateFeatureFlag(
+                              field.key,
+                              !form.configuration?.featureFlags?.[field.key as keyof typeof form.configuration.featureFlags]
+                            )
+                          }
+                          className={cn(
+                            "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between gap-2",
+                            form.configuration?.featureFlags?.[field.key as keyof typeof form.configuration.featureFlags]
+                              ? "bg-green-50 border-green-200 text-green-700"
+                              : "bg-gray-50 border-gray-200 text-gray-400"
+                          )}
+                        >
+                          <span>{field.label}</span>
+                          {customFlagFields.some((f) => f.key === field.key) && (
+                            <span
+                              role="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeCustomField(field.key);
+                              }}
+                              className="p-1 rounded-lg hover:bg-red-100 hover:text-red-500 transition-all"
+                            >
+                              <X className="w-3 h-3" />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom quota/flag rows — available when no schema is returned */}
+                {!hasSchema && (
+                  <div className="pt-2 border-t border-gray-100 space-y-3">
+                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Add Custom Quota / Flag</h5>
+                    <div className="flex gap-2">
+                      <input
+                        value={customKeyInput}
+                        onChange={(e) => setCustomKeyInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addCustomField();
+                          }
+                        }}
+                        placeholder="e.g. maxSpins"
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      />
+                      <select
+                        value={customType}
+                        onChange={(e) => setCustomType(e.target.value as 'number' | 'boolean')}
+                        className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      >
+                        <option value="number">Number</option>
+                        <option value="boolean">Boolean</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={addCustomField}
+                        className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all flex items-center gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )
           )}
         </div>
 

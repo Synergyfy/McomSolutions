@@ -73,7 +73,7 @@ export class ConsoleService {
         webhookSecret: dto.webhookUrl ? encrypt(secrets.webhookSecret, this.encryptionKey()) : null,
         hmacSecret: encrypt(secrets.hmacSecret, this.encryptionKey()),
         isSystemApp: dto.isSystemApp ?? false,
-        metadata: undefined,
+        metadata: dto.planSchemaEndpoint ? { planSchemaEndpoint: dto.planSchemaEndpoint } : undefined,
       },
     });
 
@@ -121,6 +121,13 @@ export class ConsoleService {
     if (dto.corsOrigins !== undefined) data.corsOrigins = dto.corsOrigins;
     if (dto.scopes !== undefined) data.scopes = dto.scopes;
     if (dto.webhookUrl !== undefined) data.webhookUrl = dto.webhookUrl ?? null;
+    if (dto.planSchemaEndpoint !== undefined) {
+      const existingMetadata = (existing.metadata ?? {}) as Record<string, unknown>;
+      data.metadata = {
+        ...existingMetadata,
+        planSchemaEndpoint: dto.planSchemaEndpoint || null,
+      };
+    }
 
     const updated = await this.prisma.ssoClient.update({
       where: { clientId },
@@ -342,10 +349,17 @@ export class ConsoleService {
       'corsOrigins',
       'scopes',
       'webhookUrl',
+      'planSchemaEndpoint',
     ];
     for (const field of fields) {
-      if (JSON.stringify(before[field]) !== JSON.stringify(after[field])) {
-        changes[field] = { before: before[field] ?? null, after: after[field] ?? null };
+      const beforeVal = field === 'planSchemaEndpoint'
+        ? (before.metadata?.planSchemaEndpoint ?? null)
+        : before[field];
+      const afterVal = field === 'planSchemaEndpoint'
+        ? (after.metadata?.planSchemaEndpoint ?? null)
+        : after[field];
+      if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
+        changes[field] = { before: beforeVal ?? null, after: afterVal ?? null };
       }
     }
     return changes;
@@ -419,6 +433,7 @@ export class ConsoleService {
       platformSlug: client.platformSlug,
       appUrl: client.appUrl,
       billingApiUrl: client.billingApiUrl,
+      planSchemaEndpoint: (client.metadata?.planSchemaEndpoint as string | null | undefined) ?? null,
       redirectUris: client.redirectUris,
       corsOrigins: client.corsOrigins,
       scopes: client.scopes,

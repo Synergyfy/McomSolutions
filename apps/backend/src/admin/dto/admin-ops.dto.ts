@@ -13,6 +13,7 @@ import {
   IsString,
   Max,
   Min,
+  MinLength,
 } from 'class-validator';
 import { OmitType, PartialType } from '@nestjs/swagger';
 
@@ -286,7 +287,7 @@ export class CreateExternalPlanDto {
   @ApiProperty({ example: 'MCOM Mall Basic', description: 'Plan name' })
   @IsString()
   @IsNotEmpty()
-  @Min(2)
+  @MinLength(2)
   name: string;
 
   @ApiProperty({ example: 'MCOM Mall', description: 'External platform this plan belongs to' })
