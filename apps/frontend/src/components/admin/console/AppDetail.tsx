@@ -496,6 +496,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [description, setDescription] = useState(detail.description ?? '');
   const [appUrl, setAppUrl] = useState(detail.appUrl ?? '');
   const [billingApiUrl, setBillingApiUrl] = useState(detail.billingApiUrl ?? '');
+  const [planSchemaEndpoint, setPlanSchemaEndpoint] = useState(detail.planSchemaEndpoint ?? '');
   const [platformSlug, setPlatformSlug] = useState(detail.platformSlug ?? '');
   const [webhookUrl, setWebhookUrl] = useState(detail.webhookUrl ?? '');
   const [scopes, setScopes] = useState<string[]>(detail.scopes);
@@ -525,6 +526,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       description: description.trim() || undefined,
       appUrl: appUrl.trim() || undefined,
       billingApiUrl: billingApiUrl.trim() || undefined,
+      planSchemaEndpoint: planSchemaEndpoint.trim() || undefined,
       platformSlug: platformSlug.trim() || undefined,
       webhookUrl: webhookUrl.trim() || undefined,
       scopes,
@@ -605,6 +607,20 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
             placeholder="https://api.vcard.mcom.com"
           />
         </div>
+      </div>
+
+      {/* Plan Schema Endpoint */}
+      <div>
+        <label className={labelCls}>Plan Schema Endpoint</label>
+        <input
+          value={planSchemaEndpoint}
+          onChange={(e) => setPlanSchemaEndpoint(e.target.value)}
+          className={cn(inputCls, 'font-mono text-xs')}
+          placeholder="https://api.vcard.mcom.com/api/v1/system/plans/schema"
+        />
+        <p className="text-[10px] text-gray-400 mt-1">
+          Plan configuration schema used by the plan form. Leave blank to auto-derive from the Billing API URL.
+        </p>
       </div>
 
       {/* Scopes Selector */}

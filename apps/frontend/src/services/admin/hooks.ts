@@ -648,6 +648,24 @@ export const useSupportedPlatforms = () => {
     staleTime: 1000 * 60 * 60,
   })
 }
+
+export const useExternalPlanSchema = (platform: string) => {
+  return useQuery({
+    queryKey: ['admin', 'externalPlanSchema', platform],
+    queryFn: () => adminApi.getExternalPlanSchema(platform),
+    staleTime: 1000 * 60 * 5,
+    enabled: !!platform,
+  })
+}
+
+export const useExternalPlatformSeasons = (platform: string) => {
+  return useQuery({
+    queryKey: ['admin', 'externalPlatformSeasons', platform],
+    queryFn: () => adminApi.getExternalPlatformSeasons(platform),
+    staleTime: 1000 * 60 * 5,
+    enabled: !!platform,
+  })
+}
 // ─── Analytics ──────────────────────────────────────────
 export const useAdminAnalytics = () => {
   return useQuery({

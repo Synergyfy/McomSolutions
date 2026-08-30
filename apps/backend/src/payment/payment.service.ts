@@ -325,21 +325,33 @@ export class PaymentService {
     platform: string,
     externalPlanId: string,
     billingCycle: string,
-    paymentIntentId: string,
+    intentId: string,
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured.');
     }
 
-    const businessId = await this.resolveBusinessId(userId);
-    const intent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
-    if (intent.status !== 'succeeded') {
-      throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
+    if (!intentId) {
+      throw new BadRequestException('paymentIntentId or setupIntentId is required.');
     }
 
+    const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
-    const isTrial = plan.type === 'TRIAL';
+    const isTrial = plan.type === 'TRIAL' || amountGBP === 0;
+
+    // Verify SetupIntent or PaymentIntent depending on ID format
+    if (intentId.startsWith('seti_')) {
+      const setupIntent = await this.stripe.setupIntents.retrieve(intentId);
+      if (setupIntent.status !== 'succeeded') {
+        throw new BadRequestException(`Card setup not completed. Status: ${setupIntent.status}`);
+      }
+    } else {
+      const intent = await this.stripe.paymentIntents.retrieve(intentId);
+      if (intent.status !== 'succeeded') {
+        throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
+      }
+    }
 
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
@@ -348,12 +360,12 @@ export class PaymentService {
         externalPlanId,
         planName: plan.name,
         planType: plan.type || 'STANDARD',
-        status: isTrial ? 'active' : 'active',
+        status: 'active',
         expiresAt: isTrial && plan.trialDuration
           ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
           : this.calculateExpiry(billingCycle),
         provider: 'stripe',
-        providerSubscriptionId: paymentIntentId,
+        providerSubscriptionId: intentId,
         amount: isTrial ? 0 : amountGBP,
         currency: 'GBP',
         billingCycle,
@@ -371,7 +383,7 @@ export class PaymentService {
           ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
           : this.calculateExpiry(billingCycle),
         provider: 'stripe',
-        providerSubscriptionId: paymentIntentId,
+        providerSubscriptionId: intentId,
         amount: isTrial ? 0 : amountGBP,
         currency: 'GBP',
         billingCycle,
@@ -387,7 +399,7 @@ export class PaymentService {
         status: isTrial ? 'trial' : 'paid',
         platformPackageId: package_.id,
         provider: 'stripe',
-        providerPaymentId: paymentIntentId,
+        providerPaymentId: intentId,
       },
     });
 

@@ -470,6 +470,29 @@ export interface PlanConfiguration {
   featureFlags?: PlanFeatureFlags
 }
 
+export interface PlanSchemaField {
+  key: string
+  label: string
+  type: 'number' | 'boolean'
+  /** Number-only — enables the "Unlimited" (=-1) toggle in the form. */
+  unlimited?: boolean
+}
+
+export interface PlanSchema {
+  quotas: PlanSchemaField[]
+  featureFlags: PlanSchemaField[]
+}
+
+export interface ExternalSeason {
+  id: string
+  name: string
+  startDate?: string
+  endDate?: string
+  isActive?: boolean
+  status?: string
+  [key: string]: any
+}
+
 export interface PlatformInfo {
   name: string
   clientId: string | null
@@ -477,6 +500,8 @@ export interface PlatformInfo {
   isNamed: boolean
   hasBillingApi: boolean
   billingApiUrl?: string | null
+  /** Optional override for the plan schema endpoint (else derived from billingApiUrl). */
+  planSchemaEndpoint?: string | null
 }
 
 export interface ExternalPlan {
@@ -568,6 +593,7 @@ export interface SsoClientDetail extends SsoClientListItem {
   description: string | null
   appUrl: string | null
   billingApiUrl: string | null
+  planSchemaEndpoint: string | null
   redirectUris: string[]
   corsOrigins: string[]
   scopes: string[]
@@ -588,6 +614,7 @@ export interface RegisterAppInput {
   description?: string
   appUrl?: string
   billingApiUrl?: string
+  planSchemaEndpoint?: string
   redirectUris: string[]
   corsOrigins: string[]
   scopes: string[]

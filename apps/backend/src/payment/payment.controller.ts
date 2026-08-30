@@ -143,14 +143,15 @@ export class PaymentController {
     @Body('platform') platform: string,
     @Body('externalPlanId') externalPlanId: string,
     @Body('billingCycle') billingCycle: string,
-    @Body('paymentIntentId') paymentIntentId: string,
+    @Body('paymentIntentId') paymentIntentId?: string,
+    @Body('setupIntentId') setupIntentId?: string,
   ) {
     return this.paymentService.platformStripeConfirm(
       req.user.userId,
       platform,
       externalPlanId,
       billingCycle,
-      paymentIntentId,
+      paymentIntentId || setupIntentId,
     );
   }
 

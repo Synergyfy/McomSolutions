@@ -102,6 +102,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   const [description, setDescription] = useState('');
   const [appUrl, setAppUrl] = useState('');
   const [billingApiUrl, setBillingApiUrl] = useState('');
+  const [planSchemaEndpoint, setPlanSchemaEndpoint] = useState('');
   const [redirectUris, setRedirectUris] = useState<string[]>(['']);
   const [corsOrigins, setCorsOrigins] = useState<string[]>(['']);
   const [scopes, setScopes] = useState<string[]>(['profile', 'email', 'business']);
@@ -143,6 +144,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
     if (currentStep === 2) {
       if (appUrl && !isValidUrl(appUrl)) return 'App Frontend URL must be a valid URL (e.g. https://app.example.com).';
       if (billingApiUrl && !isValidUrl(billingApiUrl)) return 'Billing API URL must be a valid URL (e.g. https://api.example.com).';
+      if (planSchemaEndpoint && !isValidUrl(planSchemaEndpoint)) return 'Plan Schema Endpoint must be a valid URL (e.g. https://api.example.com/api/v1/system/plans/schema).';
       const cleanedRedirects = redirectUris.map((u) => u.trim()).filter(Boolean);
       if (cleanedRedirects.length === 0) return 'At least one Redirect URI (SSO callback) is required.';
       if (cleanedRedirects.some((u) => !isValidUrl(u))) return 'Every Redirect URI must be a valid URL with http/https scheme.';
@@ -187,6 +189,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         description: description.trim() || undefined,
         appUrl: appUrl.trim() || undefined,
         billingApiUrl: billingApiUrl.trim() || undefined,
+        planSchemaEndpoint: planSchemaEndpoint.trim() || undefined,
         redirectUris: redirectUris.map((u) => u.trim()).filter(Boolean),
         corsOrigins: corsOrigins.map((u) => u.trim()).filter(Boolean),
         scopes,
@@ -389,6 +392,20 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                   />
                   <p className="text-[10px] text-gray-400 mt-1">Backend URL for plan management (Generic Connector).</p>
                 </div>
+
+                <div>
+                  <label className={labelCls}>Plan Schema Endpoint (Optional)</label>
+                  <input
+                    value={planSchemaEndpoint}
+                    onChange={(e) => setPlanSchemaEndpoint(e.target.value)}
+                    placeholder="https://api.vcard.mcom.com/api/v1/system/plans/schema"
+                    className={cn(inputCls, 'font-mono')}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Endpoint returning the plan configuration schema. Defaults to{' '}
+                    <code>&lt;billingApiUrl&gt;/api/v1/system/plans/schema</code> if left blank.
+                  </p>
+                </div>
               </div>
 
               {/* Redirect URIs */}
@@ -526,6 +543,12 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                   <div className="flex items-center justify-between text-gray-500 text-[11px]">
                     <span>CORS Origins:</span>
                     <span className="font-mono text-gray-800">{corsOrigins.filter(Boolean).length} configured</span>
+                  </div>
+                  <div className="flex items-center justify-between text-gray-500 text-[11px]">
+                    <span>Plan Schema Endpoint:</span>
+                    <span className="font-mono text-gray-800">
+                      {planSchemaEndpoint.trim() ? 'Custom' : 'Auto (billing API)'}
+                    </span>
                   </div>
                 </div>
               </div>

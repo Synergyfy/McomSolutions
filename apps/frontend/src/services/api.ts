@@ -13,13 +13,20 @@ apiClient.interceptors.request.use((config) => {
   return config;
 }, (error) => Promise.reject(error));
 
+let redirectingToLogin = false;
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
+      const requestUrl: string = error.config?.url || '';
       localStorage.removeItem('auth_token');
       localStorage.removeItem('business_user');
       localStorage.removeItem('admin_user');
+      if (requestUrl.startsWith('/admin/') && !requestUrl.includes('/admin/auth/login') && !redirectingToLogin) {
+        redirectingToLogin = true;
+        window.location.assign('/admin/login');
+      }
     }
     return Promise.reject(error);
   }

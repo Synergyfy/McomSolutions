@@ -40,6 +40,8 @@ import type {
   ExternalPlan,
   CreateExternalPlanInput,
   PlatformInfo,
+  PlanSchema,
+  ExternalSeason,
   Campaign,
   CreateCampaignInput,
 } from './types'
@@ -424,6 +426,16 @@ export const adminApi = {
   getSupportedPlatforms: async () => {
     const res = await apiClient.get('/admin/packages/external/platforms')
     return res.data as ApiResponse<PlatformInfo[]>
+  },
+
+  getExternalPlanSchema: async (platform: string) => {
+    const res = await apiClient.get('/admin/packages/external/schema', { params: { platform } })
+    return res.data as ApiResponse<PlanSchema | null>
+  },
+
+  getExternalPlatformSeasons: async (platform: string) => {
+    const res = await apiClient.get('/admin/packages/external/seasons', { params: { platform } })
+    return res.data as ApiResponse<ExternalSeason[]>
   },
 
   // ─── Analytics ────────────────────────────────────────

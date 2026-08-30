@@ -1,5 +1,70 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
+import { STATUS_CODES } from 'http';
+
+const colors = {
+  // Methods
+  getMethodBadge(method: string): string {
+    const m = method.toUpperCase();
+    switch (m) {
+      case 'GET':
+        return `\x1b[36;1m${m.padEnd(7)}\x1b[0m`; // Cyan Bold
+      case 'POST':
+        return `\x1b[32;1m${m.padEnd(7)}\x1b[0m`; // Green Bold
+      case 'PUT':
+        return `\x1b[33;1m${m.padEnd(7)}\x1b[0m`; // Yellow Bold
+      case 'PATCH':
+        return `\x1b[35;1m${m.padEnd(7)}\x1b[0m`; // Magenta Bold
+      case 'DELETE':
+        return `\x1b[31;1m${m.padEnd(7)}\x1b[0m`; // Red Bold
+      case 'OPTIONS':
+      case 'HEAD':
+        return `\x1b[90m${m.padEnd(7)}\x1b[0m`; // Gray
+      default:
+        return `\x1b[97;1m${m.padEnd(7)}\x1b[0m`;
+    }
+  },
+
+  // Status code with text description & colors
+  getStatusBadge(status: number): string {
+    const statusText = STATUS_CODES[status] || '';
+    const text = `${status} ${statusText}`.trim();
+    if (status >= 500) {
+      return `\x1b[31;1m${text}\x1b[0m`; // Red Bold
+    }
+    if (status >= 400) {
+      return `\x1b[33;1m${text}\x1b[0m`; // Yellow Bold
+    }
+    if (status >= 300) {
+      return `\x1b[36;1m${text}\x1b[0m`; // Cyan Bold
+    }
+    if (status >= 200) {
+      return `\x1b[32;1m${text}\x1b[0m`; // Green Bold
+    }
+    return `\x1b[37m${text}\x1b[0m`;
+  },
+
+  // Latency with color indicators
+  getDurationBadge(ms: number): string {
+    const formatted = ms < 1 ? '<1ms' : ms < 100 ? `${ms.toFixed(1)}ms` : `${Math.round(ms)}ms`;
+    if (ms >= 1000) {
+      return `\x1b[31;1m+${formatted}\x1b[0m`; // Red Bold
+    }
+    if (ms >= 300) {
+      return `\x1b[33m+${formatted}\x1b[0m`; // Yellow
+    }
+    return `\x1b[32m+${formatted}\x1b[0m`; // Green
+  },
+};
+
+function formatBytes(bytesStr: string | number | undefined): string {
+  const bytes = Number(bytesStr);
+  if (isNaN(bytes) || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
 
 @Injectable()
 export class LoggingMiddleware implements NestMiddleware {
@@ -7,7 +72,6 @@ export class LoggingMiddleware implements NestMiddleware {
 
   use(request: Request, response: Response, next: NextFunction): void {
     const { ip, method, originalUrl } = request;
-    const userAgent = request.get('user-agent') || '';
     const startTime = Date.now();
 
     const isSsoEndpoint = originalUrl.includes('/auth/sso/authorize') || originalUrl.includes('/auth/sso/token');
@@ -36,24 +100,25 @@ export class LoggingMiddleware implements NestMiddleware {
 
     response.on('finish', () => {
       const { statusCode } = response;
-      const contentLength = response.get('content-length') || '0';
+      const contentLength = response.get('content-length');
+      const sizeStr = formatBytes(contentLength);
       const duration = Date.now() - startTime;
 
-      // Colorize the status code for terminal readability
-      let statusString = `${statusCode}`;
-      if (statusCode >= 500) {
-        statusString = `\x1b[31m${statusCode}\x1b[0m`; // Red
-      } else if (statusCode >= 400) {
-        statusString = `\x1b[33m${statusCode}\x1b[0m`; // Yellow
-      } else if (statusCode >= 300) {
-        statusString = `\x1b[36m${statusCode}\x1b[0m`; // Cyan
-      } else if (statusCode >= 200) {
-        statusString = `\x1b[32m${statusCode}\x1b[0m`; // Green
-      }
+      // Terminal formatted badges
+      const methodBadge = colors.getMethodBadge(method);
+      const statusBadge = colors.getStatusBadge(statusCode);
+      const durationBadge = colors.getDurationBadge(duration);
+      const sizeBadge = sizeStr ? ` \x1b[90m(${sizeStr})\x1b[0m` : '';
 
-      this.logger.log(
-        `[${method}] ${originalUrl} ${statusString} - ${contentLength}b - ${duration}ms | IP: ${ip} | ${userAgent}`,
-      );
+      const logLine = `${methodBadge} ${originalUrl} ${statusBadge} ${durationBadge}${sizeBadge}`;
+
+      if (statusCode >= 500) {
+        this.logger.error(logLine);
+      } else if (statusCode >= 400) {
+        this.logger.warn(logLine);
+      } else {
+        this.logger.log(logLine);
+      }
 
       if (isTargetEndpoint) {
         // Mask sensitive request fields

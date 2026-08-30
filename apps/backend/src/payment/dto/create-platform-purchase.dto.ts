@@ -2,10 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
 
 export class CreatePlatformPurchaseDto {
-  @ApiProperty({ example: 'MCOM Mall', description: 'Target platform' })
+  @ApiProperty({ example: 'MCOM Mall', description: 'Target platform (a named platform or a Console-registered app slug, e.g. vcard)' })
   @IsString()
   @IsNotEmpty()
-  @IsIn(['MCOM Mall', 'MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'])
   platform: string
 
   @ApiProperty({ example: 'uuid-of-plan', description: 'External plan ID from the platform service' })

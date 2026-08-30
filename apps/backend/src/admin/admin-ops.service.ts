@@ -26,11 +26,15 @@ import {
   UpdateSystemApiKeyDto,
   UpdateSystemIntegrationDto,
 } from './dto/admin-ops.dto';
-import { PlatformInfo } from '../service-connectors/connectors/connector.interface';
+import { PlatformInfo, CreateExternalPlanInput, UpdateExternalPlanInput, ExternalPlan, PlanSchema, ExternalSeason } from '../service-connectors/connectors/connector.interface';
+import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 
 @Injectable()
 export class AdminOpsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly connectorsService: ServiceConnectorsService,
+  ) {}
 
   // ─── Audit Logger ──────────────────────────────────────
   private async logAudit(
@@ -421,20 +425,25 @@ export class AdminOpsService {
         clientId: true,
         platformSlug: true,
         billingApiUrl: true,
+        metadata: true,
       },
       orderBy: { name: 'asc' },
     });
 
     const dynamicPlatforms: PlatformInfo[] = dbClients
       .filter((client) => !namedNames.has(client.name.toLowerCase()))
-      .map((client) => ({
-        name: client.name,
-        clientId: client.clientId,
-        platformSlug: client.platformSlug,
-        isNamed: false,
-        hasBillingApi: true,
-        billingApiUrl: client.billingApiUrl,
-      }));
+      .map((client) => {
+        const metadata = (client.metadata ?? {}) as Record<string, unknown>;
+        return {
+          name: client.name,
+          clientId: client.clientId,
+          platformSlug: client.platformSlug,
+          isNamed: false,
+          hasBillingApi: true,
+          billingApiUrl: client.billingApiUrl,
+          planSchemaEndpoint: (metadata.planSchemaEndpoint as string | null | undefined) ?? null,
+        };
+      });
 
     return {
       success: true,
@@ -442,80 +451,156 @@ export class AdminOpsService {
     };
   }
 
+  async getExternalPlanSchema(platform: string): Promise<{ success: boolean; data: PlanSchema | null }> {
+    const schema = await this.connectorsService.getPlanSchema(platform);
+    return { success: true, data: schema };
+  }
+
+  async getExternalPlatformSeasons(platform: string): Promise<{ success: boolean; data: ExternalSeason[] }> {
+    const seasons = await this.connectorsService.getSeasons(platform);
+    return { success: true, data: seasons };
+  }
+
   async getExternalPlans(platform?: string) {
-    const where: Prisma.ExternalPlanWhereInput = platform ? { platform } : {};
-    const plans = await this.prisma.externalPlan.findMany({
-      where,
-      orderBy: { name: 'asc' },
-    });
-    return { success: true, data: plans.map((p) => this.serializeExternalPlan(p)) };
+    if (!platform) {
+      const plans = await this.prisma.externalPlan.findMany({
+        orderBy: { name: 'asc' },
+      });
+      return { success: true, data: plans.map((p) => this.serializeExternalPlan(p)) };
+    }
+
+    // Live fetch from the registered service (Generic Connector / native connector),
+    // mirroring the result into the local cache for detail views and offline listing.
+    const livePlans = await this.connectorsService.getPlans(platform);
+    for (const plan of livePlans) {
+      await this.mirrorExternalPlan(platform, plan).catch(() => undefined);
+    }
+    return { success: true, data: livePlans };
   }
 
   async createExternalPlan(dto: CreateExternalPlanDto) {
-    const plan = await this.prisma.externalPlan.create({
-      data: {
-        name: dto.name,
-        platform: dto.platform,
-        description: dto.description,
-        monthlyPrice: dto.monthlyPrice ?? null,
-        quarterlyPrice: dto.quarterlyPrice ?? null,
-        annualPrice: dto.annualPrice ?? null,
-        features: dto.features ?? [],
-        configuration: (dto.configuration as Prisma.InputJsonValue) ?? undefined,
-        isActive: dto.isActive ?? true,
-        isDefault: dto.isDefault ?? false,
-        type: dto.type,
-        trialDuration: dto.trialDuration,
-        seasonId: dto.seasonId,
-        stripeMonthlyPriceId: dto.stripeMonthlyPriceId,
-        stripeQuarterlyPriceId: dto.stripeQuarterlyPriceId,
-        stripeAnnualPriceId: dto.stripeAnnualPriceId,
-        paypalMonthlyPlanId: dto.paypalMonthlyPlanId,
-        paypalQuarterlyPlanId: dto.paypalQuarterlyPlanId,
-        paypalAnnualPlanId: dto.paypalAnnualPlanId,
-      },
-    });
+    const input: CreateExternalPlanInput = {
+      name: dto.name,
+      description: dto.description,
+      monthlyPrice: dto.monthlyPrice,
+      quarterlyPrice: dto.quarterlyPrice,
+      annualPrice: dto.annualPrice,
+      features: dto.features,
+      configuration: dto.configuration as CreateExternalPlanInput['configuration'],
+      isActive: dto.isActive,
+      isDefault: dto.isDefault,
+      type: dto.type,
+      trialDuration: dto.trialDuration,
+      seasonId: dto.seasonId,
+      stripeMonthlyPriceId: dto.stripeMonthlyPriceId,
+      stripeQuarterlyPriceId: dto.stripeQuarterlyPriceId,
+      stripeAnnualPriceId: dto.stripeAnnualPriceId,
+      paypalMonthlyPlanId: dto.paypalMonthlyPlanId,
+      paypalQuarterlyPlanId: dto.paypalQuarterlyPlanId,
+      paypalAnnualPlanId: dto.paypalAnnualPlanId,
+    };
+
+    const plan = await this.connectorsService.createPlan(dto.platform, input);
+    await this.mirrorExternalPlan(dto.platform, plan).catch(() => undefined);
     await this.logAudit('External Plan Created', 'ExternalPlan', dto.name, `Created external plan "${dto.name}" (${dto.platform})`, 'Admin', 'Plans');
-    return { success: true, data: this.serializeExternalPlan(plan) };
+    return { success: true, data: plan };
   }
 
-  async getExternalPlan(id: string) {
+  async getExternalPlan(id: string, platform?: string) {
+    if (platform) {
+      const plan = await this.connectorsService.getPlanById(platform, id);
+      return { success: true, data: plan };
+    }
     const plan = await this.ensureExternalPlan(id);
     return { success: true, data: this.serializeExternalPlan(plan) };
   }
 
-  async updateExternalPlan(id: string, dto: UpdateExternalPlanDto) {
-    await this.ensureExternalPlan(id);
-    const data: Prisma.ExternalPlanUpdateInput = {};
-    if (dto.name !== undefined) data.name = dto.name;
-    if (dto.description !== undefined) data.description = dto.description;
-    if (dto.monthlyPrice !== undefined) data.monthlyPrice = dto.monthlyPrice;
-    if (dto.quarterlyPrice !== undefined) data.quarterlyPrice = dto.quarterlyPrice;
-    if (dto.annualPrice !== undefined) data.annualPrice = dto.annualPrice;
-    if (dto.features !== undefined) data.features = dto.features;
-    if (dto.configuration !== undefined) data.configuration = dto.configuration as Prisma.InputJsonValue;
-    if (dto.isActive !== undefined) data.isActive = dto.isActive;
-    if (dto.isDefault !== undefined) data.isDefault = dto.isDefault;
-    if (dto.type !== undefined) data.type = dto.type;
-    if (dto.trialDuration !== undefined) data.trialDuration = dto.trialDuration;
-    if (dto.seasonId !== undefined) data.seasonId = dto.seasonId;
-    if (dto.stripeMonthlyPriceId !== undefined) data.stripeMonthlyPriceId = dto.stripeMonthlyPriceId;
-    if (dto.stripeQuarterlyPriceId !== undefined) data.stripeQuarterlyPriceId = dto.stripeQuarterlyPriceId;
-    if (dto.stripeAnnualPriceId !== undefined) data.stripeAnnualPriceId = dto.stripeAnnualPriceId;
-    if (dto.paypalMonthlyPlanId !== undefined) data.paypalMonthlyPlanId = dto.paypalMonthlyPlanId;
-    if (dto.paypalQuarterlyPlanId !== undefined) data.paypalQuarterlyPlanId = dto.paypalQuarterlyPlanId;
-    if (dto.paypalAnnualPlanId !== undefined) data.paypalAnnualPlanId = dto.paypalAnnualPlanId;
+  async updateExternalPlan(id: string, platform: string, dto: UpdateExternalPlanDto) {
+    const input: UpdateExternalPlanInput = {
+      name: dto.name,
+      description: dto.description,
+      monthlyPrice: dto.monthlyPrice,
+      quarterlyPrice: dto.quarterlyPrice,
+      annualPrice: dto.annualPrice,
+      features: dto.features,
+      configuration: dto.configuration as CreateExternalPlanInput['configuration'],
+      isActive: dto.isActive,
+      isDefault: dto.isDefault,
+      type: dto.type,
+      trialDuration: dto.trialDuration,
+      seasonId: dto.seasonId,
+      stripeMonthlyPriceId: dto.stripeMonthlyPriceId,
+      stripeQuarterlyPriceId: dto.stripeQuarterlyPriceId,
+      stripeAnnualPriceId: dto.stripeAnnualPriceId,
+      paypalMonthlyPlanId: dto.paypalMonthlyPlanId,
+      paypalQuarterlyPlanId: dto.paypalQuarterlyPlanId,
+      paypalAnnualPlanId: dto.paypalAnnualPlanId,
+    };
 
-    const plan = await this.prisma.externalPlan.update({ where: { id }, data });
+    const plan = await this.connectorsService.updatePlan(platform, id, input);
+    await this.prisma.externalPlan.upsert({
+      where: { id },
+      create: { id, platform, name: plan.name, features: plan.features ?? [] },
+      update: {
+        name: plan.name,
+        description: plan.description ?? null,
+        monthlyPrice: plan.monthlyPrice != null ? new Prisma.Decimal(plan.monthlyPrice) : null,
+        quarterlyPrice: plan.quarterlyPrice != null ? new Prisma.Decimal(plan.quarterlyPrice) : null,
+        annualPrice: plan.annualPrice != null ? new Prisma.Decimal(plan.annualPrice) : null,
+        features: plan.features ?? [],
+        configuration: (plan.configuration as Prisma.InputJsonValue) ?? undefined,
+        isActive: plan.isActive ?? true,
+        isDefault: plan.isDefault ?? false,
+        type: plan.type ?? null,
+        trialDuration: plan.trialDuration ?? null,
+        seasonId: plan.seasonId ?? null,
+        stripeMonthlyPriceId: plan.stripeMonthlyPriceId ?? null,
+        stripeQuarterlyPriceId: plan.stripeQuarterlyPriceId ?? null,
+        stripeAnnualPriceId: plan.stripeAnnualPriceId ?? null,
+        paypalMonthlyPlanId: plan.paypalMonthlyPlanId ?? null,
+        paypalQuarterlyPlanId: plan.paypalQuarterlyPlanId ?? null,
+        paypalAnnualPlanId: plan.paypalAnnualPlanId ?? null,
+      },
+    }).catch(() => undefined);
     await this.logAudit('External Plan Updated', 'ExternalPlan', id, `Updated external plan "${dto.name ?? id}"`, 'Admin', 'Plans');
-    return { success: true, data: this.serializeExternalPlan(plan) };
+    return { success: true, data: plan };
   }
 
-  async deleteExternalPlan(id: string) {
-    const plan = await this.ensureExternalPlan(id);
-    await this.prisma.externalPlan.delete({ where: { id } });
-    await this.logAudit('External Plan Deleted', 'ExternalPlan', plan.name, `Deleted external plan "${plan.name}"`, 'Admin', 'Plans');
+  async deleteExternalPlan(id: string, platform: string) {
+    const plan = await this.ensureExternalPlan(id).catch(() => undefined);
+    await this.connectorsService.deletePlan(platform, id);
+    await this.prisma.externalPlan.deleteMany({ where: { id } }).catch(() => undefined);
+    await this.logAudit('External Plan Deleted', 'ExternalPlan', plan?.name ?? id, `Deleted external plan "${plan?.name ?? id}"`, 'Admin', 'Plans');
     return { success: true };
+  }
+
+  private async mirrorExternalPlan(platform: string, plan: ExternalPlan) {
+    const data = {
+      platform,
+      name: plan.name,
+      description: plan.description ?? null,
+      monthlyPrice: plan.monthlyPrice != null ? new Prisma.Decimal(plan.monthlyPrice) : null,
+      quarterlyPrice: plan.quarterlyPrice != null ? new Prisma.Decimal(plan.quarterlyPrice) : null,
+      annualPrice: plan.annualPrice != null ? new Prisma.Decimal(plan.annualPrice) : null,
+      features: plan.features ?? [],
+      configuration: (plan.configuration as Prisma.InputJsonValue) ?? undefined,
+      isActive: plan.isActive ?? true,
+      isDefault: plan.isDefault ?? false,
+      type: plan.type ?? null,
+      trialDuration: plan.trialDuration ?? null,
+      seasonId: plan.seasonId ?? null,
+      stripeMonthlyPriceId: plan.stripeMonthlyPriceId ?? null,
+      stripeQuarterlyPriceId: plan.stripeQuarterlyPriceId ?? null,
+      stripeAnnualPriceId: plan.stripeAnnualPriceId ?? null,
+      paypalMonthlyPlanId: plan.paypalMonthlyPlanId ?? null,
+      paypalQuarterlyPlanId: plan.paypalQuarterlyPlanId ?? null,
+      paypalAnnualPlanId: plan.paypalAnnualPlanId ?? null,
+    };
+    await this.prisma.externalPlan.upsert({
+      where: { id: plan.id },
+      create: { id: plan.id, ...data },
+      update: data,
+    });
   }
 
   private serializeExternalPlan(plan: any) {

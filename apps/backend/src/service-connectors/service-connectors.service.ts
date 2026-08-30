@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ConnectorFactory } from './connectors/connector.factory';
 import {
   ExternalPlan,
+  ExternalSeason,
   CreateExternalPlanInput,
   UpdateExternalPlanInput,
+  PlanSchema,
 } from './connectors/connector.interface';
 
 @Injectable()
@@ -37,6 +39,19 @@ export class ServiceConnectorsService {
   async deletePlan(platform: string, id: string): Promise<void> {
     const connector = await this.connectorFactory.getConnector(platform)
     return connector.deletePlan(id)
+  }
+
+  async getPlanSchema(platform: string): Promise<PlanSchema | null> {
+    const connector = await this.connectorFactory.getConnector(platform)
+    return connector.getPlanSchema()
+  }
+
+  async getSeasons(platform: string): Promise<ExternalSeason[]> {
+    const connector = await this.connectorFactory.getConnector(platform)
+    if (typeof connector.getSeasons === 'function') {
+      return connector.getSeasons()
+    }
+    return []
   }
 
   getSupportedPlatforms(): string[] {

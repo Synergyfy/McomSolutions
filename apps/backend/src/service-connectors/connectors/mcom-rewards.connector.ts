@@ -4,8 +4,10 @@ import axios, { AxiosInstance, isAxiosError } from 'axios';
 import {
   ServiceConnector,
   ExternalPlan,
+  ExternalSeason,
   CreateExternalPlanInput,
   UpdateExternalPlanInput,
+  PlanSchema,
 } from './connector.interface';
 
 @Injectable()
@@ -128,6 +130,29 @@ export class McomRewardsConnector implements ServiceConnector {
       await this.httpClient.delete(`/system/plans/${id}`)
     } catch (error) {
       this.handleError(error)
+    }
+  }
+
+  async getPlanSchema(): Promise<PlanSchema | null> {
+    // MCOM Rewards does not expose a plan schema endpoint yet — the frontend
+    // falls back to the hardcoded Rewards quota/flag form.
+    return null
+  }
+
+  async getSeasons(): Promise<ExternalSeason[]> {
+    try {
+      const { data } = await this.httpClient.get('/system/seasons');
+      const raw = Array.isArray(data) ? data : data?.data ?? [];
+      return raw.map((s: any) => ({
+        id: s.id || s._id || s.seasonId,
+        name: s.name || s.title || s.seasonName || s.id,
+        startDate: s.startDate,
+        endDate: s.endDate,
+        isActive: s.isActive ?? (s.status === 'ACTIVE' || s.status === 'Active'),
+        status: s.status,
+      }));
+    } catch {
+      return [];
     }
   }
 }
