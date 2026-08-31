@@ -157,9 +157,9 @@ export class HmacAuthGuard implements CanActivate {
 
     // Resolve the shared secret
     // Priority: per-service env var > shared SSO_API_SECRET fallback
-    let secret = process.env[envKey];
+    let secret = this.configService.get<string>(envKey);
     if (!secret) {
-      secret = process.env['SSO_API_SECRET'];
+      secret = this.configService.get<string>('SSO_API_SECRET');
     }
     if (!secret) {
       throw new UnauthorizedException(

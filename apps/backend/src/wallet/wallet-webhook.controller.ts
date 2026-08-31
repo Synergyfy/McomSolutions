@@ -1,4 +1,4 @@
-import { Controller, Headers, Post, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Headers, Post, Req } from '@nestjs/common';
 import { ApiExcludeEndpoint } from '@nestjs/swagger';
 import { WalletTopUpService } from './wallet-topup.service';
 
@@ -19,8 +19,11 @@ export class WalletWebhookController {
   @ApiExcludeEndpoint()
   async stripeWebhook(@Req() req: any, @Headers('stripe-signature') signature: string) {
     const rawBody = req.rawBody as string | Buffer | undefined;
-    if (!rawBody || !signature) {
-      return { received: true };
+    if (!rawBody) {
+      throw new BadRequestException('Missing request body');
+    }
+    if (!signature) {
+      throw new BadRequestException('Missing stripe-signature header');
     }
     await this.topUpService.handleStripeWebhook(rawBody, signature);
     return { received: true };

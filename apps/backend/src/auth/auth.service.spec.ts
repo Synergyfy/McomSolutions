@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
@@ -20,6 +21,12 @@ describe('AuthService', () => {
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    passwordResetCode: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     $transaction: jest.fn((fnOrOps: any) => {
       // Interactive transactions run the callback against the mock itself.
       if (typeof fnOrOps === 'function') return fnOrOps(mockPrisma);
@@ -32,12 +39,24 @@ describe('AuthService', () => {
     sign: jest.fn().mockReturnValue('mock-token'),
   };
 
+  const mockConfigService = {
+    get: jest.fn((key: string) => {
+      // Provide a usable secret for token signing; otherwise read from process.env
+      // so the existing `process.env.MOCK_OTP = 'true'` test setup keeps working.
+      if (key === 'SSO_SECRET' || key === 'SSO_JWT_SECRET' || key === 'JWT_SECRET') {
+        return 'test-jwt-secret';
+      }
+      return process.env[key];
+    }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
@@ -63,7 +82,14 @@ describe('AuthService', () => {
       process.env.MOCK_OTP = 'true';
       const result = await service.sendOtp('TEST@Example.COM');
       expect(result.success).toBe(true);
+      // The OTP record is persisted against the lowercased email.
+      expect(mockPrisma.passwordResetCode.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ email: 'test@example.com', purpose: 'OTP' }),
+        }),
+      );
       // Next OTP verification should use lowercased email
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
       const verifyResult = await service.verifyOtp('test@example.com', result.code!);
       expect(verifyResult).toBe(true);
     });
@@ -83,22 +109,23 @@ describe('AuthService', () => {
   // ─── verifyOtp ────────────────────────────────────
   describe('verifyOtp', () => {
     it('should return true for valid OTP', async () => {
-      process.env.MOCK_OTP = 'true';
-      const { code } = await service.sendOtp('test@example.com');
-      const result = await service.verifyOtp('test@example.com', code!);
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
+      const result = await service.verifyOtp('test@example.com', '123456');
       expect(result).toBe(true);
     });
 
     it('should return false for invalid OTP', async () => {
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       const result = await service.verifyOtp('test@example.com', '000000');
       expect(result).toBe(false);
     });
 
     it('should consume OTP after successful verification (one-time use)', async () => {
-      process.env.MOCK_OTP = 'true';
-      const { code } = await service.sendOtp('test@example.com');
-      await service.verifyOtp('test@example.com', code!);
-      const secondTry = await service.verifyOtp('test@example.com', code!);
+      mockPrisma.passwordResetCode.findFirst
+        .mockResolvedValueOnce({ id: '1' })
+        .mockResolvedValueOnce(null);
+      await service.verifyOtp('test@example.com', '123456');
+      const secondTry = await service.verifyOtp('test@example.com', '123456');
       expect(secondTry).toBe(false);
     });
   });
@@ -125,23 +152,20 @@ describe('AuthService', () => {
   // ─── verifyResetCode ──────────────────────────────
   describe('verifyResetCode', () => {
     it('should return false for non-existent email', async () => {
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       const result = await service.verifyResetCode('nobody@test.com', '123456');
       expect(result).toBe(false);
     });
 
     it('should return false for wrong code', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
-      process.env.MOCK_OTP = 'true';
-      await service.sendForgotPasswordCode('test@test.com');
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       const result = await service.verifyResetCode('test@test.com', '000000');
       expect(result).toBe(false);
     });
 
     it('should return true for correct code', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
-      process.env.MOCK_OTP = 'true';
-      const { resetCode } = await service.sendForgotPasswordCode('test@test.com');
-      const result = await service.verifyResetCode('test@test.com', resetCode!);
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
+      const result = await service.verifyResetCode('test@test.com', '123456');
       expect(result).toBe(true);
     });
   });
@@ -149,19 +173,18 @@ describe('AuthService', () => {
   // ─── resetPassword ────────────────────────────────
   describe('resetPassword', () => {
     it('should throw UnauthorizedException for invalid code', async () => {
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       await expect(
         service.resetPassword({ email: 'nobody@test.com', code: 'wrong', newPassword: 'NewPass1!' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should update password and return true for valid code', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
+      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
       mockPrisma.user.update.mockResolvedValue({ id: '1', email: 'test@test.com' });
-      process.env.MOCK_OTP = 'true';
-      const { resetCode } = await service.sendForgotPasswordCode('test@test.com');
       const result = await service.resetPassword({
         email: 'test@test.com',
-        code: resetCode!,
+        code: '123456',
         newPassword: 'NewPass1!',
       });
       expect(result).toBe(true);

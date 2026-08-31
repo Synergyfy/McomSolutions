@@ -257,8 +257,10 @@ model SsoSession {
 
 model PasswordResetCode {
   id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String?  @map("user_id")
+  email     String?  @map("email")
+  purpose   String   @default("PASSWORD_RESET") @map("purpose") // OTP | PASSWORD_RESET
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   code      String
   used      Boolean  @default(false) @map("used")
   expiresAt DateTime @map("expires_at")
@@ -266,6 +268,8 @@ model PasswordResetCode {
 
   @@index([code])
   @@index([userId])
+  @@index([email])
+  @@index([purpose])
   @@map("password_reset_codes")
 }
 
@@ -275,6 +279,7 @@ model CustomerProfile {
   id               String   @id @default(cuid())
   userId           String   @unique @map("user_id")
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone            String?  @map("phone")
   loyaltyPoints    Int      @default(0) @map("loyalty_points")
   platformUsage    String[] @map("platform_usage")
   membershipStatus String   @default("None") @map("membership_status")
@@ -290,6 +295,7 @@ model AgentProfile {
   id          String   @id @default(cuid())
   userId      String   @unique @map("user_id")
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone       String?  @map("phone")
   permissions String[] @map("permissions")
   status      String   @default("Active") @map("status")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -303,6 +309,7 @@ model ConsultantProfile {
   id             String   @id @default(cuid())
   userId         String   @unique @map("user_id")
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone          String?  @map("phone")
   specialisation String   @map("specialisation")
   status         String   @default("Active") @map("status")
   createdAt      DateTime @default(now()) @map("created_at")
@@ -316,6 +323,7 @@ model AccountManagerProfile {
   id                 String   @id @default(cuid())
   userId             String   @unique @map("user_id")
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone              String?  @map("phone")
   assignedBusinesses Int      @default(0) @map("assigned_businesses")
   status             String   @default("Active") @map("status")
   createdAt          DateTime @default(now()) @map("created_at")
@@ -387,6 +395,66 @@ model ExternalPlan {
   @@index([platform])
   @@index([platform, isActive])
   @@map("external_plans")
+}
+
+// ─── SECTOR / CATEGORY / SUBCATEGORY CATALOG ────────────────────────────────
+// Drives the onboarding category picker (GET /sectors, /categories, /subcategories)
+// and the Google type → sector mapping (BusinessService.mapGoogleCategory).
+
+model Sector {
+  id         String     @id @default(cuid())
+  name       String     @map("name")
+  slug       String     @unique @map("slug")
+  sortOrder  Int        @default(0) @map("sort_order")
+  categories Category[]
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@map("sectors")
+}
+
+model Category {
+  id            String                @id @default(cuid())
+  sectorId      String                @map("sector_id")
+  sector        Sector                @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  name          String                @map("name")
+  slug          String                @unique @map("slug")
+  sortOrder     Int                   @default(0) @map("sort_order")
+  subCategories SubCategory[]
+  googleMappings GoogleCategoryMapping[]
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  @@index([sectorId])
+  @@index([sortOrder])
+  @@map("categories")
+}
+
+model GoogleCategoryMapping {
+  id         String   @id @default(cuid())
+  googleType String   @unique @map("google_type") // e.g. 'coffee_shop'
+  categoryId String   @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([categoryId])
+  @@map("google_category_mappings")
+}
+
+model SubCategory {
+  id         String   @id @default(cuid())
+  categoryId String   @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name       String   @map("name")
+  slug       String   @unique @map("slug")
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([categoryId])
+  @@index([sortOrder])
+  @@map("sub_categories")
 }
 
 model EcosystemSubscription {
@@ -1139,4 +1207,19 @@ model WalletTopUpRequest {
   @@index([providerRef])
   @@index([status])
   @@map("wallet_top_up_requests")
+}
+
+// ─── FX RATES (wallet top-up conversion) ────────────────────────────────────
+// Base → quote pair, seeded from env (MCOM_GBP_RATE) and updatable at runtime.
+
+model FxRate {
+  id        String   @id @default(cuid())
+  base      String   @map("base")     // e.g. 'GBP'
+  quote     String   @map("quote")    // e.g. 'MCOM'
+  rate      Decimal  @db.Decimal(10, 6) @map("rate")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([base, quote])
+  @@map("fx_rates")
 }

@@ -19,8 +19,18 @@ export class SsoService {
     private readonly redisService: RedisService,
   ) {}
 
+  private getSsoJwtSecret(): string {
+    const secret =
+      this.configService.get<string>('SSO_JWT_SECRET') ||
+      this.configService.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('SSO_JWT_SECRET or JWT_SECRET must be configured (no hardcoded fallback).');
+    }
+    return secret;
+  }
+
   generateToken(payload: Record<string, any>): string {
-    const secret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
+    const secret = this.getSsoJwtSecret();
     return this.jwtService.sign(payload, {
       secret,
       expiresIn: '5m',
@@ -109,7 +119,7 @@ export class SsoService {
     }
 
     // Generate tokens
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.getSsoJwtSecret();
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
 
@@ -194,7 +204,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.getSsoJwtSecret();
     let payload: any;
     try {
       payload = this.jwtService.verify(refreshToken, { secret: jwtSecret });
@@ -256,7 +266,7 @@ export class SsoService {
   }
 
   async getUserInfoFromToken(accessToken: string) {
-    const jwtSecret = this.configService.get<string>('SSO_JWT_SECRET') || this.configService.get<string>('JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = this.getSsoJwtSecret();
     let payload: any;
     try {
       payload = this.jwtService.verify(accessToken, { secret: jwtSecret });

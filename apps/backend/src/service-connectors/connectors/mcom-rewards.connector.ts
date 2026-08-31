@@ -134,9 +134,32 @@ export class McomRewardsConnector implements ServiceConnector {
   }
 
   async getPlanSchema(): Promise<PlanSchema | null> {
-    // MCOM Rewards does not expose a plan schema endpoint yet — the frontend
-    // falls back to the hardcoded Rewards quota/flag form.
-    return null
+    try {
+      const { data } = await this.httpClient.get('/system/plans/schema');
+      const schema = data?.data ?? data;
+      if (schema && (Array.isArray(schema.quotas) || Array.isArray(schema.featureFlags))) {
+        return schema as PlanSchema;
+      }
+    } catch (error) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      if (!status || (status !== 404 && status !== 405)) {
+        this.logger.warn('Failed to fetch Rewards plan schema — serving default schema');
+      }
+    }
+    // Documented default schema — the frontend never falls back to an ad-hoc
+    // hardcoded form when the Rewards service has not implemented its schema endpoint.
+    return {
+      quotas: [
+        { key: 'maxActiveCampaigns', label: 'Max Active Campaigns', type: 'number', unlimited: true },
+        { key: 'maxActiveRewards', label: 'Max Active Rewards', type: 'number', unlimited: true },
+        { key: 'maxTeamMembers', label: 'Max Team Members', type: 'number' },
+      ],
+      featureFlags: [
+        { key: 'canCreateCampaignFromScratch', label: 'Create Campaign From Scratch', type: 'boolean' },
+        { key: 'hasAccessToAdvancedAnalytics', label: 'Advanced Analytics', type: 'boolean' },
+        { key: 'hasAccessToCRM', label: 'CRM Access', type: 'boolean' },
+      ],
+    };
   }
 
   async getSeasons(): Promise<ExternalSeason[]> {
@@ -151,8 +174,13 @@ export class McomRewardsConnector implements ServiceConnector {
         isActive: s.isActive ?? (s.status === 'ACTIVE' || s.status === 'Active'),
         status: s.status,
       }));
-    } catch {
-      return [];
+    } catch (error) {
+      // Endpoint not implemented (404/405) → no seasons, degrade gracefully.
+      if (isAxiosError(error) && (error.response?.status === 404 || error.response?.status === 405)) {
+        return [];
+      }
+      this.logger.error('Failed to fetch Rewards seasons:', error as any);
+      throw new HttpException('Failed to fetch seasons from MCOM Rewards', HttpStatus.BAD_GATEWAY);
     }
   }
 }

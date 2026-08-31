@@ -1,8 +1,8 @@
 import { motion } from 'motion/react';
 import { Check, Star, Zap, ArrowRight, Shield } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
-import { usePricing, ICON_MAP, SubTier } from '../context/PricingContext';
+import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
 import { useState } from 'react';
 
 const QUARTERLY_DISCOUNT = 0.1;
@@ -10,8 +10,13 @@ const YEARLY_DISCOUNT = 0.2;
 
 export default function MembershipPage() {
   const { plans } = usePricing();
+  const navigate = useNavigate();
   const [selectedSubTier, setSelectedSubTier] = useState<SubTier>('Normal');
   const [billingCycle, setBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+
+  const selectPlan = (planId: Membership) => {
+    navigate(`/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(selectedSubTier)}&billing=${encodeURIComponent(billingCycle)}`);
+  };
 
   return (
     <div className="pt-32 pb-24 bg-white min-h-screen">
@@ -146,7 +151,7 @@ export default function MembershipPage() {
                   ))}
                 </div>
 
-                <button className={cn(
+                <button onClick={() => selectPlan(plan.id)} className={cn(
                   "w-full py-3 md:py-4 rounded-2xl font-black text-base md:text-lg transition-all active:scale-95 shadow-lg",
                   isGold ? "bg-white text-brand-blue hover:bg-blue-50" : "bg-brand-blue text-white hover:bg-blue-600 shadow-blue-500/20"
                 )}>

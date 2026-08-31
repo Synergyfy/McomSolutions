@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
-import { Role } from '@prisma/client';
+import { GoogleOAuthService } from '../auth/google-oauth.service';
+import { MembershipLevel, MembershipTier, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import axios from 'axios';
 
 @Injectable()
@@ -10,6 +13,8 @@ export class BusinessService {
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
+    private configService: ConfigService,
+    private googleOAuth: GoogleOAuthService,
   ) {}
 
   // ─── Postcode Address Search ──────────────────────────
@@ -55,62 +60,61 @@ export class BusinessService {
       });
     } catch (err) {
       console.error('Error querying Nominatim API for postcode:', err);
-      // Fallback — must include postcode so the proximity check can run
-      return [
-        { id: 'addr-fallback-1', displayName: `12 Camden High Street, London, ${cleanPostcode}`, formattedAddress: `12 Camden High Street, London, ${cleanPostcode}`, postcode: cleanPostcode },
-      ];
+      return [];
     }
   }
 
   // ─── Proximity Check ──────────────────────────────────
   async checkLocationProximity(postcode: string) {
     const clean = postcode.toUpperCase().replace(/\s+/g, '');
+    const outward = clean.slice(0, Math.max(2, clean.length - 3)); // e.g. 'NW1', 'SE15'
+
+    let resolvedArea = '';
     try {
       const response = await axios.get(`https://api.postcodes.io/postcodes/${encodeURIComponent(clean)}`);
       if (response.data?.status === 200) {
-        const result = response.data.result;
-        const district = result.admin_district || '';
-        const isCamden = district.toLowerCase().includes('camden');
-
-        if (isCamden) {
-          return {
-            resolvedArea: district,
-            status: 'active',
-            localMallName: 'Camden High Street Mall',
-            localMallId: 'mall-camden',
-            proximityTier: 'high_street',
-          };
-        } else {
-          return {
-            resolvedArea: district || 'Remote Area',
-            status: 'inactive',
-            localMallName: null,
-            localMallId: null,
-            proximityTier: 'national',
-          };
-        }
+        resolvedArea = response.data.result.admin_district || '';
       }
     } catch (err) {
       console.error('Error fetching postcode info from postcodes.io:', err);
     }
-    
-    // Fallback if postcodes.io fails
-    const isHighStreet = /^(NW1|EC1|W1|N1|N7|NW5|WC1|WC2|EC2)/i.test(clean);
+
+    // Match against LocalMall postcode areas (DB-backed — no fabricated malls).
+    const malls = await this.prisma.localMall.findMany({
+      where: { status: 'Active' },
+      select: { id: true, name: true, borough: true, postcodes: true },
+    });
+    const matchedMall = malls.find((m) =>
+      (m.postcodes || []).some((p) => {
+        const area = p.toUpperCase().replace(/\s+/g, '');
+        return outward.startsWith(area) || area.startsWith(outward);
+      }),
+    );
+
+    if (matchedMall) {
+      return {
+        resolvedArea: resolvedArea || matchedMall.borough || 'Local Area',
+        status: 'active',
+        localMallName: matchedMall.name,
+        localMallId: matchedMall.id,
+        proximityTier: 'high_street',
+      };
+    }
+
     return {
-      resolvedArea: isHighStreet ? 'Camden Borough' : 'Remote Area',
-      status: isHighStreet ? 'active' : 'inactive',
-      localMallName: isHighStreet ? 'Camden High Street Mall' : null,
-      localMallId: isHighStreet ? 'mall-camden' : null,
-      proximityTier: isHighStreet ? 'high_street' : 'national',
+      resolvedArea: resolvedArea || 'Remote Area',
+      status: 'inactive',
+      localMallName: null,
+      localMallId: null,
+      proximityTier: 'national',
     };
   }
 
   // ─── Google Places Lookup ─────────────────────────────
   async searchGoogleBusinesses(queryText: string, radius?: number) {
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    const apiKey = this.configService.get<string>('GOOGLE_PLACES_API_KEY');
     if (!apiKey) {
-      console.warn('GOOGLE_PLACES_API_KEY is not defined, falling back to mock data');
-      return this.getMockBusinesses(queryText);
+      throw new ServiceUnavailableException('Google Places API is not configured.');
     }
 
     try {
@@ -161,7 +165,7 @@ export class BusinessService {
       });
     } catch (err: any) {
       console.error('Error fetching from Google Places API:', err?.response?.data || err.message);
-      return this.getMockBusinesses(queryText);
+      throw new ServiceUnavailableException('Google Places API request failed.');
     }
   }
 
@@ -170,80 +174,11 @@ export class BusinessService {
     return match ? match[0] : '';
   }
 
-  private getMockBusinesses(queryText: string) {
-    const allMocks = [
-      {
-        googlePlaceId: 'mock-place-001',
-        placeId: 'mock-place-001',
-        place_id: 'mock-place-001',
-        name: 'The Coffee Lounge',
-        formattedAddress: '14 Camden High Street, London, NW1 0JH',
-        formatted_address: '14 Camden High Street, London, NW1 0JH',
-        postcode: 'NW1 0JH',
-        businessPhone: '020 7946 0001',
-        rating: 4.5,
-        userRatingsTotal: 312,
-        user_ratings_total: 312,
-        lat: 51.5390,
-        lng: -0.1426,
-        types: ['coffee_shop', 'establishment'],
-        googleCategoryId: 'gcid:coffee_shop',
-      },
-      {
-        googlePlaceId: 'mock-place-002',
-        placeId: 'mock-place-002',
-        place_id: 'mock-place-002',
-        name: 'Artisan Bakehouse',
-        formattedAddress: '8 Chalk Farm Road, London, NW1 8AG',
-        formatted_address: '8 Chalk Farm Road, London, NW1 8AG',
-        postcode: 'NW1 8AG',
-        businessPhone: '020 7946 0022',
-        rating: 4.8,
-        userRatingsTotal: 189,
-        user_ratings_total: 189,
-        lat: 51.5430,
-        lng: -0.1490,
-        types: ['bakery', 'establishment'],
-        googleCategoryId: 'gcid:bakery',
-      },
-      {
-        googlePlaceId: 'mock-place-003',
-        placeId: 'mock-place-003',
-        place_id: 'mock-place-003',
-        name: 'Urban Style Boutique',
-        formattedAddress: '52 Parkway, Camden, London, NW1 7AH',
-        formatted_address: '52 Parkway, Camden, London, NW1 7AH',
-        postcode: 'NW1 7AH',
-        businessPhone: '020 7946 0033',
-        rating: 4.3,
-        userRatingsTotal: 97,
-        user_ratings_total: 97,
-        lat: 51.5370,
-        lng: -0.1450,
-        types: ['clothing_store', 'establishment'],
-        googleCategoryId: 'gcid:clothing_store',
-      },
-    ];
-
-    if (!queryText) return allMocks;
-
-    return allMocks.filter(
-      (m) =>
-        m.name.toLowerCase().includes(queryText.toLowerCase()) ||
-        m.formattedAddress.toLowerCase().includes(queryText.toLowerCase()),
-    );
-  }
-
   // ─── Google Place Details ─────────────────────────────
   async getGooglePlaceDetails(placeId: string) {
-    if (placeId.startsWith('mock-')) {
-      return this.getMockPlaceDetails(placeId);
-    }
-
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    const apiKey = this.configService.get<string>('GOOGLE_PLACES_API_KEY');
     if (!apiKey) {
-      console.warn('GOOGLE_PLACES_API_KEY is not defined, falling back to mock data');
-      return this.getMockPlaceDetails(placeId);
+      throw new ServiceUnavailableException('Google Places API is not configured.');
     }
 
     try {
@@ -300,139 +235,77 @@ export class BusinessService {
     } catch (err: any) {
       console.error('Error fetching from Google Place Details API:', err?.response?.data || err.message);
       if (err instanceof NotFoundException) throw err;
-      return this.getMockPlaceDetails(placeId);
+      if (err?.response?.status === 404) {
+        throw new NotFoundException(`Google place details for id '${placeId}' not found`);
+      }
+      throw new ServiceUnavailableException('Google Places API request failed.');
     }
-  }
-
-  private getMockPlaceDetails(placeId: string) {
-    const detailsMap: Record<string, any> = {
-      'mock-place-001': {
-        name: 'The Coffee Lounge',
-        formattedAddress: '14 Camden High Street, London, NW1 0JH',
-        postcode: 'NW1 0JH',
-        internationalPhoneNumber: '+44 20 7946 0001',
-        website: 'https://thecoffeelounge.co.uk',
-        rating: 4.5,
-        userRatingsTotal: 312,
-        openingHours: { open_now: true, weekday_text: ['Monday: 7:00 AM – 8:00 PM'] },
-        types: ['coffee_shop', 'establishment'],
-        googleCategoryId: 'gcid:coffee_shop',
-      },
-      'mock-place-002': {
-        name: 'Artisan Bakehouse',
-        formattedAddress: '8 Chalk Farm Road, London, NW1 8AG',
-        postcode: 'NW1 8AG',
-        internationalPhoneNumber: '+44 20 7946 0022',
-        website: 'https://artisanbakehouse.co.uk',
-        rating: 4.8,
-        userRatingsTotal: 189,
-        openingHours: { open_now: true, weekday_text: ['Monday: 8:00 AM – 6:00 PM'] },
-        types: ['bakery', 'establishment'],
-        googleCategoryId: 'gcid:bakery',
-      },
-      'mock-place-003': {
-        name: 'Urban Style Boutique',
-        formattedAddress: '52 Parkway, Camden, London, NW1 7AH',
-        postcode: 'NW1 7AH',
-        internationalPhoneNumber: '+44 20 7946 0033',
-        website: 'https://urbanstyle.co.uk',
-        rating: 4.3,
-        userRatingsTotal: 97,
-        openingHours: { open_now: false, weekday_text: ['Monday: 10:00 AM – 7:00 PM'] },
-        types: ['clothing_store', 'establishment'],
-        googleCategoryId: 'gcid:clothing_store',
-      },
-    };
-
-    const details = detailsMap[placeId];
-    if (!details) {
-      throw new NotFoundException(`Google place details for id '${placeId}' not found`);
-    }
-    return details;
   }
 
   // ─── Claim Start & Google OAuth Redirect ───────────────
   async claimStart(placeId: string, returnUrl: string) {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      console.warn('GOOGLE_CLIENT_ID is not defined, falling back to simulator');
-      const baseUrl = process.env.APP_URL || 'http://localhost:3010';
-      const authUrl = `${baseUrl}/api/v1/business/google-claim-simulator?placeId=${placeId}&returnUrl=${encodeURIComponent(
-        returnUrl,
-      )}`;
-      return { authUrl };
+    if (!this.googleOAuth.isConfigured()) {
+      if (this.googleOAuth.isSimulatorEnabled()) {
+        const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3010';
+        const authUrl = `${baseUrl}/api/v1/business/google-claim-simulator?placeId=${encodeURIComponent(
+          placeId,
+        )}&returnUrl=${encodeURIComponent(returnUrl)}`;
+        return { authUrl };
+      }
+      throw new ServiceUnavailableException('Google Sign-In is not configured');
     }
 
-    const googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-    const redirectUri = `${process.env.APP_URL || 'http://localhost:3010'}/api/v1/business/google/callback`;
-    const scope = 'https://www.googleapis.com/auth/business.manage openid email profile';
-    const state = Buffer.from(JSON.stringify({ placeId, returnUrl })).toString('base64');
-    
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      scope: scope,
-      access_type: 'offline',
+    // state is HMAC-signed and short-lived so it cannot be forged or replayed
+    const state = this.googleOAuth.signState({ type: 'claim', placeId, returnUrl });
+    const authUrl = this.googleOAuth.getAuthUrl(state, {
+      scopes: 'https://www.googleapis.com/auth/business.manage openid email profile',
+      accessType: 'offline',
       prompt: 'consent',
-      state: state,
     });
 
-    const authUrl = `${googleAuthUrl}?${params.toString()}`;
     return { authUrl };
   }
 
   // ─── Google OAuth Callback Handler ─────────────────────
   async handleGoogleCallback(code: string, state: string, res?: any) {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = `${process.env.APP_URL || 'http://localhost:3010'}/api/v1/business/google/callback`;
+    const payload = this.googleOAuth.verifyState(state);
+    if (!payload) {
+      return this.claimFailureScript();
+    }
 
-    if (state === 'login_state') {
-      let email = 'owner@mcomsolutions.co.uk';
-      if (code !== 'mock-google-code') {
-        try {
-          const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
-            code,
-            client_id: clientId,
-            client_secret: clientSecret,
-            redirect_uri: redirectUri,
-            grant_type: 'authorization_code',
-          });
-          const { access_token } = tokenResponse.data;
-          const userinfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-            headers: { Authorization: `Bearer ${access_token}` },
-          });
-          if (userinfoResponse.data?.email) {
-            email = userinfoResponse.data.email;
-          }
-        } catch (err: any) {
-          console.error('Error in Google OAuth exchange for login:', err?.response?.data || err.message);
-          return `
-            <script>
-              if (window.opener) {
-                window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', error: 'Google login failed' }, '*');
-              }
-              window.close();
-            </script>
-          `;
-        }
+    const redirectUri = this.googleOAuth.getRedirectUri();
+    let email = '';
+
+    if (payload.type === 'sim-login') {
+      // Development-only path — never reachable in production
+      if (!this.googleOAuth.isSimulatorEnabled() || code !== 'mock-google-code') {
+        return this.claimFailureScript();
       }
+      email = String(payload.email || '').toLowerCase().trim();
+      if (!email) {
+        return this.claimFailureScript();
+      }
+    } else {
+      if (code === 'mock-google-code') {
+        return this.loginFailureScript('Google login is not available');
+      }
+      try {
+        email = await this.googleOAuth.exchangeCodeForEmail(code, redirectUri);
+      } catch (err: any) {
+        console.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
+        return payload.type === 'claim'
+          ? this.claimFailureScript()
+          : this.loginFailureScript('Google authentication failed');
+      }
+    }
 
-      let user = await this.prisma.user.findUnique({
-        where: { email: email.toLowerCase().trim() },
+    if (payload.type === 'login' || payload.type === 'sim-login') {
+      const user = await this.prisma.user.findUnique({
+        where: { email },
       });
 
       if (!user) {
-        user = await this.prisma.user.create({
-          data: {
-            email,
-            password: 'googleAuthTempPass123!',
-            role: Role.BUSINESS,
-            firstName: 'Google',
-            lastName: 'User',
-          }
-        });
+        return this.loginFailureScript('No account found for this email. Please register first.');
       }
 
       const auth = await this.authService.login(user);
@@ -462,60 +335,38 @@ export class BusinessService {
       `;
     }
 
-    let decodedState: any = {};
-    try {
-      decodedState = JSON.parse(Buffer.from(state, 'base64').toString('utf-8'));
-    } catch (e) {
-      console.error('Failed to parse OAuth state:', e);
-    }
+    if (payload.type === 'claim') {
+      const { placeId, returnUrl } = payload;
+      if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl || !/^https?:\/\//.test(returnUrl)) {
+        return this.claimFailureScript();
+      }
 
-    const { placeId, returnUrl } = decodedState;
-    if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl) {
+      // Bind the verified email to a short-lived grant the onboarding endpoint
+      // will require — the frontend can never fabricate this server-side proof.
+      const grant = this.googleOAuth.signEmailGrant(email, placeId);
+
       return `
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '*');
+            window.opener.postMessage({
+              type: 'GOOGLE_CLAIM_RESULT',
+              success: true,
+              placeId: '${placeId}',
+              email: '${this.escapeHtml(email)}',
+              grant: '${this.escapeHtml(grant)}'
+            }, '*');
+            window.close();
+          } else {
+            document.write("Claim successful! You can close this window now.");
           }
-          window.close();
         </script>
       `;
     }
 
-    try {
-      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
-        code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      });
+    return this.claimFailureScript();
+  }
 
-      const { access_token } = tokenResponse.data;
-
-      // Verify Google OAuth works by requesting profile
-      const userinfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: { Authorization: `Bearer ${access_token}` },
-      });
-
-      if (userinfoResponse.data?.email) {
-        return `
-          <script>
-            if (window.opener) {
-              window.opener.postMessage({
-                type: 'GOOGLE_CLAIM_RESULT',
-                success: true,
-                placeId: '${placeId}',
-                email: '${userinfoResponse.data.email}'
-              }, '*');
-            }
-            window.close();
-          </script>
-        `;
-      }
-    } catch (err: any) {
-      console.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
-    }
-
+  private claimFailureScript() {
     return `
       <script>
         if (window.opener) {
@@ -526,34 +377,104 @@ export class BusinessService {
     `;
   }
 
+  private loginFailureScript(error: string) {
+    return `
+      <script>
+        if (window.opener) {
+          window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' }, '*');
+        }
+        window.close();
+      </script>
+    `;
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   // ─── Google Category Mapping ──────────────────────────
   async mapGoogleCategory(googleCategoryId: string) {
-    const categories: Record<string, any> = {
-      'gcid:coffee_shop': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-4' },
-      'gcid:cafe': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-4' },
-      'gcid:bakery': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-5' },
-      'gcid:clothing_store': { sectorId: 'sector-1', categoryId: 'cat-1', subCategoryId: 'sub-2' },
-      'gcid:restaurant': { sectorId: 'sector-2', categoryId: 'cat-4', subCategoryId: 'sub-1' },
-      'gcid:grocery_store': { sectorId: 'sector-2', categoryId: 'cat-5', subCategoryId: 'sub-8' },
-      'gcid:supermarket': { sectorId: 'sector-2', categoryId: 'cat-5', subCategoryId: 'sub-8' },
-      'gcid:barber_shop': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-14' },
-      'gcid:beauty_salon': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-15' },
-      'gcid:hair_salon': { sectorId: 'sector-3', categoryId: 'cat-8', subCategoryId: 'sub-14' },
-      'gcid:gym': { sectorId: 'sector-3', categoryId: 'cat-9', subCategoryId: 'sub-18' },
-      'gcid:hotel': { sectorId: 'sector-2', categoryId: 'cat-6', subCategoryId: 'sub-11' },
-    };
+    const googleType = String(googleCategoryId || '').replace(/^gcid:/, '');
 
-    return categories[googleCategoryId] || { sectorId: 'sector-1', categoryId: 'cat-1', subCategoryId: 'sub-1' };
+    if (googleType) {
+      const mapping = await this.prisma.googleCategoryMapping.findUnique({
+        where: { googleType },
+        include: { category: { include: { sector: true, subCategories: true } } },
+      });
+      if (mapping) {
+        const cat = mapping.category;
+        return {
+          sectorId: cat.sectorId,
+          sectorName: cat.sector?.name ?? null,
+          categoryId: cat.id,
+          categoryName: cat.name,
+          subCategoryId: cat.subCategories[0]?.id ?? null,
+        };
+      }
+    }
+
+    // Fallback to a generic "Other" category when no Google-type mapping exists.
+    const fallback = await this.prisma.category.findFirst({
+      where: { slug: 'other' },
+      include: { sector: true, subCategories: true },
+    });
+
+    return {
+      sectorId: fallback?.sectorId ?? null,
+      sectorName: fallback?.sector?.name ?? null,
+      categoryId: fallback?.id ?? null,
+      categoryName: fallback?.name ?? null,
+      subCategoryId: fallback?.subCategories[0]?.id ?? null,
+    };
   }
 
   // ─── Complete Onboarding (Google Claim) ───────────────
+  /**
+   * Default membership for brand-new businesses is derived from the lowest-priced
+   * active plan in the DB — never a hardcoded literal.
+   */
+  private async getDefaultMembership(): Promise<{
+    membershipLevel: MembershipLevel;
+    membershipTier: MembershipTier;
+  }> {
+    const defaultPlan = await this.prisma.membershipPlan.findFirst({
+      orderBy: { price: 'asc' },
+    });
+    const level: MembershipLevel = (defaultPlan?.name as MembershipLevel) || MembershipLevel.Bronze;
+    return {
+      membershipLevel: level,
+      membershipTier: MembershipTier.Free,
+    };
+  }
+
   async completeGoogleOnboarding(data: any) {
-    const email = data.email ? data.email.toLowerCase().trim() : '';
+    const emailFromBody = data.email ? data.email.toLowerCase().trim() : '';
+    // The verified email always comes from the signed grant (if present) — the
+    // body field is never trusted when a grant exists.
+    const grant = this.googleOAuth.verifyEmailGrant(data.grant);
+    const email = grant ? grant.email : emailFromBody;
+    const defaultMembership = await this.getDefaultMembership();
+
     const existing = await this.prisma.user.findUnique({
       where: { email },
     });
 
     if (existing) {
+      // Existing accounts may only be claimed/updated when the caller holds a
+      // fresh Google-verified grant for that email. Without it, an unauthenticated
+      // caller could overwrite a profile and take over the session.
+      if (!grant || grant.email !== email) {
+        throw new ConflictException('An account with this email already exists. Please log in.');
+      }
+      if (data.googlePlaceId && grant.placeId && data.googlePlaceId !== grant.placeId) {
+        throw new UnauthorizedException('Google verification does not match this business listing.');
+      }
+
       // If user exists, update their profile
       const updatedUser = await this.prisma.user.update({
         where: { email },
@@ -576,8 +497,8 @@ export class BusinessService {
                 category: data.category || 'Cafe',
                 subCategory: data.subCategory || '',
                 openingHours: data.openingHours || '',
-                membershipLevel: 'Bronze',
-                membershipTier: 'Free',
+                membershipLevel: defaultMembership.membershipLevel,
+                membershipTier: defaultMembership.membershipTier,
               },
               update: {
                 businessName: data.businessName,
@@ -604,9 +525,16 @@ export class BusinessService {
       };
     }
 
+    // New account creation. A Google claim path must carry the verified grant;
+    // the manual path (no grant) is allowed but must not impersonate a claimed
+    // Google business (no googlePlaceId).
+    if (!grant && data.googlePlaceId) {
+      throw new UnauthorizedException('Google verification is required to claim this business.');
+    }
+
     // Register new user & profile
     const salt = await bcrypt.genSalt();
-    const password = data.password || 'googleAuthTempPass123!';
+    const password = data.password || crypto.randomBytes(24).toString('hex');
     const passwordHash = await bcrypt.hash(password, salt);
 
     const newUser = await this.prisma.user.create({
@@ -632,8 +560,8 @@ export class BusinessService {
             category: data.category || 'Cafe',
             subCategory: data.subCategory || '',
             openingHours: data.openingHours || '',
-            membershipLevel: 'Bronze',
-            membershipTier: 'Free',
+            membershipLevel: defaultMembership.membershipLevel,
+            membershipTier: defaultMembership.membershipTier,
           },
         },
         wallet: {
@@ -652,24 +580,10 @@ export class BusinessService {
             businessId: newUser.businessProfile.id,
             type: 'membership',
             title: 'Welcome to MCOM Ecosystem!',
-            message: 'You have signed up successfully. Your Bronze Membership is now active.',
+            message: `You have signed up successfully. Your ${defaultMembership.membershipLevel} Membership is now active.`,
             read: false,
           },
-          {
-            businessId: newUser.businessProfile.id,
-            type: 'announcement',
-            title: 'MCOM Spin templates added',
-            message: 'We have preloaded 5 default spin wheel templates into your account.',
-            read: false,
-          },
-          {
-            businessId: newUser.businessProfile.id,
-            type: 'payment',
-            title: 'Welcome Credit Added',
-            message: 'We have applied £10.00 credit to your billing profile for new activations.',
-            read: false,
-          }
-        ]
+        ],
       });
     }
 
@@ -737,7 +651,7 @@ export class BusinessService {
   }
 
   async generateApiKey(businessId: string) {
-    const apiKey = `mcom_central_${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`;
+    const apiKey = `mcom_central_${crypto.randomBytes(24).toString('hex')}`;
     return this.prisma.businessProfile.update({
       where: { id: businessId },
       data: { apiKey },

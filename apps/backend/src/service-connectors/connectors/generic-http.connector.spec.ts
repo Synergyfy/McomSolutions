@@ -155,10 +155,17 @@ describe('GenericHttpConnector', () => {
       ]);
     });
 
-    it('should return empty array on failure without throwing', async () => {
-      mockInstance.get.mockRejectedValue(new Error('Endpoint not found'));
+    it('should return empty array when the endpoint is not implemented (404/405)', async () => {
+      mockInstance.get.mockRejectedValue({ isAxiosError: true, response: { status: 404 } });
       const seasons = await connector.getSeasons();
       expect(seasons).toEqual([]);
+    });
+
+    it('should throw HttpException(502) on real network failures (no silent degradation)', async () => {
+      mockInstance.get.mockRejectedValue({ isAxiosError: true, code: 'ECONNREFUSED' });
+      await expect(connector.getSeasons()).rejects.toThrow(
+        new HttpException('Failed to fetch seasons from Mcom vCard', HttpStatus.BAD_GATEWAY),
+      );
     });
   });
 });

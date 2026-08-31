@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { BusinessService } from './business.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -8,7 +9,10 @@ import * as fs from 'fs';
 
 @Controller()
 export class BusinessController {
-  constructor(private businessService: BusinessService) {}
+  constructor(
+    private businessService: BusinessService,
+    private googleOAuth: GoogleOAuthService,
+  ) {}
 
   // ─── Postcode Address Search ──────────────────────────
   @Get('business/search-address')
@@ -108,9 +112,13 @@ export class BusinessController {
     res.send(html);
   }
 
-  // ─── Google OAuth Consent Simulator ──────────────────
+  // ─── Google OAuth Consent Simulator (development-only) ──
   @Get('business/google-claim-simulator')
   getGoogleClaimSimulator(@Query('placeId') placeId: string, @Response() res: any) {
+    if (!this.googleOAuth.isSimulatorEnabled()) {
+      throw new ForbiddenException('Google claim simulator is disabled');
+    }
+    const safePlaceId = JSON.stringify(placeId || '');
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
@@ -145,6 +153,10 @@ export class BusinessController {
             </div>
           </div>
 
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Verified email</label>
+          <input id="simEmail" type="email" placeholder="owner@example.com"
+                 class="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-semibold mb-4" />
+
           <button onclick="confirmClaim()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-500/10 mb-4">
             Verify & Grant Access
           </button>
@@ -159,11 +171,27 @@ export class BusinessController {
         </footer>
 
         <script>
-          function confirmClaim() {
+          async function confirmClaim() {
+            const email = document.getElementById('simEmail').value.trim();
+            if (!email) {
+              alert('Please enter the verified email.');
+              return;
+            }
+            let grant = '';
+            try {
+              const res = await fetch('/api/v1/business/simulator-claim-grant?email=' + encodeURIComponent(email) + '&placeId=' + encodeURIComponent(${safePlaceId}));
+              const data = await res.json();
+              grant = data.grant || '';
+            } catch (err) {
+              console.error('Failed to obtain simulator grant:', err);
+            }
             if (window.opener) {
               window.opener.postMessage({
                 type: 'GOOGLE_CLAIM_RESULT',
-                success: true
+                success: true,
+                placeId: ${safePlaceId},
+                email: email,
+                grant: grant
               }, '*');
               window.close();
             } else {
@@ -174,6 +202,20 @@ export class BusinessController {
       </body>
       </html>
     `);
+  }
+
+  // Dev-only: signs the email grant for the claim simulator. Never enabled in
+  // production (guarded by isSimulatorEnabled like the simulator itself).
+  @Get('business/simulator-claim-grant')
+  getSimulatorClaimGrant(@Query('email') email: string, @Query('placeId') placeId: string) {
+    if (!this.googleOAuth.isSimulatorEnabled()) {
+      throw new ForbiddenException('Google claim simulator is disabled');
+    }
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      throw new BadRequestException('email is required');
+    }
+    const grant = this.googleOAuth.signEmailGrant(email.trim(), placeId || undefined);
+    return { grant };
   }
 
   // ─── Profile CRUD (Secured) ───────────────────────────

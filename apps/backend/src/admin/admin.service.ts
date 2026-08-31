@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { Prisma, Role } from '@prisma/client';
 import {
   CreateBusinessUserDto,
@@ -37,7 +38,29 @@ import {
 
 @Injectable()
 export class AdminService {
-  private readonly RECURRING_REVENUE_FACTOR = 0.7;
+
+  /**
+   * Generates a strong temporary password for admin-created users.
+   * Uses crypto randomness (not Math.random) and meets the minimum password
+   * requirements (uppercase, number, special character).
+   */
+  private generateTempPassword(): string {
+    const chars = 'abcdefghjkmnpqrstuvwxyz';
+    const uppers = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+    const digits = '23456789';
+    const specials = '!@#$%^&*';
+    const pick = (set: string) => set[crypto.randomInt(0, set.length)];
+    const body = Array.from({ length: 12 }, () =>
+      pick(chars + digits + uppers + specials),
+    ).join('');
+    // Guarantee one of each required class, then shuffle.
+    const combined = (pick(uppers) + pick(digits) + pick(specials) + body).split('');
+    for (let i = combined.length - 1; i > 0; i--) {
+      const j = crypto.randomInt(0, i + 1);
+      [combined[i], combined[j]] = [combined[j], combined[i]];
+    }
+    return combined.join('');
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -138,6 +161,7 @@ export class AdminService {
       completedPaymentsAgg,
       todayRevenueAgg,
       monthlyRevenueAgg,
+      recurringRevenueAgg,
       platforms,
     ] = await Promise.all([
       this.prisma.user.count({ where: { role: Role.BUSINESS } }),
@@ -160,13 +184,17 @@ export class AdminService {
       this.prisma.revenueRecord.aggregate({
         _sum: { amount: true },
       }),
+      this.prisma.ecosystemSubscription.aggregate({
+        _sum: { amount: true },
+        where: { status: 'Active' },
+      }),
       this.prisma.ecosystemPlatform.findMany(),
     ]);
 
     const todayRevenue = todayRevenueAgg._sum.amount || 0;
     const monthlyRevenue = monthlyRevenueAgg._sum.amount || 0;
     const completedPayments = completedPaymentsAgg._sum.amount || 0;
-    const recurringRevenue = monthlyRevenue * this.RECURRING_REVENUE_FACTOR;
+    const recurringRevenue = recurringRevenueAgg._sum.amount || 0;
 
     // Platforms users mapping
     const platformList = platforms.map(p => ({
@@ -282,15 +310,9 @@ export class AdminService {
 
     const permissions = Array.from(permissionSet);
 
-    const sourceOptions = [
-      'GBS Loyalty',
-      'Mcom Mall',
-      'Mcom Rewards',
-      'Mcom Spin',
-      'GBS Audit',
-      'GBS Expo',
-      'McomQ Link',
-    ];
+    // Registration sources are derived from the registered ecosystem platforms
+    // (DB-backed) rather than a hardcoded list.
+    const sourceOptions = platforms.map((p) => p.name);
 
     return {
       success: true,
@@ -330,20 +352,47 @@ export class AdminService {
       this.prisma.businessProfile.count({ where }),
     ]);
 
-    const formatted = items.map(b => ({
-      id: b.id,
-      userId: b.userId,
-      name: b.businessName,
-      email: b.email,
-      phone: b.phone,
-      membership: `${b.membershipLevel} ${b.membershipTier}`,
-      platformAccess: b.localMallName ? ['Mall'] : ['Loyalty'],
-      status: b.membershipStatus === 'active' ? 'Active' : 'Suspended',
-      revenue: '£0',
-      source: 'direct',
-      joined: b.createdAt.toISOString().split('T')[0],
-      googleVerified: b.isOnGoogle,
-    }));
+    const businessIds = items.map((b) => b.id);
+
+    // Per-business revenue (paid billing transactions) + active platform access.
+    const [txnAggs, activePackages] = await Promise.all([
+      this.prisma.billingTransaction.groupBy({
+        by: ['businessId'],
+        _sum: { amount: true },
+        where: { businessId: { in: businessIds }, status: 'paid' },
+      }),
+      this.prisma.platformPackage.findMany({
+        where: { businessId: { in: businessIds }, status: 'active' },
+        select: { businessId: true, platform: true },
+      }),
+    ]);
+
+    const revenueMap = new Map<string, number>(txnAggs.map((t) => [t.businessId, Number(t._sum.amount ?? 0)]));
+    const platformMap = new Map<string, string[]>();
+    for (const pkg of activePackages) {
+      const arr = platformMap.get(pkg.businessId) ?? [];
+      arr.push(pkg.platform);
+      platformMap.set(pkg.businessId, arr);
+    }
+
+    const formatted = items.map(b => {
+      const revenue = revenueMap.get(b.id) ?? 0;
+      const platformAccess = platformMap.get(b.id) || (b.localMallName ? ['Mall'] : ['Loyalty']);
+      return {
+        id: b.id,
+        userId: b.userId,
+        name: b.businessName,
+        email: b.email,
+        phone: b.phone,
+        membership: `${b.membershipLevel} ${b.membershipTier}`,
+        platformAccess,
+        status: b.membershipStatus === 'active' ? 'Active' : 'Suspended',
+        revenue: `£${revenue.toLocaleString('en-GB')}`,
+        source: b.user?.registrationSource || 'direct',
+        joined: b.createdAt.toISOString().split('T')[0],
+        googleVerified: b.isOnGoogle,
+      };
+    });
 
     return {
       success: true,
@@ -359,7 +408,7 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '1!A';
+    const tempPassword = this.generateTempPassword();
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
@@ -454,7 +503,7 @@ export class AdminService {
       userId: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email.split('@')[0],
       email: u.email,
-      phone: '', // Customer profile has no phone mapping
+      phone: u.customerProfile?.phone || '',
       loyaltyPoints: u.customerProfile?.loyaltyPoints || 0,
       platformUsage: u.customerProfile?.platformUsage || [],
       membershipStatus: u.customerProfile?.membershipStatus || 'None',
@@ -475,7 +524,7 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '1!A';
+    const tempPassword = this.generateTempPassword();
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
@@ -574,7 +623,7 @@ export class AdminService {
       userId: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email.split('@')[0],
       email: u.email,
-      phone: '',
+      phone: u.agentProfile?.phone || '',
       permissions: u.agentProfile?.permissions || [],
       status: u.agentProfile?.status || 'Active',
     }));
@@ -593,7 +642,7 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '1!A';
+    const tempPassword = this.generateTempPassword();
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
@@ -688,7 +737,7 @@ export class AdminService {
       userId: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email.split('@')[0],
       email: u.email,
-      phone: '',
+      phone: u.consultantProfile?.phone || '',
       specialisation: u.consultantProfile?.specialisation || '',
       status: u.consultantProfile?.status || 'Active',
     }));
@@ -707,7 +756,7 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '1!A';
+    const tempPassword = this.generateTempPassword();
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
@@ -802,7 +851,7 @@ export class AdminService {
       userId: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email.split('@')[0],
       email: u.email,
-      phone: '',
+      phone: u.accountManagerProfile?.phone || '',
       assignedBusinesses: u.accountManagerProfile?.assignedBusinesses || 0,
       status: u.accountManagerProfile?.status || 'Active',
     }));
@@ -821,7 +870,7 @@ export class AdminService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) throw new ConflictException('Email already registered');
 
-    const tempPassword = Math.random().toString(36).slice(-8) + '1!A';
+    const tempPassword = this.generateTempPassword();
     const salt = await bcrypt.genSalt();
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
@@ -1478,20 +1527,11 @@ export class AdminService {
   async getSettings() {
     let settings = await this.prisma.systemSettings.findFirst();
     if (!settings) {
-      // Create defaults
+      // Create defaults — scalar fields come from schema-level @defaults; only
+      // the JSON config blobs (which cannot be defaulted in the schema) are set here.
       settings = await this.prisma.systemSettings.create({
         data: {
           id: 'global',
-          brandName: 'MCOMSolutions',
-          supportEmail: 'support@mcomsolutions.co.uk',
-          currency: 'GBP',
-          sessionTimeout: 60,
-          maxLoginAttempts: 5,
-          emailEnabled: true,
-          smsEnabled: false,
-          paymentGateway: 'Stripe',
-          maintenanceMode: false,
-          allowRegistration: true,
           authConfig: {
             loginEnabled: true,
             registrationEnabled: true,

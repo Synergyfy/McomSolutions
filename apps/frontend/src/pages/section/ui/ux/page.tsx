@@ -698,6 +698,7 @@ function BusinessOnboardingInner() {
   const [isGoogleOnboarding, setIsGoogleOnboarding] = useState(false);
   const [googleStep, setGoogleStep] = useState<'branch_select' | 'fail_safe_form' | 'review_claim' | null>(null);
   const [googleEmail, setGoogleEmail] = useState('');
+  const [googleClaimGrant, setGoogleClaimGrant] = useState('');
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
@@ -801,6 +802,12 @@ function BusinessOnboardingInner() {
         clearInterval(pollTimer);
         setIsSubmitting(false);
         if (event.data.success) {
+          if (event.data.email) {
+            setGoogleEmail(event.data.email);
+          }
+          if (event.data.grant) {
+            setGoogleClaimGrant(event.data.grant);
+          }
           setShowConnectGooglePage(false);
           setShowBusinessTypePage(true);
         } else {
@@ -885,6 +892,7 @@ function BusinessOnboardingInner() {
     try {
       const res = await api.post('google-business/complete-onboarding', {
         email: googleEmail,
+        grant: googleClaimGrant,
         firstName: ownerFirstName,
         lastName: ownerLastName,
         businessType: ownerBusinessType,
@@ -913,7 +921,7 @@ function BusinessOnboardingInner() {
       );
       dispatch(
         setUserData({
-          id: user?.id || user?._id || 'mock_user_id',
+          id: user?.id || user?._id || '',
           userName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : `${ownerFirstName} ${ownerLastName}`,
           userRole: user?.role || 'owner',
           packageInfo: user?.packageInfo
@@ -3089,6 +3097,7 @@ function BusinessOnboardingInner() {
       try {
         const res = await api.post('google-business/complete-onboarding', {
           email: googleEmail || formData.email,
+          grant: googleClaimGrant,
           firstName: ownerFirstName || formData.firstName,
           lastName: ownerLastName || formData.lastName,
           businessType: formData.businessType || 'products',
@@ -3117,7 +3126,7 @@ function BusinessOnboardingInner() {
         );
         dispatch(
           setUserData({
-            id: user?.id || 'mock_user_id',
+            id: user?.id || '',
             userName: `${user?.firstName || formData.firstName || 'Merchant'} ${user?.lastName || formData.lastName || 'User'}`,
             userRole: user?.role || 'owner',
             packageInfo: null,
@@ -6114,17 +6123,9 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
   }, []);
 
   useEffect(() => {
-    // Ensure we set mock cookies so the dashboard auth redirects don't kick them out
-    if (!Cookies.get('access')) {
-      Cookies.set('access', 'mock_access_token', { expires: 1 / 72 }); // 20 minutes
-      Cookies.set('refresh', 'mock_refresh_token', { expires: 7 });
-      Cookies.set('userId', 'mock_user_id', { expires: 7 });
-      Cookies.set('userRole', 'owner', { expires: 7 });
-      localStorage.setItem('user-name', 'Merchant Onboarding');
-      
-      // Also load auth into Redux store immediately
-      dispatch(loadAuthFromCookies());
-    }
+    // This is a design prototype. It must NOT plant mock auth cookies — a real
+    // session (via setSharedAuthCookies) is required for authenticated flows.
+    return;
   }, [dispatch]);
 
   return (

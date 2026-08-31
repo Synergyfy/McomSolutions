@@ -1,8 +1,10 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { Shield, Globe, Zap, Heart } from 'lucide-react';
 
 export default function AboutPage() {
+  const navigate = useNavigate();
   return (
     <div className="pt-32 pb-24">
       <div className="max-w-7xl mx-auto px-6">
@@ -57,7 +59,7 @@ export default function AboutPage() {
             Join over 10,000 companies worldwide that trust 24/7 GBS to power 
             their daily operations.
           </p>
-          <button className="bg-brand-blue text-white px-10 py-4 rounded-full font-bold text-lg hover:bg-blue-600 transition-all shadow-xl shadow-blue-500/20">
+          <button onClick={() => navigate('/getstarted')} className="bg-brand-blue text-white px-10 py-4 rounded-full font-bold text-lg hover:bg-blue-600 transition-all shadow-xl shadow-blue-500/20">
             Get Started Today
           </button>
         </div>

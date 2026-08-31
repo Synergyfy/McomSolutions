@@ -19,10 +19,37 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 import { RedisModule } from './redis/redis.module';
 
+/**
+ * Fail-fast environment validation. Runs before the app bootstraps so a
+ * misconfigured deployment errors loudly instead of silently using a fallback.
+ */
+function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
+  const isProduction = config.NODE_ENV === 'production';
+
+  const required = ['JWT_SECRET', 'DATABASE_URL'];
+  const missing = required.filter((key) => !config[key]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  if (isProduction) {
+    const prodRequired = ['SSO_API_SECRET', 'CONSOLE_ENCRYPTION_KEY'];
+    const prodMissing = prodRequired.filter((key) => !config[key]);
+    if (prodMissing.length > 0) {
+      throw new Error(
+        `Missing required environment variables in production: ${prodMissing.join(', ')}`,
+      );
+    }
+  }
+
+  return config;
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      validate: validateEnv,
     }),
     // Global rate limiter — registered ONCE here. Per-route @Throttle()
     // overrides live in the controllers (Console, Wallet partner/admin).

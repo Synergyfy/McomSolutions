@@ -191,11 +191,6 @@ describe('ConsoleService', () => {
       await expect(service.deactivateApp('mcom-mall', 'admin-1')).rejects.toThrow(ForbiddenException);
     });
 
-    it('should block seeded system apps even without the flag', async () => {
-      mockPrisma.ssoClient.findUnique.mockResolvedValue(clientRecord({ clientId: 'mcom-mall', isSystemApp: false }));
-      await expect(service.deactivateApp('mcom-mall', 'admin-1')).rejects.toThrow(ForbiddenException);
-    });
-
     it('should soft-deactivate non-system app and cascade sessions', async () => {
       mockPrisma.ssoClient.findUnique.mockResolvedValue(clientRecord());
       mockPrisma.ssoClient.update.mockResolvedValue({});

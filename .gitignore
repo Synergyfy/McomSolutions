@@ -7,6 +7,9 @@ build/
 apps/frontend/dist/
 apps/backend/dist/
 
+# Runtime uploads (user-generated content, never committed)
+apps/backend/uploads/
+
 # Logs
 *.log
 npm-debug.log*

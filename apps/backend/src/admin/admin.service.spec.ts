@@ -15,6 +15,7 @@ describe('AdminService', () => {
     ecosystemSubscription: {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
     },
     adminPayment: {
       findMany: jest.fn().mockResolvedValue([]),

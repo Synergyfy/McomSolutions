@@ -1,76 +1,155 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { Role } from '@prisma/client';
+import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
+import axios from 'axios';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
-  private otps = new Map<string, string>();
-  private forgotPasswordCodes = new Map<string, { code: string; expiresAt: Date }>();
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private config: ConfigService,
   ) {}
 
-  async sendOtp(email: string): Promise<{ success: boolean; code?: string; mode: 'mock' | 'email' }> {
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    this.otps.set(email.toLowerCase(), code);
-    
-    console.log('\n======================================');
-    console.log(`[OTP Engine] 🔑 Verification Code for ${email}: ${code}`);
-    console.log('======================================\n');
+  private isMockOtp(): boolean {
+    const mockEnabled = this.config.get<string>('MOCK_OTP') === 'true';
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    // Mock mode is a development convenience only — never enabled in production.
+    return mockEnabled && !isProduction;
+  }
 
-    const isMock = process.env.MOCK_OTP === 'true';
+  private generateNumericCode(): string {
+    return crypto.randomInt(100000, 1000000).toString();
+  }
 
-    // Send email if SMTP is configured in environment variables
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = process.env.SMTP_PORT;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : undefined;
-    const smtpFrom = process.env.SMTP_FROM || 'no-reply@mcomsolutions.com';
+  private async sendCodeEmail(
+    email: string,
+    code: string,
+    subject: string,
+    intro: string,
+  ): Promise<void> {
+    const from = this.config.get<string>('SMTP_FROM') || 'MCOM Solutions <no-reply@mcomsolutions.com>';
+    const smtpFrom = this.config.get<string>('SMTP_FROM') || 'no-reply@mcomsolutions.com';
 
-    if (!isMock && smtpHost && smtpUser && smtpPass) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+        <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">MCOM Solutions</h2>
+        <p>Hello,</p>
+        <p>${intro}</p>
+        <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; border: 1px solid #e5e7eb;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111827;">${code}</span>
+        </div>
+        <p style="color: #6b7280; font-size: 14px;">This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email.</p>
+        <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 MCOM Solutions. All rights reserved.</p>
+      </div>
+    `;
+
+    // Preferred path: Resend transactional email API (RESEND_API_KEY configured).
+    const resendApiKey = this.config.get<string>('RESEND_API_KEY');
+    if (resendApiKey) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: parseInt(smtpPort || '587'),
-          secure: parseInt(smtpPort || '587') === 465,
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
+        const response = await axios.post(
+          'https://api.resend.com/emails',
+          { from, to: [email], subject, html },
+          {
+            headers: {
+              Authorization: `Bearer ${resendApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
           },
-        });
-
-        await transporter.sendMail({
-          from: smtpFrom,
-          to: email,
-          subject: 'MCOM Solutions - Your Verification Code',
-          text: `Your verification code is: ${code}. It is valid for 10 minutes.`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
-              <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">MCOM Solutions</h2>
-              <p>Hello,</p>
-              <p>We received a request to verify your email address. Please use the following verification code to continue your setup:</p>
-              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; border: 1px solid #e5e7eb;">
-                <span style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111827;">${code}</span>
-              </div>
-              <p style="color: #6b7280; font-size: 14px;">This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email.</p>
-              <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-              <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 MCOM Solutions. All rights reserved.</p>
-            </div>
-          `,
-        });
-        console.log(`[SMTP Mailer] ✉️ Verification email sent successfully to ${email}`);
+        );
+        this.logger.log(`[Resend] Email sent to ${email} (id=${response.data?.id ?? 'n/a'})`);
+        return;
       } catch (err) {
-        console.error('[SMTP Mailer] ❌ Failed to send verification email:', err);
+        this.logger.error('[Resend] Failed to send email, falling back to SMTP:', err as any);
       }
     } else {
-      console.log('[SMTP Mailer] ⚠️ SMTP variables are missing or MOCK_OTP is active. Falling back to local logging.');
+      this.logger.debug('[Resend] RESEND_API_KEY not set — using SMTP fallback.');
     }
-    
+
+    // Fallback: SMTP via nodemailer (legacy/dev path).
+    const smtpHost = this.config.get<string>('SMTP_HOST');
+    const smtpPort = this.config.get<string>('SMTP_PORT');
+    const smtpUser = this.config.get<string>('SMTP_USER');
+    const smtpPass = this.config.get<string>('SMTP_PASS')
+      ? this.config.get<string>('SMTP_PASS')!.replace(/\s+/g, '')
+      : undefined;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      this.logger.warn('SMTP variables are missing — verification code was not emailed.');
+      return;
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: parseInt(smtpPort || '587', 10),
+        secure: parseInt(smtpPort || '587', 10) === 465,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      await transporter.sendMail({
+        from: smtpFrom,
+        to: email,
+        subject,
+        text: `Your code is: ${code}. It is valid for 10 minutes.`,
+        html,
+      });
+      this.logger.log(`[SMTP Mailer] Email sent successfully to ${email}`);
+    } catch (err) {
+      this.logger.error('[SMTP Mailer] Failed to send email:', err as any);
+    }
+  }
+
+  async sendOtp(email: string): Promise<{ success: boolean; code?: string; mode: 'mock' | 'email' }> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const isMock = this.isMockOtp();
+    const code = this.generateNumericCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes TTL
+
+    // OTP codes are persisted in the DB (survives restart / multi-instance).
+    // Invalidate any previously issued, still-open OTP for this email.
+    await this.prisma.passwordResetCode.updateMany({
+      where: { email: normalizedEmail, purpose: 'OTP', used: false },
+      data: { used: true },
+    });
+
+    await this.prisma.passwordResetCode.create({
+      data: {
+        email: normalizedEmail,
+        purpose: 'OTP',
+        code,
+        expiresAt,
+        used: false,
+      },
+    });
+
+    if (isMock) {
+      // Dev-only convenience: log the code so it can be read in the terminal.
+      this.logger.debug(`[OTP] Verification code for ${normalizedEmail}: ${code}`);
+    } else {
+      await this.sendCodeEmail(
+        normalizedEmail,
+        code,
+        'MCOM Solutions - Your Verification Code',
+        'We received a request to verify your email address. Please use the following verification code to continue your setup:',
+      );
+    }
+
     return {
       success: true,
       mode: isMock ? 'mock' : 'email',
@@ -79,17 +158,34 @@ export class AuthService {
   }
 
   async resendOtp(email: string): Promise<{ success: boolean; code?: string; mode: 'mock' | 'email' }> {
-    this.otps.delete(email.toLowerCase());
     return this.sendOtp(email);
   }
 
   async verifyOtp(email: string, code: string): Promise<boolean> {
-    const savedCode = this.otps.get(email.toLowerCase());
-    if (savedCode && savedCode === code) {
-      this.otps.delete(email.toLowerCase());
-      return true;
+    const normalizedEmail = email.toLowerCase().trim();
+    const now = new Date();
+
+    const record = await this.prisma.passwordResetCode.findFirst({
+      where: {
+        email: normalizedEmail,
+        purpose: 'OTP',
+        used: false,
+        code,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!record) {
+      return false;
     }
-    return false;
+
+    // One-time use — consume the code.
+    await this.prisma.passwordResetCode.update({
+      where: { id: record.id },
+      data: { used: true },
+    });
+    return true;
   }
 
   async sendForgotPasswordCode(email: string): Promise<{ success: boolean; resetCode?: string; mode: 'mock' | 'email' }> {
@@ -102,59 +198,36 @@ export class AuthService {
       throw new ConflictException('User with this email does not exist');
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 minutes TTL
+    const isMock = this.isMockOtp();
+    const code = this.generateNumericCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes TTL
 
-    this.forgotPasswordCodes.set(normalizedEmail, { code, expiresAt });
+    // Invalidate any previously issued, still-open reset code for this user.
+    await this.prisma.passwordResetCode.updateMany({
+      where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', used: false },
+      data: { used: true },
+    });
 
-    console.log('\n======================================');
-    console.log(`[Reset Password Engine] 🔑 Reset Code for ${email}: ${code}`);
-    console.log('======================================\n');
+    await this.prisma.passwordResetCode.create({
+      data: {
+        userId: user.id,
+        email: normalizedEmail,
+        purpose: 'PASSWORD_RESET',
+        code,
+        expiresAt,
+        used: false,
+      },
+    });
 
-    const isMock = process.env.MOCK_OTP === 'true';
-
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = process.env.SMTP_PORT;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, '') : undefined;
-    const smtpFrom = process.env.SMTP_FROM || 'no-reply@mcomsolutions.com';
-
-    if (!isMock && smtpHost && smtpUser && smtpPass) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: parseInt(smtpPort || '587'),
-          secure: parseInt(smtpPort || '587') === 465,
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          },
-        });
-
-        await transporter.sendMail({
-          from: smtpFrom,
-          to: email,
-          subject: 'MCOM Solutions - Reset Your Password',
-          text: `Your password reset code is: ${code}. It is valid for 10 minutes.`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
-              <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">MCOM Solutions</h2>
-              <p>Hello,</p>
-              <p>We received a request to reset your password. Please use the following code to continue:</p>
-              <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; border: 1px solid #e5e7eb;">
-                <span style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #111827;">${code}</span>
-              </div>
-              <p style="color: #6b7280; font-size: 14px;">This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email.</p>
-              <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-              <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 MCOM Solutions. All rights reserved.</p>
-            </div>
-          `,
-        });
-        console.log(`[SMTP Mailer] ✉️ Reset password email sent successfully to ${email}`);
-      } catch (err) {
-        console.error('[SMTP Mailer] ❌ Failed to send reset email:', err);
-      }
+    if (isMock) {
+      this.logger.debug(`[Reset Password] Reset code for ${normalizedEmail}: ${code}`);
+    } else {
+      await this.sendCodeEmail(
+        normalizedEmail,
+        code,
+        'MCOM Solutions - Reset Your Password',
+        'We received a request to reset your password. Please use the following code to continue:',
+      );
     }
 
     return {
@@ -166,14 +239,28 @@ export class AuthService {
 
   async verifyResetCode(email: string, code: string): Promise<boolean> {
     const normalizedEmail = email.toLowerCase().trim();
-    const entry = this.forgotPasswordCodes.get(normalizedEmail);
-    
-    if (!entry) return false;
-    if (entry.code !== code) return false;
-    if (entry.expiresAt < new Date()) {
-      this.forgotPasswordCodes.delete(normalizedEmail);
+    const now = new Date();
+
+    const record = await this.prisma.passwordResetCode.findFirst({
+      where: {
+        email: normalizedEmail,
+        purpose: 'PASSWORD_RESET',
+        used: false,
+        code,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!record) {
       return false;
     }
+
+    // One-time use — consume the code.
+    await this.prisma.passwordResetCode.update({
+      where: { id: record.id },
+      data: { used: true },
+    });
     return true;
   }
 
@@ -195,7 +282,6 @@ export class AuthService {
       data: { password: passwordHash },
     });
 
-    this.forgotPasswordCodes.delete(email);
     return true;
   }
 
@@ -412,7 +498,7 @@ export class AuthService {
 
     const name = user.businessProfile?.businessName || user.email.split('@')[0];
     const role = user.role === Role.BUSINESS ? 'business' : 'customer';
-    const issuer = process.env.MCOM_CENTRAL_ISSUER || 'mcom-central';
+    const issuer = this.config.get<string>('MCOM_CENTRAL_ISSUER') || 'mcom-central';
 
     // Fetch active platform packages for the platforms claim
     const businessId = user.businessProfile?.id;
@@ -457,8 +543,16 @@ export class AuthService {
       platforms,
     };
 
+    const secret =
+      this.config.get<string>('SSO_SECRET') ||
+      this.config.get<string>('SSO_JWT_SECRET') ||
+      this.config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('SSO_SECRET (or SSO_JWT_SECRET / JWT_SECRET) must be configured.');
+    }
+
     const ssoToken = this.jwtService.sign(payload, {
-      secret: process.env.SSO_SECRET || 'shared-sso-secret',
+      secret,
       expiresIn: '60s',
     });
 

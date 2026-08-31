@@ -22,9 +22,6 @@ import { encrypt } from './crypto.util';
 
 const MASK = '••••••••••••••••';
 
-/** Seeded apps that must never be deactivated via the Console (defense in depth). */
-const SYSTEM_CLIENT_IDS = ['mcom-mall', 'mcom-loyalty', '247gbs'];
-
 export interface AppSecretSet {
   clientSecret: string;
   apiKey: string;
@@ -148,7 +145,7 @@ export class ConsoleService {
   async deactivateApp(clientId: string, adminId: string, req?: Request) {
     const client = await this.getClientOrThrow(clientId);
 
-    if (client.isSystemApp || SYSTEM_CLIENT_IDS.includes(client.clientId)) {
+    if (client.isSystemApp) {
       throw new ForbiddenException(
         'System apps cannot be deactivated via Console. Edit the seed configuration instead.',
       );

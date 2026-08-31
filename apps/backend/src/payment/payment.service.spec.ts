@@ -46,6 +46,7 @@ describe('PaymentService', () => {
 
   const mockPricingService = {
     subscribeMembership: jest.fn(),
+    resolveMembershipPrice: jest.fn().mockResolvedValue(10),
   };
 
   const mockPrisma = {

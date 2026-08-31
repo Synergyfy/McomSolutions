@@ -95,9 +95,12 @@ export class GenericHttpConnector implements ServiceConnector {
         isActive: s.isActive ?? (s.status === 'ACTIVE' || s.status === 'Active'),
         status: s.status,
       }));
-    } catch {
-      // Return empty list if platform does not implement seasons endpoint
-      return [];
+    } catch (error) {
+      // Endpoint not implemented (404/405) → no seasons, degrade gracefully.
+      if (error instanceof HttpException && (error.getStatus() === 404 || error.getStatus() === 405)) {
+        return [];
+      }
+      throw new HttpException(`Failed to fetch seasons from ${this.platform}`, HttpStatus.BAD_GATEWAY);
     }
   }
 

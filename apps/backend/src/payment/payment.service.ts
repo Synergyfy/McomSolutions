@@ -4,16 +4,18 @@ import {
   NotFoundException,
   UnauthorizedException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { PricingService, MEMBERSHIP_PLANS } from '../pricing/pricing.service';
+import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private stripe: Stripe;
   private paypalBaseUrl: string;
 
@@ -28,7 +30,18 @@ export class PaymentService {
       this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
     }
 
-    const paypalEnv = this.config.get<string>('PAYPAL_ENV') || 'sandbox';
+    const paypalEnv = this.config.get<string>('PAYPAL_ENV');
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    // Fail fast in production: never silently run against PayPal sandbox.
+    if (isProduction && paypalEnv !== 'live') {
+      throw new Error('PAYPAL_ENV must be "live" in production — refusing to run against PayPal sandbox.');
+    }
+    if (paypalEnv && !['sandbox', 'live'].includes(paypalEnv)) {
+      throw new Error(`Invalid PAYPAL_ENV "${paypalEnv}" — expected "sandbox" or "live".`);
+    }
+    if (!paypalEnv && !isProduction) {
+      this.logger.warn('PAYPAL_ENV not set — defaulting to sandbox (development only).');
+    }
     this.paypalBaseUrl =
       paypalEnv === 'live'
         ? 'https://api-m.paypal.com'
@@ -57,19 +70,12 @@ export class PaymentService {
     return response.data.access_token;
   }
 
-  private resolvePlanPrice(
+  private async resolvePlanPrice(
     level: string,
     tier: string,
     billing: 'monthly' | 'yearly',
-  ): number {
-    const plan = MEMBERSHIP_PLANS.find((p) => p.id === level);
-    if (!plan) throw new NotFoundException(`Plan '${level}' not found.`);
-
-    const baseMonthly: number = (plan.price as any)[tier] ?? 0;
-    if (billing === 'yearly') {
-      return Math.floor(baseMonthly * 0.8) * 12; // 20% yearly discount
-    }
-    return baseMonthly;
+  ): Promise<number> {
+    return this.pricingService.resolveMembershipPrice(level, tier, billing);
   }
 
   // ─── STRIPE ───────────────────────────────────────────────────────────────────
@@ -85,7 +91,7 @@ export class PaymentService {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
     }
 
-    const amountGBP = isTrial ? 0 : this.resolvePlanPrice(level, tier, billing);
+    const amountGBP = isTrial ? 0 : await this.resolvePlanPrice(level, tier, billing);
     const amountPence = Math.round(amountGBP * 100);
 
     if (isTrial || amountPence === 0) {
@@ -145,7 +151,7 @@ export class PaymentService {
     isTrial: boolean,
   ) {
     const token = await this.getPayPalAccessToken();
-    const amountGBP = isTrial ? 1.00 : this.resolvePlanPrice(level, tier, billing); // £1 auth for trial
+    const amountGBP = isTrial ? 1.00 : await this.resolvePlanPrice(level, tier, billing); // £1 auth for trial
 
     const order = await axios.post(
       `${this.paypalBaseUrl}/v2/checkout/orders`,

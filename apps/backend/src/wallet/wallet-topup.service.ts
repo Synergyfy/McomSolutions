@@ -37,6 +37,8 @@ export class WalletTopUpService {
     const wallet = await this.walletService.ensureWallet(userId);
     const frontendUrl = this.config.get<string>('FRONTEND_URL') || 'http://localhost:3000';
 
+    const exchangeRate = await this.getExchangeRate(dto.currency || 'GBP', wallet.currency);
+
     const topUp = await this.prisma.walletTopUpRequest.create({
       data: {
         walletId: wallet.id,
@@ -44,7 +46,7 @@ export class WalletTopUpService {
         amount: dto.amount,
         currency: dto.currency || 'GBP',
         walletCurrency: wallet.currency,
-        exchangeRate: 1,
+        exchangeRate,
         provider: 'stripe',
         status: 'PENDING',
       },
@@ -78,11 +80,30 @@ export class WalletTopUpService {
     };
   }
 
+  /**
+   * Resolves the FX rate for a base → wallet-currency pair. Prefers the DB
+   * (FxRate table, admin-updatable); falls back to the MCOM_GBP_RATE env var
+   * (default 1) so the conversion is never a silent hardcoded 1:1.
+   */
+  private async getExchangeRate(base: string, quote: string): Promise<number> {
+    try {
+      const rate = await this.prisma.fxRate.findUnique({
+        where: { base_quote: { base: base.toUpperCase(), quote: quote.toUpperCase() } },
+      });
+      if (rate) return rate.rate.toNumber();
+    } catch (err) {
+      this.logger.warn(`FX rate lookup failed for ${base}→${quote}:`, err as any);
+    }
+    const envRate = this.config.get<string>('MCOM_GBP_RATE');
+    const parsed = envRate ? parseFloat(envRate) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }
+
   async handleStripeWebhook(rawBody: string | Buffer, signature: string): Promise<{ received: boolean }> {
     const webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
     if (!this.stripe || !webhookSecret) {
       this.logger.error('Stripe webhook received but Stripe is not configured');
-      return { received: true };
+      throw new InternalServerErrorException('Stripe is not configured — cannot process webhook');
     }
 
     let event: Stripe.Event;

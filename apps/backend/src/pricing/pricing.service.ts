@@ -2,75 +2,64 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipLevel, MembershipTier, MembershipStatus } from '@prisma/client';
 
-export const MEMBERSHIP_PLANS = [
-  {
-    id: 'Bronze',
-    name: 'Bronze',
-    description: 'Perfect for local brands and new startups.',
-    whoItIsFor: 'New businesses',
-    iconName: 'Building2',
-    color: 'border-amber-600/20 text-amber-600 bg-amber-50',
-    price: { Normal: 10, Pro: 25, 'Pro+': 50 },
-    features: ['Basic business listing', 'Community access', 'Essential insights'],
-    tierFeatures: {
-      Normal: ['Base Visibility', 'Local Listings'],
-      Pro: ['Enhanced Visibility', 'Extended Listings'],
-      'Pro+': ['Priority Visibility', 'Featured Placement'],
-    },
-  },
-  {
-    id: 'Silver',
-    name: 'Silver',
-    description: 'Advanced tools for growing teams.',
-    whoItIsFor: 'Growing businesses',
-    iconName: 'Zap',
-    color: 'border-slate-400/20 text-slate-500 bg-slate-50',
-    price: { Normal: 75, Pro: 150, 'Pro+': 250 },
-    features: ['Marketing tools', 'Campaign participation', 'Quarterly reviews', 'Everything in Bronze'],
-    tierFeatures: {
-      Normal: ['Standard Ads', 'Campaign Basic'],
-      Pro: ['Premium Ads', 'Campaign Priority'],
-      'Pro+': ['Aggressive Ads', 'Exclusive Early Access'],
-    },
-  },
-  {
-    id: 'Gold',
-    name: 'Gold',
-    description: 'Scale your operations with priority access.',
-    whoItIsFor: 'Scaling businesses',
-    iconName: 'Star',
-    color: 'border-yellow-500/30 text-yellow-600 bg-yellow-50',
-    price: { Normal: 350, Pro: 600, 'Pro+': 900 },
-    features: ['Full campaign access', 'Multi-location support', 'Advanced AI insights', 'Everything in Silver'],
-    tierFeatures: {
-      Normal: ['Direct API', 'Dashboard Basic'],
-      Pro: ['Custom API', 'Dashboard Pro'],
-      'Pro+': ['Enterprise API', 'Full AI Suite'],
-    },
-  },
-  {
-    id: 'Platinum',
-    name: 'Platinum',
-    description: 'Tailored solutions for market leaders.',
-    whoItIsFor: 'Established businesses',
-    iconName: 'Trophy',
-    color: 'border-blue-600/20 text-blue-700 bg-blue-50',
-    price: { Normal: 1200, Pro: 2500, 'Pro+': 4500 },
-    features: ['Priority visibility', 'Dedicated support', 'Executive reporting', 'Everything in Gold'],
-    tierFeatures: {
-      Normal: ['Dedicated AM', 'Monthly Strategy'],
-      Pro: ['Global AM', 'Bi-weekly Strategy'],
-      'Pro+': ['VP Support', 'Weekly Audits'],
-    },
-  },
-];
+/**
+ * Tier price multipliers applied over the DB-stored base monthly price.
+ * Normal = base, Pro = 2.5x, Pro+ = 5x. The base price is the source of truth
+ * in the `membership_plans` table (admin-editable).
+ */
+const TIER_MULTIPLIERS: Record<string, number> = { Normal: 1, Pro: 2.5, 'Pro+': 5 };
+const YEARLY_DISCOUNT = 0.2;
 
 @Injectable()
 export class PricingService {
   constructor(private prisma: PrismaService) {}
 
+  private tierMultiplier(tier: string): number {
+    return TIER_MULTIPLIERS[tier] ?? 1;
+  }
+
+  private async getPlan(level: string) {
+    const plan = await this.prisma.membershipPlan.findFirst({
+      where: { name: level, archived: false },
+    });
+    if (!plan) {
+      throw new NotFoundException(`Plan level '${level}' does not exist`);
+    }
+    return plan;
+  }
+
+  async resolveMembershipPrice(
+    level: string,
+    tier: string,
+    billing: 'monthly' | 'yearly' = 'monthly',
+  ): Promise<number> {
+    const plan = await this.getPlan(level);
+    const baseMonthly = Number(plan.price) * this.tierMultiplier(tier);
+    if (billing === 'yearly') {
+      return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
+    }
+    return Math.round(baseMonthly);
+  }
+
   async getPlans() {
-    return MEMBERSHIP_PLANS;
+    const plans = await this.prisma.membershipPlan.findMany({
+      where: { archived: false },
+      orderBy: { price: 'asc' },
+    });
+
+    return plans.map((p) => ({
+      id: p.name,
+      name: p.name,
+      description: p.description,
+      price: {
+        Normal: Math.round(Number(p.price)),
+        Pro: Math.round(Number(p.price) * 2.5),
+        'Pro+': Math.round(Number(p.price) * 5),
+      },
+      features: p.permissions || [],
+      billingCycle: p.billingCycle,
+      platformAccess: p.platformAccess || [],
+    }));
   }
 
   async subscribeMembership(
@@ -88,16 +77,8 @@ export class PricingService {
       throw new NotFoundException('Business profile not found');
     }
 
-    const plan = MEMBERSHIP_PLANS.find((p) => p.id === level);
-    if (!plan) {
-      throw new NotFoundException(`Plan level '${level}' does not exist`);
-    }
-
-    const baseMonthlyPrice: number = (plan.price as any)[tier] ?? 0;
-    const price =
-      billing === 'yearly'
-        ? Math.floor(baseMonthlyPrice * 0.8) * 12
-        : baseMonthlyPrice;
+    // Validates the plan exists and resolves its real DB-backed price.
+    const price = isTrial ? 0 : await this.resolveMembershipPrice(level, tier, billing);
 
     // Update business profile membership
     const updated = await this.prisma.businessProfile.update({
@@ -113,15 +94,15 @@ export class PricingService {
     await this.prisma.billingTransaction.create({
       data: {
         businessId,
-        amount: isTrial ? 0 : price,
+        amount: price,
         description: isTrial
-          ? `[TRIAL] ${level} ${tier} (${billing}) — 7-day free trial started`
+          ? `[TRIAL] ${level} ${tier} (${billing}) — free trial started`
           : `Ecosystem Membership: ${level} ${tier} (${billing})`,
         status: isTrial ? 'trial' : 'paid',
       },
     });
 
-    return { ...updated, isTrial, billing, price: isTrial ? 0 : price };
+    return { ...updated, isTrial, billing, price };
   }
 
   async purchasePackage(businessId: string, platform: string, packageName: string) {
@@ -133,16 +114,25 @@ export class PricingService {
       throw new NotFoundException('Business profile not found');
     }
 
-    // Determine pricing and limits
-    let price = 29;
-    let limits: any = { campaignsLimit: 1, rewardsLimit: 5 };
+    // Pricing and limits come from the PackageTemplate catalog (DB-backed).
+    const template = await this.prisma.packageTemplate.findFirst({
+      where: { platform, name: { equals: packageName, mode: 'insensitive' }, archived: false },
+    });
 
-    if (packageName.toLowerCase() === 'standard') {
-      price = 79;
-      limits = { campaignsLimit: 5, rewardsLimit: 20 };
-    } else if (packageName.toLowerCase() === 'enterprise') {
-      price = 199;
-      limits = { campaignsLimit: -1, rewardsLimit: -1 }; // -1 represents unlimited
+    const price = template ? Number(template.price) : 29;
+    const limits = (template?.usageLimits as any) ?? { campaignsLimit: 1, rewardsLimit: 5 };
+    const billingCycle = template?.billingCycle ?? 'monthly';
+
+    const expiresAt = new Date();
+    switch (billingCycle) {
+      case 'quarterly':
+        expiresAt.setMonth(expiresAt.getMonth() + 3);
+        break;
+      case 'annual':
+        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+        break;
+      default:
+        expiresAt.setMonth(expiresAt.getMonth() + 1);
     }
 
     const platformPackage = await this.prisma.platformPackage.upsert({
@@ -156,6 +146,10 @@ export class PricingService {
         packageName,
         limits,
         status: 'active',
+        amount: price,
+        currency: 'GBP',
+        billingCycle,
+        expiresAt,
       },
       create: {
         businessId,
@@ -163,6 +157,10 @@ export class PricingService {
         packageName,
         limits,
         status: 'active',
+        amount: price,
+        currency: 'GBP',
+        billingCycle,
+        expiresAt,
       },
     });
 

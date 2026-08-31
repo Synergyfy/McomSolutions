@@ -5,15 +5,12 @@ export interface Business {
   id: string;
   name: string;
   membership: string;
-  revenue: string;
   source: string;
   joined: string;
 }
 
 interface BusinessContextType {
   businesses: Business[];
-  addBusiness: (business: Omit<Business, 'id'>) => void;
-  updateBusiness: (id: string, updates: Partial<Business>) => void;
   deleteBusiness: (id: string) => void;
   loading: boolean;
 }
@@ -31,7 +28,6 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
         id: b.id,
         name: b.businessName,
         membership: `${b.membershipLevel || 'Bronze'} ${b.membershipTier || 'Normal'}`,
-        revenue: '£' + (b.proximityTier === 'high_street' ? '15k' : '2.5k'),
         source: b.businessType || 'Onboarded',
         joined: new Date(b.createdAt).toISOString().split('T')[0],
       }));
@@ -40,14 +36,6 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       setBusinesses([]);
     }
   }, [rawBusinesses]);
-
-  const addBusiness = (business: Omit<Business, 'id'>) => {
-    console.log('addBusiness stub:', business);
-  };
-
-  const updateBusiness = (id: string, updates: Partial<Business>) => {
-    console.log('updateBusiness stub:', id, updates);
-  };
 
   const deleteBusiness = async (id: string) => {
     try {
@@ -58,7 +46,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <BusinessContext.Provider value={{ businesses, addBusiness, updateBusiness, deleteBusiness, loading }}>
+    <BusinessContext.Provider value={{ businesses, deleteBusiness, loading }}>
       {children}
     </BusinessContext.Provider>
   );
