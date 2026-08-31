@@ -17,6 +17,7 @@ import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate 
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
+import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -625,16 +626,55 @@ function BusinessOnboardingInner() {
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
 
-  const performSSORedirect = async (fallbackRoute: string = '/dashboard') => {
+  // Persist SSO / originating redirect parameters in localStorage so they survive page reloads and payment gateways
+  useEffect(() => {
     const clientId = searchParams.get('client_id');
     const redirectUri = searchParams.get('redirect_uri');
     const state = searchParams.get('state');
     const scope = searchParams.get('scope');
+    const source = searchParams.get('source');
+    const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl');
 
-    // Scenario A: Standard OAuth Flow
+    if (clientId || redirectUri || source || redirect) {
+      const intent: any = {};
+      if (clientId) intent.clientId = clientId;
+      if (redirectUri) intent.redirectUri = redirectUri;
+      if (state) intent.state = state;
+      if (scope) intent.scope = scope;
+      if (source) intent.source = source;
+      if (redirect) intent.redirect = redirect;
+      try {
+        localStorage.setItem('mcom_sso_intent', JSON.stringify(intent));
+      } catch {}
+    }
+  }, [searchParams]);
+
+  const performSSORedirect = async (fallbackRoute: string = '/dashboard') => {
+    // Read from searchParams first, fallback to cached sso intent in localStorage
+    let savedIntent: any = {};
+    try {
+      const raw = localStorage.getItem('mcom_sso_intent');
+      if (raw) savedIntent = JSON.parse(raw);
+    } catch {}
+
+    const clientId = searchParams.get('client_id') || savedIntent.clientId || null;
+    const redirectUri = searchParams.get('redirect_uri') || savedIntent.redirectUri || null;
+    const state = searchParams.get('state') || savedIntent.state || null;
+    const scope = searchParams.get('scope') || savedIntent.scope || null;
+    const source = searchParams.get('source') || savedIntent.source || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || savedIntent.redirect || savedIntent.callbackUrl || state;
+
+    const cleanupIntent = () => {
+      try {
+        localStorage.removeItem('mcom_sso_intent');
+      } catch {}
+    };
+
+    // Scenario A: Standard OAuth Flow (for registered console apps & external clients)
     if (clientId && redirectUri) {
       try {
         const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined, state: state || undefined });
+        cleanupIntent();
         window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
         return;
       } catch (err) {
@@ -642,10 +682,7 @@ function BusinessOnboardingInner() {
       }
     }
 
-    // Scenario B: Direct SSO / Shared Handshake Flow
-    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
-    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
-    
+    // Scenario B: Direct SSO / Shared Handshake Flow (MCOM Mall, MCOM Rewards, or callback URLs)
     let redirectTarget = null;
     let finalRedirectState = null;
 
@@ -659,10 +696,10 @@ function BusinessOnboardingInner() {
 
     // Determine platform base SSO url if redirect target is relative or null
     if (!redirectTarget) {
-      if (source === 'mcomloyalty') {
+      if (source === 'mcomloyalty' || source === 'mcom-loyalty') {
         redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-      } else if (source === 'mcommall') {
-        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3002'}/auth/sso`;
+      } else if (source === 'mcommall' || source === 'mcom-mall') {
+        redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3003'}/auth/sso`;
       }
     }
 
@@ -677,16 +714,19 @@ function BusinessOnboardingInner() {
           targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
         }
         
+        cleanupIntent();
         window.location.href = targetUrl;
         return;
       } catch (err) {
         console.error('Failed to generate SSO token', err);
       }
     } else if (finalRedirectState) {
+      cleanupIntent();
       router.push(finalRedirectState);
       return;
     }
 
+    cleanupIntent();
     router.push(fallbackRoute);
   };
 
@@ -1142,6 +1182,10 @@ function BusinessOnboardingInner() {
   const [hasRegistered, setHasRegistered] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
+  const [verifyOtpCode, setVerifyOtpCode] = useState('');
+  const [verifyOtpSent, setVerifyOtpSent] = useState(false);
+  const [verifyOtpBusy, setVerifyOtpBusy] = useState(false);
+  const [verifyOtpError, setVerifyOtpError] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
   // ─── Post-Quest Screens (Steps 5-7) ──────────────────
@@ -1239,7 +1283,7 @@ function BusinessOnboardingInner() {
   const [storefrontProgress, setStorefrontProgress] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSearchHeaderCollapsed, setIsSearchHeaderCollapsed] = useState(false);
-  const [verifyMethod, setVerifyMethod] = useState<'google' | 'email' | 'sms'>('google');
+  const [verifyMethod, setVerifyMethod] = useState<'google' | 'email'>('google');
   const [selectedPreviewBusiness, setSelectedPreviewBusiness] = useState<any>(null);
   const [mapViewToggle, setMapViewToggle] = useState<'list' | 'map'>('list');
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
@@ -2808,26 +2852,39 @@ function BusinessOnboardingInner() {
                 {verifyMethod === 'email' && <div className="w-2 h-2 bg-white rounded-full"></div>}
               </div>
             </label>
-
-            {/* Option 3: SMS */}
-            {selectedPreviewBusiness.businessPhone && (
-            <label className={`relative flex items-center p-4 bg-white border ${verifyMethod === 'sms' ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200'} rounded-2xl cursor-pointer hover:border-orange-300 transition-all active:scale-[0.98]`}>
-              <input checked={verifyMethod === 'sms'} onChange={() => setVerifyMethod('sms')} className="hidden" name="verify_method" type="radio" value="sms" />
-              <div className="flex-shrink-0 w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center mr-4">
-                <MessageSquare className="text-orange-600 w-7 h-7" />
-              </div>
-              <div className="flex-grow">
-                <span className="font-bold text-gray-900 text-sm">SMS Verification</span>
-                <p className="text-xs text-gray-500 font-medium mt-0.5">
-                  to •••• ••• {selectedPreviewBusiness.businessPhone.slice(-2)}
-                </p>
-              </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ml-2 ${verifyMethod === 'sms' ? 'border-orange-600 bg-orange-600' : 'border-gray-300'}`}>
-                {verifyMethod === 'sms' && <div className="w-2 h-2 bg-white rounded-full"></div>}
-              </div>
-            </label>
-            )}
           </div>
+
+          {verifyMethod === 'email' && verifyOtpSent && (
+            <div className="mt-6 space-y-3">
+              <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Enter Verification Code</label>
+              <input
+                value={verifyOtpCode}
+                onChange={(e) => setVerifyOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="6-digit code"
+                disabled={verifyOtpBusy}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-semibold text-center tracking-[0.4em] disabled:opacity-60"
+              />
+              {verifyOtpError && <p className="text-red-500 text-xs font-semibold">{verifyOtpError}</p>}
+              <button
+                type="button"
+                disabled={verifyOtpBusy}
+                onClick={async () => {
+                  setVerifyOtpBusy(true);
+                  setVerifyOtpError(null);
+                  try {
+                    await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+                  } catch {
+                    setVerifyOtpError('Failed to resend the code. Please try again.');
+                  } finally {
+                    setVerifyOtpBusy(false);
+                  }
+                }}
+                className="text-xs font-bold text-orange-600 hover:underline disabled:opacity-60"
+              >
+                {verifyOtpBusy ? 'Sending...' : "Didn't receive it? Resend code"}
+              </button>
+            </div>
+          )}
 
           {/* Illustration / Decor */}
           <div className="mt-12 flex justify-center pb-8">
@@ -2851,18 +2908,44 @@ function BusinessOnboardingInner() {
         {/* Footer Action */}
         <footer className="fixed bottom-0 left-0 w-full z-50 bg-white border-t border-gray-100 p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
           <div className="max-w-xl mx-auto w-full">
-            <button onClick={() => {
+            <button onClick={async () => {
               if (verifyMethod === 'google') {
                 setShowVerifyOwnershipPage(false);
                 setShowConnectGooglePage(true);
-              } else {
-                // Mock logic for SMS/Email
-                alert('Verification code sent via ' + verifyMethod.toUpperCase());
-                setShowVerifyOwnershipPage(false);
-                setShowConnectGooglePage(true);
+              } else if (verifyMethod === 'email') {
+                if (!verifyOtpSent) {
+                  setVerifyOtpBusy(true);
+                  setVerifyOtpError(null);
+                  try {
+                    await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+                    setVerifyOtpSent(true);
+                  } catch {
+                    setVerifyOtpError('Failed to send the verification code. Please try again.');
+                  } finally {
+                    setVerifyOtpBusy(false);
+                  }
+                } else {
+                  if (verifyOtpCode.length < 6) {
+                    setVerifyOtpError('Please enter the full 6-digit code.');
+                    return;
+                  }
+                  setVerifyOtpBusy(true);
+                  setVerifyOtpError(null);
+                  try {
+                    await validateOtp({ email: formData.email, otp: verifyOtpCode, type: 'VERIFICATION' });
+                    setShowVerifyOwnershipPage(false);
+                    setShowConnectGooglePage(true);
+                  } catch {
+                    setVerifyOtpError('Invalid verification code. Please try again.');
+                  } finally {
+                    setVerifyOtpBusy(false);
+                  }
+                }
               }
-            }} className="w-full h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold shadow-lg shadow-orange-500/25 active:scale-95 transition-transform flex items-center justify-center gap-2 hover:from-orange-600 hover:to-red-600">
-              Continue
+            }} className="w-full h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold shadow-lg shadow-orange-500/25 active:scale-95 transition-transform flex items-center justify-center gap-2 hover:from-orange-600 hover:to-red-600 disabled:opacity-60" disabled={verifyOtpBusy}>
+              {verifyOtpBusy
+                ? verifyMethod === 'email' && !verifyOtpSent ? 'Sending Code...' : 'Verifying...'
+                : verifyMethod === 'email' && verifyOtpSent ? 'Verify & Continue' : 'Continue'}
               <ArrowRight className="w-5 h-5 text-white" />
             </button>
             <p className="text-center text-xs font-medium text-gray-500 mt-4">
@@ -4828,41 +4911,67 @@ function BusinessOnboardingInner() {
     }));
 
     const totalSteps = assessmentQuestions.length;
-    const currentQuestion = assessmentQuestions[assessmentStep];
+    const safeAssessmentStep = Math.min(Math.max(0, assessmentStep), totalSteps - 1);
+    const currentQuestion = assessmentQuestions[safeAssessmentStep] || assessmentQuestions[0];
     const ft = currentQuestion.fieldType || 'single-choice';
-    const isCurrentAnswered = ft === 'multi-choice'
-      ? (assessmentAnswers[currentQuestion.id] || '').length > 0
-      : ft === 'yes-no'
-        ? assessmentAnswers[currentQuestion.id] === 'Yes' || assessmentAnswers[currentQuestion.id] === 'No'
-        : ft === 'rating'
-          ? !!assessmentAnswers[currentQuestion.id]
-          : ft === 'number'
-            ? assessmentAnswers[currentQuestion.id] !== undefined && assessmentAnswers[currentQuestion.id] !== ''
-            : !!assessmentAnswers[currentQuestion.id];
-    const answeredCount = Object.keys(assessmentAnswers).length;
+
+    const isQuestionAnswered = (q: any) => {
+      const val = assessmentAnswers[q.id];
+      if (val === undefined || val === null || val === '') return false;
+      if (q.fieldType === 'multi-choice') return val.split(',').filter(Boolean).length > 0;
+      return true;
+    };
+
+    const isCurrentAnswered = isQuestionAnswered(currentQuestion);
+    const answeredCount = assessmentQuestions.filter(q => isQuestionAnswered(q)).length;
     const progressPercent = Math.round((answeredCount / totalSteps) * 100);
-    const isLastStep = assessmentStep === totalSteps - 1;
+    const isLastStep = safeAssessmentStep === totalSteps - 1;
     const allAnswered = answeredCount === totalSteps;
+
+    const unansweredIndices = assessmentQuestions
+      .map((q, idx) => (!isQuestionAnswered(q) ? idx : -1))
+      .filter(idx => idx !== -1);
+    const firstUnansweredIndex = unansweredIndices.length > 0 ? unansweredIndices[0] : -1;
+
+    const handleCompleteAndEnterDashboard = async () => {
+      localStorage.removeItem('businessOnboarding');
+      localStorage.removeItem('businessOnboardingStep');
+      localStorage.removeItem('businessOnboardingCompleted');
+      localStorage.removeItem('business_onboarding_draft');
+      localStorage.setItem('firstDashboardLogin', 'true');
+      setProgrammeStarted();
+      localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
+      await performSSORedirect('/dashboard');
+    };
 
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
 
-            {/* Top Bar with Restart and Logout */}
+            {/* Top Bar with Restart, Skip, and Logout */}
             <div className="flex justify-between items-center mb-6">
               <button
                 onClick={handleRestartOnboarding}
-                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Restart
               </button>
-              <button
-                onClick={handleLogout}
-                className="text-xs font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
-              >
-                <LogOut className="w-3.5 h-3.5" /> Log Out
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCompleteAndEnterDashboard}
+                  className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
+                >
+                  <span>Skip to Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" /> Log Out
+                </button>
+              </div>
             </div>
 
             {/* Header */}
@@ -4878,18 +4987,19 @@ function BusinessOnboardingInner() {
             {/* Step Circles */}
             <div className="flex items-center justify-center gap-1.5 mb-4">
               {assessmentQuestions.map((q, i) => {
-                const isCompleted = !!assessmentAnswers[q.id];
-                const isCurrent = i === assessmentStep;
+                const isCompleted = isQuestionAnswered(q);
+                const isCurrent = i === safeAssessmentStep;
                 return (
                   <React.Fragment key={q.id}>
                     <button
                       onClick={() => setAssessmentStep(i)}
+                      title={`Question ${i + 1}: ${q.question}`}
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 cursor-pointer ${
                         isCompleted
-                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30'
+                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30 hover:bg-orange-600'
                           : isCurrent
-                            ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md'
-                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200'
+                            ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md ring-2 ring-orange-400/30'
+                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200 hover:text-gray-600'
                       }`}
                     >
                       {isCompleted ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
@@ -4923,7 +5033,7 @@ function BusinessOnboardingInner() {
             <div className="flex-1 flex flex-col">
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={assessmentStep}
+                  key={safeAssessmentStep}
                   initial={{ opacity: 0, x: 40, scale: 0.98 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: -40, scale: 0.98 }}
@@ -4936,7 +5046,7 @@ function BusinessOnboardingInner() {
                       <currentQuestion.icon className="w-5 h-5 text-orange-500" />
                     </div>
                     <span className="text-xs font-bold text-orange-500 uppercase tracking-wider">
-                      Question {assessmentStep + 1} of {totalSteps}
+                      Question {safeAssessmentStep + 1} of {totalSteps}
                     </span>
                   </div>
 
@@ -5076,7 +5186,7 @@ function BusinessOnboardingInner() {
                                 setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: String(s) }));
                                 if (!isLastStep) setTimeout(() => setAssessmentStep(step => step + 1), 400);
                               }}
-                              className="transition-all"
+                              className="transition-all cursor-pointer"
                             >
                               <Star className={`w-10 h-10 transition-colors ${active ? 'text-orange-400 fill-orange-400' : 'text-gray-300'}`} />
                             </motion.button>
@@ -5098,7 +5208,7 @@ function BusinessOnboardingInner() {
                                 setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
                                 if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
                               }}
-                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 ${
+                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 cursor-pointer ${
                                 isSelected
                                   ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
                                   : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50'
@@ -5115,11 +5225,29 @@ function BusinessOnboardingInner() {
               </AnimatePresence>
             </div>
 
+            {/* Unanswered Questions Helper (if on last step and not all answered) */}
+            {isLastStep && !allAnswered && unansweredIndices.length > 0 && (
+              <div className="mt-4 bg-orange-50 border border-orange-200 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 text-xs sm:text-sm">
+                <div className="flex items-center gap-2 text-orange-900 font-medium min-w-0">
+                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
+                  <span>
+                    Question{unansweredIndices.length > 1 ? 's' : ''} {unansweredIndices.map(idx => idx + 1).join(', ')} {unansweredIndices.length > 1 ? 'are' : 'is'} unanswered.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setAssessmentStep(firstUnansweredIndex)}
+                  className="shrink-0 text-orange-700 hover:text-orange-900 font-bold underline cursor-pointer hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  Answer Question {firstUnansweredIndex + 1}
+                </button>
+              </div>
+            )}
+
             {/* Navigation */}
             <div className="flex items-center justify-between mt-6 gap-4">
               <button
-                onClick={() => assessmentStep > 0 && setAssessmentStep(s => s - 1)}
-                disabled={assessmentStep === 0}
+                onClick={() => safeAssessmentStep > 0 && setAssessmentStep(s => s - 1)}
+                disabled={safeAssessmentStep === 0}
                 className="flex items-center gap-1.5 text-sm font-semibold px-5 py-3 rounded-xl transition-all outline-none text-gray-500 hover:text-gray-700 hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -5128,51 +5256,53 @@ function BusinessOnboardingInner() {
 
               {isLastStep ? (
                 <motion.button
-                  whileHover={allAnswered ? { scale: 1.03 } : {}}
-                  whileTap={allAnswered ? { scale: 0.97 } : {}}
-                  onClick={() => {
-                    if (!allAnswered) return;
-                    localStorage.removeItem('businessOnboarding');
-                    localStorage.removeItem('businessOnboardingStep');
-                    localStorage.removeItem('businessOnboardingCompleted');
-                    localStorage.removeItem('business_onboarding_draft');
-                    localStorage.setItem('firstDashboardLogin', 'true');
-                    localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
-                    router.push('/dashboard');
-                  }}
-                  disabled={!allAnswered}
-                  className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 ${
-                    allAnswered
-                      ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 cursor-pointer'
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  }`}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleCompleteAndEnterDashboard}
+                  className="flex items-center gap-2 px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 cursor-pointer"
                 >
                   <span className="hidden sm:inline">Complete Assessment & Enter Dashboard</span>
-                  <span className="sm:hidden">Complete</span>
+                  <span className="sm:hidden">Complete & Enter</span>
                   <ArrowRight className="w-5 h-5" />
                 </motion.button>
               ) : (
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => {
-                    if (isCurrentAnswered) setAssessmentStep(s => s + 1);
-                  }}
-                  disabled={!isCurrentAnswered}
-                  className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all ${
-                    isCurrentAnswered
-                      ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 hover:bg-orange-600 cursor-pointer'
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  Next
-                  <ChevronRight className="w-5 h-5" />
-                </motion.button>
+                <div className="flex items-center gap-2">
+                  {!isCurrentAnswered && (
+                    <button
+                      onClick={() => setAssessmentStep(s => s + 1)}
+                      className="text-xs font-semibold text-gray-400 hover:text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-100 transition-all cursor-pointer"
+                    >
+                      Skip question
+                    </button>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      setAssessmentStep(s => s + 1);
+                    }}
+                    className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all cursor-pointer ${
+                      isCurrentAnswered
+                        ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 hover:bg-orange-600'
+                        : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                    }`}
+                  >
+                    Next
+                    <ChevronRight className="w-5 h-5" />
+                  </motion.button>
+                </div>
               )}
             </div>
-            <p className="text-center text-xs text-gray-400 mt-3 font-medium">
-              Your answers help us personalise your 90-day journey
-            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 text-xs text-gray-400 font-medium">
+              <span>Your answers help us personalise your 90-day journey</span>
+              <button
+                onClick={handleCompleteAndEnterDashboard}
+                className="text-orange-600 hover:text-orange-700 hover:underline cursor-pointer"
+              >
+                Skip assessment & enter dashboard →
+              </button>
+            </div>
 
           </motion.div>
         </div>
@@ -7459,6 +7589,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
               localStorage.removeItem('pendingPlatformPurchase');
               localStorage.removeItem('onboardingPaymentSuccess');
               localStorage.removeItem('firstDashboardLogin');
+              resetProgrammeStarted();
               clearSharedAuthCookies();
               router.push('/login');
             }}
@@ -7469,8 +7600,8 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
             <span className="hidden sm:inline">Log Out</span>
           </button>
           <button 
-            onClick={() => router.push('/dashboard')}
-            className="text-sm font-medium text-gray-500 hover:bg-orange-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1"
+            onClick={onComplete}
+            className="text-sm font-medium text-gray-500 hover:bg-orange-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1 cursor-pointer"
             aria-label="Save & Exit"
           >
             <span className="hidden sm:inline">Save & Exit</span>

@@ -115,12 +115,17 @@ export class PricingService {
     }
 
     // Pricing and limits come from the PackageTemplate catalog (DB-backed).
+    // No silent fallback — a missing template is a misconfiguration, not a £29 sale.
     const template = await this.prisma.packageTemplate.findFirst({
       where: { platform, name: { equals: packageName, mode: 'insensitive' }, archived: false },
     });
 
-    const price = template ? Number(template.price) : 29;
-    const limits = (template?.usageLimits as any) ?? { campaignsLimit: 1, rewardsLimit: 5 };
+    if (!template) {
+      throw new NotFoundException(`No package template found for "${packageName}" on platform "${platform}"`);
+    }
+
+    const price = Number(template.price);
+    const limits = (template?.usageLimits as any) ?? {};
     const billingCycle = template?.billingCycle ?? 'monthly';
 
     const expiresAt = new Date();

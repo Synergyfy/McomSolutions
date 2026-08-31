@@ -16,13 +16,11 @@ import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
 import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import RegistrationEntry from './pages/RegistrationEntry';
-import BusinessRegistration from './pages/BusinessRegistration';
 import CustomerRegistration from './pages/CustomerRegistration';
 import AffiliateRoleSelection from './pages/AffiliateRoleSelection';
 import CustomerLandingPage from './pages/CustomerLandingPage';
 import GetStartedRoleSelect from './pages/getstarted/GetStartedRoleSelect';
 import BusinessOnboarding from './pages/getstarted/BusinessOnboarding';
-import BusinessOnboardingUX from './pages/section/ui/ux/page';
 import HighStreetExplanationUX from './pages/section/ui/ux/high-street/page';
 import { AnimatePresence, motion } from 'motion/react';
 import { PricingProvider } from './context/PricingContext';
@@ -86,7 +84,7 @@ function AnimatedRoutes() {
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
   const isRegister = location.pathname.startsWith('/register');
-  const isGetStarted = location.pathname.startsWith('/getstarted') || location.pathname.startsWith('/section/ui/ux') || location.pathname.startsWith('/signup');
+  const isGetStarted = location.pathname.startsWith('/getstarted') || location.pathname.startsWith('/signup');
   const hideNavFooter = isDashboard || isLogin || isAdmin || isRegister || isGetStarted;
 
   return (
@@ -225,14 +223,6 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/register/business" 
-            element={
-              <PageWrapper>
-                <BusinessRegistration />
-              </PageWrapper>
-            } 
-          />
-          <Route 
             path="/register/customer" 
             element={
               <PageWrapper>
@@ -290,22 +280,6 @@ function AnimatedRoutes() {
           />
           <Route 
             path="/getstarted/business/high-street" 
-            element={
-              <PageWrapper>
-                <HighStreetExplanationUX />
-              </PageWrapper>
-            } 
-          />
-          <Route 
-            path="/section/ui/ux" 
-            element={
-              <PageWrapper>
-                <BusinessOnboardingUX />
-              </PageWrapper>
-            } 
-          />
-          <Route 
-            path="/section/ui/ux/high-street" 
             element={
               <PageWrapper>
                 <HighStreetExplanationUX />

@@ -11,7 +11,7 @@ import { cn } from '../../lib/utils';
 import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
 
-// ─── Mock Data ───────────────────────────────────────────────────────────────
+// ─── Types & Helpers ─────────────────────────────────────────────────────────
 
 interface LocalMallData {
   id: string;

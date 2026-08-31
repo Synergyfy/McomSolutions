@@ -131,6 +131,35 @@ export function getTotalMissions(): number {
   return PROGRAMME_PHASES.reduce((sum, p) => sum + p.missions.length, 0);
 }
 
+// ─── Programme Day Tracking ──────────────────────────────
+
+const PROGRAMME_STARTED_KEY = 'programmeStartedAt';
+
+export function setProgrammeStarted(): void {
+  try {
+    localStorage.setItem(PROGRAMME_STARTED_KEY, new Date().toISOString());
+  } catch { /* ignore */ }
+}
+
+export function resetProgrammeStarted(): void {
+  try {
+    localStorage.removeItem(PROGRAMME_STARTED_KEY);
+  } catch { /* ignore */ }
+}
+
+export function getProgrammeDay(): number {
+  try {
+    const raw = localStorage.getItem(PROGRAMME_STARTED_KEY);
+    if (!raw) return 1;
+    const started = new Date(raw).getTime();
+    if (Number.isNaN(started)) return 1;
+    const days = Math.floor((Date.now() - started) / 86400000) + 1;
+    return Math.min(Math.max(days, 1), 90);
+  } catch {
+    return 1;
+  }
+}
+
 // ─── Business Task Status Tracking ───────────────
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'completed';

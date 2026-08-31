@@ -2,7 +2,6 @@ import ProductSuite from '../components/ProductSuite';
 import FeatureShowcase from '../components/FeatureShowcase';
 import Hero from '../components/Hero';
 import BentoGrid from '../components/BentoGrid';
-import Testimonials from '../components/Testimonials';
 import GlobalNetwork from '../components/GlobalNetwork';
 import IntegrationFlow from '../components/IntegrationFlow';
 import { motion } from 'motion/react';
@@ -25,8 +24,6 @@ export default function LandingPage() {
       <IntegrationFlow />
 
       <GlobalNetwork />
-
-      <Testimonials />
 
       {/* Membership Section */}
       <section className="py-20 md:py-32 bg-gray-50">

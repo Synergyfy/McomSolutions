@@ -7,13 +7,11 @@ import {
   BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink
 } from 'lucide-react';
 import {
-  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions,
+  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay, getTotalMissions,
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
 import { cn } from '../lib/utils';
-
-const CURRENT_DAY = 17;
 
 function TaskStartModal({
   mission,
@@ -127,8 +125,9 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     } catch {}
   }
 
-  const progress = getProgressForDay(CURRENT_DAY);
-  const currentPhase = getPhaseForDay(CURRENT_DAY);
+  const currentDay = getProgrammeDay();
+  const progress = getProgressForDay(currentDay);
+  const currentPhase = getPhaseForDay(currentDay);
   const currentPhaseIndex = PROGRAMME_PHASES.findIndex(p => p.id === currentPhase?.id);
   const totalMissions = getTotalMissions();
 
@@ -232,7 +231,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           <div className="flex items-start justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
             <div className="min-w-0 flex-1">
               <p className="text-orange-200 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1.5 sm:mb-2 leading-tight">90-Day Business Success Programme</p>
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-black mb-1 leading-tight">Day {CURRENT_DAY} of 90</h2>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black mb-1 leading-tight">Day {currentDay} of 90</h2>
               <p className="text-orange-100 sm:text-orange-200 text-xs sm:text-sm font-medium truncate">{currentPhase?.name || 'Foundation'}</p>
             </div>
             <div className="text-right shrink-0">
@@ -311,7 +310,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 <p className="text-[11px] sm:text-xs text-gray-400 truncate">{currentPhase?.name}</p>
               </div>
             </div>
-            <span className="text-[11px] sm:text-xs font-bold text-gray-400 whitespace-nowrap shrink-0">Day {CURRENT_DAY}</span>
+            <span className="text-[11px] sm:text-xs font-bold text-gray-400 whitespace-nowrap shrink-0">Day {currentDay}</span>
           </div>
 
           <div className="space-y-2.5 sm:space-y-3">
@@ -397,7 +396,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               const isCompleted = i < currentPhaseIndex;
               const isCurrent = i === currentPhaseIndex;
               const isLocked = i > currentPhaseIndex;
-              const phaseProgress = isCompleted ? 100 : isCurrent ? Math.round(((CURRENT_DAY - phase.dayStart + 1) / (phase.dayEnd - phase.dayStart + 1)) * 100) : 0;
+              const phaseProgress = isCompleted ? 100 : isCurrent ? Math.round(((currentDay - phase.dayStart + 1) / (phase.dayEnd - phase.dayStart + 1)) * 100) : 0;
               return (
                 <div key={phase.id} className={`flex items-center gap-3 p-3 rounded-xl ${
                   isCompleted ? 'bg-green-50 text-green-700' :

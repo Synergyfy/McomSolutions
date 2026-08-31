@@ -143,9 +143,24 @@ describe('PricingService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should upsert platform package and create billing transaction', async () => {
+    it('should throw NotFoundException if no package template exists', async () => {
       mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
       mockPrisma.packageTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.purchasePackage('b1', 'mall', 'Standard'),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.platformPackage.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should upsert platform package and create billing transaction', async () => {
+      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
+      mockPrisma.packageTemplate.findFirst.mockResolvedValue({
+        name: 'Standard',
+        price: 29,
+        usageLimits: { campaignsLimit: 1, rewardsLimit: 5 },
+        billingCycle: 'monthly',
+      });
       mockPrisma.platformPackage.upsert.mockResolvedValue({
         id: 'pkg-1',
         platform: 'mall',
@@ -156,7 +171,6 @@ describe('PricingService', () => {
       const result = await service.purchasePackage('b1', 'mall', 'Standard');
       expect(result.platform).toBe('mall');
       expect(result.packageName).toBe('Standard');
-      // No matching template → sensible default fallback
       expect(mockPrisma.billingTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ amount: 29 }),
