@@ -32,29 +32,30 @@ export class McomRewardsConnector implements ServiceConnector {
   }
 
   private mapPlanResponse(data: any): ExternalPlan {
+    const raw = data?.data ?? data;
     return {
-      id: data.id,
-      name: data.name,
-      description: data.description,
-      monthlyPrice: data.monthlyPrice,
-      quarterlyPrice: data.quarterlyPrice,
-      annualPrice: data.annualPrice,
-      features: data.features,
-      configuration: data.configuration,
-      isActive: data.isActive,
-      isDefault: data.isDefault,
-      type: data.type,
-      trialDuration: data.trialDuration,
-      seasonId: data.seasonId,
-      stripeMonthlyPriceId: data.stripeMonthlyPriceId,
-      stripeQuarterlyPriceId: data.stripeQuarterlyPriceId,
-      stripeAnnualPriceId: data.stripeAnnualPriceId,
-      paypalMonthlyPlanId: data.paypalMonthlyPlanId,
-      paypalQuarterlyPlanId: data.paypalQuarterlyPlanId,
-      paypalAnnualPlanId: data.paypalAnnualPlanId,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-    }
+      id: raw.id,
+      name: raw.name,
+      description: raw.description,
+      monthlyPrice: raw.monthlyPrice,
+      quarterlyPrice: raw.quarterlyPrice,
+      annualPrice: raw.annualPrice,
+      features: raw.features,
+      configuration: raw.configuration,
+      isActive: raw.isActive,
+      isDefault: raw.isDefault,
+      type: raw.type,
+      trialDuration: raw.trialDuration,
+      seasonId: raw.seasonId,
+      stripeMonthlyPriceId: raw.stripeMonthlyPriceId,
+      stripeQuarterlyPriceId: raw.stripeQuarterlyPriceId,
+      stripeAnnualPriceId: raw.stripeAnnualPriceId,
+      paypalMonthlyPlanId: raw.paypalMonthlyPlanId,
+      paypalQuarterlyPlanId: raw.paypalQuarterlyPlanId,
+      paypalAnnualPlanId: raw.paypalAnnualPlanId,
+      created_at: raw.created_at,
+      updated_at: raw.updated_at,
+    };
   }
 
   private handleError(error: unknown): never {

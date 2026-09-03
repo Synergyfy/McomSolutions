@@ -18,6 +18,10 @@ describe('AuthService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    businessProfile: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+    },
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -252,11 +256,27 @@ describe('AuthService', () => {
         role: 'CUSTOMER',
         businessProfile: null,
       };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
 
       const result = await service.login(mockUser);
       expect(result.user.businessId).toBeNull();
       expect(result.user.isOnboarded).toBe(false);
       expect(result.user.name).toBe('customer');
+    });
+
+    it('should dynamically query businessProfile if not passed on user object', async () => {
+      const mockUser = {
+        id: 'user-biz-1',
+        email: 'owner@test.com',
+        role: 'BUSINESS',
+      };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'bp-99', businessName: 'Dynamic Store' });
+
+      const result = await service.login(mockUser);
+      expect(mockPrisma.businessProfile.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-biz-1' } });
+      expect(result.user.businessId).toBe('bp-99');
+      expect(result.user.isOnboarded).toBe(true);
+      expect(result.user.name).toBe('Dynamic Store');
     });
   });
 

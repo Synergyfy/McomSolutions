@@ -302,6 +302,7 @@ export class BusinessService {
     if (payload.type === 'login' || payload.type === 'sim-login') {
       const user = await this.prisma.user.findUnique({
         where: { email },
+        include: { businessProfile: true },
       });
 
       if (!user) {

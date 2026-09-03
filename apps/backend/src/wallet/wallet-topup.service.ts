@@ -25,7 +25,7 @@ export class WalletTopUpService {
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
-      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
+      this.stripe = new Stripe(stripeKey);
     }
   }
 

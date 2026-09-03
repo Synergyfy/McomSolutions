@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  BadGatewayException,
   NotFoundException,
   UnauthorizedException,
   InternalServerErrorException,
@@ -12,6 +13,7 @@ import axios from 'axios';
 import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 
 @Injectable()
 export class PaymentService {
@@ -24,10 +26,11 @@ export class PaymentService {
     private prisma: PrismaService,
     private pricingService: PricingService,
     private connectorsService: ServiceConnectorsService,
+    private webhookDispatcher: WebhookDispatcherService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
-      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
+      this.stripe = new Stripe(stripeKey);
     }
 
     const paypalEnv = this.config.get<string>('PAYPAL_ENV');
@@ -290,6 +293,14 @@ export class PaymentService {
     return profile.id;
   }
 
+  private validatePlatformPlan(plan: any, platform: string) {
+    if (!plan || typeof plan !== 'object' || !plan.id || !plan.name) {
+      throw new BadGatewayException(
+        `Received invalid plan details from ${platform}. Missing required plan information.`,
+      );
+    }
+  }
+
   async platformStripeInitiate(
     userId: string,
     platform: string,
@@ -304,6 +315,7 @@ export class PaymentService {
 
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
 
     if (plan.type === 'TRIAL' || amountGBP === 0) {
@@ -343,6 +355,7 @@ export class PaymentService {
 
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL' || amountGBP === 0;
 
@@ -358,6 +371,14 @@ export class PaymentService {
         throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
       }
     }
+
+    const existingPackage = await this.prisma.platformPackage.findUnique({
+      where: { businessId_platform: { businessId, platform } },
+    });
+    const eventType =
+      existingPackage && existingPackage.status === 'active'
+        ? 'package.renewed'
+        : 'package.created';
 
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
@@ -409,6 +430,13 @@ export class PaymentService {
       },
     });
 
+    // Asynchronously dispatch package lifecycle webhook to registered partner app
+    this.webhookDispatcher.dispatchPackageEvent(eventType, {
+      platform,
+      userId,
+      package: package_,
+    });
+
     return package_;
   }
 
@@ -423,6 +451,7 @@ export class PaymentService {
     const token = await this.getPayPalAccessToken();
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL';
     const finalAmount = isTrial ? 0.00 : amountGBP;
@@ -489,8 +518,17 @@ export class PaymentService {
     }
 
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL';
+
+    const existingPackage = await this.prisma.platformPackage.findUnique({
+      where: { businessId_platform: { businessId, platform } },
+    });
+    const eventType =
+      existingPackage && existingPackage.status === 'active'
+        ? 'package.renewed'
+        : 'package.created';
 
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
@@ -541,6 +579,20 @@ export class PaymentService {
         providerPaymentId: orderId,
       },
     });
+
+    // Resolve mcomUserId to dispatch package lifecycle webhook
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      select: { userId: true },
+    });
+
+    if (business?.userId) {
+      this.webhookDispatcher.dispatchPackageEvent(eventType, {
+        platform,
+        userId: business.userId,
+        package: package_,
+      });
+    }
 
     return package_;
   }

@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ConfigService } from '@nestjs/config';
 import { SsoService } from '../auth/sso.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { decrypt } from './crypto.util';
 
 const ENCRYPTION_KEY = '86d3b8c8ad1519806cd90234050daebe4d2dc95f1ea9d83d780cc73ebed00a3b';
@@ -58,6 +59,10 @@ describe('ConsoleService', () => {
     $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
   };
 
+  const mockWebhookDispatcher = {
+    dispatch: jest.fn().mockResolvedValue({ dispatched: true }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -66,6 +71,7 @@ describe('ConsoleService', () => {
         { provide: RedisService, useValue: mockRedis },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: SsoService, useValue: mockSsoService },
+        { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
       ],
     }).compile();
 

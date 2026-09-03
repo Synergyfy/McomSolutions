@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { InternalServerErrorException } from '@nestjs/common';
 
 const mockSetupIntents = {
@@ -32,6 +33,11 @@ describe('PaymentService', () => {
   let configService: any;
   let pricingService: any;
 
+  const mockWebhookDispatcher = {
+    dispatchPackageEvent: jest.fn().mockResolvedValue(undefined),
+    dispatch: jest.fn().mockResolvedValue({ dispatched: true }),
+  };
+
   const mockConfigService = {
     get: jest.fn((key: string) => {
       const config: Record<string, any> = {
@@ -54,6 +60,10 @@ describe('PaymentService', () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    platformPackage: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn(),
+    },
     billingTransaction: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -75,6 +85,7 @@ describe('PaymentService', () => {
         { provide: PricingService, useValue: mockPricingService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+        { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
       ],
     }).compile();
 
@@ -93,6 +104,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+          { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -125,6 +137,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+          { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -186,6 +199,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+          { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -234,6 +248,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+          { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -271,6 +286,47 @@ describe('PaymentService', () => {
 
       await expect(service.paypalCapture('order-456')).rejects.toThrow(
         'PayPal order metadata is missing',
+      );
+    });
+  });
+
+  // ─── platformStripeConfirm Webhook Verification ──
+  describe('platformStripeConfirm', () => {
+    it('should upsert package and dispatch package.created webhook', async () => {
+      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'bp-1' });
+      mockConnectorsService.syncPackage.mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'resolveBusinessId').mockResolvedValue('bp-1');
+      jest.spyOn(service as any, 'resolvePlatformPlanPrice').mockReturnValue(29.99);
+
+      const mockPlan = {
+        id: 'plan-1',
+        name: 'Pro',
+        monthlyPrice: 29.99,
+        quarterlyPrice: 79.99,
+        annualPrice: 299.99,
+        type: 'STANDARD',
+        configuration: { quotas: { maxLinks: 100 } },
+      };
+      (mockConnectorsService as any).getPlanById = jest.fn().mockResolvedValue(mockPlan);
+
+      const createdPackage = {
+        id: 'pkg-123',
+        packageName: 'Pro',
+        externalPlanId: 'plan-1',
+        status: 'active',
+      };
+      mockPrisma.platformPackage.upsert.mockResolvedValue(createdPackage);
+      mockPaymentIntents.retrieve.mockResolvedValue({ status: 'succeeded' });
+
+      await service.platformStripeConfirm('user-123', 'links', 'plan-1', 'monthly', 'pi_mock_123');
+
+      expect(mockWebhookDispatcher.dispatchPackageEvent).toHaveBeenCalledWith(
+        'package.created',
+        expect.objectContaining({
+          platform: 'links',
+          userId: 'user-123',
+          package: createdPackage,
+        }),
       );
     });
   });

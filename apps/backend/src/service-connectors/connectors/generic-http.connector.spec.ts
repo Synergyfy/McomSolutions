@@ -42,6 +42,13 @@ describe('GenericHttpConnector', () => {
       expect(mockInstance.post).toHaveBeenCalledWith('/system/plans', { name: 'Starter' });
       expect(result).toEqual(plan);
     });
+
+    it('should unwrap data.data if wrapped in an envelope', async () => {
+      const plan = { id: 'p1', name: 'Starter' };
+      mockInstance.post.mockResolvedValue({ data: { success: true, data: plan } });
+      const result = await connector.createPlan({ name: 'Starter' } as any);
+      expect(result).toEqual(plan);
+    });
   });
 
   describe('getPlans', () => {
@@ -56,6 +63,40 @@ describe('GenericHttpConnector', () => {
       mockInstance.get.mockResolvedValue({ data: { data: [{ id: 'p1' }] } });
       const result = await connector.getPlans();
       expect(result).toEqual([{ id: 'p1' }]);
+    });
+  });
+
+  describe('getPlanById', () => {
+    it('should return bare plan directly', async () => {
+      const plan = { id: 'p1', name: 'Pro Plan' };
+      mockInstance.get.mockResolvedValue({ data: plan });
+      const result = await connector.getPlanById('p1');
+      expect(mockInstance.get).toHaveBeenCalledWith('/system/plans/p1');
+      expect(result).toEqual(plan);
+    });
+
+    it('should unwrap data.data when the API wraps the plan object', async () => {
+      const plan = { id: 'p1', name: 'Pro Plan' };
+      mockInstance.get.mockResolvedValue({ data: { success: true, data: plan } });
+      const result = await connector.getPlanById('p1');
+      expect(result).toEqual(plan);
+    });
+  });
+
+  describe('updatePlan', () => {
+    it('should PATCH /system/plans/:id and return the plan', async () => {
+      const plan = { id: 'p1', name: 'Updated Plan' };
+      mockInstance.patch.mockResolvedValue({ data: plan });
+      const result = await connector.updatePlan('p1', { name: 'Updated Plan' } as any);
+      expect(mockInstance.patch).toHaveBeenCalledWith('/system/plans/p1', { name: 'Updated Plan' });
+      expect(result).toEqual(plan);
+    });
+
+    it('should unwrap data.data when the API wraps the updated plan object', async () => {
+      const plan = { id: 'p1', name: 'Updated Plan' };
+      mockInstance.patch.mockResolvedValue({ data: { success: true, data: plan } });
+      const result = await connector.updatePlan('p1', { name: 'Updated Plan' } as any);
+      expect(result).toEqual(plan);
     });
   });
 
@@ -115,15 +156,29 @@ describe('GenericHttpConnector', () => {
   });
 
   describe('error handling', () => {
-    it('should throw HttpException(502) on network failure', async () => {
+    it('should throw HttpException(502) with informative message on network failure', async () => {
       const networkError = { isAxiosError: true, code: 'ECONNREFUSED', message: 'connect ECONNREFUSED' };
       mockInstance.get.mockRejectedValue(networkError);
       await expect(connector.getPlans()).rejects.toThrow(
-        new HttpException('Mcom vCard API error', HttpStatus.BAD_GATEWAY),
+        new HttpException(
+          'Unable to reach Mcom vCard (service offline or unreachable).',
+          HttpStatus.BAD_GATEWAY,
+        ),
       );
     });
 
-    it('should throw HttpException with the upstream status on API error response', async () => {
+    it('should throw Gateway Timeout (504) on timeout', async () => {
+      const timeoutError = { isAxiosError: true, code: 'ETIMEDOUT', message: 'timeout' };
+      mockInstance.get.mockRejectedValue(timeoutError);
+      await expect(connector.getPlans()).rejects.toThrow(
+        new HttpException(
+          'Request to Mcom vCard timed out. Please try again.',
+          HttpStatus.GATEWAY_TIMEOUT,
+        ),
+      );
+    });
+
+    it('should throw HttpException with the upstream status on 4xx API error response', async () => {
       const apiError = {
         isAxiosError: true,
         response: { status: 400, data: { message: 'Invalid plan' } },
@@ -134,9 +189,25 @@ describe('GenericHttpConnector', () => {
       );
     });
 
+    it('should throw HttpException(502) on 5xx internal error from upstream', async () => {
+      const serverError = {
+        isAxiosError: true,
+        response: { status: 500, data: { message: 'Database failure' } },
+      };
+      mockInstance.get.mockRejectedValue(serverError);
+      await expect(connector.getPlans()).rejects.toThrow(
+        new HttpException(
+          'Mcom vCard returned an internal error. Please try again later.',
+          HttpStatus.BAD_GATEWAY,
+        ),
+      );
+    });
+
     it('should throw HttpException(502) for non-axios errors', async () => {
       mockInstance.get.mockRejectedValue(new Error('boom'));
-      await expect(connector.getPlans()).rejects.toThrow(HttpException);
+      await expect(connector.getPlans()).rejects.toThrow(
+        new HttpException('Failed to reach Mcom vCard', HttpStatus.BAD_GATEWAY),
+      );
     });
   });
 

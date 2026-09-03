@@ -15,6 +15,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SsoService } from '../auth/sso.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { ConsoleAuditQueryDto } from './dto/console-audit-query.dto';
@@ -36,6 +37,7 @@ export class ConsoleService {
     private readonly redis: RedisService,
     private readonly config: ConfigService,
     private readonly ssoService: SsoService,
+    private readonly webhookDispatcher: WebhookDispatcherService,
   ) {}
 
   // ─── CRUD ──────────────────────────────────────────────────────────────────
@@ -231,6 +233,30 @@ export class ConsoleService {
       }
       throw new BadGatewayException(`App "${client.name}" billingApiUrl is unreachable`);
     }
+  }
+
+  async testWebhook(clientId: string) {
+    const client = await this.getClientOrThrow(clientId);
+    if (!client.webhookUrl) {
+      throw new BadRequestException(`App "${clientId}" has no webhookUrl configured`);
+    }
+
+    const testPayload = {
+      test: true,
+      message: 'This is a test webhook from MCOM Solutions Console',
+      timestamp: new Date().toISOString(),
+    };
+
+    return this.webhookDispatcher.dispatch(clientId, 'ping', testPayload);
+  }
+
+  async getWebhookLogs(clientId: string, limit = 50) {
+    await this.getClientOrThrow(clientId);
+    return this.prisma.appWebhookLog.findMany({
+      where: { clientId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 100),
+    });
   }
 
   async listAuditLogs(query: ConsoleAuditQueryDto) {

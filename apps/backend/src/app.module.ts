@@ -15,6 +15,7 @@ import { CampaignModule } from './campaign/campaign.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { ConsoleModule } from './console/console.module';
 import { WalletModule } from './wallet/wallet.module';
+import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 import { RedisModule } from './redis/redis.module';
@@ -69,6 +70,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     ServiceConnectorsModule,
     ConsoleModule,
     WalletModule,
+    WebhookDispatcherModule,
   ],
   controllers: [],
   providers: [],

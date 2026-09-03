@@ -303,8 +303,15 @@ export class AuthService {
   }
 
   async login(user: any) {
-    const businessId = user.businessProfile?.id || null;
-    const name = user.businessProfile?.businessName || user.email.split('@')[0];
+    let businessProfile = user.businessProfile;
+    if (!businessProfile && user.id) {
+      businessProfile = await this.prisma.businessProfile.findUnique({
+        where: { userId: user.id },
+      });
+    }
+
+    const businessId = businessProfile?.id || null;
+    const name = businessProfile?.businessName || user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
     // Fetch active platform packages for this business
     let activePlans: any[] = [];

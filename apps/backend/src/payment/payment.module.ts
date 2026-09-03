@@ -4,9 +4,10 @@ import { PaymentService } from './payment.service';
 import { PricingModule } from '../pricing/pricing.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ServiceConnectorsModule } from '../service-connectors/service-connectors.module';
+import { WebhookDispatcherModule } from '../webhook-dispatcher/webhook-dispatcher.module';
 
 @Module({
-  imports: [PricingModule, PrismaModule, ServiceConnectorsModule],
+  imports: [PricingModule, PrismaModule, ServiceConnectorsModule, WebhookDispatcherModule],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],
