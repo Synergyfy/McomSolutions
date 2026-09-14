@@ -169,6 +169,9 @@ export class SsoService {
       },
     });
 
+    // Resolve appPlan for the client during code exchange
+    const { appPlan } = await this.resolveEntitlements(user, authCode.client);
+
     return {
       accessToken,
       refreshToken,
@@ -186,6 +189,8 @@ export class SsoService {
               businessName: user.businessProfile.businessName,
               membershipLevel: user.businessProfile.membershipLevel,
               membershipStatus: user.businessProfile.membershipStatus,
+              membershipPlanName: user.businessProfile.membershipPlanName,
+              appPlan,
             }
           : null,
       },
@@ -265,7 +270,263 @@ export class SsoService {
     return { success: true };
   }
 
-  async getUserInfoFromToken(accessToken: string) {
+  /**
+   * Helper to match a platform or clientId against an SsoClient or target platform string.
+   */
+  private matchesClientOrPlatform(
+    targetPlatform?: string | null,
+    targetClientId?: string | null,
+    clientObj?: { clientId?: string | null; name?: string | null; platformSlug?: string | null } | null,
+    explicitPlatform?: string | null,
+  ): boolean {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    if (explicitPlatform && targetPlatform) {
+      if (norm(targetPlatform) === norm(explicitPlatform)) return true;
+      if (targetPlatform.toLowerCase().includes(explicitPlatform.toLowerCase())) return true;
+      if (explicitPlatform.toLowerCase().includes(targetPlatform.toLowerCase())) return true;
+    }
+
+    if (!clientObj) return false;
+
+    // Direct match by clientId
+    if (targetClientId && clientObj.clientId) {
+      if (targetClientId.toLowerCase().trim() === clientObj.clientId.toLowerCase().trim()) return true;
+    }
+
+    // Match targetPlatform against client fields
+    if (targetPlatform) {
+      const normTarget = norm(targetPlatform);
+      if (clientObj.clientId && normTarget === norm(clientObj.clientId)) return true;
+      if (clientObj.name && normTarget === norm(clientObj.name)) return true;
+      if (clientObj.platformSlug && normTarget === norm(clientObj.platformSlug)) return true;
+      if (clientObj.name && targetPlatform.toLowerCase().includes(clientObj.name.toLowerCase())) return true;
+      if (clientObj.name && clientObj.name.toLowerCase().includes(targetPlatform.toLowerCase())) return true;
+      if (clientObj.platformSlug && targetPlatform.toLowerCase().includes(clientObj.platformSlug.toLowerCase())) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Resolves platform entitlements for a user across both direct platform packages
+   * (the former standalone system) and memberships (multi-app bundles).
+   */
+  async resolveEntitlements(user: any, client?: any, explicitPlatform?: string | null) {
+    const businessProfile = user?.businessProfile;
+    const packages: any[] = businessProfile?.packages ?? [];
+    const membershipLevel = businessProfile?.membershipLevel || 'Bronze';
+    const membershipStatus = businessProfile?.membershipStatus || 'active';
+    const membershipTier = businessProfile?.membershipTier || 'Normal';
+    const isMembershipActive = membershipStatus === 'active' || membershipStatus === 'trial';
+
+    let membershipPlan: any = null;
+    if (isMembershipActive && businessProfile) {
+      const planName = businessProfile.membershipPlanName || businessProfile.membershipLevel;
+      if (planName) {
+        membershipPlan = await this.prisma.membershipPlan.findFirst({
+          where: {
+            name: { equals: planName, mode: 'insensitive' },
+            archived: false,
+          },
+        });
+      }
+    }
+
+    const membershipAppPlans: Array<{
+      platform: string;
+      clientId: string | null;
+      planId: string;
+      planName: string;
+      quotas: Record<string, any>;
+      limits: Record<string, any>;
+    }> = [];
+
+    if (membershipPlan && Array.isArray(membershipPlan.includedApps)) {
+      for (const app of membershipPlan.includedApps as any[]) {
+        if (app && (app.platform || app.platformName)) {
+          const platform = app.platform || app.platformName;
+          const planName = app.planName || app.name || 'Standard';
+          const planId = app.planId || app.id || 'standard';
+          const quotas = app.quotas || app.limits || app.usageLimits || {};
+          membershipAppPlans.push({
+            platform,
+            clientId: app.clientId || null,
+            planId,
+            planName,
+            quotas,
+            limits: quotas,
+          });
+        }
+      }
+    }
+
+    // Build enriched packages list (preserving all existing fields, adding externalPlanId, planName, source, etc.)
+    const enrichedPackages = packages.map((pkg) => {
+      const isFromMembership =
+        isMembershipActive &&
+        membershipAppPlans.some((a) =>
+          this.matchesClientOrPlatform(a.platform, a.clientId, null, pkg.platform),
+        ) &&
+        (!pkg.amount || pkg.amount === 0);
+
+      return {
+        id: pkg.id,
+        platform: pkg.platform,
+        packageName: pkg.packageName,
+        externalPlanId: pkg.externalPlanId || null,
+        planName: pkg.planName || pkg.packageName,
+        planType: pkg.planType || 'STANDARD',
+        status: pkg.status,
+        limits: (pkg.limits as Record<string, any>) || {},
+        expiresAt: pkg.expiresAt || null,
+        billingCycle: pkg.billingCycle || null,
+        source: (isFromMembership ? 'membership' : 'direct') as 'membership' | 'direct',
+      };
+    });
+
+    // If active membership has apps that aren't represented in packages, add them so legacy checks see them
+    if (isMembershipActive) {
+      for (const memApp of membershipAppPlans) {
+        const exists = enrichedPackages.some((p) =>
+          this.matchesClientOrPlatform(p.platform, null, null, memApp.platform),
+        );
+        if (!exists) {
+          enrichedPackages.push({
+            id: `membership-${memApp.planId}`,
+            platform: memApp.platform,
+            packageName: memApp.planName,
+            externalPlanId: memApp.planId,
+            planName: memApp.planName,
+            planType: 'MEMBERSHIP_INCLUDED',
+            status: membershipStatus,
+            limits: memApp.quotas || {},
+            expiresAt: null,
+            billingCycle: null,
+            source: 'membership' as const,
+          });
+        }
+      }
+    }
+
+    // Resolve appPlan for the specific calling client or explicit platform (if identified)
+    let appPlan: any = null;
+    if (client || explicitPlatform) {
+      // 1. Check for active direct package
+      const directPackageMatch = enrichedPackages.find(
+        (pkg) =>
+          pkg.source === 'direct' &&
+          this.matchesClientOrPlatform(pkg.platform, null, client, explicitPlatform) &&
+          pkg.status === 'active' &&
+          (!pkg.expiresAt || new Date(pkg.expiresAt) > new Date()),
+      );
+
+      // 2. Check for active membership plan
+      const membershipAppPlanMatch = isMembershipActive
+        ? membershipAppPlans.find((app) =>
+            this.matchesClientOrPlatform(app.platform, app.clientId, client, explicitPlatform),
+          )
+        : null;
+
+      if (directPackageMatch && membershipAppPlanMatch) {
+        // User has both direct package and membership plan
+        const isPaidDirect = directPackageMatch.source === 'direct';
+        appPlan = {
+          source: isPaidDirect ? 'direct' : 'membership',
+          platform: directPackageMatch.platform || membershipAppPlanMatch.platform,
+          clientId: client?.clientId || membershipAppPlanMatch.clientId || null,
+          planId: directPackageMatch.externalPlanId || membershipAppPlanMatch.planId,
+          planName: directPackageMatch.planName || membershipAppPlanMatch.planName,
+          status: 'active',
+          quotas: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
+          limits: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
+          expiresAt: directPackageMatch.expiresAt || null,
+          membershipPlanName: membershipPlan?.name || null,
+          directPlan: {
+            planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+            planName: directPackageMatch.planName || directPackageMatch.packageName,
+            limits: directPackageMatch.limits || {},
+            status: directPackageMatch.status,
+            expiresAt: directPackageMatch.expiresAt,
+          },
+          membershipPlan: {
+            planId: membershipAppPlanMatch.planId,
+            planName: membershipAppPlanMatch.planName,
+            quotas: membershipAppPlanMatch.quotas,
+            membershipPlanName: membershipPlan?.name || null,
+          },
+        };
+      } else if (directPackageMatch) {
+        // User has only direct platform package (the former system)
+        appPlan = {
+          source: directPackageMatch.source || 'direct',
+          platform: directPackageMatch.platform,
+          clientId: client?.clientId || null,
+          planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+          planName: directPackageMatch.planName || directPackageMatch.packageName,
+          status: directPackageMatch.status,
+          quotas: directPackageMatch.limits || {},
+          limits: directPackageMatch.limits || {},
+          expiresAt: directPackageMatch.expiresAt || null,
+          membershipPlanName: null,
+          directPlan: {
+            planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+            planName: directPackageMatch.planName || directPackageMatch.packageName,
+            limits: directPackageMatch.limits || {},
+            status: directPackageMatch.status,
+            expiresAt: directPackageMatch.expiresAt,
+          },
+          membershipPlan: null,
+        };
+      } else if (membershipAppPlanMatch) {
+        // User has only membership plan (bundle system)
+        appPlan = {
+          source: 'membership',
+          platform: membershipAppPlanMatch.platform,
+          clientId: client?.clientId || membershipAppPlanMatch.clientId || null,
+          planId: membershipAppPlanMatch.planId,
+          planName: membershipAppPlanMatch.planName,
+          status: membershipStatus,
+          quotas: membershipAppPlanMatch.quotas || {},
+          limits: membershipAppPlanMatch.quotas || {},
+          expiresAt: null,
+          membershipPlanName: membershipPlan?.name || membershipLevel,
+          directPlan: null,
+          membershipPlan: {
+            planId: membershipAppPlanMatch.planId,
+            planName: membershipAppPlanMatch.planName,
+            quotas: membershipAppPlanMatch.quotas,
+            membershipPlanName: membershipPlan?.name || null,
+          },
+        };
+      }
+    }
+
+    const permissions = calculatePermissions(
+      user?.role || 'BUSINESS',
+      membershipLevel,
+      membershipStatus,
+      enrichedPackages,
+    );
+
+    const membership = {
+      planName: businessProfile?.membershipPlanName || (isMembershipActive ? membershipLevel : null),
+      level: membershipLevel,
+      tier: membershipTier,
+      status: membershipStatus,
+      hasActiveMembership: isMembershipActive && Boolean(membershipPlan),
+      appPlans: membershipAppPlans,
+    };
+
+    return {
+      appPlan,
+      membership,
+      enrichedPackages,
+      permissions,
+    };
+  }
+
+  async getUserInfoFromToken(accessToken: string, requestedClientId?: string) {
     const jwtSecret = this.getSsoJwtSecret();
     let payload: any;
     try {
@@ -283,17 +544,25 @@ export class SsoService {
       throw new UnauthorizedException('User not found');
     }
 
-    const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+    // Try to find client from SSO session or requested clientId
+    let client: any = null;
+    const session = await this.prisma.ssoSession.findUnique({
+      where: { accessToken },
+      include: { client: true },
+    });
+    if (session?.client) {
+      client = session.client;
+    } else if (requestedClientId) {
+      client = await this.getClientByClientId(requestedClientId);
+    }
 
-    const membershipLevel = user.businessProfile?.membershipLevel || 'Bronze';
-    const membershipStatus = user.businessProfile?.membershipStatus || 'active';
-    const packages = user.businessProfile?.packages ?? [];
-    const permissions = calculatePermissions(
-      user.role,
-      membershipLevel,
-      membershipStatus,
-      packages,
-    );
+    const { appPlan, membership, enrichedPackages, permissions } =
+      await this.resolveEntitlements(user, client);
+
+    const name =
+      user.businessProfile?.businessName ||
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+      user.email.split('@')[0];
 
     return {
       sub: user.id,
@@ -303,18 +572,15 @@ export class SsoService {
       lastName: user.lastName,
       name,
       businessId: user.businessProfile?.id || null,
-      membershipLevel,
+      membershipLevel: user.businessProfile?.membershipLevel || 'Bronze',
       membershipTier: user.businessProfile?.membershipTier || 'Normal',
-      membershipStatus,
+      membershipStatus: user.businessProfile?.membershipStatus || 'active',
       phone: user.businessProfile?.phone || null,
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
-      packages: packages.map(pkg => ({
-        platform: pkg.platform,
-        packageName: pkg.packageName,
-        status: pkg.status,
-        limits: pkg.limits,
-      })),
+      appPlan,
+      membership,
+      packages: enrichedPackages,
       permissions,
     };
   }

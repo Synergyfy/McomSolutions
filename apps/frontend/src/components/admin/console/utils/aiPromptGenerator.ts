@@ -78,41 +78,138 @@ Implement the following modules in this codebase:
        "redirect_uri": "\${MCOM_REDIRECT_URI}"
      }
      \`\`\`
-   - Response payload will contain:
+   - Response payload immediately returns the tokens and user profile, including their resolved plan for **${client.name}**:
      \`\`\`json
      {
        "accessToken": "JWT_ACCESS_TOKEN",
        "refreshToken": "REFRESH_TOKEN",
+       "expiresIn": 3600,
+       "tokenType": "Bearer",
        "user": {
-         "id": "user_id",
+         "id": "usr_12345",
          "email": "user@example.com",
-         "name": "User Name",
-         "role": "MEMBER",
-         "membershipLevel": "Gold",
-         "membershipStatus": "active",
-         "permissions": {
-           "canAccess_${platformSlug}": true
+         "role": "BUSINESS",
+         "firstName": "Jane",
+         "lastName": "Doe",
+         "businessProfile": {
+           "id": "biz_12345",
+           "businessName": "Acme Retail Ltd",
+           "membershipLevel": "Gold",
+           "membershipStatus": "active",
+           "membershipPlanName": "Gold",
+           "appPlan": {
+             "source": "membership",
+             "platform": "${client.name}",
+             "clientId": "${client.clientId}",
+             "planId": "tier-1",
+             "planName": "Standard Plan",
+             "status": "active",
+             "quotas": {
+               "maxProducts": 50,
+               "customFeatures": true
+             },
+             "limits": {
+               "maxProducts": 50
+             },
+             "membershipPlanName": "Gold",
+             "expiresAt": "2027-09-14T08:00:00.000Z",
+             "directPlan": null,
+             "membershipPlan": {
+               "planId": "tier-1",
+               "planName": "Standard Plan",
+               "quotas": { "maxProducts": 50 },
+               "membershipPlanName": "Gold"
+             }
+           }
          }
        }
      }
      \`\`\`
 3. Store the \`accessToken\`, \`refreshToken\`, and user profile in your application's session or issue a local JWT session.
 
-### Task 3: Access Control & Dynamic Permission Gating
-1. Protect your application's routes based on whether the user has active access to this platform.
-2. Check the dynamic permission:
-   \`\`\`typescript
-   const hasAccess = user.permissions?.canAccess_${platformSlug} === true;
-   if (!hasAccess) {
-     // User has not purchased an active package for ${client.name}
-     // Redirect to MCOM membership upgrade or show access denied banner
-   }
-   \`\`\`
-3. (Optional) Call \`GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/userinfo\` with \`Authorization: Bearer \${accessToken}\` whenever you need freshly synchronized package status.
+### Task 3: Dual Entitlement Model (Standalone Plans vs. MCOM Memberships)
+MCOM Solutions services users through two distinct access paths:
+1. **Standalone Direct Plan (The Former System)**:
+   - The merchant purchased a subscription plan specifically for ${client.name}.
+   - \`appPlan.source === 'direct'\`.
+   - \`appPlan.planId\` contains the direct plan identifier.
+   - \`appPlan.planName\` contains the plan name.
+   - \`appPlan.limits\` / \`quotas\` contain the feature quotas.
+   - \`appPlan.membershipPlanName\` is \`null\`.
+2. **MCOM Ecosystem Membership (Multi-App Bundle)**:
+   - The merchant holds an active MCOM Membership (e.g. Gold, Silver, Platinum) that bundles access to ${client.name}.
+   - \`appPlan.source === 'membership'\`.
+   - \`appPlan.planId\` contains the plan level bundled for this app by their membership.
+   - \`appPlan.planName\` contains the bundled plan display name.
+   - \`appPlan.quotas\` contains the bundled quotas.
+   - \`appPlan.membershipPlanName\` indicates the parent membership tier (e.g. "Gold").
+3. **Both Active**:
+   - If the merchant has both a direct package and an active membership bundling this app, \`appPlan\` resolves with priority and provides both \`directPlan\` and \`membershipPlan\` blocks for full transparency.
+
+#### Handling Entitlements in Your Backend:
+\`\`\`typescript
+// Extract appPlan from the token response or userinfo response
+const businessProfile = user.businessProfile;
+const appPlan = businessProfile?.appPlan;
+const hasAccess = user.permissions?.canAccess_${platformSlug} === true;
+
+if (hasAccess && appPlan && appPlan.status === 'active') {
+  // 1. Extract plan details regardless of whether it came from a direct plan or membership:
+  const planId = appPlan.planId;       // e.g. "tier-1" or "growth-tier"
+  const planName = appPlan.planName;   // e.g. "Standard Plan"
+  const quotas = appPlan.quotas || {}; // e.g. { maxProducts: 50, maxPoints: 1000 }
+  const source = appPlan.source;       // "membership" | "direct"
+  const membershipTier = appPlan.membershipPlanName; // "Gold" (if from membership)
+
+  console.log(\`User \${user.email} entitled to \${planName} via \${source}\`);
+  if (source === 'membership') {
+    console.log(\`Bundled with MCOM Membership: \${membershipTier}\`);
+  }
+
+  // 2. Synchronize local store/user permissions and feature limits:
+  await db.Subscription.upsert({
+    where: { userId: user.id },
+    update: {
+      planId,
+      planName,
+      quotas,
+      source,
+      membershipTier: membershipTier ?? null,
+      isActive: true,
+      updatedAt: new Date(),
+    },
+    create: {
+      userId: user.id,
+      planId,
+      planName,
+      quotas,
+      source,
+      membershipTier: membershipTier ?? null,
+      isActive: true,
+    },
+  });
+} else {
+  // User has no active plan or membership bundle for ${client.name}
+  // Restrict access or redirect to MCOM Solutions to choose a plan or membership:
+  // ${mcomBaseUrl}/pricing or ${mcomBaseUrl}/memberships
+}
+\`\`\`
+
+### Task 4: Fresh Profile & Entitlements Synchronization
+Whenever your backend needs to re-verify a user's subscription, refresh quotas, or check active packages without a full re-login:
+\`\`\`http
+GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/userinfo
+Authorization: Bearer \${accessToken}
+\`\`\`
+Response provides:
+- \`appPlan\`: The latest resolved plan for ${client.name} (direct or membership bundle).
+- \`membership\`: Full membership metadata (\`planName\`, \`level\`, \`status\`, and all \`appPlans\`).
+- \`packages\`: Array of all active platform packages.
+- \`permissions\`: Calculated access flags (\`canAccess_${platformSlug}: true\`).
 
 ${
   hasBilling
-    ? `### Task 4: Billing API Plan Management Contract
+    ? `### Task 5: Billing API Plan Management Contract
 MCOM Solutions will manage subscription plans for ${client.name} using the Generic HTTP Connector.
 Implement the following 5 REST endpoints in your backend protected by the API key:
 
@@ -137,8 +234,8 @@ app.use('/api/v1/system/plans', (req, res, next) => {
 }
 ${
   hasWebhook
-    ? `### Task 5: Webhook Signature Verification
-MCOM dispatches ecosystem lifecycle events to your webhook endpoint:
+    ? `### Task 6: Webhook Signature Verification
+MCOM dispatches ecosystem lifecycle events (e.g. \`package.created\`, \`package.renewed\`, \`package.expired\`) to your webhook endpoint:
 1. Create a POST endpoint at \`${client.webhookUrl || '/webhooks'}\`.
 2. Verify incoming webhook requests using SHA-256 HMAC signature:
    \`\`\`typescript
@@ -158,32 +255,36 @@ MCOM dispatches ecosystem lifecycle events to your webhook endpoint:
 
      if (!isValid) return res.status(401).json({ error: 'Invalid HMAC signature' });
 
-     const event = req.body; // { event: "user.registered", payload: { ... } }
-     // Process event asynchronously...
+     const event = req.body; // { event: "package.created", data: { ... } }
+     // Process lifecycle event...
      res.json({ received: true });
    });
    \`\`\`
 `
     : ''
 }
-### Task 6: Server-to-Server Signed Requests (HMAC)
-When your backend needs to call MCOM data-sharing APIs directly (e.g. \`/api/v1/data-sharing/*\`):
+### Task 7: Server-to-Server Signed Requests (HMAC Data Sharing)
+When your backend needs to query user details or verify membership without an access token:
 \`\`\`typescript
 import * as crypto from 'crypto';
 import axios from 'axios';
 
-async function callMcomSignedApi(endpoint: string, data: object) {
-  const rawBody = JSON.stringify(data);
+async function checkUserMembership(userId: string) {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const serviceId = process.env.MCOM_CLIENT_ID;
+  const message = \`\${serviceId}:\${timestamp}\`;
+
   const signature = crypto
     .createHmac('sha256', process.env.MCOM_HMAC_SECRET!)
-    .update(rawBody)
+    .update(message)
     .digest('hex');
 
-  return axios.post(\`\${process.env.MCOM_SOLUTIONS_URL}\${endpoint}\`, data, {
+  return axios.get(\`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/data/user\`, {
+    params: { userId },
     headers: {
-      'Content-Type': 'application/json',
-      'X-Mcom-Signature': \`sha256=\${signature}\`,
-      'X-Mcom-Client-ID': process.env.MCOM_CLIENT_ID,
+      'X-Service-Id': serviceId,
+      'X-Timestamp': timestamp,
+      'X-Signature': signature,
     },
   });
 }
@@ -194,8 +295,12 @@ async function callMcomSignedApi(endpoint: string, data: object) {
 ## 3. Verification & Acceptance Criteria
 1. Clicking **"Login with MCOM"** redirects cleanly to MCOM Solutions SSO.
 2. After authenticating, the user is redirected back to \`${redirectUri}\` and logged in automatically.
-3. User permissions show \`canAccess_${platformSlug}: true\` for subscribed accounts.
-4. Token refresh handles expired access tokens seamlessly via \`/api/v1/auth/sso/token/refresh\`.
-5. All secrets are kept on the server and never exposed in client-side bundles.
+3. \`user.businessProfile.appPlan\` correctly indicates either:
+   - \`source: "direct"\` for standalone platform subscriptions
+   - \`source: "membership"\` for users whose MCOM Membership bundles this app
+4. The target app applies the user's plan tier (\`planId\`) and quotas (\`quotas\`) correctly.
+5. User permissions show \`canAccess_${platformSlug}: true\` for authorized accounts.
+6. Token refresh handles expired access tokens seamlessly via \`/api/v1/auth/sso/token/refresh\`.
+7. All secrets are kept on the server and never exposed in client-side bundles.
 `;
 }

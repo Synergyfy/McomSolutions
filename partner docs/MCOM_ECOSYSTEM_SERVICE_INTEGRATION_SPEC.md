@@ -103,8 +103,15 @@ interface PartnerUserModel {
   
   // Cached Entitlements
   membershipLevel?: string;        // Bronze, Silver, Gold, Platinum
-  membershipTier?: string;         // Free, Normal, Pro, Pro+
+  membershipPlanName?: string;     // e.g. Gold, Silver
   membershipStatus?: string;       // active, inactive, trial
+  appPlan?: {
+    source: 'membership' | 'direct';
+    planId: string;
+    planName: string;
+    quotas?: Record<string, any>;
+    status: string;
+  };
 }
 ```
 
@@ -183,7 +190,9 @@ export async function handleSsoCallback(code: string, clientId: string, clientSe
         mcomAccessToken: encrypt(accessToken),
         mcomRefreshToken: encrypt(refreshToken),
         membershipLevel: mcomUser.membershipLevel,
+        membershipPlanName: mcomUser.membershipPlanName,
         membershipStatus: mcomUser.membershipStatus,
+        appPlan: mcomUser.appPlan || mcomUser.businessProfile?.appPlan,
       }
     });
   } else {
@@ -194,7 +203,9 @@ export async function handleSsoCallback(code: string, clientId: string, clientSe
         mcomAccessToken: encrypt(accessToken),
         mcomRefreshToken: encrypt(refreshToken),
         membershipLevel: mcomUser.membershipLevel,
+        membershipPlanName: mcomUser.membershipPlanName,
         membershipStatus: mcomUser.membershipStatus,
+        appPlan: mcomUser.appPlan || mcomUser.businessProfile?.appPlan,
       }
     });
   }

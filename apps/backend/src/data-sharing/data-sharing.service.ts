@@ -36,6 +36,14 @@ export class DataSharingService {
     const membershipStatus = user.businessProfile?.membershipStatus || 'active';
     const membershipTier = user.businessProfile?.membershipTier || 'Normal';
 
+    let membershipPlan: any = null;
+    if (this.prisma.membershipPlan && (user.businessProfile?.membershipPlanName || user.businessProfile?.membershipLevel)) {
+      const planName = user.businessProfile.membershipPlanName || user.businessProfile.membershipLevel;
+      membershipPlan = await this.prisma.membershipPlan.findFirst({
+        where: { name: { equals: planName, mode: 'insensitive' }, archived: false },
+      });
+    }
+
     const packages = user.businessProfile?.packages || [];
     const permissions = this.calculatePermissions(user.role, membershipLevel, membershipStatus, packages);
 
@@ -50,6 +58,13 @@ export class DataSharingService {
       membershipLevel,
       membershipTier,
       membershipStatus,
+      membership: {
+        planName: user.businessProfile?.membershipPlanName || (membershipStatus === 'active' ? membershipLevel : null),
+        level: membershipLevel,
+        tier: membershipTier,
+        status: membershipStatus,
+        appPlans: Array.isArray(membershipPlan?.includedApps) ? membershipPlan.includedApps : [],
+      },
       phone: user.businessProfile?.phone || null,
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
@@ -57,8 +72,11 @@ export class DataSharingService {
         packageId: pkg.id,
         platformName: pkg.platform,
         packageName: pkg.packageName,
+        planName: pkg.planName || pkg.packageName,
         status: pkg.status,
-        externalPlanId: pkg.externalPlanId,
+        externalPlanId: pkg.externalPlanId || null,
+        limits: pkg.limits || {},
+        expiresAt: pkg.expiresAt || null,
       })),
       permissions,
       createdAt: user.createdAt,

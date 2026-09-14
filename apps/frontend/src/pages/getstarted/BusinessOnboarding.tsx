@@ -1211,8 +1211,7 @@ function BusinessOnboardingInner() {
   const [showInitialAssessment, setShowInitialAssessment] = useState(false);
   const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
   const [assessmentStep, setAssessmentStep] = useState(0);
-  const [planSubTier, setPlanSubTier] = useState<SubTier>('Normal');
-  const [planBillingCycle, setPlanBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+  const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
 
   // ─── Platform Plans (from external services) ──────────
@@ -4338,13 +4337,12 @@ function BusinessOnboardingInner() {
     // Map source param to platform name for external plans
 
     const handlePlatformPlanSelect = async (plan: any, provider: 'stripe' | 'paypal') => {
-      const billingCycle = planBillingCycle === 'yearly' ? 'annual' : 'quarterly';
-      const displayPrice = planBillingCycle === 'yearly' ? plan.annualPrice : plan.quarterlyPrice;
+      const billingCycle = planBillingCycle === 'yearly' ? 'annual' : planBillingCycle === 'monthly' ? 'monthly' : 'quarterly';
+      const displayPrice = planBillingCycle === 'yearly' ? plan.annualPrice : planBillingCycle === 'monthly' ? (plan.monthlyPrice || plan.price) : plan.quarterlyPrice;
 
       // Save the selected plan to localStorage
       localStorage.setItem('selectedMembership', JSON.stringify({
         tier: plan.name,
-        subTier: 'Normal',
         billing: planBillingCycle,
         price: displayPrice || 0,
       }));
@@ -4753,7 +4751,7 @@ function BusinessOnboardingInner() {
             {/* Billing Toggle */}
             <div className="mt-8 flex flex-col items-center gap-4">
               <div className="flex p-1 bg-gray-100 rounded-full">
-                {(['quarterly', 'yearly'] as const).map((cycle) => (
+                {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                   <button
                     key={cycle}
                     onClick={() => setPlanBillingCycle(cycle)}
@@ -4768,31 +4766,6 @@ function BusinessOnboardingInner() {
                   </button>
                 ))}
               </div>
-
-              {/* Sub-tier Toggle (only for default MCOM Solutions plans) */}
-              {!platformName && (
-                <div className="flex gap-2 p-1.5 bg-orange-50 rounded-2xl border border-orange-100">
-                  {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map((tier) => (
-                    <button
-                      key={tier}
-                      onClick={() => setPlanSubTier(tier)}
-                      className={cn(
-                        "px-4 md:px-6 py-3 rounded-xl text-sm font-semibold transition-all flex flex-col items-center min-w-[90px] md:min-w-[120px]",
-                        planSubTier === tier
-                          ? "bg-orange-500 text-white shadow-lg"
-                          : "text-orange-600/60 hover:text-orange-600 hover:bg-orange-100"
-                      )}
-                    >
-                      {tier}
-                      <span className="text-[10px] opacity-80 font-normal">
-                        {tier === 'Normal' && 'Basic Access'}
-                        {tier === 'Pro' && 'More Growth'}
-                        {tier === 'Pro+' && 'Max Visibility'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 
@@ -4800,10 +4773,20 @@ function BusinessOnboardingInner() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-12">
             {plans.map((plan, index) => {
               const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
-              const baseMonthly = plan.price?.[planSubTier] ?? (plan.tierPrices?.[planSubTier] ?? 0);
-              const discount = planBillingCycle === 'yearly' ? YEARLY_DISCOUNT : QUARTERLY_DISCOUNT;
-              const perMonthDiscounted = Math.floor(baseMonthly * (1 - discount));
-              const totalPerCycle = planBillingCycle === 'yearly' ? perMonthDiscounted * 12 : perMonthDiscounted * 3;
+              const monthlyPrice = plan.monthlyPrice ?? (typeof plan.price === 'number' ? plan.price : 49);
+              const quarterlyPrice = plan.quarterlyPrice ?? Math.floor(monthlyPrice * (1 - QUARTERLY_DISCOUNT)) * 3;
+              const annualPrice = plan.annualPrice ?? Math.floor(monthlyPrice * (1 - YEARLY_DISCOUNT)) * 12;
+
+              let displayPrice = monthlyPrice;
+              let totalPerCycle = monthlyPrice;
+
+              if (planBillingCycle === 'quarterly') {
+                displayPrice = Math.round(quarterlyPrice / 3);
+                totalPerCycle = quarterlyPrice;
+              } else if (planBillingCycle === 'yearly') {
+                displayPrice = Math.round(annualPrice / 12);
+                totalPerCycle = annualPrice;
+              }
               const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP] || Building2;
               const isSubscribingThis = subscribingPlanId === plan.id;
 
@@ -4845,12 +4828,14 @@ function BusinessOnboardingInner() {
 
                   <div className="mb-4">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl md:text-4xl font-bold">£{perMonthDiscounted}</span>
+                      <span className="text-3xl md:text-4xl font-bold">£{displayPrice}</span>
                       <span className={cn("text-sm", isGold ? "text-orange-200" : "text-gray-400")}>/mo</span>
                     </div>
-                    <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
-                      £{totalPerCycle}/{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
-                    </div>
+                    {planBillingCycle !== 'monthly' && (
+                      <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
+                        £{totalPerCycle}/{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
+                      </div>
+                    )}
                   </div>
 
                   <p className={cn("mb-6 md:mb-8 text-sm font-medium leading-relaxed",
@@ -4885,23 +4870,11 @@ function BusinessOnboardingInner() {
                   <div className="space-y-3 md:space-y-4 mb-8 md:mb-10 flex-1">
                     <div className={cn("text-xs font-bold uppercase tracking-widest",
                       isGold ? "text-orange-200/60" : "text-gray-400"
-                    )}>Features</div>
+                    )}>Included Features</div>
                     {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
                       <div key={i} className="flex items-center gap-3">
                         <Check className={cn("w-4 h-4 shrink-0", isGold ? "text-orange-300" : "text-orange-500")} />
                         <span className={cn("text-sm font-semibold", isGold ? "text-white" : "text-gray-700")}>{f}</span>
-                      </div>
-                    ))}
-
-                    <div className={cn("h-px w-8 my-3 md:my-4", isGold ? "bg-white/10" : "bg-gray-100")} />
-
-                    <div className={cn("text-xs font-bold uppercase tracking-widest",
-                      isGold ? "text-orange-200/60" : "text-gray-400"
-                    )}>{planSubTier} Access</div>
-                    {(Array.isArray(plan?.tierFeatures?.[planSubTier]) ? plan.tierFeatures[planSubTier] : []).map((f, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <Zap className={cn("w-4 h-4 shrink-0", isGold ? "text-amber-300" : "text-amber-500")} />
-                        <span className={cn("text-sm font-bold", isGold ? "text-white" : "text-gray-900")}>{f}</span>
                       </div>
                     ))}
                   </div>
@@ -4913,7 +4886,7 @@ function BusinessOnboardingInner() {
                       try {
                         await pricingApi.subscribeMembership(
                           plan.name || plan.id,
-                          planSubTier,
+                          'Normal',
                           planBillingCycle,
                           false
                         );
@@ -4926,7 +4899,6 @@ function BusinessOnboardingInner() {
                           JSON.stringify({
                             tier: plan.id,
                             name: plan.name,
-                            subTier: planSubTier,
                             billing: planBillingCycle,
                             price: totalPerCycle,
                             includedApps: plan.includedApps,

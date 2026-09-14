@@ -66,8 +66,9 @@ export default function PlanFormModal({
     color: string;
     price: number;
     billingCycle: string;
-    tierPrices: { Normal: number; Pro: number; 'Pro+': number };
-    tierFeatures: { Normal: string[]; Pro: string[]; 'Pro+': string[] };
+    monthlyPrice: number;
+    quarterlyPrice: number;
+    annualPrice: number;
     features: string[];
     platformAccess: string[];
     permissions: string[];
@@ -75,26 +76,20 @@ export default function PlanFormModal({
     includedApps: IncludedAppPlan[];
   }>(() => {
     if (initial) {
-      const initialTierPrices = (initial.tierPrices as any) || {};
-      const initialTierFeatures = (initial.tierFeatures as any) || {};
+      const monthly = initial.monthlyPrice ?? initial.price ?? 49;
+      const quarterly = initial.quarterlyPrice ?? Math.floor(monthly * 0.9) * 3;
+      const annual = initial.annualPrice ?? Math.floor(monthly * 0.8) * 12;
       return {
         name: initial.name || '',
         description: initial.description || '',
         whoItIsFor: initial.whoItIsFor || '',
         badge: initial.badge || '',
         color: initial.color || COLOR_PRESETS[0].value,
-        price: initial.price || 0,
+        price: monthly,
         billingCycle: initial.billingCycle || 'Monthly',
-        tierPrices: {
-          Normal: initialTierPrices.Normal ?? initial.price ?? 0,
-          Pro: initialTierPrices.Pro ?? Math.round((initial.price || 0) * 1.5),
-          'Pro+': initialTierPrices['Pro+'] ?? Math.round((initial.price || 0) * 2.2),
-        },
-        tierFeatures: {
-          Normal: initialTierFeatures.Normal || [],
-          Pro: initialTierFeatures.Pro || [],
-          'Pro+': initialTierFeatures['Pro+'] || [],
-        },
+        monthlyPrice: monthly,
+        quarterlyPrice: quarterly,
+        annualPrice: annual,
         features: initial.features || [],
         platformAccess: initial.platformAccess || [],
         permissions: initial.permissions || ['Basic Dashboard', 'Standard Dashboard'],
@@ -110,12 +105,9 @@ export default function PlanFormModal({
       color: COLOR_PRESETS[2].value,
       price: 49,
       billingCycle: 'Monthly',
-      tierPrices: { Normal: 49, Pro: 79, 'Pro+': 119 },
-      tierFeatures: {
-        Normal: ['Base Visibility', 'Local Listings'],
-        Pro: ['Enhanced Visibility', 'Extended Listings', 'Priority Support'],
-        'Pro+': ['Priority Visibility', 'Featured Placement', 'Dedicated Account Manager'],
-      },
+      monthlyPrice: 49,
+      quarterlyPrice: 132,
+      annualPrice: 470,
       features: [],
       platformAccess: [],
       permissions: ['Basic Dashboard', 'Standard Dashboard'],
@@ -128,8 +120,6 @@ export default function PlanFormModal({
   const [selectedPlatform, setSelectedPlatform] = useState<string>('MCOM Solutions');
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [newFeature, setNewFeature] = useState('');
-  const [activeTierTab, setActiveTierTab] = useState<'Normal' | 'Pro' | 'Pro+'>('Normal');
-  const [newTierFeature, setNewTierFeature] = useState('');
 
   // Fetch external plans if an external platform is chosen
   const isExternalSelected = selectedPlatform !== 'MCOM Solutions';
@@ -238,11 +228,12 @@ export default function PlanFormModal({
       whoItIsFor: form.whoItIsFor,
       badge: form.badge || undefined,
       color: form.color,
-      price: form.price,
+      price: form.monthlyPrice,
+      monthlyPrice: form.monthlyPrice,
+      quarterlyPrice: form.quarterlyPrice,
+      annualPrice: form.annualPrice,
       billingCycle: form.billingCycle,
       includedApps: form.includedApps,
-      tierPrices: form.tierPrices,
-      tierFeatures: form.tierFeatures,
       features: form.features,
       platformAccess: form.platformAccess,
       permissions: form.permissions,
@@ -500,101 +491,92 @@ export default function PlanFormModal({
 
           <div className="border-t border-gray-100" />
 
-          {/* 3. Pricing & Discounts */}
+          {/* 3. Pricing & Billing Cadence */}
           <div className="space-y-4">
             <h5 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-brand-blue" />
-              3. Bundle Pricing & Sub-Tiers (£ GBP)
+              3. Membership Pricing (£ GBP)
             </h5>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Base Monthly Bundle Price (£)">
-                <input
-                  type="number"
-                  min="0"
-                  value={form.price}
-                  onChange={(e) => {
-                    const p = parseInt(e.target.value) || 0;
-                    setForm({
-                      ...form,
-                      price: p,
-                      tierPrices: {
-                        Normal: p,
-                        Pro: Math.round(p * 1.5),
-                        'Pro+': Math.round(p * 2.2),
-                      },
-                    });
-                  }}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                />
-              </Field>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200 focus-within:border-brand-blue transition-all">
+                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
+                  Monthly Price (£)
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-400 font-bold text-base">£</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.monthlyPrice}
+                    onChange={(e) => {
+                      const m = parseInt(e.target.value) || 0;
+                      setForm({
+                        ...form,
+                        price: m,
+                        monthlyPrice: m,
+                        quarterlyPrice: Math.floor(m * 0.9) * 3,
+                        annualPrice: Math.floor(m * 0.8) * 12,
+                      });
+                    }}
+                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-lg font-extrabold text-gray-900"
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium">Billed every month</span>
+              </div>
 
-              <Field label="Billing Cycle Options">
-                <div className="p-2.5 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600 space-y-1">
-                  <div>
-                    Monthly: <span className="font-bold">£{form.price}/mo</span>
-                  </div>
-                  <div>
-                    Quarterly (10% off): <span className="font-bold">£{Math.floor(form.price * 0.9) * 3}</span> (£{Math.floor(form.price * 0.9)}/mo)
-                  </div>
-                  <div>
-                    Annual (20% off): <span className="font-bold">£{Math.floor(form.price * 0.8) * 12}</span> (£{Math.floor(form.price * 0.8)}/mo)
-                  </div>
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200 focus-within:border-brand-blue transition-all">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                    Quarterly Price (£)
+                  </span>
+                  <span className="text-[9px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">
+                    10% off
+                  </span>
                 </div>
-              </Field>
-            </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-400 font-bold text-base">£</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.quarterlyPrice}
+                    onChange={(e) => {
+                      const q = parseInt(e.target.value) || 0;
+                      setForm({ ...form, quarterlyPrice: q });
+                    }}
+                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-lg font-extrabold text-gray-900"
+                  />
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium">
+                  (£{Math.round(form.quarterlyPrice / 3)}/mo equivalent)
+                </span>
+              </div>
 
-            {/* Sub-Tier Prices */}
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                Sub-Tier Monthly Prices
-              </label>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Normal (£/mo)</div>
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200 focus-within:border-brand-blue transition-all">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                    Annual Price (£)
+                  </span>
+                  <span className="text-[9px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">
+                    20% off
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-400 font-bold text-base">£</span>
                   <input
                     type="number"
                     min="0"
-                    value={form.tierPrices.Normal}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        tierPrices: { ...form.tierPrices, Normal: parseInt(e.target.value) || 0 },
-                      })
-                    }
-                    className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold"
+                    value={form.annualPrice}
+                    onChange={(e) => {
+                      const a = parseInt(e.target.value) || 0;
+                      setForm({ ...form, annualPrice: a });
+                    }}
+                    className="w-full bg-transparent border-none p-0 focus:ring-0 text-lg font-extrabold text-gray-900"
                   />
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Pro (£/mo)</div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.tierPrices.Pro}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        tierPrices: { ...form.tierPrices, Pro: parseInt(e.target.value) || 0 },
-                      })
-                    }
-                    className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold"
-                  />
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase mb-1">Pro+ (£/mo)</div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.tierPrices['Pro+']}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        tierPrices: { ...form.tierPrices, 'Pro+': parseInt(e.target.value) || 0 },
-                      })
-                    }
-                    className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold"
-                  />
-                </div>
+                <span className="text-[10px] text-gray-400 font-medium">
+                  (£{Math.round(form.annualPrice / 12)}/mo equivalent)
+                </span>
               </div>
             </div>
           </div>
@@ -674,92 +656,6 @@ export default function PlanFormModal({
               </div>
             </div>
 
-            {/* Sub-Tier Specific Features */}
-            <div className="space-y-3 pt-2">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
-                Tier-Specific Perks (Normal / Pro / Pro+)
-              </label>
-              <div className="flex gap-2">
-                {(['Normal', 'Pro', 'Pro+'] as const).map((tier) => (
-                  <button
-                    key={tier}
-                    type="button"
-                    onClick={() => setActiveTierTab(tier)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-xl text-xs font-bold transition-all',
-                      activeTierTab === tier
-                        ? 'bg-brand-blue text-white shadow-sm'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    )}
-                  >
-                    {tier} Perks ({form.tierFeatures[tier].length})
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
-                {form.tierFeatures[activeTierTab].map((perk, idx) => (
-                  <div key={`${perk}-${idx}`} className="flex items-center justify-between text-xs text-gray-700 bg-white p-2 rounded-lg border border-gray-100">
-                    <span>{perk}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = form.tierFeatures[activeTierTab].filter((_, i) => i !== idx);
-                        setForm({
-                          ...form,
-                          tierFeatures: { ...form.tierFeatures, [activeTierTab]: updated },
-                        });
-                      }}
-                      className="text-gray-400 hover:text-red-500"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-
-                <div className="flex gap-2 pt-1">
-                  <input
-                    value={newTierFeature}
-                    onChange={(e) => setNewTierFeature(e.target.value)}
-                    placeholder={`Add perk for ${activeTierTab}...`}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (newTierFeature.trim()) {
-                          setForm({
-                            ...form,
-                            tierFeatures: {
-                              ...form.tierFeatures,
-                              [activeTierTab]: [...form.tierFeatures[activeTierTab], newTierFeature.trim()],
-                            },
-                          });
-                          setNewTierFeature('');
-                        }
-                      }
-                    }}
-                    className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (newTierFeature.trim()) {
-                        setForm({
-                          ...form,
-                          tierFeatures: {
-                            ...form.tierFeatures,
-                            [activeTierTab]: [...form.tierFeatures[activeTierTab], newTierFeature.trim()],
-                          },
-                        });
-                        setNewTierFeature('');
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-brand-blue text-white rounded-xl font-bold text-xs"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 

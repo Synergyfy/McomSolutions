@@ -53,7 +53,7 @@ describe('PricingService', () => {
 
       const plans = await service.getPlans();
       expect(plans).toHaveLength(4);
-      expect(plans[0]).toMatchObject({ id: 'Bronze', price: { Normal: 10, Pro: 25, 'Pro+': 50 } });
+      expect(plans[0]).toMatchObject({ id: 'Bronze', price: 10, monthlyPrice: 10, quarterlyPrice: 27, annualPrice: 96 });
       expect(plans[0].features).toEqual(['Basic Dashboard']);
     });
   });

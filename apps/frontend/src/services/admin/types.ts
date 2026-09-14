@@ -106,6 +106,9 @@ export interface MembershipPlan {
   description: string
   price: number
   billingCycle: string
+  monthlyPrice?: number
+  quarterlyPrice?: number
+  annualPrice?: number
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]
@@ -399,6 +402,9 @@ export interface CreatePlanInput {
   description: string
   price: number
   billingCycle: string
+  monthlyPrice?: number
+  quarterlyPrice?: number
+  annualPrice?: number
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]

@@ -159,14 +159,16 @@ export default function PlanManagementPanel() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-baseline gap-1 mb-3">
-                    <span className="text-2xl font-bold text-gray-900">£{plan.price}</span>
-                    <span className="text-xs text-gray-400">/{plan.billingCycle.toLowerCase()}</span>
-                    {plan.tierPrices && (
-                      <span className="text-[11px] text-gray-400 ml-2 font-medium">
-                        (Normal £{(plan.tierPrices as any).Normal ?? plan.price} | Pro £{(plan.tierPrices as any).Pro ?? '-'} | Pro+ £{(plan.tierPrices as any)['Pro+'] ?? '-'})
-                      </span>
-                    )}
+                  <div className="space-y-1 mb-3">
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold text-gray-900">£{plan.monthlyPrice ?? plan.price}</span>
+                      <span className="text-xs text-gray-400">/monthly</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500 font-medium">
+                      <span>Quarterly: <strong className="text-gray-800">£{plan.quarterlyPrice ?? Math.round((plan.price * 3) * 0.9)}</strong></span>
+                      <span>•</span>
+                      <span>Annual: <strong className="text-gray-800">£{plan.annualPrice ?? Math.round((plan.price * 12) * 0.8)}</strong></span>
+                    </div>
                   </div>
 
                   {/* Bundled App Plans */}

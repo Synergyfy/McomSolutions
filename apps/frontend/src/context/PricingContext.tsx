@@ -22,10 +22,11 @@ export interface PricingPlan {
   badge?: string;
   iconName: 'Building2' | 'Zap' | 'Star' | 'Trophy' | string;
   color: string;
-  price: Record<SubTier, number>;
-  tierPrices?: Record<string, number>;
+  price: number;
+  monthlyPrice: number;
+  quarterlyPrice: number;
+  annualPrice: number;
   features: string[];
-  tierFeatures: Record<SubTier, string[]>;
   includedApps?: IncludedAppPlan[];
 }
 
@@ -43,41 +44,21 @@ const PLAN_METADATA: Record<string, Partial<PricingPlan>> = {
     whoItIsFor: 'New businesses',
     iconName: 'Building2',
     color: 'border-amber-600/20 text-amber-600 bg-amber-50',
-    tierFeatures: {
-      Normal: ['Base Visibility', 'Local Listings'],
-      Pro: ['Enhanced Visibility', 'Extended Listings'],
-      'Pro+': ['Priority Visibility', 'Featured Placement'],
-    },
   },
   Silver: {
     whoItIsFor: 'Growing businesses',
     iconName: 'Zap',
     color: 'border-slate-400/20 text-slate-500 bg-slate-50',
-    tierFeatures: {
-      Normal: ['Standard Ads', 'Campaign Basic'],
-      Pro: ['Premium Ads', 'Campaign Priority'],
-      'Pro+': ['Aggressive Ads', 'Exclusive Early Access'],
-    },
   },
   Gold: {
     whoItIsFor: 'Scaling businesses',
     iconName: 'Star',
     color: 'border-yellow-500/30 text-yellow-600 bg-yellow-50',
-    tierFeatures: {
-      Normal: ['Direct API', 'Dashboard Basic'],
-      Pro: ['Custom API', 'Dashboard Pro'],
-      'Pro+': ['Enterprise API', 'Full AI Suite'],
-    },
   },
   Platinum: {
     whoItIsFor: 'Established businesses',
     iconName: 'Trophy',
     color: 'border-blue-600/20 text-blue-700 bg-blue-50',
-    tierFeatures: {
-      Normal: ['Dedicated AM', 'Monthly Strategy'],
-      Pro: ['Global AM', 'Bi-weekly Strategy'],
-      'Pro+': ['VP Support', 'Weekly Audits'],
-    },
   },
 };
 
@@ -86,6 +67,16 @@ const PricingContext = createContext<PricingContextType | undefined>(undefined);
 const mapApiPlan = (p: any): PricingPlan => {
   const name = p.name || p.id;
   const meta = PLAN_METADATA[name] || {};
+  const monthly = p.monthlyPrice != null
+    ? Number(p.monthlyPrice)
+    : (typeof p.price === 'number' ? p.price : (p.price?.Normal ?? 0));
+  const quarterly = p.quarterlyPrice != null
+    ? Number(p.quarterlyPrice)
+    : Math.floor(monthly * 0.9) * 3;
+  const annual = p.annualPrice != null
+    ? Number(p.annualPrice)
+    : Math.floor(monthly * 0.8) * 12;
+
   return {
     id: p.id || name,
     name: name,
@@ -94,14 +85,11 @@ const mapApiPlan = (p: any): PricingPlan => {
     badge: p.badge || undefined,
     iconName: (meta.iconName as PricingPlan['iconName']) || 'Building2',
     color: p.color || meta.color || 'border-gray-300 text-gray-600 bg-gray-50',
-    price: {
-      Normal: p.price?.Normal ?? (p.tierPrices?.Normal ?? p.price ?? 0),
-      Pro: p.price?.Pro ?? (p.tierPrices?.Pro ?? 0),
-      'Pro+': p.price?.['Pro+'] ?? (p.tierPrices?.['Pro+'] ?? 0),
-    },
-    tierPrices: p.tierPrices || undefined,
+    price: monthly,
+    monthlyPrice: monthly,
+    quarterlyPrice: quarterly,
+    annualPrice: annual,
     features: Array.isArray(p.features) ? p.features : [],
-    tierFeatures: p.tierFeatures || meta.tierFeatures || { Normal: [], Pro: [], 'Pro+': [] },
     includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
   };
 };

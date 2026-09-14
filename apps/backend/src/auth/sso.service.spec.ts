@@ -41,6 +41,9 @@ describe('SsoService', () => {
     user: {
       findUnique: jest.fn(),
     },
+    membershipPlan: {
+      findFirst: jest.fn(),
+    },
   };
 
   const mockJwtService = {
@@ -374,6 +377,240 @@ describe('SsoService', () => {
     it('should delete the cors:all_origins Redis key', async () => {
       await service.invalidateCorsCache();
       expect(mockRedisService.del).toHaveBeenCalledWith('cors:all_origins');
+    });
+  });
+
+  // ─── getUserInfoFromToken & Entitlement Resolution ─
+  describe('getUserInfoFromToken', () => {
+    it('should throw UnauthorizedException if token verification fails', async () => {
+      mockJwtService.verify.mockImplementation(() => {
+        throw new Error('invalid token');
+      });
+      await expect(service.getUserInfoFromToken('bad-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException if user not found', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'user-unknown' });
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.getUserInfoFromToken('valid-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should service user with direct platform package (the former standalone system)', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'user-direct' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-direct',
+        email: 'direct@test.com',
+        role: 'BUSINESS',
+        firstName: 'Alice',
+        lastName: 'Direct',
+        businessProfile: {
+          id: 'b-direct',
+          businessName: 'Direct Shop',
+          membershipLevel: 'Bronze',
+          membershipStatus: 'active',
+          membershipPlanName: null,
+          packages: [
+            {
+              id: 'pkg-1',
+              platform: 'MCOM Mall',
+              packageName: 'Standard',
+              externalPlanId: 'tier-1',
+              planName: 'Standard Plan',
+              planType: 'STANDARD',
+              status: 'active',
+              limits: { maxProducts: 50 },
+              amount: 29.99,
+              expiresAt: new Date(Date.now() + 86400000),
+            },
+          ],
+        },
+      });
+
+      mockPrisma.ssoSession.findUnique.mockResolvedValue({
+        id: 'sess-1',
+        client: {
+          clientId: 'mcom-mall',
+          name: 'MCOM Mall',
+          platformSlug: 'mall',
+        },
+      });
+
+      const result = await service.getUserInfoFromToken('token-direct');
+      expect(result.sub).toBe('user-direct');
+      expect(result.appPlan).toBeDefined();
+      expect(result.appPlan.source).toBe('direct');
+      expect(result.appPlan.planId).toBe('tier-1');
+      expect(result.appPlan.planName).toBe('Standard Plan');
+      expect(result.appPlan.limits).toEqual({ maxProducts: 50 });
+      expect(result.appPlan.directPlan).toBeDefined();
+      expect(result.appPlan.membershipPlan).toBeNull();
+      expect(result.packages).toHaveLength(1);
+      expect(result.packages[0].source).toBe('direct');
+      expect(result.permissions.canAccessMall).toBe(true);
+    });
+
+    it('should service user with active membership plan (multi-app bundle system)', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'user-member' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-member',
+        email: 'member@test.com',
+        role: 'BUSINESS',
+        firstName: 'Bob',
+        lastName: 'Member',
+        businessProfile: {
+          id: 'b-member',
+          businessName: 'Member Store',
+          membershipLevel: 'Gold',
+          membershipStatus: 'active',
+          membershipPlanName: 'Gold',
+          packages: [],
+        },
+      });
+
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'plan-gold',
+        name: 'Gold',
+        includedApps: [
+          {
+            platform: 'MCOM Mall',
+            clientId: 'mcom-mall',
+            planId: 'mall-gold-tier',
+            planName: 'Gold Mall Plan',
+            quotas: { maxProducts: 500, bannerAds: 5 },
+          },
+          {
+            platform: 'MCOM Loyalty',
+            clientId: 'mcom-loyalty',
+            planId: 'loyalty-gold-tier',
+            planName: 'Gold Loyalty Plan',
+            quotas: { maxPoints: 10000 },
+          },
+        ],
+      });
+
+      mockPrisma.ssoSession.findUnique.mockResolvedValue({
+        id: 'sess-2',
+        client: {
+          clientId: 'mcom-mall',
+          name: 'MCOM Mall',
+          platformSlug: 'mall',
+        },
+      });
+
+      const result = await service.getUserInfoFromToken('token-member');
+      expect(result.sub).toBe('user-member');
+      expect(result.appPlan).toBeDefined();
+      expect(result.appPlan.source).toBe('membership');
+      expect(result.appPlan.planId).toBe('mall-gold-tier');
+      expect(result.appPlan.planName).toBe('Gold Mall Plan');
+      expect(result.appPlan.membershipPlanName).toBe('Gold');
+      expect(result.appPlan.quotas).toEqual({ maxProducts: 500, bannerAds: 5 });
+      expect(result.appPlan.membershipPlan).toBeDefined();
+      expect(result.appPlan.directPlan).toBeNull();
+      expect(result.membership.hasActiveMembership).toBe(true);
+      expect(result.membership.appPlans).toHaveLength(2);
+      expect(result.permissions.canAccessMall).toBe(true);
+    });
+
+    it('should service user with both direct plan and membership, preserving both details', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'user-both' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-both',
+        email: 'both@test.com',
+        role: 'BUSINESS',
+        firstName: 'Charlie',
+        lastName: 'Both',
+        businessProfile: {
+          id: 'b-both',
+          businessName: 'Both Enterprises',
+          membershipLevel: 'Silver',
+          membershipStatus: 'active',
+          membershipPlanName: 'Silver',
+          packages: [
+            {
+              id: 'pkg-direct-pro',
+              platform: 'MCOM Mall',
+              packageName: 'Pro',
+              externalPlanId: 'mall-pro-paid',
+              planName: 'Pro Tier',
+              planType: 'STANDARD',
+              status: 'active',
+              limits: { customDomains: 3 },
+              amount: 79.99,
+              expiresAt: new Date(Date.now() + 86400000),
+            },
+          ],
+        },
+      });
+
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'plan-silver',
+        name: 'Silver',
+        includedApps: [
+          {
+            platform: 'MCOM Mall',
+            clientId: 'mcom-mall',
+            planId: 'mall-silver-tier',
+            planName: 'Silver Mall Plan',
+            quotas: { maxProducts: 200 },
+          },
+        ],
+      });
+
+      mockPrisma.ssoSession.findUnique.mockResolvedValue({
+        id: 'sess-3',
+        client: {
+          clientId: 'mcom-mall',
+          name: 'MCOM Mall',
+          platformSlug: 'mall',
+        },
+      });
+
+      const result = await service.getUserInfoFromToken('token-both');
+      expect(result.appPlan).toBeDefined();
+      expect(result.appPlan.directPlan).toBeDefined();
+      expect(result.appPlan.directPlan.planId).toBe('mall-pro-paid');
+      expect(result.appPlan.membershipPlan).toBeDefined();
+      expect(result.appPlan.membershipPlan.planId).toBe('mall-silver-tier');
+      expect(result.membership.appPlans).toHaveLength(1);
+    });
+
+    it('should return appPlan null when user has no package and membership does not include app', async () => {
+      mockJwtService.verify.mockReturnValue({ sub: 'user-none' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-none',
+        email: 'none@test.com',
+        role: 'BUSINESS',
+        firstName: 'David',
+        lastName: 'None',
+        businessProfile: {
+          id: 'b-none',
+          businessName: 'No Access Co',
+          membershipLevel: 'Bronze',
+          membershipStatus: 'active',
+          membershipPlanName: 'Bronze',
+          packages: [],
+        },
+      });
+
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'plan-bronze',
+        name: 'Bronze',
+        includedApps: [],
+      });
+
+      mockPrisma.ssoSession.findUnique.mockResolvedValue({
+        id: 'sess-4',
+        client: {
+          clientId: 'mcom-mall',
+          name: 'MCOM Mall',
+          platformSlug: 'mall',
+        },
+      });
+
+      const result = await service.getUserInfoFromToken('token-none');
+      expect(result.appPlan).toBeNull();
+      expect(result.permissions.canAccessMall).toBe(false);
     });
   });
 });

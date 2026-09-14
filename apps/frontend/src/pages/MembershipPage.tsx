@@ -11,11 +11,10 @@ const YEARLY_DISCOUNT = 0.2;
 export default function MembershipPage() {
   const { plans } = usePricing();
   const navigate = useNavigate();
-  const [selectedSubTier, setSelectedSubTier] = useState<SubTier>('Normal');
-  const [billingCycle, setBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
 
   const selectPlan = (planId: Membership) => {
-    navigate(`/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(selectedSubTier)}&billing=${encodeURIComponent(billingCycle)}`);
+    navigate(`/checkout?plan=${encodeURIComponent(planId)}&tier=Normal&billing=${encodeURIComponent(billingCycle)}`);
   };
 
   return (
@@ -37,7 +36,7 @@ export default function MembershipPage() {
 
           <div className="mt-8 md:mt-12 flex flex-col items-center gap-6">
             <div className="flex p-1 bg-gray-100 rounded-full">
-              {(['quarterly', 'yearly'] as const).map((cycle) => (
+              {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                 <button
                   key={cycle}
                   onClick={() => setBillingCycle(cycle)}
@@ -52,39 +51,27 @@ export default function MembershipPage() {
                 </button>
               ))}
             </div>
-
-            <div className="flex gap-2 p-1.5 bg-brand-blue/5 rounded-2xl border border-brand-blue/10 overflow-x-auto">
-              {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map((tier) => (
-                <button
-                  key={tier}
-                  onClick={() => setSelectedSubTier(tier)}
-                  className={cn(
-                    "px-4 md:px-6 py-3 rounded-xl text-sm font-semibold transition-all flex flex-col items-center min-w-[90px] md:min-w-[120px]",
-                    selectedSubTier === tier 
-                      ? "bg-brand-blue text-white shadow-glow" 
-                      : "text-brand-blue/60 hover:text-brand-blue hover:bg-brand-blue/10"
-                  )}
-                >
-                  {tier}
-                  <span className="text-[10px] opacity-80 font-normal">
-                    {tier === 'Normal' && 'Basic Access'}
-                    {tier === 'Pro' && 'More Growth'}
-                    {tier === 'Pro+' && 'Max Visibility'}
-                  </span>
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
         {/* Membership Cards */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-16 md:mb-32">
           {plans.map((plan, index) => {
-            const isGold = plan.id === 'Gold';
-            const baseMonthly = plan.price[selectedSubTier];
-            const discount = billingCycle === 'yearly' ? YEARLY_DISCOUNT : QUARTERLY_DISCOUNT;
-            const perMonthDiscounted = Math.floor(baseMonthly * (1 - discount));
-            const totalPerCycle = billingCycle === 'yearly' ? perMonthDiscounted * 12 : perMonthDiscounted * 3;
+            const isGold = plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
+            const monthlyPrice = plan.monthlyPrice ?? (typeof plan.price === 'number' ? plan.price : 49);
+            const quarterlyPrice = plan.quarterlyPrice ?? Math.floor(monthlyPrice * (1 - QUARTERLY_DISCOUNT)) * 3;
+            const annualPrice = plan.annualPrice ?? Math.floor(monthlyPrice * (1 - YEARLY_DISCOUNT)) * 12;
+
+            let displayPrice = monthlyPrice;
+            let totalPerCycle = monthlyPrice;
+
+            if (billingCycle === 'quarterly') {
+              displayPrice = Math.round(quarterlyPrice / 3);
+              totalPerCycle = quarterlyPrice;
+            } else if (billingCycle === 'yearly') {
+              displayPrice = Math.round(annualPrice / 12);
+              totalPerCycle = annualPrice;
+            }
             const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP];
 
             return (
@@ -117,12 +104,14 @@ export default function MembershipPage() {
 
                 <div className="mb-4">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl md:text-4xl font-bold">£{perMonthDiscounted}</span>
+                    <span className="text-3xl md:text-4xl font-bold">£{displayPrice}</span>
                     <span className={cn("text-sm", isGold ? "text-blue-200" : "text-gray-400")}>/mo</span>
                   </div>
-                  <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
-                    £{totalPerCycle}/{billingCycle === 'yearly' ? 'yr' : 'qtr'}
-                  </div>
+                  {billingCycle !== 'monthly' && (
+                    <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
+                      £{totalPerCycle}/{billingCycle === 'yearly' ? 'yr' : 'qtr'}
+                    </div>
+                  )}
                 </div>
 
                 <p className={cn("mb-6 md:mb-8 text-sm font-medium leading-relaxed", isGold ? "text-blue-50" : "text-gray-500")}>
@@ -137,16 +126,6 @@ export default function MembershipPage() {
                     <div key={i} className="flex items-center gap-3">
                       <Check className={cn("w-4 h-4 shrink-0", isGold ? "text-blue-300" : "text-brand-blue")} />
                       <span className={cn("text-sm font-semibold", isGold ? "text-white" : "text-gray-700")}>{f}</span>
-                    </div>
-                  ))}
-                  
-                  <div className={cn("h-px w-8 my-3 md:my-4", isGold ? "bg-white/10" : "bg-gray-100")} />
-                  
-                  <div className={cn("text-xs font-bold uppercase tracking-widest", isGold ? "text-blue-200/60" : "text-gray-400")}>{selectedSubTier} Access</div>
-                  {(plan.tierFeatures?.[selectedSubTier] || []).map((f, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <Zap className={cn("w-4 h-4 shrink-0", isGold ? "text-amber-300" : "text-amber-500")} />
-                      <span className={cn("text-sm font-bold", isGold ? "text-white" : "text-gray-900")}>{f}</span>
                     </div>
                   ))}
                 </div>

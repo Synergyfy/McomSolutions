@@ -270,6 +270,21 @@ export class CreateMembershipPlanDto {
   @IsNotEmpty()
   billingCycle: string;
 
+  @ApiPropertyOptional({ example: 49 })
+  @IsOptional()
+  @IsNumber()
+  monthlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 132 })
+  @IsOptional()
+  @IsNumber()
+  quarterlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 470 })
+  @IsOptional()
+  @IsNumber()
+  annualPrice?: number;
+
   @ApiProperty({ type: [String], example: ['Loyalty', 'Mall'] })
   @IsArray()
   @IsString({ each: true })
@@ -1242,6 +1257,21 @@ export class UpdateMembershipPlanDto {
   @IsOptional()
   @IsString()
   billingCycle?: string;
+
+  @ApiPropertyOptional({ example: 49 })
+  @IsOptional()
+  @IsNumber()
+  monthlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 132 })
+  @IsOptional()
+  @IsNumber()
+  quarterlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 470 })
+  @IsOptional()
+  @IsNumber()
+  annualPrice?: number;
 
   @ApiPropertyOptional({ type: [String], example: ['Loyalty', 'Mall'] })
   @IsOptional()

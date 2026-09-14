@@ -37,28 +37,22 @@ export class PricingService {
 
   async resolveMembershipPrice(
     level: string,
-    tier: string,
+    tier: string = 'Normal',
     billing: 'monthly' | 'quarterly' | 'yearly' = 'monthly',
   ): Promise<number> {
     const plan = await this.getPlan(level);
-    const tierPrices = (plan.tierPrices as Record<string, number> | null) ?? null;
-
-    const tierNormalized = (tier || '').toLowerCase() === 'pro'
-      ? 'Pro'
-      : (tier || '').toLowerCase().includes('plus') || (tier || '').includes('+')
-      ? 'Pro+'
-      : 'Normal';
-
-    const baseMonthly = tierPrices && tierPrices[tierNormalized] != null
-      ? Number(tierPrices[tierNormalized])
-      : tierPrices && tierPrices[tier] != null
-      ? Number(tierPrices[tier])
-      : Number(plan.price) * this.tierMultiplier(tierNormalized);
+    const baseMonthly = plan.monthlyPrice != null ? Number(plan.monthlyPrice) : Number(plan.price);
 
     if (billing === 'yearly') {
+      if (plan.annualPrice != null) {
+        return Number(plan.annualPrice);
+      }
       return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
     }
     if (billing === 'quarterly') {
+      if (plan.quarterlyPrice != null) {
+        return Number(plan.quarterlyPrice);
+      }
       return Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
     }
     return Math.round(baseMonthly);
@@ -71,23 +65,15 @@ export class PricingService {
     });
 
     return plans.map((p) => {
-      const tierPrices = (p.tierPrices as Record<string, number> | null) ?? null;
-      const baseMonthly = Math.round(Number(p.price));
-      const normalPrice = tierPrices?.Normal != null ? Math.round(tierPrices.Normal) : baseMonthly;
-      const proPrice = tierPrices?.Pro != null ? Math.round(tierPrices.Pro) : Math.round(baseMonthly * 2.5);
-      const proPlusPrice = tierPrices?.['Pro+'] != null ? Math.round(tierPrices['Pro+']) : Math.round(baseMonthly * 5);
+      const baseMonthly = p.monthlyPrice != null ? Math.round(Number(p.monthlyPrice)) : Math.round(Number(p.price));
+      const quarterlyPrice = p.quarterlyPrice != null ? Math.round(Number(p.quarterlyPrice)) : Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
+      const annualPrice = p.annualPrice != null ? Math.round(Number(p.annualPrice)) : Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
 
       const features = Array.isArray(p.features) && p.features.length > 0
         ? p.features
         : Array.isArray(p.permissions) && p.permissions.length > 0
         ? p.permissions
         : ['Core Ecosystem Access'];
-
-      const tierFeatures = (p.tierFeatures as Record<string, string[]> | null) ?? {
-        Normal: ['Base Visibility', 'Standard Access'],
-        Pro: ['Enhanced Visibility', 'Extended Access'],
-        'Pro+': ['Priority Visibility', 'VIP Support'],
-      };
 
       return {
         id: p.name,
@@ -97,13 +83,11 @@ export class PricingService {
         whoItIsFor: p.whoItIsFor || 'Businesses',
         badge: p.badge || (p.name.toLowerCase() === 'gold' ? 'MOST POPULAR' : ''),
         color: p.color || (p.name.toLowerCase() === 'gold' ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-700 bg-gray-50'),
-        price: {
-          Normal: normalPrice,
-          Pro: proPrice,
-          'Pro+': proPlusPrice,
-        },
+        price: baseMonthly,
+        monthlyPrice: baseMonthly,
+        quarterlyPrice,
+        annualPrice,
         features,
-        tierFeatures,
         includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
         billingCycle: p.billingCycle,
         platformAccess: p.platformAccess || [],

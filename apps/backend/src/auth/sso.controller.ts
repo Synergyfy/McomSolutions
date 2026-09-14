@@ -55,7 +55,7 @@ export class SsoController {
 
     if (sessionCookie) {
       try {
-        const payload = await this.ssoService.getUserInfoFromToken(sessionCookie);
+        const payload = await this.ssoService.getUserInfoFromToken(sessionCookie, clientId);
         userId = payload.sub;
       } catch (e) {
         // Cookie invalid or expired
@@ -128,14 +128,19 @@ export class SsoController {
 
   @Get('sso/userinfo')
   @ApiOperation({ summary: 'Fetch user profile using Bearer access token' })
+  @ApiQuery({ name: 'client_id', required: false, description: 'Optional client ID override to resolve appPlan' })
   @ApiOkResponse({ description: 'User profile retrieved successfully' })
-  async getUserInfo(@Req() req: Request) {
+  async getUserInfo(@Req() req: Request, @Query('client_id') clientId?: string) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
       throw new BadRequestException('Bearer access token is required');
     }
     const token = authHeader.substring(7).trim();
-    return this.ssoService.getUserInfoFromToken(token);
+    const explicitClientId =
+      clientId ||
+      (req.headers['x-client-id'] as string) ||
+      (req.headers['x-service-id'] as string);
+    return this.ssoService.getUserInfoFromToken(token, explicitClientId);
   }
 
   // Admin route to list clients
