@@ -11,8 +11,21 @@ export const businessApi = {
     return res.data;
   },
 
-  searchGoogleBusinesses: async (queryText: string, radius: number = 5000) => {
-    const res = await apiClient.get(`/google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${radius}`);
+  searchGoogleBusinesses: async (
+    queryText: string,
+    radius: number = 5,
+    lat?: number | null,
+    lng?: number | null,
+  ) => {
+    const params = new URLSearchParams({
+      queryText,
+      radius: String(radius),
+    });
+    if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+      params.append('lat', String(lat));
+      params.append('lng', String(lng));
+    }
+    const res = await apiClient.get(`/google/google-business?${params.toString()}`);
     return res.data;
   },
 

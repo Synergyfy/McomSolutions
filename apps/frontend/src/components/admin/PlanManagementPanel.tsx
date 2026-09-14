@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers } from 'lucide-react';
+import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import PlanFormModal from './PlanFormModal';
 import {
   useAdminPlans,
   useAdminPackages,
@@ -119,9 +120,19 @@ export default function PlanManagementPanel() {
                     plan.archived ? "opacity-50" : ""
                   )}
                 >
-                  <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h3 className="font-bold text-lg text-gray-900">{plan.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-lg text-gray-900">{plan.name}</h3>
+                        {plan.badge && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[9px] font-extrabold uppercase tracking-wide">
+                            {plan.badge}
+                          </span>
+                        )}
+                      </div>
+                      {plan.whoItIsFor && (
+                        <p className="text-xs font-semibold text-brand-blue mt-0.5">{plan.whoItIsFor}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>
                     </div>
                     <div className="flex gap-1.5">
@@ -151,7 +162,29 @@ export default function PlanManagementPanel() {
                   <div className="flex items-baseline gap-1 mb-3">
                     <span className="text-2xl font-bold text-gray-900">£{plan.price}</span>
                     <span className="text-xs text-gray-400">/{plan.billingCycle.toLowerCase()}</span>
+                    {plan.tierPrices && (
+                      <span className="text-[11px] text-gray-400 ml-2 font-medium">
+                        (Normal £{(plan.tierPrices as any).Normal ?? plan.price} | Pro £{(plan.tierPrices as any).Pro ?? '-'} | Pro+ £{(plan.tierPrices as any)['Pro+'] ?? '-'})
+                      </span>
+                    )}
                   </div>
+
+                  {/* Bundled App Plans */}
+                  {plan.includedApps && plan.includedApps.length > 0 && (
+                    <div className="mb-3 p-2.5 bg-blue-50/60 rounded-xl border border-blue-100">
+                      <div className="text-[10px] font-bold text-brand-blue uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                        <Layers className="w-3 h-3" /> Bundled Platform Plans ({plan.includedApps.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {plan.includedApps.map((app, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-white border border-blue-200 text-gray-800 rounded-lg text-[10px] font-bold shadow-2xs">
+                            <span className="text-brand-blue">{app.platform}:</span> {app.planName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
                     <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Platform Access</div>
                     <div className="flex flex-wrap gap-1.5">
@@ -1351,76 +1384,192 @@ function ExternalPlanFormModal({
   );
 }
 
-function PlanFormModal({ title, initial, onClose, onSave }: any) {
-  const [form, setForm] = useState<any>(initial || { name: '', description: '', price: 0, billingCycle: 'Monthly', platformAccess: [], usageLimits: { rewards: 0, campaigns: 0, stores: 0, spins: 0, audits: 0, expos: 0 }, permissions: [], archived: false });
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white"><h4 className="text-lg font-bold">{title}</h4><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button></div>
-        <div className="p-6 space-y-4">
-          <Field label="Name"><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></Field>
-          <Field label="Description"><textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20 h-20 resize-none" /></Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Price (£)"><input type="number" value={form.price} onChange={e => setForm({ ...form, price: parseInt(e.target.value) || 0 })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></Field>
-            <Field label="Billing Cycle"><select value={form.billingCycle} onChange={e => setForm({ ...form, billingCycle: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20">{['Monthly', 'Quarterly', 'Yearly'].map(o => <option key={o} value={o}>{o}</option>)}</select></Field>
-          </div>
-          <Field label="Platform Access"><MultiSelect options={['Loyalty', 'Mall', 'Rewards', 'Spin', 'Audit', 'Expo']} selected={form.platformAccess} onChange={v => setForm({ ...form, platformAccess: v })} /></Field>
-          <Field label="Permissions"><MultiSelect options={['Basic Dashboard', 'Standard Dashboard', 'Full Dashboard', 'API Access', 'Priority Support', 'Dedicated AM', 'Executive Reports', 'Campaign Access']} selected={form.permissions} onChange={v => setForm({ ...form, permissions: v })} /></Field>
-          <Field label="Usage Limits">
-            <div className="grid grid-cols-3 gap-2">
-              {['rewards', 'campaigns', 'stores', 'spins', 'audits', 'expos'].map(key => (
-                <div key={key} className="bg-gray-50 rounded-xl p-2"><div className="text-[9px] font-bold text-gray-400 uppercase mb-1">{key}</div><input type="number" value={(form.usageLimits as any)[key] || 0} onChange={e => setForm({ ...form, usageLimits: { ...form.usageLimits, [key]: parseInt(e.target.value) || 0 } })} className="w-full bg-transparent border-none focus:ring-0 text-sm font-bold" /></div>
-              ))}
-            </div>
-          </Field>
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-500 hover:bg-gray-100 transition-all">Cancel</button>
-          <button onClick={() => onSave(form)} className="flex-1 py-3 bg-brand-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-glow">{initial ? 'Save' : 'Create'}</button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
 function PackageFormModal({ title, initial, onClose, onSave }: any) {
-  const [form, setForm] = useState<any>(initial || { name: '', platform: 'MCOM Rewards', description: '', price: 0, billingCycle: 'Monthly', features: [], usageLimits: { members: 0, products: 0, orders: 0, spins: 0, prizes: 0, audits: 0, templates: 0, booth: 1, media: 0 }, accessRights: [], archived: false });
+  const [form, setForm] = useState<any>(
+    initial || {
+      name: '',
+      platform: 'MCOM Solutions',
+      description: '',
+      price: 0,
+      monthlyPrice: 0,
+      quarterlyPrice: 0,
+      annualPrice: 0,
+      billingCycle: 'Monthly',
+      features: [],
+      usageLimits: { members: 0, products: 0, orders: 0, spins: 0, prizes: 0, audits: 0, templates: 0, booth: 1, media: 0 },
+      accessRights: [],
+      archived: false,
+    }
+  );
   const [newFeature, setNewFeature] = useState('');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white"><h4 className="text-lg font-bold">{title}</h4><button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button></div>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+      >
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
+          <h4 className="text-lg font-bold">{title}</h4>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
         <div className="p-6 space-y-4">
-          <Field label="Package Name"><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></Field>
+          <Field label="Package Name">
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+            />
+          </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Platform"><select value={form.platform} onChange={e => setForm({ ...form, platform: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20">{['MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'].map(o => <option key={o} value={o}>{o}</option>)}</select></Field>
-            <Field label="Billing Cycle"><select value={form.billingCycle} onChange={e => setForm({ ...form, billingCycle: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20">{['Monthly', 'Quarterly', 'Yearly'].map(o => <option key={o} value={o}>{o}</option>)}</select></Field>
+            <Field label="Platform">
+              <select
+                value={form.platform}
+                onChange={(e) => setForm({ ...form, platform: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              >
+                {['MCOM Solutions', 'MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'].map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Billing Cycle">
+              <select
+                value={form.billingCycle}
+                onChange={(e) => setForm({ ...form, billingCycle: e.target.value })}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              >
+                {['Monthly', 'Quarterly', 'Yearly'].map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
-          <Field label="Description"><textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20 h-16 resize-none" /></Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Price (£)"><input type="number" value={form.price} onChange={e => setForm({ ...form, price: parseInt(e.target.value) || 0 })} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" /></Field>
+          <Field label="Description">
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20 h-16 resize-none"
+            />
+          </Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Monthly (£)">
+              <input
+                type="number"
+                value={form.monthlyPrice ?? form.price ?? 0}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0;
+                  setForm({
+                    ...form,
+                    price: val,
+                    monthlyPrice: val,
+                    quarterlyPrice: form.quarterlyPrice || Math.floor(val * 0.9) * 3,
+                    annualPrice: form.annualPrice || Math.floor(val * 0.8) * 12,
+                  });
+                }}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              />
+            </Field>
+            <Field label="Quarterly (£)">
+              <input
+                type="number"
+                value={form.quarterlyPrice ?? 0}
+                onChange={(e) => setForm({ ...form, quarterlyPrice: parseFloat(e.target.value) || 0 })}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              />
+            </Field>
+            <Field label="Annual (£)">
+              <input
+                type="number"
+                value={form.annualPrice ?? 0}
+                onChange={(e) => setForm({ ...form, annualPrice: parseFloat(e.target.value) || 0 })}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              />
+            </Field>
           </div>
           <Field label="Features">
             <div className="space-y-2">
               {form.features.map((f: string, i: number) => (
                 <div key={`${f}-${i}`} className="flex items-center gap-2">
-                  <input value={f} onChange={e => { const arr = [...form.features]; arr[i] = e.target.value; setForm({ ...form, features: arr }); }} className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
-                  <button onClick={() => setForm({ ...form, features: form.features.filter((_: any, j: number) => j !== i) })} className="p-2 text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                  <input
+                    value={f}
+                    onChange={(e) => {
+                      const arr = [...form.features];
+                      arr[i] = e.target.value;
+                      setForm({ ...form, features: arr });
+                    }}
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  />
+                  <button
+                    onClick={() =>
+                      setForm({ ...form, features: form.features.filter((_: any, j: number) => j !== i) })
+                    }
+                    className="p-2 text-gray-400 hover:text-red-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               ))}
               <div className="flex gap-2">
-                <input value={newFeature} onChange={e => setNewFeature(e.target.value)} placeholder="Add feature..." className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
-                <button onClick={() => { if (newFeature.trim()) { setForm({ ...form, features: [...form.features, newFeature.trim()] }); setNewFeature(''); } }} className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all"><Plus className="w-4 h-4" /></button>
+                <input
+                  value={newFeature}
+                  onChange={(e) => setNewFeature(e.target.value)}
+                  placeholder="Add feature..."
+                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newFeature.trim()) {
+                      setForm({ ...form, features: [...form.features, newFeature.trim()] });
+                      setNewFeature('');
+                    }
+                  }}
+                  className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </Field>
-          <Field label="Access Rights"><MultiSelect options={['Store Admin', 'Marketing Admin', 'Analytics', 'View Analytics', 'Export Data', 'Spin Admin', 'Audit Access', 'Expo Admin']} selected={form.accessRights} onChange={v => setForm({ ...form, accessRights: v })} /></Field>
+          <Field label="Access Rights">
+            <MultiSelect
+              options={[
+                'Store Admin',
+                'Marketing Admin',
+                'Analytics',
+                'View Analytics',
+                'Export Data',
+                'Spin Admin',
+                'Audit Access',
+                'Expo Admin',
+              ]}
+              selected={form.accessRights}
+              onChange={(v: any) => setForm({ ...form, accessRights: v })}
+            />
+          </Field>
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-500 hover:bg-gray-100 transition-all">Cancel</button>
-          <button onClick={() => onSave(form)} className="flex-1 py-3 bg-brand-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-glow">{initial ? 'Save' : 'Create'}</button>
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-500 hover:bg-gray-100 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(form)}
+            className="flex-1 py-3 bg-brand-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-glow"
+          >
+            {initial ? 'Save' : 'Create'}
+          </button>
         </div>
       </motion.div>
     </div>

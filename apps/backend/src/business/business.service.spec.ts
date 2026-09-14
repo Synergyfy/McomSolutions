@@ -128,6 +128,48 @@ describe('BusinessService', () => {
         ServiceUnavailableException,
       );
     });
+
+    it('should include locationBias when lat and lng are provided', async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'GOOGLE_PLACES_API_KEY') return 'test-key';
+        return undefined;
+      });
+      const axios = require('axios');
+      axios.post.mockResolvedValueOnce({
+        data: {
+          places: [
+            {
+              id: 'place-1',
+              displayName: { text: 'Local Cafe' },
+              formattedAddress: '10 High St, London SW1A 1AA',
+              types: ['cafe'],
+              location: { latitude: 51.5, longitude: -0.12 },
+            },
+          ],
+        },
+      });
+
+      const results = await service.searchGoogleBusinesses('Coffee', 5, 51.5, -0.12);
+
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://places.googleapis.com/v1/places:searchText',
+        {
+          textQuery: 'Coffee',
+          locationBias: {
+            circle: {
+              center: {
+                latitude: 51.5,
+                longitude: -0.12,
+              },
+              radius: 5000,
+            },
+          },
+        },
+        expect.any(Object),
+      );
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe('Local Cafe');
+    });
   });
 
   // ─── getGooglePlaceDetails ─────────────────────

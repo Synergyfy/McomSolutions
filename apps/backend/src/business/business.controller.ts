@@ -69,9 +69,13 @@ export class BusinessController {
   async searchGoogleBusinesses(
     @Query('queryText') queryText: string,
     @Query('radius') radius?: string,
+    @Query('lat') lat?: string,
+    @Query('lng') lng?: string,
   ) {
     const rad = radius ? parseFloat(radius) : undefined;
-    return this.businessService.searchGoogleBusinesses(queryText || '', rad);
+    const latitude = lat ? parseFloat(lat) : undefined;
+    const longitude = lng ? parseFloat(lng) : undefined;
+    return this.businessService.searchGoogleBusinesses(queryText || '', rad, latitude, longitude);
   }
 
   @Get('google/google-business/:placeId')

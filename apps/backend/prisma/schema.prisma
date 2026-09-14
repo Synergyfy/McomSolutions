@@ -88,6 +88,7 @@ model BusinessProfile {
   membershipLevel  MembershipLevel   @default(Bronze)
   membershipTier   MembershipTier    @default(Normal)
   membershipStatus MembershipStatus  @default(active)
+  membershipPlanName String?         @map("membership_plan_name")
   apiKey           String?           @unique
   localMallName    String?
   localMallId      String?
@@ -348,22 +349,37 @@ model MembershipPlan {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  // Multi-App Bundle & Dynamic Presentation Extensions
+  includedApps   Json?    @map("included_apps")
+  tierPrices     Json?    @map("tier_prices")
+  tierFeatures   Json?    @map("tier_features")
+  whoItIsFor     String?  @map("who_it_is_for")
+  badge          String?  @map("badge")
+  color          String?  @map("color")
+  features       String[] @default([]) @map("features")
+
   @@map("membership_plans")
 }
 
 model PackageTemplate {
-  id           String   @id @default(cuid())
-  name         String   @map("name")
-  platform     String   @map("platform")
-  description  String   @map("description")
-  price        Float    @map("price")
-  billingCycle String   @map("billing_cycle")
-  features     String[] @map("features")
-  usageLimits  Json     @map("usage_limits")
-  accessRights String[] @map("access_rights")
-  archived     Boolean  @default(false) @map("archived")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  name           String   @map("name")
+  platform       String   @map("platform")
+  description    String   @map("description")
+  price          Float    @map("price")
+  billingCycle   String   @map("billing_cycle")
+  monthlyPrice   Float?   @map("monthly_price")
+  quarterlyPrice Float?   @map("quarterly_price")
+  annualPrice    Float?   @map("annual_price")
+  features       String[] @map("features")
+  usageLimits    Json     @map("usage_limits")
+  accessRights   String[] @map("access_rights")
+  archived       Boolean  @default(false) @map("archived")
+  isDefault      Boolean  @default(false) @map("is_default")
+  type           String?  @default("STANDARD") @map("type")
+  trialDuration  Int?     @map("trial_duration")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("package_templates")
 }

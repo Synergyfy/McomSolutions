@@ -1,4 +1,4 @@
-﻿import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNotEmpty,
@@ -11,6 +11,7 @@ import {
   Min,
   Max,
   IsInt,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -217,6 +218,38 @@ export class CreateAccountManagerDto {
 }
 
 // --- Plan & Package DTOs ---
+export class IncludedAppPlanDto {
+  @ApiProperty({ example: 'MCOM Mall' })
+  @IsString()
+  @IsNotEmpty()
+  platform: string;
+
+  @ApiPropertyOptional({ example: 'mcom-mall' })
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @ApiProperty({ example: 'tier-1' })
+  @IsString()
+  @IsNotEmpty()
+  planId: string;
+
+  @ApiProperty({ example: 'Standard Tier' })
+  @IsString()
+  @IsNotEmpty()
+  planName: string;
+
+  @ApiPropertyOptional({ example: 29.99 })
+  @IsOptional()
+  @IsNumber()
+  standalonePrice?: number;
+
+  @ApiPropertyOptional({ example: { maxProducts: 50 } })
+  @IsOptional()
+  @IsObject()
+  quotas?: Record<string, any>;
+}
+
 export class CreateMembershipPlanDto {
   @ApiProperty({ example: 'Gold' })
   @IsString()
@@ -250,6 +283,44 @@ export class CreateMembershipPlanDto {
   @IsArray()
   @IsString({ each: true })
   permissions: string[];
+
+  @ApiPropertyOptional({ type: [IncludedAppPlanDto], example: [{ platform: 'MCOM Mall', planId: 'tier-1', planName: 'Standard' }] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => IncludedAppPlanDto)
+  includedApps?: IncludedAppPlanDto[];
+
+  @ApiPropertyOptional({ example: { Normal: 350, Pro: 600, 'Pro+': 900 } })
+  @IsOptional()
+  @IsObject()
+  tierPrices?: Record<string, number>;
+
+  @ApiPropertyOptional({ example: { Normal: ['Base Visibility'], Pro: ['Premium Ads'] } })
+  @IsOptional()
+  @IsObject()
+  tierFeatures?: Record<string, string[]>;
+
+  @ApiPropertyOptional({ example: 'FOR SCALING BUSINESSES' })
+  @IsOptional()
+  @IsString()
+  whoItIsFor?: string;
+
+  @ApiPropertyOptional({ example: 'MOST POPULAR' })
+  @IsOptional()
+  @IsString()
+  badge?: string;
+
+  @ApiPropertyOptional({ example: 'orange' })
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['Full Dashboard', 'API Access'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
 }
 
 export class CreatePackageTemplateDto {
@@ -276,6 +347,36 @@ export class CreatePackageTemplateDto {
   @IsString()
   @IsNotEmpty()
   billingCycle: string;
+
+  @ApiPropertyOptional({ example: 99 })
+  @IsOptional()
+  @IsNumber()
+  monthlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 267 })
+  @IsOptional()
+  @IsNumber()
+  quarterlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 950 })
+  @IsOptional()
+  @IsNumber()
+  annualPrice?: number;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @ApiPropertyOptional({ example: 'STANDARD' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 14 })
+  @IsOptional()
+  @IsNumber()
+  trialDuration?: number;
 
   @ApiProperty({ type: [String], example: ['Campaign Builder'] })
   @IsArray()
@@ -1159,6 +1260,42 @@ export class UpdateMembershipPlanDto {
   @IsString({ each: true })
   permissions?: string[];
 
+  @ApiPropertyOptional({ example: [{ platform: 'MCOM Mall', planId: 'tier-1', planName: 'Standard' }] })
+  @IsOptional()
+  @IsArray()
+  includedApps?: any[];
+
+  @ApiPropertyOptional({ example: { Normal: 350, Pro: 600, 'Pro+': 900 } })
+  @IsOptional()
+  @IsObject()
+  tierPrices?: Record<string, number>;
+
+  @ApiPropertyOptional({ example: { Normal: ['Base Visibility'], Pro: ['Premium Ads'] } })
+  @IsOptional()
+  @IsObject()
+  tierFeatures?: Record<string, string[]>;
+
+  @ApiPropertyOptional({ example: 'FOR SCALING BUSINESSES' })
+  @IsOptional()
+  @IsString()
+  whoItIsFor?: string;
+
+  @ApiPropertyOptional({ example: 'MOST POPULAR' })
+  @IsOptional()
+  @IsString()
+  badge?: string;
+
+  @ApiPropertyOptional({ example: 'orange' })
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['Full Dashboard', 'API Access'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
   @ApiPropertyOptional({ example: false })
   @IsOptional()
   @IsBoolean()
@@ -1190,6 +1327,36 @@ export class UpdatePackageTemplateDto {
   @IsOptional()
   @IsString()
   billingCycle?: string;
+
+  @ApiPropertyOptional({ example: 99 })
+  @IsOptional()
+  @IsNumber()
+  monthlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 267 })
+  @IsOptional()
+  @IsNumber()
+  quarterlyPrice?: number;
+
+  @ApiPropertyOptional({ example: 950 })
+  @IsOptional()
+  @IsNumber()
+  annualPrice?: number;
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @ApiPropertyOptional({ example: 'STANDARD' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 14 })
+  @IsOptional()
+  @IsNumber()
+  trialDuration?: number;
 
   @ApiPropertyOptional({ type: [String], example: ['Campaign Builder'] })
   @IsOptional()

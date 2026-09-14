@@ -3,24 +3,36 @@ import { Building2, Zap, Star, Trophy } from 'lucide-react';
 import { usePlans } from '../services/pricing/hooks';
 
 export type SubTier = 'Normal' | 'Pro' | 'Pro+';
-export type Membership = 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+export type Membership = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | string;
+
+export interface IncludedAppPlan {
+  platform: string;
+  clientId?: string;
+  planId: string;
+  planName: string;
+  standalonePrice?: number;
+  quotas?: Record<string, any>;
+}
 
 export interface PricingPlan {
-  id: Membership;
-  name: Membership;
+  id: string;
+  name: string;
   description: string;
   whoItIsFor: string;
-  iconName: 'Building2' | 'Zap' | 'Star' | 'Trophy';
+  badge?: string;
+  iconName: 'Building2' | 'Zap' | 'Star' | 'Trophy' | string;
   color: string;
   price: Record<SubTier, number>;
+  tierPrices?: Record<string, number>;
   features: string[];
   tierFeatures: Record<SubTier, string[]>;
+  includedApps?: IncludedAppPlan[];
 }
 
 interface PricingContextType {
   plans: PricingPlan[];
   loading: boolean;
-  updatePlan: (id: Membership, updates: Partial<PricingPlan>) => void;
+  updatePlan: (id: string, updates: Partial<PricingPlan>) => void;
   resetToDefaults: () => void;
 }
 
@@ -72,22 +84,25 @@ const PLAN_METADATA: Record<string, Partial<PricingPlan>> = {
 const PricingContext = createContext<PricingContextType | undefined>(undefined);
 
 const mapApiPlan = (p: any): PricingPlan => {
-  const key = p.name || p.id;
-  const meta = PLAN_METADATA[key] || {};
+  const name = p.name || p.id;
+  const meta = PLAN_METADATA[name] || {};
   return {
-    id: key,
-    name: key,
+    id: p.id || name,
+    name: name,
     description: p.description || '',
-    whoItIsFor: meta.whoItIsFor || 'Businesses',
+    whoItIsFor: p.whoItIsFor || meta.whoItIsFor || 'Businesses',
+    badge: p.badge || undefined,
     iconName: (meta.iconName as PricingPlan['iconName']) || 'Building2',
-    color: meta.color || 'border-gray-300 text-gray-600 bg-gray-50',
+    color: p.color || meta.color || 'border-gray-300 text-gray-600 bg-gray-50',
     price: {
-      Normal: p.price?.Normal ?? 0,
-      Pro: p.price?.Pro ?? 0,
-      'Pro+': p.price?.['Pro+'] ?? 0,
+      Normal: p.price?.Normal ?? (p.tierPrices?.Normal ?? p.price ?? 0),
+      Pro: p.price?.Pro ?? (p.tierPrices?.Pro ?? 0),
+      'Pro+': p.price?.['Pro+'] ?? (p.tierPrices?.['Pro+'] ?? 0),
     },
+    tierPrices: p.tierPrices || undefined,
     features: Array.isArray(p.features) ? p.features : [],
-    tierFeatures: meta.tierFeatures || { Normal: [], Pro: [], 'Pro+': [] },
+    tierFeatures: p.tierFeatures || meta.tierFeatures || { Normal: [], Pro: [], 'Pro+': [] },
+    includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
   };
 };
 
@@ -104,8 +119,8 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
     }
   }, [apiPlans]);
 
-  const updatePlan = (id: Membership, updates: Partial<PricingPlan>) => {
-    setPlans((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+  const updatePlan = (id: string, updates: Partial<PricingPlan>) => {
+    setPlans((prev) => prev.map((p) => (p.id === id || p.name === id ? { ...p, ...updates } : p)));
   };
 
   const resetToDefaults = () => {

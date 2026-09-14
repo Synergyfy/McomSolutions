@@ -91,6 +91,15 @@ export interface AccountManager {
   status: string
 }
 
+export interface IncludedAppPlan {
+  platform: string
+  clientId?: string
+  planId: string
+  planName: string
+  standalonePrice?: number
+  quotas?: Record<string, any>
+}
+
 export interface MembershipPlan {
   id: string
   name: string
@@ -100,6 +109,13 @@ export interface MembershipPlan {
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]
+  includedApps?: IncludedAppPlan[]
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  whoItIsFor?: string
+  badge?: string
+  color?: string
+  features?: string[]
   archived: boolean
   createdAt?: string
 }
@@ -111,6 +127,12 @@ export interface PackageTemplate {
   description: string
   price: number
   billingCycle: string
+  monthlyPrice?: number
+  quarterlyPrice?: number
+  annualPrice?: number
+  isDefault?: boolean
+  type?: string
+  trialDuration?: number
   features: string[]
   usageLimits: Record<string, number>
   accessRights: string[]
@@ -380,6 +402,13 @@ export interface CreatePlanInput {
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]
+  includedApps?: IncludedAppPlan[]
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  whoItIsFor?: string
+  badge?: string
+  color?: string
+  features?: string[]
 }
 
 export interface UpdatePlanInput extends Partial<CreatePlanInput> {
@@ -392,6 +421,12 @@ export interface CreatePackageInput {
   description: string
   price: number
   billingCycle: string
+  monthlyPrice?: number
+  quarterlyPrice?: number
+  annualPrice?: number
+  isDefault?: boolean
+  type?: string
+  trialDuration?: number
   features: string[]
   usageLimits: Record<string, number>
   accessRights: string[]

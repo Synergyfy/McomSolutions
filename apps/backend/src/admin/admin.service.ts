@@ -944,15 +944,28 @@ export class AdminService {
 
   async createPlan(dto: CreateMembershipPlanDto, adminName?: string) {
     const plan = await this.prisma.$transaction(async (tx) => {
+      const platformAccess = dto.platformAccess && dto.platformAccess.length > 0
+        ? dto.platformAccess
+        : Array.isArray(dto.includedApps)
+        ? Array.from(new Set(dto.includedApps.map((a: any) => a.platform).filter(Boolean)))
+        : [];
+
       const result = await tx.membershipPlan.create({
         data: {
           name: dto.name,
           description: dto.description,
           price: dto.price,
           billingCycle: dto.billingCycle,
-          platformAccess: dto.platformAccess,
-          usageLimits: dto.usageLimits,
-          permissions: dto.permissions,
+          platformAccess,
+          usageLimits: dto.usageLimits || {},
+          permissions: dto.permissions || [],
+          includedApps: (dto.includedApps as unknown as Prisma.InputJsonValue) || [],
+          tierPrices: dto.tierPrices || undefined,
+          tierFeatures: dto.tierFeatures || undefined,
+          whoItIsFor: dto.whoItIsFor || undefined,
+          badge: dto.badge || undefined,
+          color: dto.color || undefined,
+          features: dto.features || [],
           archived: false,
         },
       });
@@ -969,9 +982,18 @@ export class AdminService {
     if (!planExists) throw new NotFoundException('Plan not found');
 
     const plan = await this.prisma.$transaction(async (tx) => {
+      let platformAccess = updates.platformAccess;
+      if (!platformAccess && Array.isArray(updates.includedApps)) {
+        platformAccess = Array.from(new Set(updates.includedApps.map((a: any) => a.platform).filter(Boolean)));
+      }
+
       const result = await tx.membershipPlan.update({
         where: { id },
-        data: updates,
+        data: {
+          ...updates,
+          ...(updates.includedApps ? { includedApps: updates.includedApps as unknown as Prisma.InputJsonValue } : {}),
+          ...(platformAccess ? { platformAccess } : {}),
+        },
       });
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
       return result;
@@ -1007,6 +1029,12 @@ export class AdminService {
           description: dto.description,
           price: dto.price,
           billingCycle: dto.billingCycle,
+          monthlyPrice: dto.monthlyPrice ?? dto.price,
+          quarterlyPrice: dto.quarterlyPrice ?? (dto.price ? Math.floor(dto.price * 0.9 * 3) : null),
+          annualPrice: dto.annualPrice ?? (dto.price ? Math.floor(dto.price * 0.8 * 12) : null),
+          isDefault: dto.isDefault ?? false,
+          type: dto.type ?? 'STANDARD',
+          trialDuration: dto.trialDuration ?? null,
           features: dto.features,
           usageLimits: dto.usageLimits,
           accessRights: dto.accessRights,

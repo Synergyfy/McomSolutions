@@ -8,6 +8,7 @@ import { MembershipLevel, MembershipTier, MembershipStatus } from '@prisma/clien
  * in the `membership_plans` table (admin-editable).
  */
 const TIER_MULTIPLIERS: Record<string, number> = { Normal: 1, Pro: 2.5, 'Pro+': 5 };
+const QUARTERLY_DISCOUNT = 0.1;
 const YEARLY_DISCOUNT = 0.2;
 
 @Injectable()
@@ -18,12 +19,18 @@ export class PricingService {
     return TIER_MULTIPLIERS[tier] ?? 1;
   }
 
-  private async getPlan(level: string) {
+  private async getPlan(levelOrId: string) {
     const plan = await this.prisma.membershipPlan.findFirst({
-      where: { name: level, archived: false },
+      where: {
+        OR: [
+          { id: levelOrId },
+          { name: { equals: levelOrId, mode: 'insensitive' } },
+        ],
+        archived: false,
+      },
     });
     if (!plan) {
-      throw new NotFoundException(`Plan level '${level}' does not exist`);
+      throw new NotFoundException(`Plan '${levelOrId}' does not exist`);
     }
     return plan;
   }
@@ -31,12 +38,28 @@ export class PricingService {
   async resolveMembershipPrice(
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly' = 'monthly',
+    billing: 'monthly' | 'quarterly' | 'yearly' = 'monthly',
   ): Promise<number> {
     const plan = await this.getPlan(level);
-    const baseMonthly = Number(plan.price) * this.tierMultiplier(tier);
+    const tierPrices = (plan.tierPrices as Record<string, number> | null) ?? null;
+
+    const tierNormalized = (tier || '').toLowerCase() === 'pro'
+      ? 'Pro'
+      : (tier || '').toLowerCase().includes('plus') || (tier || '').includes('+')
+      ? 'Pro+'
+      : 'Normal';
+
+    const baseMonthly = tierPrices && tierPrices[tierNormalized] != null
+      ? Number(tierPrices[tierNormalized])
+      : tierPrices && tierPrices[tier] != null
+      ? Number(tierPrices[tier])
+      : Number(plan.price) * this.tierMultiplier(tierNormalized);
+
     if (billing === 'yearly') {
       return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
+    }
+    if (billing === 'quarterly') {
+      return Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
     }
     return Math.round(baseMonthly);
   }
@@ -47,26 +70,52 @@ export class PricingService {
       orderBy: { price: 'asc' },
     });
 
-    return plans.map((p) => ({
-      id: p.name,
-      name: p.name,
-      description: p.description,
-      price: {
-        Normal: Math.round(Number(p.price)),
-        Pro: Math.round(Number(p.price) * 2.5),
-        'Pro+': Math.round(Number(p.price) * 5),
-      },
-      features: p.permissions || [],
-      billingCycle: p.billingCycle,
-      platformAccess: p.platformAccess || [],
-    }));
+    return plans.map((p) => {
+      const tierPrices = (p.tierPrices as Record<string, number> | null) ?? null;
+      const baseMonthly = Math.round(Number(p.price));
+      const normalPrice = tierPrices?.Normal != null ? Math.round(tierPrices.Normal) : baseMonthly;
+      const proPrice = tierPrices?.Pro != null ? Math.round(tierPrices.Pro) : Math.round(baseMonthly * 2.5);
+      const proPlusPrice = tierPrices?.['Pro+'] != null ? Math.round(tierPrices['Pro+']) : Math.round(baseMonthly * 5);
+
+      const features = Array.isArray(p.features) && p.features.length > 0
+        ? p.features
+        : Array.isArray(p.permissions) && p.permissions.length > 0
+        ? p.permissions
+        : ['Core Ecosystem Access'];
+
+      const tierFeatures = (p.tierFeatures as Record<string, string[]> | null) ?? {
+        Normal: ['Base Visibility', 'Standard Access'],
+        Pro: ['Enhanced Visibility', 'Extended Access'],
+        'Pro+': ['Priority Visibility', 'VIP Support'],
+      };
+
+      return {
+        id: p.name,
+        planId: p.id,
+        name: p.name,
+        description: p.description,
+        whoItIsFor: p.whoItIsFor || 'Businesses',
+        badge: p.badge || (p.name.toLowerCase() === 'gold' ? 'MOST POPULAR' : ''),
+        color: p.color || (p.name.toLowerCase() === 'gold' ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-gray-200 text-gray-700 bg-gray-50'),
+        price: {
+          Normal: normalPrice,
+          Pro: proPrice,
+          'Pro+': proPlusPrice,
+        },
+        features,
+        tierFeatures,
+        includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
+        billingCycle: p.billingCycle,
+        platformAccess: p.platformAccess || [],
+      };
+    });
   }
 
   async subscribeMembership(
     businessId: string,
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly' = 'monthly',
+    billing: 'monthly' | 'quarterly' | 'yearly' = 'monthly',
     isTrial = false,
   ) {
     const business = await this.prisma.businessProfile.findUnique({
@@ -77,18 +126,77 @@ export class PricingService {
       throw new NotFoundException('Business profile not found');
     }
 
-    // Validates the plan exists and resolves its real DB-backed price.
+    const plan = await this.getPlan(level);
     const price = isTrial ? 0 : await this.resolveMembershipPrice(level, tier, billing);
 
-    // Update business profile membership
+    const enumLevels = Object.values(MembershipLevel);
+    const validLevel = enumLevels.includes(plan.name as MembershipLevel)
+      ? (plan.name as MembershipLevel)
+      : MembershipLevel.Bronze;
+
+    let validTier: MembershipTier = MembershipTier.Normal;
+    const tLower = (tier || '').toLowerCase().replace('+', 'plus');
+    if (tLower === 'pro') validTier = MembershipTier.Pro;
+    else if (tLower.includes('plus')) validTier = MembershipTier.ProPlus;
+    else if (tLower === 'free') validTier = MembershipTier.Free;
+    else if (tLower === 'normal') validTier = MembershipTier.Normal;
+
     const updated = await this.prisma.businessProfile.update({
       where: { id: businessId },
       data: {
-        membershipLevel: level as MembershipLevel,
-        membershipTier: tier as MembershipTier,
+        membershipLevel: validLevel,
+        membershipPlanName: plan.name,
+        membershipTier: validTier,
         membershipStatus: (isTrial ? 'trial' : 'active') as MembershipStatus,
       },
     });
+
+    // Cross-Platform Multi-App Package Auto-Provisioning
+    const includedApps = Array.isArray(plan.includedApps) ? (plan.includedApps as any[]) : [];
+    const expiresAt = new Date();
+    if (billing === 'yearly') {
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    } else if (billing === 'quarterly') {
+      expiresAt.setMonth(expiresAt.getMonth() + 3);
+    } else {
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+    }
+
+    for (const app of includedApps) {
+      const platformName = app.platform || app.platformName || 'MCOM Solutions';
+      const packageName = app.planName || app.name || 'Standard';
+      const externalPlanId = app.planId || app.id || null;
+      const limits = app.quotas || app.limits || app.usageLimits || {};
+
+      await this.prisma.platformPackage.upsert({
+        where: {
+          businessId_platform: {
+            businessId,
+            platform: platformName,
+          },
+        },
+        create: {
+          businessId,
+          platform: platformName,
+          packageName,
+          externalPlanId,
+          status: 'active',
+          limits,
+          amount: 0,
+          currency: 'GBP',
+          billingCycle: billing,
+          expiresAt,
+        },
+        update: {
+          packageName,
+          externalPlanId,
+          status: 'active',
+          limits,
+          billingCycle: billing,
+          expiresAt,
+        },
+      });
+    }
 
     // Record billing transaction
     await this.prisma.billingTransaction.create({
@@ -96,13 +204,13 @@ export class PricingService {
         businessId,
         amount: price,
         description: isTrial
-          ? `[TRIAL] ${level} ${tier} (${billing}) — free trial started`
-          : `Ecosystem Membership: ${level} ${tier} (${billing})`,
+          ? `[TRIAL] ${plan.name} (${tier}, ${billing}) — free trial started`
+          : `Ecosystem Membership: ${plan.name} (${tier}, ${billing})`,
         status: isTrial ? 'trial' : 'paid',
       },
     });
 
-    return { ...updated, isTrial, billing, price };
+    return { ...updated, isTrial, billing, price, planName: plan.name };
   }
 
   async purchasePackage(businessId: string, platform: string, packageName: string) {

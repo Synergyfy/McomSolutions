@@ -114,6 +114,51 @@ describe('PricingService', () => {
       expect(result.price).toBe(96);
     });
 
+    it('should apply 10% quarterly discount', async () => {
+      const business = { id: 'b1' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ price: 10 });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Bronze', membershipTier: 'Normal', membershipStatus: 'active' });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+
+      const result = await service.subscribeMembership('b1', 'Bronze', 'Normal', 'quarterly', false);
+      // Monthly: 10, Quarterly: Math.floor(10 * 0.9) * 3 = 27
+      expect(result.price).toBe(27);
+    });
+
+    it('should auto-provision bundled platform packages', async () => {
+      const business = { id: 'b1' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'gold-id',
+        name: 'Gold',
+        price: 350,
+        includedApps: [
+          { platform: 'MCOM Solutions', planName: 'MCOM Business Growth', planId: 'mcom-sol-growth' },
+          { platform: 'MCOM Mall', planName: 'Mall Standard', planId: 'mall-std' },
+        ],
+      });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Gold', membershipTier: 'Normal', membershipStatus: 'active' });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+      mockPrisma.platformPackage = { upsert: jest.fn().mockResolvedValue({}) } as any;
+
+      await service.subscribeMembership('b1', 'Gold', 'Normal', 'monthly', false);
+
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Solutions' } },
+          create: expect.objectContaining({ packageName: 'MCOM Business Growth' }),
+        }),
+      );
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Mall' } },
+          create: expect.objectContaining({ packageName: 'Mall Standard' }),
+        }),
+      );
+    });
+
     it('should set trial status for trial subscriptions', async () => {
       const business = { id: 'b1' };
       mockPrisma.businessProfile.findUnique.mockResolvedValue(business);

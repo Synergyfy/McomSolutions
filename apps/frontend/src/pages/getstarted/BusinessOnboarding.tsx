@@ -6,13 +6,14 @@ import {
   ChevronRight, ChevronLeft, Upload, Check,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles,   Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu,   Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut
+  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
 import { businessApi } from '../../services/business';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../../services/auth/hooks';
-import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
+import { usePricing, ICON_MAP, SubTier, PricingPlan } from '../../context/PricingContext';
+import { pricingApi } from '../../services/pricing';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import { cn } from '../../lib/utils';
@@ -645,7 +646,7 @@ function BusinessOnboardingInner() {
       if (redirect) intent.redirect = redirect;
       try {
         localStorage.setItem('mcom_sso_intent', JSON.stringify(intent));
-      } catch {}
+      } catch { }
     }
   }, [searchParams]);
 
@@ -655,7 +656,7 @@ function BusinessOnboardingInner() {
     try {
       const raw = localStorage.getItem('mcom_sso_intent');
       if (raw) savedIntent = JSON.parse(raw);
-    } catch {}
+    } catch { }
 
     const clientId = searchParams.get('client_id') || savedIntent.clientId || null;
     const redirectUri = searchParams.get('redirect_uri') || savedIntent.redirectUri || null;
@@ -667,7 +668,7 @@ function BusinessOnboardingInner() {
     const cleanupIntent = () => {
       try {
         localStorage.removeItem('mcom_sso_intent');
-      } catch {}
+      } catch { }
     };
 
     // Scenario A: Standard OAuth Flow (for registered console apps & external clients)
@@ -709,11 +710,11 @@ function BusinessOnboardingInner() {
         const separator = redirectTarget.includes('?') ? '&' : '?';
         const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
         let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
-        
+
         if (finalRedirectState) {
           targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
         }
-        
+
         cleanupIntent();
         window.location.href = targetUrl;
         return;
@@ -753,7 +754,7 @@ function BusinessOnboardingInner() {
     }
   }, []);
   // ─────────────────────────────────────────────────────────────────────────
-  
+
   const activeQuests = QUESTS;
 
   const WIZARD_STEPS = [
@@ -789,7 +790,7 @@ function BusinessOnboardingInner() {
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
-  
+
 
   // Fail-Safe Edit Form state
   const [googlePhoneInput, setGooglePhoneInput] = useState('');
@@ -836,17 +837,33 @@ function BusinessOnboardingInner() {
     setHasSearched(true);
     try {
       const queryText = `${searchName} ${searchLoc}`.trim();
-      const res = await api.get(`google/google-business?queryText=${encodeURIComponent(queryText)}&radius=${searchRadius}`);
+      const hasUserCoords = typeof geo.latitude === 'number' && typeof geo.longitude === 'number' && !isNaN(geo.latitude) && !isNaN(geo.longitude);
+      const useLocationBias = !searchLoc.trim() && hasUserCoords;
+
+      const params = new URLSearchParams({
+        queryText,
+        radius: String(searchRadius),
+      });
+
+      if (useLocationBias && geo.latitude !== null && geo.longitude !== null) {
+        params.append('lat', String(geo.latitude));
+        params.append('lng', String(geo.longitude));
+        if (!mapCenter) {
+          setMapCenter({ lat: geo.latitude, lng: geo.longitude });
+        }
+      }
+
+      const res = await api.get(`google/google-business?${params.toString()}`);
       const raw = res?.data;
       const list = Array.isArray(raw)
         ? raw
         : Array.isArray(raw?.places)
-        ? raw.places
-        : Array.isArray(raw?.results)
-        ? raw.results
-        : Array.isArray(raw?.businesses)
-        ? raw.businesses
-        : [];
+          ? raw.places
+          : Array.isArray(raw?.results)
+            ? raw.results
+            : Array.isArray(raw?.businesses)
+              ? raw.businesses
+              : [];
 
       const googleApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -862,21 +879,21 @@ function BusinessOnboardingInner() {
         const heroPhotoUrl = p.heroImg || (photoName
           ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${googleApiKey}`
           : photoRef
-          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoRef}&key=${googleApiKey}`
-          : '');
+            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoRef}&key=${googleApiKey}`
+            : '');
 
         const thumbPhotoUrl = p.thumbImg || (photoName
           ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${googleApiKey}`
           : photoRef
-          ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${photoRef}&key=${googleApiKey}`
-          : '');
+            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${photoRef}&key=${googleApiKey}`
+            : '');
 
         const allPhotoUrls = p.allPhotos || (p.photos || []).slice(0, 5).map((ph: any) =>
           ph.name
             ? `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${googleApiKey}`
             : ph.photo_reference
-            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
-            : ''
+              ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${ph.photo_reference}&key=${googleApiKey}`
+              : ''
         ).filter(Boolean);
 
         const weekdayText =
@@ -1196,6 +1213,7 @@ function BusinessOnboardingInner() {
   const [assessmentStep, setAssessmentStep] = useState(0);
   const [planSubTier, setPlanSubTier] = useState<SubTier>('Normal');
   const [planBillingCycle, setPlanBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+  const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
 
   // ─── Platform Plans (from external services) ──────────
   const sourceParam = searchParams.get('source');
@@ -1215,13 +1233,13 @@ function BusinessOnboardingInner() {
     }
   }, [currentUser, platformName]);
 
-  const externalPlans = Array.isArray(externalPlansRes?.data) 
-    ? externalPlansRes.data 
-    : Array.isArray(externalPlansRes) 
-    ? externalPlansRes 
-    : Array.isArray((externalPlansRes as any)?.plans)
-    ? (externalPlansRes as any).plans
-    : [];
+  const externalPlans = Array.isArray(externalPlansRes?.data)
+    ? externalPlansRes.data
+    : Array.isArray(externalPlansRes)
+      ? externalPlansRes
+      : Array.isArray((externalPlansRes as any)?.plans)
+        ? (externalPlansRes as any).plans
+        : [];
   const stripeInitiate = usePlatformStripeInitiate();
   const paypalInitiate = usePlatformPaypalInitiate();
   const [selectedPlatformPlan, setSelectedPlatformPlan] = useState<any>(null);
@@ -1328,13 +1346,13 @@ function BusinessOnboardingInner() {
       setLoadingSuggestions(true);
       try {
         const res = await api.get(`business/search-address?postcode=${encodeURIComponent(formData.postcode)}`);
-        const list = Array.isArray(res?.data) 
-          ? res.data 
-          : Array.isArray(res?.data?.addresses) 
-          ? res.data.addresses 
-          : Array.isArray(res?.data?.suggestions)
-          ? res.data.suggestions
-          : [];
+        const list = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.data?.addresses)
+            ? res.data.addresses
+            : Array.isArray(res?.data?.suggestions)
+              ? res.data.suggestions
+              : [];
         setSuggestions(list);
         setShowSuggestions(list.length > 0);
       } catch (err) {
@@ -1416,7 +1434,7 @@ function BusinessOnboardingInner() {
         if (user?.businessProfile?.id) {
           hasBusinessProfile = true;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (currentUser?.businessProfile?.id || hasBusinessProfile) {
@@ -1514,7 +1532,7 @@ function BusinessOnboardingInner() {
           : `${result.resolvedArea} Borough`;
         setSelectedBorough(key);
       }
-      
+
       // Persist to local storage for the dashboard
       if (result.status === 'active') {
         localStorage.setItem('businessProximityTier', 'high_street');
@@ -1790,30 +1808,30 @@ function BusinessOnboardingInner() {
           status: 'published',
           businessHours: formData.isStandardHours && !formData.is247 && !formData.isCustomHours
             ? [
-                { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00' },
-                { dayOfWeek: 2, openTime: '09:00', closeTime: '17:00' },
-                { dayOfWeek: 3, openTime: '09:00', closeTime: '17:00' },
-                { dayOfWeek: 4, openTime: '09:00', closeTime: '17:00' },
-                { dayOfWeek: 5, openTime: '09:00', closeTime: '17:00' },
-              ]
-            : formData.is247 
+              { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00' },
+              { dayOfWeek: 2, openTime: '09:00', closeTime: '17:00' },
+              { dayOfWeek: 3, openTime: '09:00', closeTime: '17:00' },
+              { dayOfWeek: 4, openTime: '09:00', closeTime: '17:00' },
+              { dayOfWeek: 5, openTime: '09:00', closeTime: '17:00' },
+            ]
+            : formData.is247
               ? [
-                  { dayOfWeek: 1, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 2, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 3, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 4, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 5, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 6, openTime: '00:00', closeTime: '23:59', is24h: true },
-                  { dayOfWeek: 0, openTime: '00:00', closeTime: '23:59', is24h: true },
-                ]
+                { dayOfWeek: 1, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 2, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 3, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 4, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 5, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 6, openTime: '00:00', closeTime: '23:59', is24h: true },
+                { dayOfWeek: 0, openTime: '00:00', closeTime: '23:59', is24h: true },
+              ]
               : formData.isCustomHours
                 ? formData.customHours
-                    .filter(day => day.isOpen)
-                    .map(day => ({
-                      dayOfWeek: day.dayOfWeek,
-                      openTime: day.openTime,
-                      closeTime: day.closeTime,
-                    }))
+                  .filter(day => day.isOpen)
+                  .map(day => ({
+                    dayOfWeek: day.dayOfWeek,
+                    openTime: day.openTime,
+                    closeTime: day.closeTime,
+                  }))
                 : undefined,
         };
 
@@ -1943,22 +1961,22 @@ function BusinessOnboardingInner() {
 
         {/* Main Content */}
         <main className="flex-grow flex flex-col items-center px-4 sm:px-6 py-8 sm:py-12 relative z-10">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
             className="w-full max-w-[500px] flex flex-col space-y-6 sm:space-y-8 bg-white p-6 sm:p-10 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 my-auto"
           >
-            
+
             {/* Hero Illustration/Icon */}
             <div className="flex justify-center mb-2">
               <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center shadow-inner transform rotate-3 hover:rotate-0 transition-transform">
                 <svg className="w-10 h-10" viewBox="0 0 24 24">
-                   <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.87z" />
-                   <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.21v3.15C3.18 21.88 7.39 24 12 24z" />
-                   <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.32V6.53H1.21A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.21 5.37l4.06-3.13z" />
-                   <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.39 0 3.18 2.12 1.21 5.37l4.06 3.15c.95-2.85 3.6-4.96 6.73-4.96z" />
-                 </svg>
+                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.87z" />
+                  <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.21v3.15C3.18 21.88 7.39 24 12 24z" />
+                  <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.32V6.53H1.21A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.21 5.37l4.06-3.13z" />
+                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.39 0 3.18 2.12 1.21 5.37l4.06 3.15c.95-2.85 3.6-4.96 6.73-4.96z" />
+                </svg>
               </div>
             </div>
 
@@ -1974,7 +1992,7 @@ function BusinessOnboardingInner() {
 
             {/* Action Buttons */}
             <div className="flex flex-col space-y-3 pt-2">
-              <button 
+              <button
                 onClick={() => {
                   setShowInitialPrompt(false);
                   setShowBusinessPreviewPage(false);
@@ -1995,7 +2013,7 @@ function BusinessOnboardingInner() {
               >
                 YES, IMPORT FROM GOOGLE
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setShowGoogleCategoryPage(false);
                   setShowFindClaimPage(false);
@@ -2063,7 +2081,7 @@ function BusinessOnboardingInner() {
     let displayItems: { id: string; name: string; icon: React.ReactNode; tag?: string; onClick: () => void }[] = [];
     let pageTitle = 'Categories';
     let showBack = false;
-    let onBack = () => {};
+    let onBack = () => { };
 
     if (activeCategory) {
       // Level 3: Show subcategories within the category
@@ -2177,16 +2195,16 @@ function BusinessOnboardingInner() {
                 value={searchLoc}
                 onChange={(e) => setSearchLoc(e.target.value)}
                 className="block w-full pl-11 pr-10 py-3 bg-white border-none rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-black font-medium shadow-sm"
-                placeholder="Search location..."
+                placeholder={geo.latitude && geo.longitude ? "Search location (or leave empty for near me)..." : "Search location..."}
               />
-              <button 
-                onClick={() => setSearchLoc('')} 
+              <button
+                onClick={() => setSearchLoc('')}
                 className="absolute inset-y-0 right-0 pr-4 flex items-center"
               >
                 <X className="h-5 w-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
-            
+
             {/* Distance Radar / Slider */}
             <div className="flex-[1.5] w-full flex items-center gap-3 bg-white px-4 py-2.5 rounded-xl shadow-sm">
               <Map className="w-5 h-5 text-gray-500" />
@@ -2195,19 +2213,19 @@ function BusinessOnboardingInner() {
                   <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Distance</span>
                   <span className="text-xs font-bold text-gray-900">{searchRadius} km</span>
                 </div>
-                <input 
-                  type="range" 
-                  min="1" 
-                  max="50" 
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
                   value={searchRadius}
                   onChange={(e) => setSearchRadius(Number(e.target.value))}
-                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500" 
+                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
                 />
               </div>
             </div>
 
             {/* Back to Prompt Button */}
-            <button 
+            <button
               onClick={() => {
                 setShowGoogleCategoryPage(false);
                 setGoogleCatDrillSector(null);
@@ -2223,7 +2241,7 @@ function BusinessOnboardingInner() {
 
         {/* Main Content Area */}
         <div className="flex-grow max-w-6xl w-full mx-auto p-4 sm:p-6 md:p-8">
-          
+
           <div className="mb-8 mt-4">
             <div className="flex items-center gap-3 mb-2">
               {showBack && (
@@ -2327,42 +2345,57 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     {/* Mobile Collapse Arrow */}
-                    <button 
-                      onClick={() => setIsSearchHeaderCollapsed(!isSearchHeaderCollapsed)} 
+                    <button
+                      onClick={() => setIsSearchHeaderCollapsed(!isSearchHeaderCollapsed)}
                       className="md:hidden p-2 -mr-2 bg-gray-50 border border-gray-100 rounded-full hover:bg-gray-100 text-gray-400 transition-colors shrink-0 shadow-sm"
                       aria-label="Toggle search fields"
                     >
                       {isSearchHeaderCollapsed ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
                     </button>
                   </div>
-              
+
                   {/* Collapsible Content */}
                   <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isSearchHeaderCollapsed ? 'max-h-0 opacity-0 mb-0' : 'max-h-[400px] opacity-100 mb-2 mt-4 space-y-4'}`}>
                     {/* Multi-input Search Box */}
                     <div className="space-y-2">
                       <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
+                        <input
                           value={searchName}
                           onChange={(e) => setSearchName(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium" 
-                          placeholder="Business name or category" 
-                          type="text" 
+                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium"
+                          placeholder="Business name or category"
+                          type="text"
                         />
                       </div>
                       <div className="relative">
                         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
+                        <input
                           value={searchLoc}
                           onChange={(e) => setSearchLoc(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium" 
-                          placeholder="Borough, postcode, or city" 
-                          type="text" 
+                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium"
+                          placeholder={
+                            geo.latitude && geo.longitude
+                              ? "Borough, postcode, or city (optional — near me)"
+                              : "Borough, postcode, or city"
+                          }
+                          type="text"
                         />
                       </div>
-                      <button 
+                      {!searchLoc.trim() && geo.latitude && geo.longitude ? (
+                        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-emerald-700 bg-emerald-50/80 rounded-lg border border-emerald-200/60 font-medium">
+                          <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Searching near your current location ({searchRadius} km radius)</span>
+                        </div>
+                      ) : !searchLoc.trim() && geo.permissionDenied ? (
+                        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-amber-700 bg-amber-50/80 rounded-lg border border-amber-200/60 font-medium">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Location access denied. Enter a postcode or city.</span>
+                        </div>
+                      ) : null}
+                      <button
                         onClick={handleSearch}
                         className="w-full py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all active:scale-[0.98]"
                       >
@@ -2376,164 +2409,164 @@ function BusinessOnboardingInner() {
                         <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Search Radius</label>
                         <span className="text-xs font-bold text-orange-600">{searchRadius} km</span>
                       </div>
-                      <input 
+                      <input
                         value={searchRadius}
                         onChange={(e) => setSearchRadius(Number(e.target.value))}
-                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500" 
-                        max="50" 
-                        min="1" 
-                        type="range" 
+                        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                        max="50"
+                        min="1"
+                        type="range"
                       />
                     </div>
                   </div>
                 </div>
 
-            {/* View Toggle & Sort (Mobile Friendly) */}
-            <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
-              <span className="text-xs font-bold text-gray-500">
-                {isSearching ? 'Searching...' : `${hasSearched ? searchResults.length : 0} results found nearby`}
-              </span>
-              <div className="flex p-1 bg-gray-200 rounded-lg">
-                <button onClick={() => setMapViewToggle('list')} className={`flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold transition-all ${mapViewToggle === 'list' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500'}`}>
-                   List
-                </button>
-                <button onClick={() => setMapViewToggle('map')} className={`flex md:hidden items-center gap-1 px-3 py-1 rounded-md text-xs font-bold transition-all ${mapViewToggle === 'map' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500'}`}>
-                   Map
-                </button>
-              </div>
-            </div>
+                {/* View Toggle & Sort (Mobile Friendly) */}
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
+                  <span className="text-xs font-bold text-gray-500">
+                    {isSearching ? 'Searching...' : `${hasSearched ? searchResults.length : 0} results found nearby`}
+                  </span>
+                  <div className="flex p-1 bg-gray-200 rounded-lg">
+                    <button onClick={() => setMapViewToggle('list')} className={`flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold transition-all ${mapViewToggle === 'list' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500'}`}>
+                      List
+                    </button>
+                    <button onClick={() => setMapViewToggle('map')} className={`flex md:hidden items-center gap-1 px-3 py-1 rounded-md text-xs font-bold transition-all ${mapViewToggle === 'map' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500'}`}>
+                      Map
+                    </button>
+                  </div>
+                </div>
 
-            {/* Results Scroll Area */}
-            <div className="flex-grow overflow-y-auto p-4 space-y-4">
-              {searchResults.length > 0 ? (
-                searchResults.map((result: any) => {
-                  const placeId = result.place_id || result.placeId || result.googlePlaceId;
-                  const postcode = extractPostcode(result.formatted_address || result.formattedAddress || result.vicinity || '');
-                  const photoRef = result.photos?.[0]?.photo_reference || result.photos?.[0]?.photoReference;
-                  const typeLabel = result.types?.[0] 
-                    ? result.types[0].replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) 
-                    : 'Business';
+                {/* Results Scroll Area */}
+                <div className="flex-grow overflow-y-auto p-4 space-y-4">
+                  {searchResults.length > 0 ? (
+                    searchResults.map((result: any) => {
+                      const placeId = result.place_id || result.placeId || result.googlePlaceId;
+                      const postcode = extractPostcode(result.formatted_address || result.formattedAddress || result.vicinity || '');
+                      const photoRef = result.photos?.[0]?.photo_reference || result.photos?.[0]?.photoReference;
+                      const typeLabel = result.types?.[0]
+                        ? result.types[0].replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                        : 'Business';
 
-                  return (
-                    <div key={placeId} onClick={() => {
-                        if (result.lat && result.lng) setMapCenter({ lat: result.lat, lng: result.lng });
-                        setSelectedPreviewBusiness({
-                          googlePlaceId: placeId,
-                          businessName: result.name,
-                          address: result.formatted_address || '',
-                          type: typeLabel,
-                        });
-                      }} className="group bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 transition-all cursor-pointer">
-                      <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
-                        {result.heroImg ? (
-                          <img className="w-full h-full object-cover" src={result.heroImg} alt={result.name} />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
-                            <Store className="w-8 h-8" />
+                      return (
+                        <div key={placeId} onClick={() => {
+                          if (result.lat && result.lng) setMapCenter({ lat: result.lat, lng: result.lng });
+                          setSelectedPreviewBusiness({
+                            googlePlaceId: placeId,
+                            businessName: result.name,
+                            address: result.formatted_address || '',
+                            type: typeLabel,
+                          });
+                        }} className="group bg-white border border-gray-200 rounded-2xl p-3 flex gap-4 hover:border-orange-400 hover:shadow-lg hover:shadow-orange-500/10 transition-all cursor-pointer">
+                          <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
+                            {result.heroImg ? (
+                              <img className="w-full h-full object-cover" src={result.heroImg} alt={result.name} />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+                                <Store className="w-8 h-8" />
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div className="flex-grow flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start">
-                            <h3 className="font-bold text-gray-900 group-hover:text-orange-600 transition-colors">{result.name}</h3>
-                            <span className="bg-blue-50 text-blue-600 text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-blue-200">Unclaimed</span>
-                          </div>
-                          <div className="flex items-center gap-1 text-gray-500 mt-1 text-xs">
-                            <Star className="w-3.5 h-3.5 text-yellow-500 fill-current" />
-                            <span className="font-bold">{result.rating || '0.0'}</span>
-                            <span className="text-gray-400">• {typeLabel}</span>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1 font-medium">{result.formatted_address || result.vicinity}</p>
-                        </div>
-                        <button onClick={() => {
-                            const placeId = result.place_id || result.placeId;
-                            
-                            setSelectedPreviewBusiness({
-                              googlePlaceId: placeId,
-                              businessName: result.name,
-                              address: result.formatted_address || '',
-                              postcode: postcode || extractPostcode(result.formatted_address || ''),
-                              googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
-                              businessPhone: result.formatted_phone_number || result.international_phone_number || '',
-                              rating: String(result.rating || '4.0'),
-                              reviews: String(result.user_ratings_total || '0'),
-                              type: typeLabel,
-                              website: result.website || '',
-                              hours: result.hours || (result.isOpenNow ? 'Open now' : 'Closed'),
-                              heroImg: result.heroImg || '',
-                              thumbImg: result.thumbImg || '',
-                              allPhotos: result.allPhotos || [],
-                              lat: result.lat,
-                              lng: result.lng,
-                            });
-                            
-                            const mapGoogleCategory = async () => {
-                              try {
-                                const mapRes = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(result.types?.[0] ? `gcid:${result.types[0]}` : '')}`);
-                                if (mapRes.data) {
-                                  setFormData((prev: any) => ({
-                                    ...prev,
-                                    sectorId: mapRes.data.sectorId || '',
-                                    categoryId: mapRes.data.categoryId || '',
-                                    subCategoryId: mapRes.data.subCategoryId || '',
-                                    businessName: result.name,
-                                    address: result.formatted_address || '',
-                                    postcode: postcode || extractPostcode(result.formatted_address || ''),
-                                    businessPhone: result.formatted_phone_number || '',
-                                  }));
+                          <div className="flex-grow flex flex-col justify-between">
+                            <div>
+                              <div className="flex justify-between items-start">
+                                <h3 className="font-bold text-gray-900 group-hover:text-orange-600 transition-colors">{result.name}</h3>
+                                <span className="bg-blue-50 text-blue-600 text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-blue-200">Unclaimed</span>
+                              </div>
+                              <div className="flex items-center gap-1 text-gray-500 mt-1 text-xs">
+                                <Star className="w-3.5 h-3.5 text-yellow-500 fill-current" />
+                                <span className="font-bold">{result.rating || '0.0'}</span>
+                                <span className="text-gray-400">• {typeLabel}</span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1 font-medium">{result.formatted_address || result.vicinity}</p>
+                            </div>
+                            <button onClick={() => {
+                              const placeId = result.place_id || result.placeId;
+
+                              setSelectedPreviewBusiness({
+                                googlePlaceId: placeId,
+                                businessName: result.name,
+                                address: result.formatted_address || '',
+                                postcode: postcode || extractPostcode(result.formatted_address || ''),
+                                googleCategoryId: result.types?.[0] ? `gcid:${result.types[0]}` : 'gcid:unknown_or_generic_category',
+                                businessPhone: result.formatted_phone_number || result.international_phone_number || '',
+                                rating: String(result.rating || '4.0'),
+                                reviews: String(result.user_ratings_total || '0'),
+                                type: typeLabel,
+                                website: result.website || '',
+                                hours: result.hours || (result.isOpenNow ? 'Open now' : 'Closed'),
+                                heroImg: result.heroImg || '',
+                                thumbImg: result.thumbImg || '',
+                                allPhotos: result.allPhotos || [],
+                                lat: result.lat,
+                                lng: result.lng,
+                              });
+
+                              const mapGoogleCategory = async () => {
+                                try {
+                                  const mapRes = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(result.types?.[0] ? `gcid:${result.types[0]}` : '')}`);
+                                  if (mapRes.data) {
+                                    setFormData((prev: any) => ({
+                                      ...prev,
+                                      sectorId: mapRes.data.sectorId || '',
+                                      categoryId: mapRes.data.categoryId || '',
+                                      subCategoryId: mapRes.data.subCategoryId || '',
+                                      businessName: result.name,
+                                      address: result.formatted_address || '',
+                                      postcode: postcode || extractPostcode(result.formatted_address || ''),
+                                      businessPhone: result.formatted_phone_number || '',
+                                    }));
+                                  }
+                                } catch (mapErr) {
+                                  console.error('Failed to map category:', mapErr);
                                 }
-                              } catch (mapErr) {
-                                console.error('Failed to map category:', mapErr);
-                              }
-                            };
-                            mapGoogleCategory();
+                              };
+                              mapGoogleCategory();
 
-                            setShowFindClaimPage(false);
-                            setShowBusinessPreviewPage(true);
-                        }} className="mt-2 text-orange-600 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform self-start">
-                          Claim this business <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
+                              setShowFindClaimPage(false);
+                              setShowBusinessPreviewPage(true);
+                            }} className="mt-2 text-orange-600 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform self-start">
+                              Claim this business <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : searchError ? (
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-600 text-xs font-semibold space-y-2">
+                      <AlertCircle className="w-6 h-6 mx-auto text-red-500" />
+                      <p>{searchError}</p>
+                      <button
+                        onClick={handleSearch}
+                        className="mt-2 px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors"
+                      >
+                        Retry Search
+                      </button>
                     </div>
-                  );
-                })
-              ) : searchError ? (
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-600 text-xs font-semibold space-y-2">
-                  <AlertCircle className="w-6 h-6 mx-auto text-red-500" />
-                  <p>{searchError}</p>
-                  <button
-                    onClick={handleSearch}
-                    className="mt-2 px-4 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors"
-                  >
-                    Retry Search
-                  </button>
-                </div>
-              ) : (
-                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-center text-gray-500 text-xs font-semibold">
-                  {hasSearched
-                    ? 'No businesses found. Try adjusting your search or expanding the radius.'
-                    : 'Search for your business above to begin claiming it.'}
-                </div>
-              )}
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-6 text-center text-gray-500 text-xs font-semibold">
+                      {hasSearched
+                        ? 'No businesses found. Try adjusting your search or expanding the radius.'
+                        : 'Search for your business above to begin claiming it.'}
+                    </div>
+                  )}
 
-              {/* Not seeing your business? */}
-              <div className="mt-8 p-6 bg-orange-50/50 rounded-2xl border border-dashed border-orange-200 text-center">
-                <h4 className="font-bold text-gray-900">Can't find your business?</h4>
-                <p className="text-xs text-gray-500 mt-2 mb-4 font-medium leading-relaxed">If you're new or just moved in, you can create a fresh business listing on our platform.</p>
-                <button onClick={() => {
-                  setShowFindClaimPage(false);
-                  setCurrentStep(0); // Manual flow
-                }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-md active:scale-[0.98]">
-                    Add a New Business
-                </button>
+                  {/* Not seeing your business? */}
+                  <div className="mt-8 p-6 bg-orange-50/50 rounded-2xl border border-dashed border-orange-200 text-center">
+                    <h4 className="font-bold text-gray-900">Can't find your business?</h4>
+                    <p className="text-xs text-gray-500 mt-2 mb-4 font-medium leading-relaxed">If you're new or just moved in, you can create a fresh business listing on our platform.</p>
+                    <button onClick={() => {
+                      setShowFindClaimPage(false);
+                      setCurrentStep(0); // Manual flow
+                    }} className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-md active:scale-[0.98]">
+                      Add a New Business
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-            </div>
             </aside>
-            
+
             {/* Collapse/Expand Toggle Button */}
-            <button 
+            <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               className="hidden md:flex absolute top-[180px] right-0 translate-x-full w-8 h-16 bg-white border border-l-0 border-gray-200 rounded-r-xl shadow-[4px_0_8px_-2px_rgba(0,0,0,0.1)] items-center justify-center text-gray-400 hover:text-orange-600 z-[60] transition-colors cursor-pointer outline-none focus:outline-none"
               aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -2576,7 +2609,7 @@ function BusinessOnboardingInner() {
                 <span className="text-xs font-medium text-amber-800">Location access denied. Enter your location manually or use the search fields.</span>
               </div>
             )}
-            
+
             {/* Overlay Card (Contextual) */}
             <div className="absolute top-16 left-6 w-72 bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-200 shadow-xl hidden lg:block z-30">
               <div className="flex items-center gap-2 mb-2">
@@ -2601,12 +2634,12 @@ function BusinessOnboardingInner() {
             </div>
           </section>
         </main>
-        
+
         {/* Mobile footer navigation */}
         {mapViewToggle === 'map' && (
-           <footer className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white border-t border-gray-200 md:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-             <button onClick={() => setMapViewToggle('list')} className="text-gray-600 font-bold text-sm px-4 py-2 hover:bg-gray-50 rounded-xl">Back to List</button>
-           </footer>
+          <footer className="fixed bottom-0 left-0 w-full z-50 flex justify-between items-center px-4 py-3 bg-white border-t border-gray-200 md:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+            <button onClick={() => setMapViewToggle('list')} className="text-gray-600 font-bold text-sm px-4 py-2 hover:bg-gray-50 rounded-xl">Back to List</button>
+          </footer>
         )}
       </div>
     );
@@ -2621,7 +2654,7 @@ function BusinessOnboardingInner() {
         {/* Hero Section */}
         <div className="relative w-full h-64 overflow-hidden">
           {/* Floating Back Button */}
-          <button 
+          <button
             onClick={() => { setShowBusinessPreviewPage(false); setShowFindClaimPage(true); }}
             className="absolute top-4 left-4 z-30 w-10 h-10 bg-white/80 hover:bg-white text-orange-600 rounded-full flex items-center justify-center shadow-md backdrop-blur-sm active:scale-95 transition-all"
           >
@@ -2645,7 +2678,7 @@ function BusinessOnboardingInner() {
             <span className="text-white/80 text-sm font-bold tracking-wide">{selectedPreviewBusiness.businessName || 'Business'}</span>
           </div>
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-          
+
           {/* Storefront Thumbnail Overlay */}
           <div className="absolute -bottom-6 left-6">
             <div className="w-24 h-24 rounded-xl border-4 border-white overflow-hidden shadow-lg bg-white">
@@ -2722,7 +2755,7 @@ function BusinessOnboardingInner() {
               </div>
             </div>
             <div className="w-full h-px bg-gray-100"></div>
-            
+
             <div className="flex items-start gap-4">
               <Clock className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />
               <div className="flex flex-col">
@@ -2767,15 +2800,15 @@ function BusinessOnboardingInner() {
               <span className="font-bold text-[10px] text-gray-400 tracking-[0.2em] uppercase">Is this your business?</span>
             </div>
             <button onClick={() => {
-                setShowBusinessPreviewPage(false);
-                setShowVerifyOwnershipPage(true);
+              setShowBusinessPreviewPage(false);
+              setShowVerifyOwnershipPage(true);
             }} className="w-full bg-gray-900 hover:bg-black text-white py-4 rounded-xl font-bold text-sm shadow-xl active:scale-95 transition-transform flex items-center justify-center gap-2">
               <span>CLAIM NOW</span>
               <ArrowRight className="w-4 h-4" />
             </button>
             <button onClick={() => {
-                setShowBusinessPreviewPage(false);
-                setShowFindClaimPage(true);
+              setShowBusinessPreviewPage(false);
+              setShowFindClaimPage(true);
             }} className="w-full text-gray-500 hover:text-gray-900 font-bold text-xs py-2 active:opacity-60 transition-colors">
               NOT MY BUSINESS, SEARCH AGAIN
             </button>
@@ -2794,7 +2827,7 @@ function BusinessOnboardingInner() {
         <main className="flex-grow flex flex-col px-6 pt-4 md:pt-8 max-w-xl mx-auto w-full">
           {/* Back button */}
           <div className="flex justify-start mb-6">
-            <button 
+            <button
               onClick={() => { setShowVerifyOwnershipPage(false); setShowBusinessPreviewPage(true); }}
               className="flex items-center gap-1.5 text-sm font-bold text-orange-600 hover:text-orange-700 active:scale-95 transition-all"
             >
@@ -2838,13 +2871,13 @@ function BusinessOnboardingInner() {
                 <p className="text-xs text-gray-500 font-medium mt-0.5">
                   {selectedPreviewBusiness.website
                     ? `to owner@${(() => {
-                        try {
-                          const url = selectedPreviewBusiness.website.startsWith('http') ? selectedPreviewBusiness.website : `https://${selectedPreviewBusiness.website}`;
-                          return new URL(url).hostname.replace('www.', '');
-                        } catch {
-                          return 'business.com';
-                        }
-                      })()}`
+                      try {
+                        const url = selectedPreviewBusiness.website.startsWith('http') ? selectedPreviewBusiness.website : `https://${selectedPreviewBusiness.website}`;
+                        return new URL(url).hostname.replace('www.', '');
+                      } catch {
+                        return 'business.com';
+                      }
+                    })()}`
                     : 'Send a verification code to your registered email'}
                 </p>
               </div>
@@ -2966,7 +2999,7 @@ function BusinessOnboardingInner() {
         <main className="flex-1 flex flex-col px-6 pt-8 pb-10 max-w-xl mx-auto w-full">
           {/* Back button */}
           <div className="flex justify-start mb-6">
-            <button 
+            <button
               onClick={() => { setShowConnectGooglePage(false); setShowVerifyOwnershipPage(true); }}
               className="flex items-center gap-1.5 text-sm font-bold text-orange-600 hover:text-orange-700 active:scale-95 transition-all"
             >
@@ -2983,7 +3016,7 @@ function BusinessOnboardingInner() {
           <div className="flex-1 flex items-center justify-center py-8">
             <div className="relative group">
               <div className="absolute inset-0 bg-orange-500 opacity-5 blur-3xl rounded-full transform group-hover:scale-110 transition-transform duration-1000"></div>
-              
+
               <div className="relative w-32 h-32 md:w-40 md:h-40 bg-white rounded-3xl shadow-sm border border-gray-100 flex items-center justify-center transform hover:rotate-3 transition-transform duration-300">
                 <div className="grid grid-cols-2 gap-2 p-6">
                   <div className="w-6 h-6 md:w-8 md:h-8 bg-[#4285F4] rounded-sm"></div>
@@ -2992,7 +3025,7 @@ function BusinessOnboardingInner() {
                   <div className="w-6 h-6 md:w-8 md:h-8 bg-[#34A853] rounded-sm"></div>
                 </div>
               </div>
-              
+
               <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center shadow-md animate-bounce border border-orange-200">
                 <RefreshCw className="w-5 h-5 text-orange-600" />
               </div>
@@ -3112,7 +3145,7 @@ function BusinessOnboardingInner() {
             <h1 className="text-xl font-black text-orange-600 tracking-tight">MCOMMALL</h1>
           </div>
           <div className="flex items-center text-xs font-bold text-gray-400 uppercase tracking-widest pr-2">
-             Step 9 of 12
+            Step 9 of 12
           </div>
         </header>
 
@@ -3157,7 +3190,7 @@ function BusinessOnboardingInner() {
                     <h3 className="text-lg font-bold text-orange-600">Birmingham High Street Mall</h3>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
                     <p className="text-xs font-bold text-gray-400 mb-1">Borough</p>
@@ -3168,7 +3201,7 @@ function BusinessOnboardingInner() {
                     <p className="font-bold text-gray-900 text-sm">Birmingham High St</p>
                   </div>
                 </div>
-                
+
                 <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 flex items-center gap-3">
                   <CheckCircle2 className="text-orange-600 w-5 h-5 shrink-0" />
                   <p className="text-sm text-orange-800 font-bold">You are joining: Birmingham High Street Mall</p>
@@ -3220,13 +3253,13 @@ function BusinessOnboardingInner() {
             </div>
             {/* Action Buttons */}
             <div className="flex items-center justify-between gap-4">
-              <button 
+              <button
                 onClick={() => { setShowLocalNetworkPage(false); setShowBoroughBrowser(true); }}
                 className="px-6 py-3.5 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 transition-colors active:scale-95 text-sm"
               >
                 Back
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setShowLocalNetworkPage(false);
                   setShowMembershipRoutingPage(true);
@@ -3285,7 +3318,7 @@ function BusinessOnboardingInner() {
             {/* Routing Cards */}
             <div className="space-y-4">
               {/* Path A: Already a Member */}
-              <button 
+              <button
                 onClick={() => { setShowMembershipRoutingPage(false); setShowLinkAccountPage(true); }}
                 className="w-full group relative overflow-hidden bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-200 active:scale-[0.98] text-left"
               >
@@ -3305,7 +3338,7 @@ function BusinessOnboardingInner() {
               </button>
 
               {/* Path B: Select a Plan */}
-              <button 
+              <button
                 onClick={() => { setShowMembershipRoutingPage(false); setShowMembershipSelectionPage(true); }}
                 className="w-full group relative overflow-hidden bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-200 active:scale-[0.98] text-left"
               >
@@ -3379,7 +3412,7 @@ function BusinessOnboardingInner() {
           {/* Visual Hero Element */}
           <div className="w-full aspect-[16/9] mb-8 rounded-2xl overflow-hidden shadow-sm border border-gray-200 relative bg-gradient-to-tr from-slate-900 to-slate-800 p-6 flex flex-col justify-between">
             <div className="absolute inset-0 bg-gradient-to-t from-orange-600/10 to-transparent z-10 pointer-events-none"></div>
-            
+
             {/* Custom Premium Merchant UI Mockup */}
             <div className="flex justify-between items-start z-10 w-full">
               <div className="space-y-1">
@@ -3388,7 +3421,7 @@ function BusinessOnboardingInner() {
               </div>
               <div className="w-6 h-6 rounded-full bg-white/15"></div>
             </div>
-            
+
             <div className="flex gap-4 z-10 w-full">
               <div className="flex-grow h-20 bg-white/5 rounded-xl border border-white/10 p-3 flex flex-col justify-between">
                 <div className="w-10 h-2.5 bg-white/15 rounded"></div>
@@ -3412,11 +3445,11 @@ function BusinessOnboardingInner() {
             <div>
               <label className="block text-xs font-bold text-gray-900 mb-2 ml-1" htmlFor="member_id">Member Unique ID / Code</label>
               <div className="relative group">
-                <input 
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all placeholder:text-gray-400" 
-                  id="member_id" 
-                  placeholder="e.g. MCOM-12345" 
-                  type="text" 
+                <input
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all placeholder:text-gray-400"
+                  id="member_id"
+                  placeholder="e.g. MCOM-12345"
+                  type="text"
                 />
                 <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity">
                   <Fingerprint className="w-5 h-5 text-orange-600" />
@@ -3434,13 +3467,13 @@ function BusinessOnboardingInner() {
 
           {/* Action Buttons */}
           <div className="w-full mt-8 space-y-4">
-            <button 
+            <button
               onClick={() => { setShowLinkAccountPage(false); setShowQuickSetupPage(true); }}
               className="w-full bg-gray-900 text-white h-14 rounded-xl font-bold text-sm hover:bg-black transition-colors shadow-md active:scale-95 duration-100"
             >
               Verify &amp; Continue
             </button>
-            <button 
+            <button
               onClick={() => { setShowLinkAccountPage(false); setShowMembershipRoutingPage(true); }}
               className="w-full bg-transparent text-gray-500 h-14 rounded-xl font-bold text-sm hover:bg-gray-100 transition-colors active:scale-95 duration-100"
             >
@@ -3500,7 +3533,7 @@ function BusinessOnboardingInner() {
                 <h3 className="text-2xl font-black mt-3 mb-1">PAY-AS-YOU-GO</h3>
                 <p className="text-xs text-gray-500 font-medium">Basic Access to MCOM Ecosystem – Limited to services in the purchased seasonal package.</p>
               </div>
-              
+
               <div className="mb-6 flex items-baseline gap-1">
                 <span className="text-3xl font-black text-gray-900">Custom</span>
                 <span className="text-xs text-gray-500 font-medium">/ season</span>
@@ -3521,7 +3554,7 @@ function BusinessOnboardingInner() {
                   </li>
                 ))}
               </ul>
-              <button 
+              <button
                 onClick={() => { setSelectedPlan('payg'); setShowMembershipSelectionPage(false); setShowQuickSetupPage(true); }}
                 className="w-full py-4 bg-gray-100 text-gray-900 hover:bg-gray-200 rounded-xl font-bold text-sm transition-all active:scale-95"
               >
@@ -3540,19 +3573,19 @@ function BusinessOnboardingInner() {
 
               {/* Internal Tabs */}
               <div className="bg-gray-100 p-1 rounded-lg flex mb-4">
-                <button 
+                <button
                   className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-md transition-all ${cobrandedTab === 'standard' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
                   onClick={() => setCobrandedTab('standard')}
                 >
                   Standard
                 </button>
-                <button 
+                <button
                   className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-md transition-all ${cobrandedTab === 'pro' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
                   onClick={() => setCobrandedTab('pro')}
                 >
                   Pro
                 </button>
-                <button 
+                <button
                   className={`flex-1 py-1.5 px-2 text-xs font-bold rounded-md transition-all ${cobrandedTab === 'plus' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
                   onClick={() => setCobrandedTab('plus')}
                 >
@@ -3589,7 +3622,7 @@ function BusinessOnboardingInner() {
                   </li>
                 ))}
               </ul>
-              <button 
+              <button
                 onClick={() => { setSelectedPlan(cobrandedTab); setShowMembershipSelectionPage(false); setShowQuickSetupPage(true); }}
                 className="w-full py-4 bg-orange-600 text-white hover:bg-orange-700 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2"
               >
@@ -3597,7 +3630,7 @@ function BusinessOnboardingInner() {
               </button>
             </div>
           </div>
-          
+
           <div className="mt-12 flex flex-col items-center gap-4">
             <button className="text-xs font-bold text-gray-400 uppercase tracking-widest hover:text-orange-600 transition-colors">
               Save and Exit
@@ -3618,10 +3651,10 @@ function BusinessOnboardingInner() {
         setTimeout(() => setTermsError(false), 500);
         return;
       }
-      
+
       setIsSubmitting(true);
       setSubmitError(null);
-      
+
       try {
         const serializeOpeningHours = () => {
           if (formData.is247) return 'Open 24/7';
@@ -3671,7 +3704,7 @@ function BusinessOnboardingInner() {
         if (auth?.accessToken) {
           localStorage.setItem('auth_token', auth.accessToken);
           localStorage.setItem('business_user', JSON.stringify(user));
-          
+
           // Set shared cookies for localhost ports SSO
           setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
         }
@@ -3899,9 +3932,9 @@ function BusinessOnboardingInner() {
 
           {/* Terms Agreement */}
           <div className={`flex items-start gap-3 p-5 bg-white/50 border rounded-2xl transition-all duration-300 ${termsError ? 'border-red-500 bg-red-50/50 animate-shake' : 'border-gray-200'}`}>
-            <input 
-              className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 cursor-pointer" 
-              id="terms" 
+            <input
+              className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 cursor-pointer"
+              id="terms"
               type="checkbox"
               checked={termsAccepted}
               onChange={(e) => setTermsAccepted(e.target.checked)}
@@ -3915,7 +3948,7 @@ function BusinessOnboardingInner() {
         {/* Bottom Action Bar (Fixed) */}
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/90 backdrop-blur-md border-t border-gray-100 flex flex-col gap-3 z-40">
           <div className="max-w-[800px] mx-auto w-full flex flex-col md:flex-row-reverse gap-3">
-            <button 
+            <button
               onClick={handleConfirm}
               className="w-full md:w-2/3 bg-orange-600 text-white font-black py-4 rounded-xl shadow-lg shadow-orange-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 hover:bg-orange-700"
             >
@@ -3931,19 +3964,19 @@ function BusinessOnboardingInner() {
         {/* Success Feedback Overlay */}
         <AnimatePresence>
           {storefrontLive && (
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
             >
-              <motion.div 
+              <motion.div
                 initial={{ scale: 0.9, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 transition={{ type: 'spring', damping: 20, stiffness: 300 }}
                 className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden"
               >
                 <div className="absolute top-0 left-0 w-full h-2 bg-green-500"></div>
-                <motion.div 
+                <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ delay: 0.2, type: 'spring', bounce: 0.5 }}
@@ -3953,7 +3986,7 @@ function BusinessOnboardingInner() {
                 </motion.div>
                 <h2 className="text-3xl font-black text-gray-900 mb-2">Storefront Live!</h2>
                 <p className="text-base font-medium text-gray-500 mb-8 leading-relaxed">Congratulations, your business is now visible to the local community.</p>
-                <button 
+                <button
                   onClick={async () => {
                     await performSSORedirect('/dashboard');
                   }}
@@ -3966,7 +3999,8 @@ function BusinessOnboardingInner() {
           )}
         </AnimatePresence>
 
-        <style dangerouslySetInnerHTML={{__html: `
+        <style dangerouslySetInnerHTML={{
+          __html: `
           @keyframes shake {
             0%, 100% { transform: translateX(0); }
             25% { transform: translateX(-5px); }
@@ -4165,7 +4199,7 @@ function BusinessOnboardingInner() {
 
             {/* Action Buttons */}
             <div className="flex flex-col-reverse md:flex-row items-center justify-between gap-4 mt-8">
-              <button 
+              <button
                 onClick={() => { setShowQuickSetupPage(false); setShowMembershipRoutingPage(true); }}
                 className="w-full md:w-auto px-10 py-3.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-sm hover:bg-gray-50 transition-all active:scale-95"
               >
@@ -4175,7 +4209,7 @@ function BusinessOnboardingInner() {
                 <button className="hidden md:block px-6 py-3 rounded-full text-gray-500 font-bold text-xs uppercase tracking-widest hover:text-orange-600 transition-colors">
                   Save and Exit
                 </button>
-                <button 
+                <button
                   onClick={() => { setShowQuickSetupPage(false); setShowReviewStorefrontPage(true); }}
                   className="w-full md:w-auto px-10 py-3.5 rounded-xl bg-gray-900 text-white font-bold text-sm shadow-md hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
@@ -4193,15 +4227,15 @@ function BusinessOnboardingInner() {
         {/* Premium Upgrade Modal Overlay */}
         <AnimatePresence>
           {lockedFeatureAttempt && (
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm px-4"
             >
-              <motion.div 
-                initial={{ scale: 0.95, opacity: 0, y: 20 }} 
-                animate={{ scale: 1, opacity: 1, y: 0 }} 
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
                 className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl relative overflow-hidden"
               >
@@ -4216,7 +4250,7 @@ function BusinessOnboardingInner() {
                   This is a premium feature. Subscribe to a Co-Branded or PAYG plan to enable {lockedFeatureAttempt} for your storefront.
                 </p>
                 <div className="flex flex-col gap-3">
-                  <button 
+                  <button
                     onClick={() => {
                       setLockedFeatureAttempt(null);
                       setShowQuickSetupPage(false);
@@ -4226,7 +4260,7 @@ function BusinessOnboardingInner() {
                   >
                     View Plans
                   </button>
-                  <button 
+                  <button
                     onClick={() => setLockedFeatureAttempt(null)}
                     className="w-full py-4 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm hover:bg-gray-200 transition-all active:scale-95"
                   >
@@ -4392,293 +4426,293 @@ function BusinessOnboardingInner() {
                   </button>
                 </div>
               </div>
-            <div className="text-center max-w-3xl mx-auto mb-12">
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
-                  <Crown className="w-4 h-4" />
-                  {platformName} Plans
-                </div>
-                <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
-                  Select Your <span className="text-orange-600">{platformName}</span> Plan
-                </h1>
-                <p className="text-base sm:text-lg text-gray-600 font-medium">
-                  Choose a plan to activate your {platformName} platform access.
-                </p>
-              </motion.div>
+              <div className="text-center max-w-3xl mx-auto mb-12">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
+                    <Crown className="w-4 h-4" />
+                    {platformName} Plans
+                  </div>
+                  <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
+                    Select Your <span className="text-orange-600">{platformName}</span> Plan
+                  </h1>
+                  <p className="text-base sm:text-lg text-gray-600 font-medium">
+                    Choose a plan to activate your {platformName} platform access.
+                  </p>
+                </motion.div>
 
-              {/* Billing Cycle Toggle */}
-              <div className="mt-8 flex justify-center">
-                <div className="flex p-1 bg-gray-100 rounded-full">
-                  {(['quarterly', 'yearly'] as const).map((cycle) => (
-                    <button
-                      key={cycle}
-                      onClick={() => setPlanBillingCycle(cycle)}
-                      className={cn(
-                        "px-6 md:px-8 py-3 rounded-full text-sm font-semibold transition-all",
-                        planBillingCycle === cycle ? "bg-white text-orange-600 shadow-lg" : "text-gray-500 hover:text-gray-700"
-                      )}
-                    >
-                      {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
-                      {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
-                      {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Loading State */}
-            {isLoadingPlans && (
-              <div className="flex flex-col items-center justify-center py-20">
-                <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mb-4" />
-                <p className="text-gray-500 font-medium">Loading {platformName} plans...</p>
-              </div>
-            )}
-
-            {/* External Plan Cards */}
-            {!isLoadingPlans && externalPlans.length > 0 && (
-              <div className={cn(
-                "grid gap-6 mb-12",
-                externalPlans.length <= 2 ? "sm:grid-cols-2 max-w-4xl mx-auto" :
-                externalPlans.length === 3 ? "sm:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto" :
-                "sm:grid-cols-2 lg:grid-cols-4"
-              )}>
-                {externalPlans.map((plan, index) => {
-                  const isDefault = plan.isDefault;
-                  const colorClass = PLAN_COLORS[index % PLAN_COLORS.length];
-                  const PlanIcon = PLAN_ICONS[index % PLAN_ICONS.length];
-
-                  // Determine price based on billing cycle
-                  let displayPrice: number | null = null;
-                  if (planBillingCycle === 'quarterly' && plan.quarterlyPrice) {
-                    displayPrice = plan.quarterlyPrice;
-                  } else if (planBillingCycle === 'yearly' && plan.annualPrice) {
-                    displayPrice = plan.annualPrice;
-                  } else if (plan.monthlyPrice) {
-                    displayPrice = plan.monthlyPrice;
-                  }
-
-                  const isTrial = plan.type === 'TRIAL';
-
-                  return (
-                    <motion.div
-                      key={plan.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      className={cn(
-                        "relative p-6 md:p-8 rounded-3xl flex flex-col transition-all duration-300",
-                        isDefault
-                          ? "bg-orange-500 text-white shadow-2xl shadow-orange-500/30 scale-[1.02] md:scale-105 z-10"
-                          : "bg-white border border-gray-100 hover:border-orange-200 hover:shadow-xl"
-                      )}
-                    >
-                      {isDefault && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
-                          <Star className="w-3 h-3 fill-current" /> RECOMMENDED
-                        </div>
-                      )}
-
-                      <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4",
-                        isDefault ? "bg-white/20" : `bg-gradient-to-br ${colorClass} text-white`
-                      )}>
-                        <PlanIcon className="w-6 h-6" />
-                      </div>
-
-                      <h3 className={cn("text-xl font-bold mb-1",
-                        isDefault ? "text-white" : "text-gray-900"
-                      )}>
-                        {plan.name}
-                      </h3>
-
-                      {plan.description && (
-                        <p className={cn("text-sm mb-4 leading-relaxed",
-                          isDefault ? "text-orange-100" : "text-gray-500"
-                        )}>
-                          {plan.description}
-                        </p>
-                      )}
-
-                      <div className="mb-6">
-                        {isTrial ? (
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">Free</span>
-                            {plan.trialDuration && (
-                              <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
-                                {plan.trialDuration} days trial
-                              </span>
-                            )}
-                          </div>
-                        ) : displayPrice ? (
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">£{displayPrice}</span>
-                            <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
-                              /{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
-                            Contact for pricing
-                          </span>
+                {/* Billing Cycle Toggle */}
+                <div className="mt-8 flex justify-center">
+                  <div className="flex p-1 bg-gray-100 rounded-full">
+                    {(['quarterly', 'yearly'] as const).map((cycle) => (
+                      <button
+                        key={cycle}
+                        onClick={() => setPlanBillingCycle(cycle)}
+                        className={cn(
+                          "px-6 md:px-8 py-3 rounded-full text-sm font-semibold transition-all",
+                          planBillingCycle === cycle ? "bg-white text-orange-600 shadow-lg" : "text-gray-500 hover:text-gray-700"
                         )}
-                      </div>
+                      >
+                        {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
+                        {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
+                        {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-                      {/* Features */}
-                      {Array.isArray(plan?.features) && plan.features.length > 0 && (
-                        <div className="space-y-2 mb-8 flex-1">
-                          <div className={cn("text-xs font-bold uppercase tracking-widest mb-3",
-                            isDefault ? "text-orange-200/60" : "text-gray-400"
-                          )}>Included</div>
-                          {plan.features.map((f, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <Check className={cn("w-4 h-4 shrink-0", isDefault ? "text-orange-300" : "text-orange-500")} />
-                              <span className={cn("text-sm", isDefault ? "text-white" : "text-gray-700")}>{f}</span>
-                            </div>
-                          ))}
+              {/* Loading State */}
+              {isLoadingPlans && (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mb-4" />
+                  <p className="text-gray-500 font-medium">Loading {platformName} plans...</p>
+                </div>
+              )}
+
+              {/* External Plan Cards */}
+              {!isLoadingPlans && externalPlans.length > 0 && (
+                <div className={cn(
+                  "grid gap-6 mb-12",
+                  externalPlans.length <= 2 ? "sm:grid-cols-2 max-w-4xl mx-auto" :
+                    externalPlans.length === 3 ? "sm:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto" :
+                      "sm:grid-cols-2 lg:grid-cols-4"
+                )}>
+                  {externalPlans.map((plan, index) => {
+                    const isDefault = plan.isDefault;
+                    const colorClass = PLAN_COLORS[index % PLAN_COLORS.length];
+                    const PlanIcon = PLAN_ICONS[index % PLAN_ICONS.length];
+
+                    // Determine price based on billing cycle
+                    let displayPrice: number | null = null;
+                    if (planBillingCycle === 'quarterly' && plan.quarterlyPrice) {
+                      displayPrice = plan.quarterlyPrice;
+                    } else if (planBillingCycle === 'yearly' && plan.annualPrice) {
+                      displayPrice = plan.annualPrice;
+                    } else if (plan.monthlyPrice) {
+                      displayPrice = plan.monthlyPrice;
+                    }
+
+                    const isTrial = plan.type === 'TRIAL';
+
+                    return (
+                      <motion.div
+                        key={plan.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className={cn(
+                          "relative p-6 md:p-8 rounded-3xl flex flex-col transition-all duration-300",
+                          isDefault
+                            ? "bg-orange-500 text-white shadow-2xl shadow-orange-500/30 scale-[1.02] md:scale-105 z-10"
+                            : "bg-white border border-gray-100 hover:border-orange-200 hover:shadow-xl"
+                        )}
+                      >
+                        {isDefault && (
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
+                            <Star className="w-3 h-3 fill-current" /> RECOMMENDED
+                          </div>
+                        )}
+
+                        <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4",
+                          isDefault ? "bg-white/20" : `bg-gradient-to-br ${colorClass} text-white`
+                        )}>
+                          <PlanIcon className="w-6 h-6" />
                         </div>
-                      )}
 
-                      {/* Payment Buttons */}
-                      <div className="space-y-2">
-                        {isTrial ? (
-                          <button
-                            onClick={() => handlePlatformPlanSelect(plan, 'stripe')}
-                            disabled={isProcessingPayment}
-                            className={cn(
-                              "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95",
-                              isDefault
-                                ? "bg-white text-orange-600 hover:bg-orange-50"
-                                : "bg-orange-500 text-white hover:bg-orange-600",
-                              isProcessingPayment && "opacity-50 cursor-not-allowed"
-                            )}
-                          >
-                            {isProcessingPayment ? (
-                              <span className="flex items-center justify-center gap-2">
-                                <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                        <h3 className={cn("text-xl font-bold mb-1",
+                          isDefault ? "text-white" : "text-gray-900"
+                        )}>
+                          {plan.name}
+                        </h3>
+
+                        {plan.description && (
+                          <p className={cn("text-sm mb-4 leading-relaxed",
+                            isDefault ? "text-orange-100" : "text-gray-500"
+                          )}>
+                            {plan.description}
+                          </p>
+                        )}
+
+                        <div className="mb-6">
+                          {isTrial ? (
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-3xl font-bold">Free</span>
+                              {plan.trialDuration && (
+                                <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                                  {plan.trialDuration} days trial
+                                </span>
+                              )}
+                            </div>
+                          ) : displayPrice ? (
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-3xl font-bold">£{displayPrice}</span>
+                              <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                                /{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
                               </span>
-                            ) : (
-                              'Start Free Trial'
-                            )}
-                          </button>
-                        ) : (
-                          <>
+                            </div>
+                          ) : (
+                            <span className={cn("text-sm", isDefault ? "text-orange-200" : "text-gray-400")}>
+                              Contact for pricing
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Features */}
+                        {Array.isArray(plan?.features) && plan.features.length > 0 && (
+                          <div className="space-y-2 mb-8 flex-1">
+                            <div className={cn("text-xs font-bold uppercase tracking-widest mb-3",
+                              isDefault ? "text-orange-200/60" : "text-gray-400"
+                            )}>Included</div>
+                            {plan.features.map((f, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <Check className={cn("w-4 h-4 shrink-0", isDefault ? "text-orange-300" : "text-orange-500")} />
+                                <span className={cn("text-sm", isDefault ? "text-white" : "text-gray-700")}>{f}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Payment Buttons */}
+                        <div className="space-y-2">
+                          {isTrial ? (
                             <button
                               onClick={() => handlePlatformPlanSelect(plan, 'stripe')}
                               disabled={isProcessingPayment}
                               className={cn(
-                                "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+                                "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95",
                                 isDefault
                                   ? "bg-white text-orange-600 hover:bg-orange-50"
                                   : "bg-orange-500 text-white hover:bg-orange-600",
                                 isProcessingPayment && "opacity-50 cursor-not-allowed"
                               )}
                             >
-                              {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
-                                <span className="flex items-center gap-2">
+                              {isProcessingPayment ? (
+                                <span className="flex items-center justify-center gap-2">
                                   <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
                                 </span>
                               ) : (
-                                <>
-                                  <CreditCard className="w-4 h-4" /> Pay with Card
-                                </>
+                                'Start Free Trial'
                               )}
                             </button>
-                            <button
-                              onClick={() => handlePlatformPlanSelect(plan, 'paypal')}
-                              disabled={isProcessingPayment}
-                              className={cn(
-                                "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
-                                isDefault
-                                  ? "bg-blue-600 text-white hover:bg-blue-700"
-                                  : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200",
-                                isProcessingPayment && "opacity-50 cursor-not-allowed"
-                              )}
-                            >
-                              {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
-                                <span className="flex items-center gap-2">
-                                  <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
-                                </span>
-                              ) : (
-                                <>
-                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106z" />
-                                  </svg>
-                                  Pay with PayPal
-                                </>
-                              )}
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      {plan.type && plan.type !== 'STANDARD' && (
-                        <div className={cn("mt-3 text-center text-xs font-semibold uppercase tracking-wider",
-                          isDefault ? "text-orange-100" : "text-gray-400"
-                        )}>
-                          {plan.type}
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handlePlatformPlanSelect(plan, 'stripe')}
+                                disabled={isProcessingPayment}
+                                className={cn(
+                                  "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+                                  isDefault
+                                    ? "bg-white text-orange-600 hover:bg-orange-50"
+                                    : "bg-orange-500 text-white hover:bg-orange-600",
+                                  isProcessingPayment && "opacity-50 cursor-not-allowed"
+                                )}
+                              >
+                                {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
+                                  <span className="flex items-center gap-2">
+                                    <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                                  </span>
+                                ) : (
+                                  <>
+                                    <CreditCard className="w-4 h-4" /> Pay with Card
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={() => handlePlatformPlanSelect(plan, 'paypal')}
+                                disabled={isProcessingPayment}
+                                className={cn(
+                                  "w-full py-3 rounded-xl font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2",
+                                  isDefault
+                                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                                    : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200",
+                                  isProcessingPayment && "opacity-50 cursor-not-allowed"
+                                )}
+                              >
+                                {isProcessingPayment && selectedPlatformPlan?.id === plan.id ? (
+                                  <span className="flex items-center gap-2">
+                                    <RefreshCw className="w-4 h-4 animate-spin" /> Processing...
+                                  </span>
+                                ) : (
+                                  <>
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                      <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106z" />
+                                    </svg>
+                                    Pay with PayPal
+                                  </>
+                                )}
+                              </button>
+                            </>
+                          )}
                         </div>
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
 
-            {/* Empty State */}
-            {!isLoadingPlans && externalPlans.length === 0 && (
-              <div className="text-center py-20">
-                <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 font-medium">No plans available for {platformName} at this time.</p>
-                <button
-                  onClick={() => {
-                    if (currentUser?.businessProfile?.id) {
-                      performSSORedirect();
-                    } else {
-                      setShowChoosePlan(false);
-                    }
-                  }}
-                  className="mt-4 text-orange-600 font-semibold hover:underline"
-                >
-                  Go back
-                </button>
-              </div>
-            )}
+                        {plan.type && plan.type !== 'STANDARD' && (
+                          <div className={cn("mt-3 text-center text-xs font-semibold uppercase tracking-wider",
+                            isDefault ? "text-orange-100" : "text-gray-400"
+                          )}>
+                            {plan.type}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
 
-            <p className="text-center text-xs text-gray-400 font-medium mt-4">
-              Secure payment powered by Stripe &amp; PayPal
-            </p>
+              {/* Empty State */}
+              {!isLoadingPlans && externalPlans.length === 0 && (
+                <div className="text-center py-20">
+                  <Package className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500 font-medium">No plans available for {platformName} at this time.</p>
+                  <button
+                    onClick={() => {
+                      if (currentUser?.businessProfile?.id) {
+                        performSSORedirect();
+                      } else {
+                        setShowChoosePlan(false);
+                      }
+                    }}
+                    className="mt-4 text-orange-600 font-semibold hover:underline"
+                  >
+                    Go back
+                  </button>
+                </div>
+              )}
+
+              <p className="text-center text-xs text-gray-400 font-medium mt-4">
+                Secure payment powered by Stripe &amp; PayPal
+              </p>
+            </div>
           </div>
-        </div>
-        <PlatformPaymentModal
-          isOpen={showPlatformPaymentModal}
-          onClose={() => {
-            setShowPlatformPaymentModal(false);
-            const onboardingState = localStorage.getItem('businessOnboardingState');
-            if (onboardingState !== 'plan_selection') {
-              localStorage.removeItem('pendingPlatformPurchase');
-              setShowWelcomeChecklistPage(true);
-            }
-          }}
-          onSuccess={() => {
-            setShowPlatformPaymentModal(false);
-            if (currentUser?.businessProfile?.id) {
-              localStorage.removeItem('businessOnboardingState');
-              localStorage.removeItem('onboardingPaymentSuccess');
-              performSSORedirect();
-              return;
-            }
-            const onboardingState = localStorage.getItem('businessOnboardingState');
-            if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
-              localStorage.setItem('businessOnboardingState', 'assessment');
-              setShowChoosePlan(false);
-              setShowInitialAssessment(true);
-            } else {
-              setShowWelcomeChecklistPage(true);
-            }
-          }}
-        />
-      </>
-    );
+          <PlatformPaymentModal
+            isOpen={showPlatformPaymentModal}
+            onClose={() => {
+              setShowPlatformPaymentModal(false);
+              const onboardingState = localStorage.getItem('businessOnboardingState');
+              if (onboardingState !== 'plan_selection') {
+                localStorage.removeItem('pendingPlatformPurchase');
+                setShowWelcomeChecklistPage(true);
+              }
+            }}
+            onSuccess={() => {
+              setShowPlatformPaymentModal(false);
+              if (currentUser?.businessProfile?.id) {
+                localStorage.removeItem('businessOnboardingState');
+                localStorage.removeItem('onboardingPaymentSuccess');
+                performSSORedirect();
+                return;
+              }
+              const onboardingState = localStorage.getItem('businessOnboardingState');
+              if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
+                localStorage.setItem('businessOnboardingState', 'assessment');
+                setShowChoosePlan(false);
+                setShowInitialAssessment(true);
+              } else {
+                setShowWelcomeChecklistPage(true);
+              }
+            }}
+          />
+        </>
+      );
     }
 
     // ─── Default MCOM Solutions Membership Plans ────────────────────────────
@@ -4765,12 +4799,13 @@ function BusinessOnboardingInner() {
           {/* Membership Cards */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-12">
             {plans.map((plan, index) => {
-              const isGold = plan.id === 'Gold';
-              const baseMonthly = plan.price[planSubTier];
+              const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
+              const baseMonthly = plan.price?.[planSubTier] ?? (plan.tierPrices?.[planSubTier] ?? 0);
               const discount = planBillingCycle === 'yearly' ? YEARLY_DISCOUNT : QUARTERLY_DISCOUNT;
               const perMonthDiscounted = Math.floor(baseMonthly * (1 - discount));
               const totalPerCycle = planBillingCycle === 'yearly' ? perMonthDiscounted * 12 : perMonthDiscounted * 3;
-              const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP];
+              const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP] || Building2;
+              const isSubscribingThis = subscribingPlanId === plan.id;
 
               return (
                 <motion.div
@@ -4779,17 +4814,21 @@ function BusinessOnboardingInner() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.08 }}
                   className={cn(
-                    "relative p-6 md:p-8 rounded-[2rem] md:rounded-[3rem] flex flex-col transition-all duration-500",
+                    "relative p-6 md:p-8 rounded-4xl md:rounded-[3rem] flex flex-col transition-all duration-500",
                     isGold
                       ? "bg-orange-500 text-white shadow-2xl shadow-orange-500/40 scale-[1.02] md:scale-105 z-10"
                       : "bg-white border border-gray-100 hover:border-orange-200 hover:shadow-2xl"
                   )}
                 >
-                  {isGold && (
+                  {plan.badge ? (
+                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 md:px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
+                      <Star className="w-3 h-3 fill-current" /> {plan.badge}
+                    </div>
+                  ) : isGold ? (
                     <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 md:px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
                       <Star className="w-3 h-3 fill-current" /> MOST POPULAR
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="flex items-center justify-between mb-6 md:mb-8">
                     <div className={cn("w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center p-2.5 md:p-3 shadow-sm",
@@ -4820,6 +4859,27 @@ function BusinessOnboardingInner() {
                     {plan.description}
                   </p>
 
+                  {/* Bundled Platform Plans */}
+                  {plan.includedApps && plan.includedApps.length > 0 && (
+                    <div className={cn("p-3 rounded-2xl mb-6", isGold ? "bg-white/15" : "bg-orange-50/70 border border-orange-100")}>
+                      <div className={cn("text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1", isGold ? "text-orange-100" : "text-orange-800")}>
+                        <Layers className="w-3 h-3" /> Bundled Platform Plans ({plan.includedApps.length})
+                      </div>
+                      <div className="space-y-1.5">
+                        {plan.includedApps.map((item, idx) => (
+                          <div key={idx} className={cn("flex items-center justify-between text-xs font-semibold px-2.5 py-1.5 rounded-lg", isGold ? "bg-white/10 text-white" : "bg-white text-gray-800 shadow-2xs")}>
+                            <span className="truncate">{item.platform}: <span className="font-bold">{item.planName}</span></span>
+                            {item.standalonePrice ? (
+                              <span className={cn("text-[10px] shrink-0 ml-1 font-normal", isGold ? "text-orange-200" : "text-gray-400")}>
+                                (£{item.standalonePrice}/mo)
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className={cn("h-px w-full mb-6 md:mb-8", isGold ? "bg-white/20" : "bg-gray-100")} />
 
                   <div className="space-y-3 md:space-y-4 mb-8 md:mb-10 flex-1">
@@ -4847,18 +4907,50 @@ function BusinessOnboardingInner() {
                   </div>
 
                   <button
-                    onClick={() => {
-                      localStorage.setItem('selectedMembership', JSON.stringify({ tier: plan.id, subTier: planSubTier, billing: planBillingCycle, price: totalPerCycle }));
-                      localStorage.setItem('businessOnboardingState', 'plan_selected');
-                      setShowChoosePlan(false);
-                      setShowInitialAssessment(true);
+                    disabled={isSubscribingThis}
+                    onClick={async () => {
+                      setSubscribingPlanId(plan.id);
+                      try {
+                        await pricingApi.subscribeMembership(
+                          plan.name || plan.id,
+                          planSubTier,
+                          planBillingCycle,
+                          false
+                        );
+                      } catch (err) {
+                        console.warn('Backend subscribeMembership call deferred/offline:', err);
+                      } finally {
+                        setSubscribingPlanId(null);
+                        localStorage.setItem(
+                          'selectedMembership',
+                          JSON.stringify({
+                            tier: plan.id,
+                            name: plan.name,
+                            subTier: planSubTier,
+                            billing: planBillingCycle,
+                            price: totalPerCycle,
+                            includedApps: plan.includedApps,
+                          })
+                        );
+                        localStorage.setItem('businessOnboardingState', 'plan_selected');
+                        setShowChoosePlan(false);
+                        setShowInitialAssessment(true);
+                      }
                     }}
                     className={cn(
-                      "w-full py-3 md:py-4 rounded-2xl font-black text-base md:text-lg transition-all active:scale-95 shadow-lg",
-                      isGold ? "bg-white text-orange-600 hover:bg-orange-50" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20"
+                      "w-full py-3 md:py-4 rounded-2xl font-black text-base md:text-lg transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2",
+                      isGold ? "bg-white text-orange-600 hover:bg-orange-50" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20",
+                      isSubscribingThis ? "opacity-75 cursor-not-allowed" : ""
                     )}
                   >
-                    Select Membership
+                    {isSubscribingThis ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        Subscribing...
+                      </>
+                    ) : (
+                      'Select Membership'
+                    )}
                   </button>
 
                   <div className={cn("mt-4 md:mt-6 text-center text-xs font-semibold uppercase tracking-wider",
@@ -4994,20 +5086,18 @@ function BusinessOnboardingInner() {
                     <button
                       onClick={() => setAssessmentStep(i)}
                       title={`Question ${i + 1}: ${q.question}`}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 cursor-pointer ${
-                        isCompleted
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 cursor-pointer ${isCompleted
                           ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30 hover:bg-orange-600'
                           : isCurrent
                             ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md ring-2 ring-orange-400/30'
                             : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200 hover:text-gray-600'
-                      }`}
+                        }`}
                     >
                       {isCompleted ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
                     </button>
                     {i < totalSteps - 1 && (
-                      <div className={`flex-1 h-0.5 max-w-[24px] rounded-full transition-all duration-500 ${
-                        isCompleted ? 'bg-orange-500' : 'bg-gray-200'
-                      }`} />
+                      <div className={`flex-1 h-0.5 max-w-[24px] rounded-full transition-all duration-500 ${isCompleted ? 'bg-orange-500' : 'bg-gray-200'
+                        }`} />
                     )}
                   </React.Fragment>
                 );
@@ -5071,11 +5161,10 @@ function BusinessOnboardingInner() {
                                 setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
                                 if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
                               }}
-                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${
-                                isSelected
+                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${isSelected
                                   ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
                                   : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-3">
                                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
@@ -5103,11 +5192,10 @@ function BusinessOnboardingInner() {
                                 const next = isSelected ? selected.filter(s => s !== opt) : [...selected, opt];
                                 setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: next.join(',') }));
                               }}
-                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${
-                                isSelected
+                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${isSelected
                                   ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
                                   : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-3">
                                 <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
@@ -5174,7 +5262,7 @@ function BusinessOnboardingInner() {
 
                     {ft === 'rating' && (
                       <div className="bg-white rounded-2xl border border-gray-200 p-6 flex items-center justify-center gap-3">
-                        {[1,2,3,4,5].map(s => {
+                        {[1, 2, 3, 4, 5].map(s => {
                           const val = parseInt(assessmentAnswers[currentQuestion.id] || '0');
                           const active = s <= val;
                           return (
@@ -5208,11 +5296,10 @@ function BusinessOnboardingInner() {
                                 setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
                                 if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
                               }}
-                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 cursor-pointer ${
-                                isSelected
+                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 cursor-pointer ${isSelected
                                   ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
                                   : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50'
-                              }`}
+                                }`}
                             >
                               {opt}
                             </motion.button>
@@ -5281,11 +5368,10 @@ function BusinessOnboardingInner() {
                     onClick={() => {
                       setAssessmentStep(s => s + 1);
                     }}
-                    className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all cursor-pointer ${
-                      isCurrentAnswered
+                    className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all cursor-pointer ${isCurrentAnswered
                         ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 hover:bg-orange-600'
                         : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                    }`}
+                      }`}
                   >
                     Next
                     <ChevronRight className="w-5 h-5" />
@@ -5402,7 +5488,7 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showWelcomeChecklistPage) {
     return (
-      <WelcomeChecklistPage 
+      <WelcomeChecklistPage
         onComplete={async () => {
           localStorage.removeItem('businessOnboarding');
           localStorage.removeItem('businessOnboardingStep');
@@ -5413,7 +5499,7 @@ function BusinessOnboardingInner() {
           localStorage.removeItem('localMallId');
           localStorage.removeItem('businessProximityTier');
           await performSSORedirect('/dashboard');
-        }} 
+        }}
       />
     );
   }
@@ -5425,9 +5511,9 @@ function BusinessOnboardingInner() {
     const filteredBoroughs = Object.keys(BOROUGH_DATA).filter(key => {
       const q = boroughSearchQuery.toLowerCase();
       const b = BOROUGH_DATA[key];
-      return key.toLowerCase().includes(q) || 
-             b.mallName.toLowerCase().includes(q) || 
-             b.district.toLowerCase().includes(q);
+      return key.toLowerCase().includes(q) ||
+        b.mallName.toLowerCase().includes(q) ||
+        b.district.toLowerCase().includes(q);
     });
 
     return (
@@ -5482,7 +5568,7 @@ function BusinessOnboardingInner() {
           >
             <div className="relative flex items-center bg-white border border-orange-200 rounded-xl shadow-sm focus-within:border-orange-400 focus-within:ring-2 focus-within:ring-orange-100 transition-all">
               <Search className="w-5 h-5 text-orange-300 ml-4 absolute pointer-events-none" />
-              <input 
+              <input
                 type="text"
                 value={boroughSearchQuery}
                 onChange={(e) => setBoroughSearchQuery(e.target.value)}
@@ -5726,15 +5812,15 @@ function BusinessOnboardingInner() {
                     <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight leading-tight">
                       {isGoogleOnboarding ? (
                         googleStep === 'branch_select' ? 'Select Your Branch' :
-                        googleStep === 'fail_safe_form' ? 'Complete Profile Gaps' :
-                        'Review & Claim Storefront'
+                          googleStep === 'fail_safe_form' ? 'Complete Profile Gaps' :
+                            'Review & Claim Storefront'
                       ) : currentQuest.title}
                     </h2>
                     <p className="text-gray-500 mt-1 text-sm sm:text-base leading-relaxed">
                       {isGoogleOnboarding ? (
                         googleStep === 'branch_select' ? 'Select the Google Business Profile branch you want to onboard.' :
-                        googleStep === 'fail_safe_form' ? 'Google was missing some info. Fill the gaps below to proceed.' :
-                        'Verify your details and click Claim to create your account.'
+                          googleStep === 'fail_safe_form' ? 'Google was missing some info. Fill the gaps below to proceed.' :
+                            'Verify your details and click Claim to create your account.'
                       ) : currentQuest.flavor}
                     </p>
                   </div>
@@ -5912,7 +5998,7 @@ function BusinessOnboardingInner() {
                     {/* Personal Account Information */}
                     <div className="p-4 rounded-xl border border-gray-150/40 bg-gray-50/50 space-y-4">
                       <h4 className="font-bold text-gray-800 text-sm">Owner Account Details</h4>
-                      
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-gray-600 mb-1">First Name</label>
@@ -6427,32 +6513,32 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
 
-                      <div className="space-y-3 pt-2">
-                        <label className="flex items-start gap-3 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={termsAccepted}
-                            onChange={(e) => setTermsAccepted(e.target.checked)}
-                            className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
-                          />
-                          <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                            I accept the{' '}
-                            <a href="/terms" target="_blank" className="text-orange-600 font-bold hover:underline">Terms of Service</a>
-                          </span>
-                        </label>
-                        <label className="flex items-start gap-3 cursor-pointer group">
-                          <input
-                            type="checkbox"
-                            checked={privacyAccepted}
-                            onChange={(e) => setPrivacyAccepted(e.target.checked)}
-                            className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
-                          />
-                          <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                            I accept the{' '}
-                            <a href="/privacy" target="_blank" className="text-orange-600 font-bold hover:underline">Privacy Policy</a>
-                          </span>
-                        </label>
-                      </div>
+                    <div className="space-y-3 pt-2">
+                      <label className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                          I accept the{' '}
+                          <a href="/terms" target="_blank" className="text-orange-600 font-bold hover:underline">Terms of Service</a>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={privacyAccepted}
+                          onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                          className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
+                        />
+                        <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
+                          I accept the{' '}
+                          <a href="/privacy" target="_blank" className="text-orange-600 font-bold hover:underline">Privacy Policy</a>
+                        </span>
+                      </label>
+                    </div>
 
                     {submitError && (
                       <motion.div
@@ -6569,26 +6655,23 @@ function BusinessOnboardingInner() {
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, businessOperation: 'physical', businessType: 'products' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${
-                          formData.businessOperation === 'physical'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'physical'
                             ? 'border-orange-500 bg-orange-50/50 shadow-sm'
                             : 'border-gray-200 hover:border-orange-300'
-                        }`}
+                          }`}
                       >
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${
-                          formData.businessOperation === 'physical'
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'physical'
                             ? 'bg-orange-600 text-white'
                             : 'bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white'
-                        }`}>
+                          }`}>
                           <Store className="w-6 h-6" />
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Physical Store</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Brick-and-mortar retail space or showroom for customers.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${
-                          formData.businessOperation === 'physical'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'physical'
                             ? 'opacity-100 scale-100'
                             : 'opacity-0 scale-50'
-                        }`}>
+                          }`}>
                           <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
@@ -6597,26 +6680,23 @@ function BusinessOnboardingInner() {
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, businessOperation: 'home', businessType: 'both' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${
-                          formData.businessOperation === 'home'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'home'
                             ? 'border-orange-500 bg-orange-50/50 shadow-sm'
                             : 'border-gray-200 hover:border-orange-300'
-                        }`}
+                          }`}
                       >
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${
-                          formData.businessOperation === 'home'
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'home'
                             ? 'bg-orange-600 text-white'
                             : 'bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white'
-                        }`}>
+                          }`}>
                           <Building2 className="w-6 h-6" />
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Home Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Operated from a private residence with or without visitors.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${
-                          formData.businessOperation === 'home'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'home'
                             ? 'opacity-100 scale-100'
                             : 'opacity-0 scale-50'
-                        }`}>
+                          }`}>
                           <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
@@ -6625,26 +6705,23 @@ function BusinessOnboardingInner() {
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, businessOperation: 'mobile', businessType: 'services' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${
-                          formData.businessOperation === 'mobile'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'mobile'
                             ? 'border-orange-500 bg-orange-50/50 shadow-sm'
                             : 'border-gray-200 hover:border-orange-300'
-                        }`}
+                          }`}
                       >
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${
-                          formData.businessOperation === 'mobile'
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'mobile'
                             ? 'bg-orange-600 text-white'
                             : 'bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white'
-                        }`}>
+                          }`}>
                           <Truck className="w-6 h-6" />
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Mobile Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Services provided at client locations or on-the-go.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${
-                          formData.businessOperation === 'mobile'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'mobile'
                             ? 'opacity-100 scale-100'
                             : 'opacity-0 scale-50'
-                        }`}>
+                          }`}>
                           <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
@@ -6653,26 +6730,23 @@ function BusinessOnboardingInner() {
                       <button
                         type="button"
                         onClick={() => setFormData({ ...formData, businessOperation: 'online', businessType: 'products' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${
-                          formData.businessOperation === 'online'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'online'
                             ? 'border-orange-500 bg-orange-50/50 shadow-sm'
                             : 'border-gray-200 hover:border-orange-300'
-                        }`}
+                          }`}
                       >
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${
-                          formData.businessOperation === 'online'
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'online'
                             ? 'bg-orange-600 text-white'
                             : 'bg-orange-100 text-orange-600 group-hover:bg-orange-600 group-hover:text-white'
-                        }`}>
+                          }`}>
                           <Globe className="w-6 h-6" />
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Online Business</h3>
                         <p className="text-xs text-gray-550 mt-1 leading-relaxed">E-commerce, digital services, or remote operations.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${
-                          formData.businessOperation === 'online'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'online'
                             ? 'opacity-100 scale-100'
                             : 'opacity-0 scale-50'
-                        }`}>
+                          }`}>
                           <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
@@ -6681,7 +6755,7 @@ function BusinessOnboardingInner() {
                     {/* Additional Context Illustration Card */}
                     <div className="w-full bg-[#fff1eb] rounded-2xl p-5 flex items-start sm:items-center gap-4 border border-[#e2bfb0]/30 shadow-sm">
                       <div className="flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden shadow-inner border border-white">
-                        <img className="w-full h-full object-cover" alt="Merchant Tip Visual" src="https://lh3.googleusercontent.com/aida/AP1WRLuT-cyMk_5SJq4_a0IypGgxzxzf7ZCVGltAtELjippWSQEUd2rpwXQU_HINozI_SURzix0SJeEEH9T0LbAylYcLQ7BRkAg5ZQQp2cQ4ccljRzYxBERWKRaihouLxzvffrR7Tmv_welD8NB9nUgZuLnvMpq09tg7p_8CIlFL6iRRgryg1AEsc98zZoSfWJV-iBd1LIOaLJ8_AZUPcuYzNeTyV4AhUc10JNtLL3N9NHPZ26nmp5NQxWnYXWQ"/>
+                        <img className="w-full h-full object-cover" alt="Merchant Tip Visual" src="https://lh3.googleusercontent.com/aida/AP1WRLuT-cyMk_5SJq4_a0IypGgxzxzf7ZCVGltAtELjippWSQEUd2rpwXQU_HINozI_SURzix0SJeEEH9T0LbAylYcLQ7BRkAg5ZQQp2cQ4ccljRzYxBERWKRaihouLxzvffrR7Tmv_welD8NB9nUgZuLnvMpq09tg7p_8CIlFL6iRRgryg1AEsc98zZoSfWJV-iBd1LIOaLJ8_AZUPcuYzNeTyV4AhUc10JNtLL3N9NHPZ26nmp5NQxWnYXWQ" />
                       </div>
                       <div>
                         <p className="text-xs text-gray-600 leading-relaxed font-medium">
@@ -6834,7 +6908,7 @@ function BusinessOnboardingInner() {
                                 <div className="flex items-center gap-3">
                                   <button
                                     onClick={() => {
-                                      const newHours = formData.customHours.map((h, i) => 
+                                      const newHours = formData.customHours.map((h, i) =>
                                         i === idx ? { ...h, isOpen: !h.isOpen } : h
                                       );
                                       setFormData({ ...formData, customHours: newHours });
@@ -6847,14 +6921,14 @@ function BusinessOnboardingInner() {
                                     {day.name}
                                   </span>
                                 </div>
-                                
+
                                 {day.isOpen ? (
                                   <div className="flex items-center gap-2 pl-14 sm:pl-0">
                                     <input
                                       type="time"
                                       value={day.openTime}
                                       onChange={(e) => {
-                                        const newHours = formData.customHours.map((h, i) => 
+                                        const newHours = formData.customHours.map((h, i) =>
                                           i === idx ? { ...h, openTime: e.target.value } : h
                                         );
                                         setFormData({ ...formData, customHours: newHours });
@@ -6866,7 +6940,7 @@ function BusinessOnboardingInner() {
                                       type="time"
                                       value={day.closeTime}
                                       onChange={(e) => {
-                                        const newHours = formData.customHours.map((h, i) => 
+                                        const newHours = formData.customHours.map((h, i) =>
                                           i === idx ? { ...h, closeTime: e.target.value } : h
                                         );
                                         setFormData({ ...formData, customHours: newHours });
@@ -7060,7 +7134,7 @@ function BusinessOnboardingInner() {
                           whileHover={{ scale: 1.01 }}
                           whileTap={{ scale: 0.99 }}
                           onClick={() => {
-                            const newModes = isSelected 
+                            const newModes = isSelected
                               ? formData.sellingModes.filter(m => m !== mode.id)
                               : [...formData.sellingModes, mode.id];
                             // Ensure at least one is selected, or let it be empty?
@@ -7127,11 +7201,11 @@ function BusinessOnboardingInner() {
             <motion.button
               whileHover={isSubmitting ? {} : { scale: 1.03 }}
               whileTap={isSubmitting ? {} : { scale: 0.97 }}
-              onClick={isGoogleOnboarding 
-                ? (googleStep === 'fail_safe_form' ? handleGoogleFailSafeSubmit : handleGoogleCompleteClaim) 
+              onClick={isGoogleOnboarding
+                ? (googleStep === 'fail_safe_form' ? handleGoogleFailSafeSubmit : handleGoogleCompleteClaim)
                 : handleNext}
               disabled={
-                isSubmitting || 
+                isSubmitting ||
                 (isGoogleOnboarding && googleStep === 'branch_select') ||
                 (!isGoogleOnboarding && currentQuest.id === 'business_type' && !formData.businessOperation)
               }
@@ -7152,7 +7226,7 @@ function BusinessOnboardingInner() {
                 </>
               ) : (
                 <>
-                  {isGoogleOnboarding 
+                  {isGoogleOnboarding
                     ? (googleStep === 'review_claim' ? 'Claim Business' : 'Continue')
                     : (currentStep === activeQuests.length - 1 ? 'Complete Setup' : 'Continue')}
                   <ChevronRight className="w-5 h-5" />
@@ -7187,8 +7261,8 @@ function BusinessOnboardingInner() {
               {/* Top decorative gradient bar */}
               <div
                 className={`h-2.5 bg-gradient-to-r ${proximityResult.status === 'active'
-                    ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/30'
-                    : 'from-orange-600 via-red-500 to-red-600 shadow-red-500/30'
+                  ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/30'
+                  : 'from-orange-600 via-red-500 to-red-600 shadow-red-500/30'
                   }`}
               />
 
@@ -7197,8 +7271,8 @@ function BusinessOnboardingInner() {
                 <div className="relative mb-4">
                   <div
                     className={`w-16 h-16 rounded-2xl bg-gradient-to-br flex items-center justify-center text-white shadow-xl ${proximityResult.status === 'active'
-                        ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/30'
-                        : 'from-orange-650 via-red-500 to-red-600 shadow-red-500/30'
+                      ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/30'
+                      : 'from-orange-650 via-red-500 to-red-600 shadow-red-500/30'
                       }`}
                   >
                     {proximityResult.status === 'active' ? (
@@ -7271,8 +7345,8 @@ function BusinessOnboardingInner() {
                   whileTap={{ scale: 0.98 }}
                   onClick={handleModalContinue}
                   className={`w-full py-4 bg-gradient-to-r text-white text-base font-extrabold rounded-2xl hover:brightness-105 transition-all shadow-lg flex items-center justify-center gap-2 ${proximityResult.status === 'active'
-                      ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/25'
-                      : 'from-orange-600 via-red-500 to-red-650 shadow-red-500/25'
+                    ? 'from-yellow-400 via-amber-500 to-orange-500 shadow-amber-500/25'
+                    : 'from-orange-600 via-red-500 to-red-650 shadow-red-500/25'
                     }`}
                 >
                   Continue Setup
@@ -7373,7 +7447,7 @@ function BuildingStorefrontPage({ onComplete }: { onComplete: () => void }) {
         clearInterval(interval);
         return 100; // Finish the rest to 100
       });
-    }, 100); 
+    }, 100);
     // 23 / 0.5 = 46 ticks. 46 * 100ms = 4.6 seconds.
     return () => clearInterval(interval);
   }, []);
@@ -7389,7 +7463,8 @@ function BuildingStorefrontPage({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="bg-orange-50/30 text-gray-900 min-h-screen flex flex-col font-sans">
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         @keyframes progress-shimmer {
             0% { background-position: -200% 0; }
             100% { background-position: 200% 0; }
@@ -7521,25 +7596,25 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
     const container = document.getElementById('welcome-checklist-main');
     if (!container) return;
     const colors = ['#a23a00', '#8f4c30', '#005f9e'];
-    
+
     for (let i = 0; i < 15; i++) {
-        const confetti = document.createElement('div');
-        confetti.className = 'absolute w-2 h-2 rounded-full opacity-0 pointer-events-none';
-        confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
-        confetti.style.left = Math.random() * 100 + '%';
-        confetti.style.top = (Math.random() * 40) + '%';
-        
-        container.appendChild(confetti);
-        
-        confetti.animate([
-            { transform: 'translateY(0) rotate(0deg)', opacity: 1 },
-            { transform: `translateY(${Math.random() * 200 + 100}px) rotate(${Math.random() * 360}deg)`, opacity: 0 }
-        ], {
-            duration: Math.random() * 2000 + 1000,
-            delay: Math.random() * 500,
-            easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-            iterations: 1
-        });
+      const confetti = document.createElement('div');
+      confetti.className = 'absolute w-2 h-2 rounded-full opacity-0 pointer-events-none';
+      confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+      confetti.style.left = Math.random() * 100 + '%';
+      confetti.style.top = (Math.random() * 40) + '%';
+
+      container.appendChild(confetti);
+
+      confetti.animate([
+        { transform: 'translateY(0) rotate(0deg)', opacity: 1 },
+        { transform: `translateY(${Math.random() * 200 + 100}px) rotate(${Math.random() * 360}deg)`, opacity: 0 }
+      ], {
+        duration: Math.random() * 2000 + 1000,
+        delay: Math.random() * 500,
+        easing: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+        iterations: 1
+      });
     }
   }, []);
 
@@ -7552,7 +7627,8 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="bg-[#fff8f6] text-[#261812] font-sans min-h-screen relative overflow-x-hidden">
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .celebration-sparkle {
             position: absolute;
             pointer-events: none;
@@ -7570,15 +7646,15 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
         }
       `}} />
       <div className="absolute inset-0 gradient-mesh -z-10"></div>
-      
+
       {/* Top Navigation Anchor */}
       <header className="fixed top-0 w-full z-50 bg-[#fff8f6]/80 backdrop-blur-md border-b border-[#e2bfb0] h-16 flex justify-between items-center px-4">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-orange-600" style={{fontVariationSettings: "'FILL' 1"}} />
+          <CheckCircle2 className="w-5 h-5 text-orange-600" style={{ fontVariationSettings: "'FILL' 1" }} />
           <span className="font-bold text-lg text-orange-600 tracking-tight">MCOMMALL</span>
         </div>
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={() => {
               localStorage.removeItem('businessOnboardingState');
               localStorage.removeItem('businessOnboarding');
@@ -7599,7 +7675,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
             <LogOut className="w-4 h-4" />
             <span className="hidden sm:inline">Log Out</span>
           </button>
-          <button 
+          <button
             onClick={onComplete}
             className="text-sm font-medium text-gray-500 hover:bg-orange-50 transition-colors p-2 sm:px-3 sm:py-2 rounded-lg flex items-center gap-1 cursor-pointer"
             aria-label="Save & Exit"
@@ -7613,20 +7689,20 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
       <main id="welcome-checklist-main" className="pt-24 pb-32 px-4 md:max-w-xl md:mx-auto relative">
         {/* Celebration Hero */}
         <section className="relative text-center mb-8">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
             className="relative inline-block mb-4"
           >
             <div className="w-24 h-24 bg-[#ff6900] rounded-full flex items-center justify-center mx-auto shadow-lg relative z-10">
-              <Trophy className="w-12 h-12 text-white" style={{fontVariationSettings: "'FILL' 1"}} />
+              <Trophy className="w-12 h-12 text-white" style={{ fontVariationSettings: "'FILL' 1" }} />
             </div>
             {/* Animated Sparkles */}
             <Sparkles className="w-6 h-6 text-[#97481e] absolute -top-2 -right-2 celebration-sparkle" />
-            <Sparkles className="w-8 h-8 text-[#00629f] absolute bottom-0 -left-4 celebration-sparkle" style={{animationDelay: '1s'}} />
+            <Sparkles className="w-8 h-8 text-[#00629f] absolute bottom-0 -left-4 celebration-sparkle" style={{ animationDelay: '1s' }} />
           </motion.div>
-          <motion.h1 
+          <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.2 }}
@@ -7634,7 +7710,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
           >
             Your Business Is Now Live On MCOMMALL
           </motion.h1>
-          <motion.p 
+          <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.3 }}
@@ -7651,14 +7727,14 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
             GO TO DASHBOARD
           </button>
           <div className="grid grid-cols-2 gap-2">
-            <button 
+            <button
               onClick={() => router.push('/dashboard/store')}
               className="bg-white border border-[#e2bfb0] text-[#261812] h-12 rounded-xl font-bold text-xs hover:bg-[#fff1ec] transition-colors flex items-center justify-center gap-2"
             >
               <Store className="w-5 h-5" />
               VIEW STOREFRONT
             </button>
-            <button 
+            <button
               onClick={() => {
                 navigator.clipboard?.writeText(window.location.origin + '/store');
                 alert('Store link copied to clipboard!');
@@ -7680,7 +7756,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
 
           <div className="grid grid-cols-1 gap-2">
             {/* Item: Products */}
-            <div 
+            <div
               onClick={() => router.push('/dashboard/store/products/add-product')}
               className="bg-white p-4 rounded-xl border border-[#e2bfb0] shadow-sm flex flex-col gap-2 group hover:border-[#a14000] transition-colors cursor-pointer"
             >
@@ -7699,7 +7775,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
             </div>
 
             {/* Item: Services */}
-            <div 
+            <div
               onClick={() => router.push('/dashboard/services/add-service?fromOnboarding=true')}
               className="bg-white p-4 rounded-xl border border-[#e2bfb0] shadow-sm flex flex-col gap-2 group hover:border-[#a14000] transition-colors cursor-pointer"
             >
@@ -7718,7 +7794,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
             </div>
 
             {/* Item: Promotions */}
-            <div 
+            <div
               onClick={() => router.push('/dashboard/promotions/new')}
               className="bg-white p-4 rounded-xl border border-[#e2bfb0] shadow-sm flex flex-col gap-2 group hover:border-[#a14000] transition-colors cursor-pointer"
             >
@@ -7738,7 +7814,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
 
             {/* Secondary items */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-              <div 
+              <div
                 onClick={() => router.push('/dashboard/loyalty')}
                 className="bg-[#ffffff] border border-[#e2bfb0] p-4 rounded-xl flex flex-col items-center text-center gap-2 hover:border-[#a14000] cursor-pointer transition-colors"
               >
@@ -7746,7 +7822,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
                 <p className="text-xs text-[#261812] font-bold">Enable rewards</p>
                 <span className="text-[#a14000] text-xs font-bold">ACTIVATE</span>
               </div>
-              <div 
+              <div
                 onClick={() => router.push('/dashboard')}
                 className="bg-[#ffffff] border border-[#e2bfb0] p-4 rounded-xl flex flex-col items-center text-center gap-2 hover:border-[#a14000] cursor-pointer transition-colors"
               >
@@ -7754,7 +7830,7 @@ function WelcomeChecklistPage({ onComplete }: { onComplete: () => void }) {
                 <p className="text-xs text-[#261812] font-bold">Launch gamification</p>
                 <span className="text-[#a14000] text-xs font-bold">SET UP</span>
               </div>
-              <div 
+              <div
                 onClick={() => router.push('/dashboard')}
                 className="bg-[#ffffff] border border-[#e2bfb0] p-4 rounded-xl flex flex-col items-center text-center gap-2 hover:border-[#a14000] cursor-pointer transition-colors"
               >

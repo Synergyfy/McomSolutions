@@ -111,16 +111,38 @@ export class BusinessService {
   }
 
   // ─── Google Places Lookup ─────────────────────────────
-  async searchGoogleBusinesses(queryText: string, radius?: number) {
+  async searchGoogleBusinesses(queryText: string, radius?: number, lat?: number, lng?: number) {
     const apiKey = this.configService.get<string>('GOOGLE_PLACES_API_KEY');
     if (!apiKey) {
       throw new ServiceUnavailableException('Google Places API is not configured.');
     }
 
     try {
+      const payload: Record<string, any> = { textQuery: queryText };
+
+      if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+        // Convert radius: if <= 50, treat as km (from frontend slider 1-50); otherwise assume meters.
+        // Google Places API circle radius must be in meters between 0.0 and 50000.0.
+        let radiusInMeters = 5000;
+        if (typeof radius === 'number' && !isNaN(radius) && radius > 0) {
+          radiusInMeters = radius <= 50 ? radius * 1000 : radius;
+        }
+        radiusInMeters = Math.min(Math.max(radiusInMeters, 500), 50000);
+
+        payload.locationBias = {
+          circle: {
+            center: {
+              latitude: lat,
+              longitude: lng,
+            },
+            radius: radiusInMeters,
+          },
+        };
+      }
+
       const response = await axios.post(
         'https://places.googleapis.com/v1/places:searchText',
-        { textQuery: queryText },
+        payload,
         {
           headers: {
             'Content-Type': 'application/json',
