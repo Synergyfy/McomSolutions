@@ -14,69 +14,71 @@ export default function PaymentSuccessPage() {
     const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
     const platform = searchParams.get('platform');
 
-    if (!paymentIntentId && !platform) {
-      // No payment intent — might be a direct visit
+    if (platform && paymentIntentId) {
+      // Platform purchase — confirm with backend
+      const pending = localStorage.getItem('pendingPlatformPurchase');
+      if (!pending) {
+        setStatus('error');
+        setErrorMessage('Payment confirmation data is missing. Please contact support.');
+        return;
+      }
+      const purchase = JSON.parse(pending);
+      apiClient.post('/payment/platform/stripe/confirm', {
+        platform: purchase.platform,
+        externalPlanId: purchase.externalPlanId,
+        billingCycle: purchase.billingCycle,
+        paymentIntentId,
+      }).then(() => {
+        localStorage.removeItem('pendingPlatformPurchase');
+        localStorage.removeItem('stripeClientSecret');
+        setStatus('success');
+
+        const onboarding = searchParams.get('onboarding') === 'true';
+        const source = searchParams.get('source') || '';
+        const redirect = searchParams.get('redirect') || '';
+
+        if (onboarding) {
+          localStorage.setItem('onboardingPaymentSuccess', 'true');
+
+          // Check if user already has a business profile
+          const userRaw = localStorage.getItem('business_user');
+          let hasBusinessProfile = false;
+          if (userRaw) {
+            try {
+              const user = JSON.parse(userRaw);
+              if (user?.businessProfile?.id) {
+                hasBusinessProfile = true;
+              }
+            } catch (e) {}
+          }
+
+          if (!hasBusinessProfile) {
+            localStorage.setItem('businessOnboardingState', 'assessment');
+          } else {
+            localStorage.removeItem('businessOnboardingState');
+          }
+          setTimeout(() => navigate(`/getstarted/business?source=${encodeURIComponent(source)}&redirect=${encodeURIComponent(redirect)}`), 2500);
+        } else {
+          setTimeout(() => navigate('/dashboard'), 2500);
+        }
+      }).catch((err) => {
+        console.error('Payment confirm error:', err);
+        setStatus('error');
+        setErrorMessage(err.response?.data?.message || 'Payment confirmation failed.');
+      });
+      return;
+    }
+
+    if (paymentIntentId && !platform) {
+      // Membership purchase — confirmation is performed in CheckoutPage itself.
       setStatus('success');
       setTimeout(() => navigate('/dashboard'), 2000);
       return;
     }
 
-    if (platform && paymentIntentId) {
-      // Platform purchase — confirm with backend
-      const pending = localStorage.getItem('pendingPlatformPurchase');
-      if (pending) {
-        const purchase = JSON.parse(pending);
-        apiClient.post('/payment/platform/stripe/confirm', {
-          platform: purchase.platform,
-          externalPlanId: purchase.externalPlanId,
-          billingCycle: purchase.billingCycle,
-          paymentIntentId,
-        }).then(() => {
-          localStorage.removeItem('pendingPlatformPurchase');
-          localStorage.removeItem('stripeClientSecret');
-          setStatus('success');
-
-          const onboarding = searchParams.get('onboarding') === 'true';
-          const source = searchParams.get('source') || '';
-          const redirect = searchParams.get('redirect') || '';
-
-          if (onboarding) {
-            localStorage.setItem('onboardingPaymentSuccess', 'true');
-            
-            // Check if user already has a business profile
-            const userRaw = localStorage.getItem('business_user');
-            let hasBusinessProfile = false;
-            if (userRaw) {
-              try {
-                const user = JSON.parse(userRaw);
-                if (user?.businessProfile?.id) {
-                  hasBusinessProfile = true;
-                }
-              } catch (e) {}
-            }
-
-            if (!hasBusinessProfile) {
-              localStorage.setItem('businessOnboardingState', 'assessment');
-            } else {
-              localStorage.removeItem('businessOnboardingState');
-            }
-            setTimeout(() => navigate(`/getstarted/business?source=${encodeURIComponent(source)}&redirect=${encodeURIComponent(redirect)}`), 2500);
-          } else {
-            setTimeout(() => navigate('/dashboard'), 2500);
-          }
-        }).catch((err) => {
-          console.error('Payment confirm error:', err);
-          setStatus('error');
-          setErrorMessage(err.response?.data?.message || 'Payment confirmation failed.');
-        });
-      } else {
-        setStatus('success');
-        setTimeout(() => navigate('/dashboard'), 2000);
-      }
-    } else {
-      setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 2000);
-    }
+    // No payment reference at all — never claim success without confirmation.
+    setStatus('error');
+    setErrorMessage('No payment was found to confirm. If you believe this is a mistake, please contact support.');
   }, [searchParams, navigate]);
 
   return (

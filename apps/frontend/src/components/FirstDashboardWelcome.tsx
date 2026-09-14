@@ -4,7 +4,7 @@ import {
   Building2, Gift, Users, BarChart3, FileSearch, Clock,
   User, ChevronRight, HeadphonesIcon, Calendar, Target
 } from 'lucide-react';
-import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../lib/programmeData';
+import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay, getTotalMissions } from '../lib/programmeData';
 
 export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => void }) {
   const userRaw = localStorage.getItem('business_user');
@@ -33,7 +33,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
     } catch {}
   }
 
-  const currentDay = 1;
+  const currentDay = getProgrammeDay();
   const progress = getProgressForDay(currentDay);
   const currentPhase = getPhaseForDay(currentDay);
   const firstMission = PROGRAMME_PHASES[0].missions[0];

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   BookOpen,
   Check,
@@ -157,7 +157,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
 
 // ─── Shared building blocks ──────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
       <h4 className="font-black text-gray-900 font-display text-sm flex items-center gap-2">

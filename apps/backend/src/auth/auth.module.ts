@@ -8,20 +8,27 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { SsoController } from './sso.controller';
 import { SsoService } from './sso.service';
+import { GoogleOAuthService } from './google-oauth.service';
 @Module({
   imports: [
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'mcom_sso_default_secret_key_123!',
-        signOptions: { expiresIn: '1d' },
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error('JWT_SECRET environment variable is required (no hardcoded fallback).');
+        }
+        return {
+          secret,
+          signOptions: { expiresIn: '1d' },
+        };
+      },
       inject: [ConfigService],
     }),
   ],
   controllers: [AuthController, SsoController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, SsoService],
-  exports: [AuthService, SsoService],
+  providers: [AuthService, LocalStrategy, JwtStrategy, SsoService, GoogleOAuthService],
+  exports: [AuthService, SsoService, GoogleOAuthService],
 })
 export class AuthModule {}

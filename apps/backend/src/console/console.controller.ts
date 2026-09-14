@@ -180,6 +180,33 @@ export class ConsoleController {
     return this.consoleService.pingAppHealth(clientId);
   }
 
+  @Post('apps/:clientId/test-webhook')
+  @ApiOperation({ summary: 'Send a test ping webhook to verify partner app endpoint' })
+  @ApiParam({ name: 'clientId', example: 'mcom-vcard' })
+  @ApiOkResponse({ description: 'Webhook test result' })
+  @ApiNotFoundResponse({ description: 'App not found' })
+  @ApiBadRequestResponse({ description: 'App has no webhookUrl configured' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  testWebhook(@Param('clientId') clientId: string) {
+    return this.consoleService.testWebhook(clientId);
+  }
+
+  @Get('apps/:clientId/webhook-logs')
+  @ApiOperation({ summary: 'Get recent webhook delivery logs for an app' })
+  @ApiParam({ name: 'clientId', example: 'mcom-vcard' })
+  @ApiQuery({ name: 'limit', required: false, example: 50, description: 'Max logs to return (up to 100)' })
+  @ApiOkResponse({ description: 'List of webhook logs' })
+  @ApiNotFoundResponse({ description: 'App not found' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  getWebhookLogs(
+    @Param('clientId') clientId: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.consoleService.getWebhookLogs(clientId, limit ? Number(limit) : 50);
+  }
+
   @Get('audit-logs')
   @ApiOperation({ summary: 'List console audit logs with filters' })
   @ApiQuery({ name: 'page', required: false, example: 1, description: 'Page number' })

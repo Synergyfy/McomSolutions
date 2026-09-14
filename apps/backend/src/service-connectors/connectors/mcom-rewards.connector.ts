@@ -32,29 +32,30 @@ export class McomRewardsConnector implements ServiceConnector {
   }
 
   private mapPlanResponse(data: any): ExternalPlan {
+    const raw = data?.data ?? data;
     return {
-      id: data.id,
-      name: data.name,
-      description: data.description,
-      monthlyPrice: data.monthlyPrice,
-      quarterlyPrice: data.quarterlyPrice,
-      annualPrice: data.annualPrice,
-      features: data.features,
-      configuration: data.configuration,
-      isActive: data.isActive,
-      isDefault: data.isDefault,
-      type: data.type,
-      trialDuration: data.trialDuration,
-      seasonId: data.seasonId,
-      stripeMonthlyPriceId: data.stripeMonthlyPriceId,
-      stripeQuarterlyPriceId: data.stripeQuarterlyPriceId,
-      stripeAnnualPriceId: data.stripeAnnualPriceId,
-      paypalMonthlyPlanId: data.paypalMonthlyPlanId,
-      paypalQuarterlyPlanId: data.paypalQuarterlyPlanId,
-      paypalAnnualPlanId: data.paypalAnnualPlanId,
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-    }
+      id: raw.id,
+      name: raw.name,
+      description: raw.description,
+      monthlyPrice: raw.monthlyPrice,
+      quarterlyPrice: raw.quarterlyPrice,
+      annualPrice: raw.annualPrice,
+      features: raw.features,
+      configuration: raw.configuration,
+      isActive: raw.isActive,
+      isDefault: raw.isDefault,
+      type: raw.type,
+      trialDuration: raw.trialDuration,
+      seasonId: raw.seasonId,
+      stripeMonthlyPriceId: raw.stripeMonthlyPriceId,
+      stripeQuarterlyPriceId: raw.stripeQuarterlyPriceId,
+      stripeAnnualPriceId: raw.stripeAnnualPriceId,
+      paypalMonthlyPlanId: raw.paypalMonthlyPlanId,
+      paypalQuarterlyPlanId: raw.paypalQuarterlyPlanId,
+      paypalAnnualPlanId: raw.paypalAnnualPlanId,
+      created_at: raw.created_at,
+      updated_at: raw.updated_at,
+    };
   }
 
   private handleError(error: unknown): never {
@@ -134,9 +135,32 @@ export class McomRewardsConnector implements ServiceConnector {
   }
 
   async getPlanSchema(): Promise<PlanSchema | null> {
-    // MCOM Rewards does not expose a plan schema endpoint yet — the frontend
-    // falls back to the hardcoded Rewards quota/flag form.
-    return null
+    try {
+      const { data } = await this.httpClient.get('/system/plans/schema');
+      const schema = data?.data ?? data;
+      if (schema && (Array.isArray(schema.quotas) || Array.isArray(schema.featureFlags))) {
+        return schema as PlanSchema;
+      }
+    } catch (error) {
+      const status = isAxiosError(error) ? error.response?.status : undefined;
+      if (!status || (status !== 404 && status !== 405)) {
+        this.logger.warn('Failed to fetch Rewards plan schema — serving default schema');
+      }
+    }
+    // Documented default schema — the frontend never falls back to an ad-hoc
+    // hardcoded form when the Rewards service has not implemented its schema endpoint.
+    return {
+      quotas: [
+        { key: 'maxActiveCampaigns', label: 'Max Active Campaigns', type: 'number', unlimited: true },
+        { key: 'maxActiveRewards', label: 'Max Active Rewards', type: 'number', unlimited: true },
+        { key: 'maxTeamMembers', label: 'Max Team Members', type: 'number' },
+      ],
+      featureFlags: [
+        { key: 'canCreateCampaignFromScratch', label: 'Create Campaign From Scratch', type: 'boolean' },
+        { key: 'hasAccessToAdvancedAnalytics', label: 'Advanced Analytics', type: 'boolean' },
+        { key: 'hasAccessToCRM', label: 'CRM Access', type: 'boolean' },
+      ],
+    };
   }
 
   async getSeasons(): Promise<ExternalSeason[]> {
@@ -151,8 +175,13 @@ export class McomRewardsConnector implements ServiceConnector {
         isActive: s.isActive ?? (s.status === 'ACTIVE' || s.status === 'Active'),
         status: s.status,
       }));
-    } catch {
-      return [];
+    } catch (error) {
+      // Endpoint not implemented (404/405) → no seasons, degrade gracefully.
+      if (isAxiosError(error) && (error.response?.status === 404 || error.response?.status === 405)) {
+        return [];
+      }
+      this.logger.error('Failed to fetch Rewards seasons:', error as any);
+      throw new HttpException('Failed to fetch seasons from MCOM Rewards', HttpStatus.BAD_GATEWAY);
     }
   }
 }

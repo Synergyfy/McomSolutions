@@ -35,7 +35,11 @@ export function calculatePermissions(
   if (membershipStatus === 'active') {
     packages.forEach((pkg) => {
       if (pkg.status === 'active' && pkg.platform) {
-        dynamic[`canAccess_${pkg.platform.toLowerCase().replace(/[^a-z0-9]/g, '_')}`] = true;
+        const slug = pkg.platform.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        dynamic[`canAccess_${slug}`] = true;
+        if (slug.startsWith('mcom_')) {
+          dynamic[`canAccess_${slug.replace('mcom_', '')}`] = true;
+        }
       }
     });
     if (membershipLevel === 'Platinum') {

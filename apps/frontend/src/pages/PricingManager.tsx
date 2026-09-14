@@ -27,15 +27,33 @@ import {
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { usePricing, ICON_MAP, Membership, PricingPlan, SubTier } from '../context/PricingContext';
+import { adminApi } from '../services/admin';
 
 export default function PricingManager() {
   const { plans, updatePlan, resetToDefaults } = usePricing();
   const [editingId, setEditingId] = useState<Membership | null>(null);
   const [showSavedToast, setShowSavedToast] = useState(false);
 
-  const handleSave = () => {
-    setShowSavedToast(true);
-    setTimeout(() => setShowSavedToast(false), 3000);
+  const handleSave = async () => {
+    try {
+      // Persist edits to the membership plans table via the admin API.
+      const res: any = await adminApi.getPlans();
+      const adminPlans: Array<{ id: string; name: string }> = Array.isArray(res) ? res : res?.data ?? [];
+      const idByName = new Map<string, string>(adminPlans.map((p) => [p.name, p.id]));
+      for (const plan of plans) {
+        const id = idByName.get(plan.name);
+        if (!id) continue;
+        await adminApi.updatePlan(id, {
+          description: plan.description,
+          price: plan.price.Normal,
+          permissions: plan.features,
+        });
+      }
+      setShowSavedToast(true);
+      setTimeout(() => setShowSavedToast(false), 3000);
+    } catch (err) {
+      console.error('Failed to save plans:', err);
+    }
   };
 
   const handleFeatureAdd = (planId: Membership, tier?: SubTier) => {

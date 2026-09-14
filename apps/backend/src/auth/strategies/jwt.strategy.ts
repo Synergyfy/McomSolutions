@@ -7,8 +7,11 @@ import * as jwt from 'jsonwebtoken';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(configService: ConfigService) {
-    const jwtSecret = configService.get<string>('JWT_SECRET') || 'mcom_sso_default_secret_key_123!';
-    const ssoJwtSecret = configService.get<string>('SSO_JWT_SECRET') || 'default-sso-jwt-secret';
+    const jwtSecret = configService.get<string>('JWT_SECRET');
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is required (no hardcoded fallback).');
+    }
+    const ssoJwtSecret = configService.get<string>('SSO_JWT_SECRET');
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -17,18 +20,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         if (!rawJwtToken) {
           return done(null, jwtSecret);
         }
-        // Try verifying with JWT_SECRET first; if that fails, try SSO_JWT_SECRET
+        // Try verifying with JWT_SECRET first; if that fails and SSO_JWT_SECRET is
+        // configured, try it. If both fail, let Passport report the standard invalid
+        // signature error with jwtSecret.
         try {
           jwt.verify(rawJwtToken, jwtSecret);
           return done(null, jwtSecret);
         } catch {
-          try {
-            jwt.verify(rawJwtToken, ssoJwtSecret);
-            return done(null, ssoJwtSecret);
-          } catch {
-            // If both fail, let Passport report the standard invalid signature error with jwtSecret
-            return done(null, jwtSecret);
+          if (ssoJwtSecret) {
+            try {
+              jwt.verify(rawJwtToken, ssoJwtSecret);
+              return done(null, ssoJwtSecret);
+            } catch {
+              return done(null, jwtSecret);
+            }
           }
+          return done(null, jwtSecret);
         }
       },
     });

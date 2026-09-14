@@ -60,8 +60,7 @@ function ModularProductCard({ product }: any) {
 
 export default function PricingPage() {
   const { plans } = usePricing();
-  const [selectedSubTier, setSelectedSubTier] = useState<SubTier>('Normal');
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
   const [showComparison, setShowComparison] = useState(false);
   const [showGBSModular, setShowGBSModular] = useState(false);
   const [showMCOMModular, setShowMCOMModular] = useState(false);
@@ -93,7 +92,7 @@ export default function PricingPage() {
           {/* Toggle and Tier Switcher */}
           <div className="mt-12 flex flex-col items-center gap-8">
             <div className="flex p-1 bg-gray-100 rounded-full">
-              {(['monthly', 'yearly'] as const).map((cycle) => (
+              {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                 <button
                   key={cycle}
                   onClick={() => setBillingCycle(cycle)}
@@ -103,29 +102,8 @@ export default function PricingPage() {
                   )}
                 >
                   {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
+                  {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
                   {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2 p-1.5 bg-brand-blue/5 rounded-2xl border border-brand-blue/10">
-              {(['Normal', 'Pro', 'Pro+'] as SubTier[]).map((tier) => (
-                <button
-                  key={tier}
-                  onClick={() => setSelectedSubTier(tier)}
-                  className={cn(
-                    "px-6 py-3 rounded-xl text-sm font-semibold transition-all flex flex-col items-center min-w-[120px]",
-                    selectedSubTier === tier 
-                      ? "bg-brand-blue text-white shadow-glow animate-in zoom-in-95 duration-200" 
-                      : "text-brand-blue/60 hover:text-brand-blue hover:bg-brand-blue/10"
-                  )}
-                >
-                  {tier}
-                  <span className="text-[10px] opacity-80 font-normal">
-                    {tier === 'Normal' && 'Basic Access'}
-                    {tier === 'Pro' && 'More Growth'}
-                    {tier === 'Pro+' && 'Max Visibility'}
-                  </span>
                 </button>
               ))}
             </div>
@@ -138,10 +116,8 @@ export default function PricingPage() {
             <MembershipCard 
               key={plan.id}
               plan={plan}
-              tier={selectedSubTier}
               cycle={billingCycle}
-              discount={discount}
-              isGold={plan.id === 'Gold'}
+              isGold={plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular')}
             />
           ))}
         </div>
@@ -401,10 +377,22 @@ function AccordionItem({ title, subtitle, price, children }: { title: string, su
   );
 }
 
-function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
+function MembershipCard({ plan, cycle, isGold }: any) {
   const navigate = useNavigate();
-  const basePrice = plan.price[tier];
-  const finalPrice = cycle === 'yearly' ? Math.floor(basePrice * (1 - discount)) : basePrice;
+  const monthlyPrice = plan.monthlyPrice ?? (typeof plan.price === 'number' ? plan.price : 49);
+  const quarterlyPrice = plan.quarterlyPrice ?? Math.floor(monthlyPrice * 0.9) * 3;
+  const annualPrice = plan.annualPrice ?? Math.floor(monthlyPrice * 0.8) * 12;
+
+  let finalPrice = monthlyPrice;
+  let totalPerCycle = monthlyPrice;
+
+  if (cycle === 'quarterly') {
+    finalPrice = Math.round(quarterlyPrice / 3);
+    totalPerCycle = quarterlyPrice;
+  } else if (cycle === 'yearly') {
+    finalPrice = Math.round(annualPrice / 12);
+    totalPerCycle = annualPrice;
+  }
 
   const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP];
 
@@ -414,7 +402,7 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
       isGold ? "bg-brand-blue text-white shadow-2xl shadow-blue-500/40 scale-105 z-10" : "bg-white border border-gray-100 hover:border-brand-blue/20 hover:shadow-2xl"
     )}>
       {isGold && (
-        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg font-bold px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg">
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg">
           <Star className="w-3 h-3 fill-current" /> MOST POPULAR
         </div>
       )}
@@ -433,9 +421,9 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
           <span className="text-4xl font-bold">£{finalPrice}</span>
           <span className={cn("text-sm transition-opacity", isGold ? "text-blue-200" : "text-gray-400")}>/mo</span>
         </div>
-        {cycle === 'yearly' && (
+        {cycle !== 'monthly' && (
           <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
-            Billed yearly (£{finalPrice * 12}/yr)
+            £{totalPerCycle}/{cycle === 'yearly' ? 'yr' : 'qtr'}
           </div>
         )}
       </div>
@@ -454,28 +442,18 @@ function MembershipCard({ plan, tier, cycle, discount, isGold }: any) {
             <span className={cn("text-sm font-semibold", isGold ? "text-white" : "text-gray-700")}>{f}</span>
           </div>
         ))}
-        
-        <div className={cn("h-px w-8 my-4", isGold ? "bg-white/10" : "bg-gray-100")} />
-        
-        <div className={cn("text-xs font-bold uppercase tracking-widest", isGold ? "text-blue-200/60" : "text-gray-400")}>{tier} Benefits</div>
-        {(plan.tierFeatures?.[tier as SubTier] || []).map((f: string, i: number) => (
-          <div key={i} className="flex items-center gap-3">
-            <Zap className={cn("w-4 h-4", isGold ? "text-amber-300" : "text-amber-500")} />
-            <span className={cn("text-sm font-bold", isGold ? "text-white" : "text-gray-900")}>{f}</span>
-          </div>
-        ))}
       </div>
 
       <button 
         onClick={() => {
-          navigate(`/checkout?plan=${encodeURIComponent(plan.id)}&tier=${encodeURIComponent(tier)}&billing=${cycle}&isTrial=true`);
+          navigate(`/checkout?plan=${encodeURIComponent(plan.id)}&tier=Normal&billing=${cycle}&isTrial=true`);
         }}
         className={cn(
           "w-full py-4 rounded-2xl font-black text-lg transition-all active:scale-95 shadow-lg",
           isGold ? "bg-white text-brand-blue hover:bg-blue-50" : "bg-brand-blue text-white hover:bg-blue-600 shadow-blue-500/20"
         )}
       >
-        Choose {plan.name} {tier}
+        Choose {plan.name}
       </button>
 
       <div className={cn("mt-6 text-center text-xs font-semibold uppercase tracking-wider opacity-60", isGold ? "text-blue-100" : "text-gray-400")}>

@@ -1,125 +1,122 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Building2, Zap, Star, Trophy } from 'lucide-react';
+import { usePlans } from '../services/pricing/hooks';
 
 export type SubTier = 'Normal' | 'Pro' | 'Pro+';
-export type Membership = 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+export type Membership = 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | string;
+
+export interface IncludedAppPlan {
+  platform: string;
+  clientId?: string;
+  planId: string;
+  planName: string;
+  standalonePrice?: number;
+  quotas?: Record<string, any>;
+}
 
 export interface PricingPlan {
-  id: Membership;
-  name: Membership;
+  id: string;
+  name: string;
   description: string;
   whoItIsFor: string;
-  iconName: 'Building2' | 'Zap' | 'Star' | 'Trophy';
+  badge?: string;
+  iconName: 'Building2' | 'Zap' | 'Star' | 'Trophy' | string;
   color: string;
-  price: Record<SubTier, number>;
+  price: number;
+  monthlyPrice: number;
+  quarterlyPrice: number;
+  annualPrice: number;
   features: string[];
-  tierFeatures: Record<SubTier, string[]>;
+  includedApps?: IncludedAppPlan[];
 }
 
 interface PricingContextType {
   plans: PricingPlan[];
-  updatePlan: (id: Membership, updates: Partial<PricingPlan>) => void;
+  loading: boolean;
+  updatePlan: (id: string, updates: Partial<PricingPlan>) => void;
   resetToDefaults: () => void;
 }
 
-const DEFAULT_PLANS: PricingPlan[] = [
-  {
-    id: 'Bronze',
-    name: 'Bronze',
-    description: 'Perfect for local brands and new startups.',
+// Presentational metadata only — descriptions, prices, and features are sourced
+// from the backend (`GET /pricing/plans`, DB-backed).
+const PLAN_METADATA: Record<string, Partial<PricingPlan>> = {
+  Bronze: {
     whoItIsFor: 'New businesses',
     iconName: 'Building2',
     color: 'border-amber-600/20 text-amber-600 bg-amber-50',
-    price: { Normal: 10, Pro: 25, 'Pro+': 50 },
-    features: ['Basic business listing', 'Community access', 'Essential insights'],
-    tierFeatures: {
-        'Normal': ['Base Visibility', 'Local Listings'],
-        'Pro': ['Enhanced Visibility', 'Extended Listings'],
-        'Pro+': ['Priority Visibility', 'Featured Placement']
-    }
   },
-  {
-    id: 'Silver',
-    name: 'Silver',
-    description: 'Advanced tools for growing teams.',
+  Silver: {
     whoItIsFor: 'Growing businesses',
     iconName: 'Zap',
     color: 'border-slate-400/20 text-slate-500 bg-slate-50',
-    price: { Normal: 75, Pro: 150, 'Pro+': 250 },
-    features: ['Marketing tools', 'Campaign participation', 'Quarterly reviews', 'Everything in Bronze'],
-    tierFeatures: {
-        'Normal': ['Standard Ads', 'Campaign Basic'],
-        'Pro': ['Premium Ads', 'Campaign Priority'],
-        'Pro+': ['Aggressive Ads', 'Exclusive Early Access']
-    }
   },
-  {
-    id: 'Gold',
-    name: 'Gold',
-    description: 'Scale your operations with priority access.',
+  Gold: {
     whoItIsFor: 'Scaling businesses',
     iconName: 'Star',
     color: 'border-yellow-500/30 text-yellow-600 bg-yellow-50',
-    price: { Normal: 350, Pro: 600, 'Pro+': 900 },
-    features: ['Full campaign access', 'Multi-location support', 'Advanced AI insights', 'Everything in Silver'],
-    tierFeatures: {
-        'Normal': ['Direct API', 'Dashboard Basic'],
-        'Pro': ['Custom API', 'Dashboard Pro'],
-        'Pro+': ['Enterprise API', 'Full AI Suite']
-    }
   },
-  {
-    id: 'Platinum',
-    name: 'Platinum',
-    description: 'Tailored solutions for market leaders.',
+  Platinum: {
     whoItIsFor: 'Established businesses',
     iconName: 'Trophy',
     color: 'border-blue-600/20 text-blue-700 bg-blue-50',
-    price: { Normal: 1200, Pro: 2500, 'Pro+': 4500 },
-    features: ['Priority visibility', 'Dedicated support', 'Executive reporting', 'Everything in Gold'],
-    tierFeatures: {
-        'Normal': ['Dedicated AM', 'Monthly Strategy'],
-        'Pro': ['Global AM', 'Bi-weekly Strategy'],
-        'Pro+': ['VP Support', 'Weekly Audits']
-    }
-  }
-];
+  },
+};
 
 const PricingContext = createContext<PricingContextType | undefined>(undefined);
 
-export function PricingProvider({ children }: { children: React.ReactNode }) {
-  const [plans, setPlans] = useState<PricingPlan[]>(() => {
-    try {
-      const saved = localStorage.getItem('gbs_pricing_plans');
-      if (!saved) return DEFAULT_PLANS;
-      
-      const parsedSaved = JSON.parse(saved);
-      if (!Array.isArray(parsedSaved)) return DEFAULT_PLANS;
+const mapApiPlan = (p: any): PricingPlan => {
+  const name = p.name || p.id;
+  const meta = PLAN_METADATA[name] || {};
+  const monthly = p.monthlyPrice != null
+    ? Number(p.monthlyPrice)
+    : (typeof p.price === 'number' ? p.price : (p.price?.Normal ?? 0));
+  const quarterly = p.quarterlyPrice != null
+    ? Number(p.quarterlyPrice)
+    : Math.floor(monthly * 0.9) * 3;
+  const annual = p.annualPrice != null
+    ? Number(p.annualPrice)
+    : Math.floor(monthly * 0.8) * 12;
 
-      return DEFAULT_PLANS.map(defaultPlan => {
-        const savedPlan = parsedSaved.find((p: any) => p && typeof p === 'object' && p.id === defaultPlan.id);
-        return savedPlan ? { ...defaultPlan, ...savedPlan } : defaultPlan;
-      });
-    } catch {
-      return DEFAULT_PLANS;
-    }
-  });
+  return {
+    id: p.id || name,
+    name: name,
+    description: p.description || '',
+    whoItIsFor: p.whoItIsFor || meta.whoItIsFor || 'Businesses',
+    badge: p.badge || undefined,
+    iconName: (meta.iconName as PricingPlan['iconName']) || 'Building2',
+    color: p.color || meta.color || 'border-gray-300 text-gray-600 bg-gray-50',
+    price: monthly,
+    monthlyPrice: monthly,
+    quarterlyPrice: quarterly,
+    annualPrice: annual,
+    features: Array.isArray(p.features) ? p.features : [],
+    includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
+  };
+};
+
+export function PricingProvider({ children }: { children: React.ReactNode }) {
+  const { data: apiPlans, isLoading } = usePlans();
+
+  // Editable copy seeded from the API — the editor mutates this and Save
+  // persists the changes via the admin plans API.
+  const [plans, setPlans] = useState<PricingPlan[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('gbs_pricing_plans', JSON.stringify(plans));
-  }, [plans]);
+    if (Array.isArray(apiPlans)) {
+      setPlans(apiPlans.map(mapApiPlan));
+    }
+  }, [apiPlans]);
 
-  const updatePlan = (id: Membership, updates: Partial<PricingPlan>) => {
-    setPlans(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+  const updatePlan = (id: string, updates: Partial<PricingPlan>) => {
+    setPlans((prev) => prev.map((p) => (p.id === id || p.name === id ? { ...p, ...updates } : p)));
   };
 
   const resetToDefaults = () => {
-    setPlans(DEFAULT_PLANS);
-    localStorage.removeItem('gbs_pricing_plans');
+    if (Array.isArray(apiPlans)) setPlans(apiPlans.map(mapApiPlan));
   };
 
   return (
-    <PricingContext.Provider value={{ plans, updatePlan, resetToDefaults }}>
+    <PricingContext.Provider value={{ plans, loading: isLoading, updatePlan, resetToDefaults }}>
       {children}
     </PricingContext.Provider>
   );
@@ -137,5 +134,5 @@ export const ICON_MAP = {
   Building2,
   Zap,
   Star,
-  Trophy
+  Trophy,
 };

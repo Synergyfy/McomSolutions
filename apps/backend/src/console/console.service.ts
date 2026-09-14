@@ -15,15 +15,13 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SsoService } from '../auth/sso.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { ConsoleAuditQueryDto } from './dto/console-audit-query.dto';
 import { encrypt } from './crypto.util';
 
 const MASK = '••••••••••••••••';
-
-/** Seeded apps that must never be deactivated via the Console (defense in depth). */
-const SYSTEM_CLIENT_IDS = ['mcom-mall', 'mcom-loyalty', '247gbs'];
 
 export interface AppSecretSet {
   clientSecret: string;
@@ -39,6 +37,7 @@ export class ConsoleService {
     private readonly redis: RedisService,
     private readonly config: ConfigService,
     private readonly ssoService: SsoService,
+    private readonly webhookDispatcher: WebhookDispatcherService,
   ) {}
 
   // ─── CRUD ──────────────────────────────────────────────────────────────────
@@ -148,7 +147,7 @@ export class ConsoleService {
   async deactivateApp(clientId: string, adminId: string, req?: Request) {
     const client = await this.getClientOrThrow(clientId);
 
-    if (client.isSystemApp || SYSTEM_CLIENT_IDS.includes(client.clientId)) {
+    if (client.isSystemApp) {
       throw new ForbiddenException(
         'System apps cannot be deactivated via Console. Edit the seed configuration instead.',
       );
@@ -234,6 +233,30 @@ export class ConsoleService {
       }
       throw new BadGatewayException(`App "${client.name}" billingApiUrl is unreachable`);
     }
+  }
+
+  async testWebhook(clientId: string) {
+    const client = await this.getClientOrThrow(clientId);
+    if (!client.webhookUrl) {
+      throw new BadRequestException(`App "${clientId}" has no webhookUrl configured`);
+    }
+
+    const testPayload = {
+      test: true,
+      message: 'This is a test webhook from MCOM Solutions Console',
+      timestamp: new Date().toISOString(),
+    };
+
+    return this.webhookDispatcher.dispatch(clientId, 'ping', testPayload);
+  }
+
+  async getWebhookLogs(clientId: string, limit = 50) {
+    await this.getClientOrThrow(clientId);
+    return this.prisma.appWebhookLog.findMany({
+      where: { clientId },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 100),
+    });
   }
 
   async listAuditLogs(query: ConsoleAuditQueryDto) {

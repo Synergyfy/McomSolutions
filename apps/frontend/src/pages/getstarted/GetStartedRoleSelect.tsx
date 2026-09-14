@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { ArrowRight, Sparkles, TrendingUp, DollarSign, Users, Heart, Zap } from 'lucide-react';
 
@@ -37,6 +37,8 @@ const benefits = [
 
 export default function GetStartedRoleSelect() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden bg-gradient-to-br from-orange-50 via-white to-orange-50/50 text-gray-900 font-sans">
@@ -84,7 +86,7 @@ export default function GetStartedRoleSelect() {
           {/* CTA Button */}
           <motion.div variants={itemVariants} className="w-full max-w-md">
             <button
-              onClick={() => navigate('/getstarted/business')}
+              onClick={() => navigate(`/getstarted/business${searchStr}`)}
               className="group w-full relative overflow-hidden p-[2px] rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 shadow-2xl shadow-orange-500/25 hover:shadow-orange-500/40 transition-shadow"
             >
               <div className="relative w-full bg-white rounded-2xl p-[2px]">

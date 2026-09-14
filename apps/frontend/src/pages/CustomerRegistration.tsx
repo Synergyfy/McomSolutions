@@ -18,7 +18,7 @@ const UserRole = {
 type UserRoleType = 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'OWNER';
 
 // ═══════════════════════════════════════════════════════════
-// Local Mock UI Components & Stubs
+// Local UI helpers wrapping McomSolutions API hooks
 // ═══════════════════════════════════════════════════════════
 
 // Real hooks wrapping McomSolutions API
@@ -59,22 +59,8 @@ function useValidateOtp() {
 function useCheckEmail() {
   return {
     mutateAsync: async (email: string) => {
-      try {
-        const res = await apiClient.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
-        return res.data;
-      } catch {
-        return { exists: false };
-      }
-    },
-    isPending: false,
-  };
-}
-
-function useAddShippingAddress() {
-  return {
-    mutateAsync: async (address: any) => {
-      console.log('Mock: Shipping address added', address);
-      return { success: true };
+      const res = await apiClient.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
+      return res.data;
     },
     isPending: false,
   };
@@ -156,7 +142,7 @@ function OTPInput({ length = 6, value, onChange }: OTPInputProps) {
 // Main Customer Registration Component
 // ═══════════════════════════════════════════════════════════
 type Mode = 'login' | 'register' | 'forgot-password' | 'verify-email';
-type Step = 'enter-email' | 'enter-otp' | 'registration-form' | 'address-details';
+type Step = 'enter-email' | 'enter-otp' | 'registration-form';
 
 export default function CustomerRegistration() {
   const navigate = useNavigate();
@@ -192,9 +178,6 @@ export default function CustomerRegistration() {
     password: '',
     confirmPassword: '',
     otp: '',
-    addressLine1: '',
-    city: '',
-    postcode: '',
     country: 'United Kingdom',
   });
 
@@ -211,12 +194,8 @@ export default function CustomerRegistration() {
     role: '',
     terms: '',
     otp: '',
-    addressLine1: '',
-    city: '',
-    postcode: '',
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [showGoogleSignInPopup, setShowGoogleSignInPopup] = useState(false);
 
   // Load custom hooks
   const { isPending: createUserPending, mutateAsync: createUserAsync } = useCreateUser();
@@ -224,7 +203,6 @@ export default function CustomerRegistration() {
   const { isPending: sendOtpPending, mutateAsync: sendOtpAsync } = useSendOtp();
   const { isPending: validateOtpPending, mutateAsync: validateOtpAsync } = useValidateOtp();
   const { isPending: checkEmailPending, mutateAsync: checkEmailAsync } = useCheckEmail();
-  const { mutateAsync: addAddressAsync } = useAddShippingAddress();
 
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
@@ -309,9 +287,6 @@ export default function CustomerRegistration() {
       password: '',
       confirmPassword: '',
       otp: '',
-      addressLine1: '',
-      city: '',
-      postcode: '',
       country: 'United Kingdom',
     });
     setErrors({
@@ -324,9 +299,6 @@ export default function CustomerRegistration() {
       role: '',
       terms: '',
       otp: '',
-      addressLine1: '',
-      city: '',
-      postcode: '',
     });
     setTermsAccepted(false);
   };
@@ -347,11 +319,6 @@ export default function CustomerRegistration() {
     return phoneRegex.test(phone.replace(/\s/g, ''))
       ? ''
       : 'Please enter a valid UK phone number (e.g. +44 7911 123456).';
-  };
-
-  const validatePostcode = (postcode: string) => {
-    const postcodeRegex = /^[A-Z]{1,2}\d[A-Z\d]? ?\d[A-Z]{2}$/i;
-    return postcodeRegex.test(postcode) ? '' : 'Please enter a valid UK postcode.';
   };
 
   const validateForm = async (currentStep: Step) => {
@@ -421,19 +388,6 @@ export default function CustomerRegistration() {
           newErrors.confirmPassword = 'Passwords do not match.';
           isValid = false;
         }
-      }
-
-      if (currentStep === 'address-details') {
-        if (!formData.postcode) {
-          newErrors.postcode = 'Postcode is required.';
-          isValid = false;
-        } else {
-          const postErr = validatePostcode(formData.postcode);
-          if (postErr) {
-            newErrors.postcode = postErr;
-            isValid = false;
-          }
-        }
 
         if (!termsAccepted) {
           newErrors.terms = 'You must accept the Terms and Conditions.';
@@ -492,8 +446,6 @@ export default function CustomerRegistration() {
           setErrors(prev => ({ ...prev, otp: error.message || 'Invalid OTP' }));
         }
       } else if (step === 'registration-form') {
-        setStep('address-details');
-      } else if (step === 'address-details') {
         handleSubmitRegistration();
       }
     }
@@ -518,25 +470,6 @@ export default function CustomerRegistration() {
         email: formData.email,
         password: formData.password,
       });
-
-      // Save Address
-      if (formData.postcode) {
-        try {
-          await addAddressAsync({
-            addressName: 'Home',
-            recipientName: `${formData.firstName} ${formData.lastName}`,
-            phoneNumber: formData.phoneNumber,
-            addressLine1: formData.addressLine1 || '',
-            city: formData.city || '',
-            state: '',
-            country: formData.country,
-            postalCode: formData.postcode,
-            isMain: true
-          });
-        } catch (err) {
-          console.error("Address save failed", err);
-        }
-      }
 
       setDialogMessage(`Account created successfully! Welcome, ${formData.firstName}!`);
       setIsSuccessDialogOpen(true);
@@ -572,25 +505,6 @@ export default function CustomerRegistration() {
       }, 1500);
     } catch (error: any) {
       setDialogMessage(error.message || 'Login failed');
-      setIsErrorDialogOpen(true);
-    }
-  };
-
-  const handleGoogleSignInStart = () => {
-    setShowGoogleSignInPopup(true);
-  };
-
-  const handleGoogleSignInSelect = async (email: string) => {
-    setShowGoogleSignInPopup(false);
-    try {
-      setDialogMessage('Sign in successful with Google!');
-      setIsSuccessDialogOpen(true);
-      setTimeout(() => {
-        setIsSuccessDialogOpen(false);
-        navigate(redirect);
-      }, 1500);
-    } catch (err: any) {
-      setDialogMessage(err.message || 'Google Sign-in failed.');
       setIsErrorDialogOpen(true);
     }
   };
@@ -684,26 +598,6 @@ export default function CustomerRegistration() {
               >
                 {loginPending ? 'Signing In...' : 'Sign In'}
                 <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <div className="relative flex py-2 items-center">
-                <div className="flex-grow border-t border-gray-150"></div>
-                <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-bold uppercase tracking-widest">or</span>
-                <div className="flex-grow border-t border-gray-150"></div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGoogleSignInStart}
-                className="w-full h-12 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 transition-all flex items-center justify-center gap-2.5 font-bold text-xs text-gray-700 shadow-sm cursor-pointer"
-              >
-                <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.87z" />
-                  <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.21v3.15C3.18 21.88 7.39 24 12 24z" />
-                  <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.32V6.53H1.21A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.21 5.37l4.06-3.13z" />
-                  <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.39 0 3.18 2.12 1.21 5.37l4.06 3.15c.95-2.85 3.6-4.96 6.73-4.96z" />
-                </svg>
-                Sign In with Google
               </button>
 
               <div className="text-center pt-2">
@@ -903,64 +797,6 @@ export default function CustomerRegistration() {
                     </div>
                   )}
 
-                  <button 
-                    type="button" 
-                    onClick={handleNextStep} 
-                    className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98] mt-2 flex items-center justify-center gap-2"
-                  >
-                    Next
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Step 4: Address Details */}
-              {step === 'address-details' && (
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Postcode <span className="text-red-500">*</span></label>
-                    <input 
-                      name="postcode" 
-                      value={formData.postcode} 
-                      onChange={handleInputChange} 
-                      placeholder="SW1A 1AA" 
-                      className={`w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.postcode ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`} 
-                    />
-                    {errors.postcode && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.postcode}</p>}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Address Line 1</label>
-                    <input 
-                      name="addressLine1" 
-                      value={formData.addressLine1} 
-                      onChange={handleInputChange} 
-                      placeholder="123 High Street" 
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium" 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">City</label>
-                    <input 
-                      name="city" 
-                      value={formData.city} 
-                      onChange={handleInputChange} 
-                      placeholder="London" 
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium" 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Country</label>
-                    <input 
-                      name="country" 
-                      value={formData.country} 
-                      readOnly 
-                      className="w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-xl text-sm font-semibold text-gray-500 outline-none cursor-not-allowed" 
-                    />
-                  </div>
-
                   <div className="flex items-start gap-2.5 pt-2">
                     <input 
                       type="checkbox" 
@@ -982,23 +818,15 @@ export default function CustomerRegistration() {
                   </div>
                   {errors.terms && <p className="text-red-500 text-xs font-semibold">{errors.terms}</p>}
 
-                  <div className="flex gap-4 pt-2">
-                    <button 
-                      type="button" 
-                      onClick={() => setStep('registration-form')} 
-                      className="flex-1 py-3 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl font-bold transition-all active:scale-[0.98]"
-                    >
-                      Back
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={handleNextStep} 
-                      className="flex-1 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98]"
-                      disabled={createUserPending}
-                    >
-                      {createUserPending ? 'Submitting...' : 'Sign Up'}
-                    </button>
-                  </div>
+                  <button 
+                    type="button" 
+                    onClick={handleNextStep} 
+                    className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98] mt-2 flex items-center justify-center gap-2"
+                    disabled={createUserPending}
+                  >
+                    {createUserPending ? 'Submitting...' : 'Sign Up'}
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
                 </div>
               )}
             </>
@@ -1047,76 +875,6 @@ export default function CustomerRegistration() {
               >
                 Close
               </button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Google Mock Account Picker Popup */}
-      <AnimatePresence>
-        {showGoogleSignInPopup && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={() => setShowGoogleSignInPopup(false)} />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl w-full max-w-sm shadow-2xl relative z-10 border border-gray-100 overflow-hidden flex flex-col font-sans"
-              style={{ minHeight: '380px' }}
-            >
-              <div className="bg-white px-4 py-3.5 flex items-center justify-between border-b border-gray-100 select-none">
-                <div className="flex items-center gap-2">
-                  <div className="w-3.5 h-3.5 rounded-full bg-orange-600 flex items-center justify-center">
-                    <svg className="w-2 h-2 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                    </svg>
-                  </div>
-                  <span className="text-[11px] font-bold text-gray-400 tracking-wider uppercase">Sign in with Google</span>
-                </div>
-                <button type="button" onClick={() => setShowGoogleSignInPopup(false)} className="p-1.5 text-gray-400 hover:text-red-500 rounded-full hover:bg-gray-100 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-6 flex-1 flex flex-col justify-between">
-                <div className="space-y-6">
-                  <div className="flex justify-center">
-                    <svg className="w-12 h-12" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.87z" />
-                      <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.21v3.15C3.18 21.88 7.39 24 12 24z" />
-                      <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.32V6.53H1.21A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.21 5.37l4.06-3.13z" />
-                      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.39 0 3.18 2.12 1.21 5.37l4.06 3.15c.95-2.85 3.6-4.96 6.73-4.96z" />
-                    </svg>
-                  </div>
-
-                  <div className="text-center">
-                    <h3 className="text-sm font-bold text-gray-900">Choose an account</h3>
-                    <p className="text-xs text-gray-400 mt-1">to continue to <span className="font-bold text-orange-600">McomSolutions</span></p>
-                  </div>
-
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {[
-                      { email: 'customer.jane@gmail.com', name: 'Jane Doe', initials: 'JD', bg: 'bg-orange-500' },
-                      { email: 'guest.shopper@gmail.com', name: 'Guest Shopper', initials: 'GS', bg: 'bg-blue-500' }
-                    ].map((acc) => (
-                      <button
-                        key={acc.email}
-                        type="button"
-                        onClick={() => handleGoogleSignInSelect(acc.email)}
-                        className="w-full p-3 border border-gray-150 rounded-2xl hover:bg-gray-50 transition-colors flex items-center gap-3 text-left cursor-pointer"
-                      >
-                        <div className={`w-8 h-8 rounded-full ${acc.bg} text-white flex items-center justify-center font-bold text-xs shadow-sm`}>
-                          {acc.initials}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-gray-900 leading-none">{acc.name}</p>
-                          <p className="text-[10px] text-gray-400 mt-1">{acc.email}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
             </motion.div>
           </div>
         )}

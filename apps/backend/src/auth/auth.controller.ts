@@ -1,17 +1,22 @@
-import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleOAuthService } from './google-oauth.service';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
     private prisma: PrismaService,
+    private googleOAuth: GoogleOAuthService,
+    private configService: ConfigService,
   ) {}
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
   async register(@Body() registerDto: any, @Res({ passthrough: true }) res: any) {
     let result;
@@ -40,6 +45,7 @@ export class AuthController {
     return { exists: !!user };
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Request() req: any, @Res({ passthrough: true }) res: any) {
@@ -75,27 +81,32 @@ export class AuthController {
     return this.authService.updateSettings(req.user.userId, body);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('send-otp')
   async sendOtp(@Body('email') email: string) {
     return this.authService.sendOtp(email);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('resend-otp')
   async resendOtp(@Body('email') email: string) {
     return this.authService.resendOtp(email);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify-otp')
   async verifyOtp(@Body('email') email: string, @Body('code') code: string) {
     const isValid = await this.authService.verifyOtp(email, code);
     return { valid: isValid };
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('forgot-password')
   async forgotPassword(@Body('email') email: string) {
     return this.authService.sendForgotPasswordCode(email);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('reset-password')
   async resetPassword(@Body() body: any) {
     await this.authService.resetPassword(body);
@@ -110,28 +121,32 @@ export class AuthController {
 
   @Get('google')
   async googleAuth(@Res() res: any) {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const baseUrl = process.env.APP_URL || 'http://localhost:3010';
-    if (!clientId) {
-      return res.redirect(`${baseUrl}/api/v1/auth/google/simulator`);
+    if (!this.googleOAuth.isConfigured()) {
+      if (this.googleOAuth.isSimulatorEnabled()) {
+        const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3010';
+        return res.redirect(`${baseUrl}/api/v1/auth/google/simulator`);
+      }
+      throw new ServiceUnavailableException('Google Sign-In is not configured');
     }
-    // Real OAuth redirect (if configured)
-    const googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-    const redirectUri = `${baseUrl}/api/v1/business/google/callback`;
-    const scope = 'openid email profile';
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      scope,
-      state: 'login_state',
-    });
-    return res.redirect(`${googleAuthUrl}?${params.toString()}`);
+    // Real OAuth redirect — state is HMAC-signed and short-lived so it cannot be forged
+    const authUrl = this.googleOAuth.getAuthUrl(
+      this.googleOAuth.signState({ type: 'login' }),
+    );
+    return res.redirect(authUrl);
   }
 
   @Get('google/simulator')
   async googleSimulator(@Res() res: any) {
+    if (!this.googleOAuth.isSimulatorEnabled()) {
+      throw new ForbiddenException('Google login simulator is disabled');
+    }
     const users = await this.prisma.user.findMany({ take: 5 });
+    const options = users
+      .map((u) => {
+        const state = this.googleOAuth.signState({ type: 'sim-login', email: u.email });
+        return `<option value="${state}">${u.email} (${u.role})</option>`;
+      })
+      .join('');
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
@@ -150,13 +165,13 @@ export class AuthController {
             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.24.61 4.48 1.64l2.42-2.42C17.3 1.5 14.93 0 12.24 0c-6.07 0-11 4.93-11 11s4.93 11 11 11c5.83 0 11.23-4.14 11.23-11 0-.7-.08-1.37-.23-1.715h-11z"/></svg>
           </div>
           <h1 class="text-2xl font-black text-center mb-2">Google Sign-In</h1>
-          <p class="text-gray-500 text-sm text-center mb-8">Select a mock account to authenticate using the Google login simulator.</p>
-          <form action="/api/v1/auth/google/callback" method="GET" class="space-y-6">
+          <p class="text-gray-500 text-sm text-center mb-8">Select a mock account to authenticate. This simulator is development-only.</p>
+          <form action="/api/v1/business/google/callback" method="GET" class="space-y-6">
             <input type="hidden" name="code" value="mock-google-code" />
             <div>
               <label class="block text-sm font-bold text-gray-700 mb-2">Mock Accounts Available</label>
               <select name="state" class="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-semibold">
-                ${users.map(u => `<option value="${u.email}">${u.email} (${u.role})</option>`).join('')}
+                ${options}
               </select>
             </div>
             <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl shadow-lg transition active:scale-95">
@@ -166,59 +181,6 @@ export class AuthController {
         </div>
       </body>
       </html>
-    `);
-  }
-
-  @Get('google/callback')
-  async googleCallback(
-    @Query('code') code: string,
-    @Query('state') state: string,
-    @Res() res: any,
-  ) {
-    let email = state;
-    if (code !== 'mock-google-code') {
-      email = 'owner@mcomsolutions.co.uk';
-    }
-
-    let user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
-
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          email,
-          password: 'googleAuthTempPass123!',
-          role: Role.BUSINESS,
-          firstName: 'Google',
-          lastName: 'User',
-        }
-      });
-    }
-
-    const auth = await this.authService.login(user);
-
-    res.cookie('mcom_session', auth.accessToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    res.setHeader('Content-Type', 'text/html');
-    res.send(`
-      <script>
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'GOOGLE_LOGIN_SUCCESS',
-            auth: ${JSON.stringify(auth)},
-            user: ${JSON.stringify(auth.user)}
-          }, '*');
-          window.close();
-        } else {
-          document.write("Login successful! Redirecting...");
-        }
-      </script>
     `);
   }
 }

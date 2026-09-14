@@ -1,19 +1,23 @@
 import {
   Injectable,
   BadRequestException,
+  BadGatewayException,
   NotFoundException,
   UnauthorizedException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { PricingService, MEMBERSHIP_PLANS } from '../pricing/pricing.service';
+import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
+import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private stripe: Stripe;
   private paypalBaseUrl: string;
 
@@ -22,13 +26,25 @@ export class PaymentService {
     private prisma: PrismaService,
     private pricingService: PricingService,
     private connectorsService: ServiceConnectorsService,
+    private webhookDispatcher: WebhookDispatcherService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
-      this.stripe = new Stripe(stripeKey, { apiVersion: '2026-07-29.dahlia' });
+      this.stripe = new Stripe(stripeKey);
     }
 
-    const paypalEnv = this.config.get<string>('PAYPAL_ENV') || 'sandbox';
+    const paypalEnv = this.config.get<string>('PAYPAL_ENV');
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    // Fail fast in production: never silently run against PayPal sandbox.
+    if (isProduction && paypalEnv !== 'live') {
+      throw new Error('PAYPAL_ENV must be "live" in production — refusing to run against PayPal sandbox.');
+    }
+    if (paypalEnv && !['sandbox', 'live'].includes(paypalEnv)) {
+      throw new Error(`Invalid PAYPAL_ENV "${paypalEnv}" — expected "sandbox" or "live".`);
+    }
+    if (!paypalEnv && !isProduction) {
+      this.logger.warn('PAYPAL_ENV not set — defaulting to sandbox (development only).');
+    }
     this.paypalBaseUrl =
       paypalEnv === 'live'
         ? 'https://api-m.paypal.com'
@@ -57,19 +73,12 @@ export class PaymentService {
     return response.data.access_token;
   }
 
-  private resolvePlanPrice(
+  private async resolvePlanPrice(
     level: string,
     tier: string,
     billing: 'monthly' | 'yearly',
-  ): number {
-    const plan = MEMBERSHIP_PLANS.find((p) => p.id === level);
-    if (!plan) throw new NotFoundException(`Plan '${level}' not found.`);
-
-    const baseMonthly: number = (plan.price as any)[tier] ?? 0;
-    if (billing === 'yearly') {
-      return Math.floor(baseMonthly * 0.8) * 12; // 20% yearly discount
-    }
-    return baseMonthly;
+  ): Promise<number> {
+    return this.pricingService.resolveMembershipPrice(level, tier, billing);
   }
 
   // ─── STRIPE ───────────────────────────────────────────────────────────────────
@@ -85,7 +94,7 @@ export class PaymentService {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
     }
 
-    const amountGBP = isTrial ? 0 : this.resolvePlanPrice(level, tier, billing);
+    const amountGBP = isTrial ? 0 : await this.resolvePlanPrice(level, tier, billing);
     const amountPence = Math.round(amountGBP * 100);
 
     if (isTrial || amountPence === 0) {
@@ -145,7 +154,7 @@ export class PaymentService {
     isTrial: boolean,
   ) {
     const token = await this.getPayPalAccessToken();
-    const amountGBP = isTrial ? 1.00 : this.resolvePlanPrice(level, tier, billing); // £1 auth for trial
+    const amountGBP = isTrial ? 1.00 : await this.resolvePlanPrice(level, tier, billing); // £1 auth for trial
 
     const order = await axios.post(
       `${this.paypalBaseUrl}/v2/checkout/orders`,
@@ -284,6 +293,14 @@ export class PaymentService {
     return profile.id;
   }
 
+  private validatePlatformPlan(plan: any, platform: string) {
+    if (!plan || typeof plan !== 'object' || !plan.id || !plan.name) {
+      throw new BadGatewayException(
+        `Received invalid plan details from ${platform}. Missing required plan information.`,
+      );
+    }
+  }
+
   async platformStripeInitiate(
     userId: string,
     platform: string,
@@ -298,6 +315,7 @@ export class PaymentService {
 
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
 
     if (plan.type === 'TRIAL' || amountGBP === 0) {
@@ -337,6 +355,7 @@ export class PaymentService {
 
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL' || amountGBP === 0;
 
@@ -352,6 +371,14 @@ export class PaymentService {
         throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
       }
     }
+
+    const existingPackage = await this.prisma.platformPackage.findUnique({
+      where: { businessId_platform: { businessId, platform } },
+    });
+    const eventType =
+      existingPackage && existingPackage.status === 'active'
+        ? 'package.renewed'
+        : 'package.created';
 
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
@@ -403,6 +430,13 @@ export class PaymentService {
       },
     });
 
+    // Asynchronously dispatch package lifecycle webhook to registered partner app
+    this.webhookDispatcher.dispatchPackageEvent(eventType, {
+      platform,
+      userId,
+      package: package_,
+    });
+
     return package_;
   }
 
@@ -417,6 +451,7 @@ export class PaymentService {
     const token = await this.getPayPalAccessToken();
     const businessId = await this.resolveBusinessId(userId);
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL';
     const finalAmount = isTrial ? 0.00 : amountGBP;
@@ -483,8 +518,17 @@ export class PaymentService {
     }
 
     const plan = await this.connectorsService.getPlanById(platform, externalPlanId);
+    this.validatePlatformPlan(plan, platform);
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL';
+
+    const existingPackage = await this.prisma.platformPackage.findUnique({
+      where: { businessId_platform: { businessId, platform } },
+    });
+    const eventType =
+      existingPackage && existingPackage.status === 'active'
+        ? 'package.renewed'
+        : 'package.created';
 
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
@@ -535,6 +579,20 @@ export class PaymentService {
         providerPaymentId: orderId,
       },
     });
+
+    // Resolve mcomUserId to dispatch package lifecycle webhook
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      select: { userId: true },
+    });
+
+    if (business?.userId) {
+      this.webhookDispatcher.dispatchPackageEvent(eventType, {
+        platform,
+        userId: business.userId,
+        package: package_,
+      });
+    }
 
     return package_;
   }

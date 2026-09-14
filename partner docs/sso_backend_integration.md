@@ -97,16 +97,61 @@ Authorization: Basic base64(client_id:client_secret)
     "email": "user@example.com",
     "role": "BUSINESS",
     "firstName": "Jane",
-    "lastName": "Doe",
     "businessProfile": {
       "id": "uuid",
       "businessName": "Jane's Shop",
       "membershipLevel": "Gold",
-      "membershipStatus": "active"
-    }
+      "membershipStatus": "active",
+      "membershipPlanName": "Gold",
+      "appPlan": {
+        "source": "membership",
+        "platform": "MCOM Mall",
+        "clientId": "mcom-mall",
+        "planId": "tier-1",
+        "planName": "Standard Plan",
+        "status": "active",
+        "quotas": {
+          "maxProducts": 50,
+          "customFeatures": true
+        },
+        "limits": {
+          "maxProducts": 50
+        },
+        "membershipPlanName": "Gold",
+        "expiresAt": "2027-09-14T08:00:00.000Z",
+        "directPlan": null,
+        "membershipPlan": {
+          "planId": "tier-1",
+          "planName": "Standard Plan",
+          "quotas": { "maxProducts": 50 },
+          "membershipPlanName": "Gold"
+        }
+      }
+    },
+    "permissions": {
+      "canAccess_mall": true
+    },
+    "packages": [
+      {
+        "id": "pkg_123",
+        "platform": "mall",
+        "externalPlanId": "tier-1",
+        "planName": "Standard Plan",
+        "source": "membership",
+        "limits": { "maxProducts": 50 }
+      }
+    ]
   }
 }
 ```
+
+#### Understanding `appPlan` Entitlement Resolution:
+MCOM Central automatically resolves the merchant's plan for the calling client:
+1. **Standalone Direct Plan (`source: "direct"`)**: Merchant bought a plan specifically for your app (the former system).
+2. **MCOM Membership Bundle (`source: "membership"`)**: Merchant holds an MCOM Membership (e.g., Gold, Silver) that bundles access to your app.
+3. **Both Active**: When both exist, `appPlan` prioritizes the most feature-complete plan, and provides `directPlan` and `membershipPlan` properties for full transparency.
+
+Your application should read `user.businessProfile.appPlan` to apply local permissions, quotas, and subscription tier.
 
 **Notes:**
 - Codes are **single-use** and expire after **5 minutes**
@@ -229,13 +274,39 @@ app.get('/api/auth/callback', async (req, res) => {
       });
     }
 
-    // 4. Establish Local Session
+    // 4. Synchronize Plan & Entitlements (Direct Plan or MCOM Membership)
+    const appPlan = user.businessProfile?.appPlan;
+    if (appPlan && appPlan.status === 'active') {
+      // Apply tier and quotas whether from standalone purchase or bundled membership
+      await db.Subscription.upsert({
+        where: { userId: localUser.id },
+        update: {
+          planId: appPlan.planId,
+          planName: appPlan.planName,
+          source: appPlan.source, // 'membership' | 'direct'
+          membershipTier: appPlan.membershipPlanName || null,
+          quotas: appPlan.quotas || {},
+          isActive: true,
+        },
+        create: {
+          userId: localUser.id,
+          planId: appPlan.planId,
+          planName: appPlan.planName,
+          source: appPlan.source,
+          membershipTier: appPlan.membershipPlanName || null,
+          quotas: appPlan.quotas || {},
+          isActive: true,
+        }
+      });
+    }
+
+    // 5. Establish Local Session
     // Set local access/refresh tokens, or store session variables
     req.session.userId = localUser.id;
     req.session.email = localUser.email;
     req.session.centralAccessToken = accessToken; // (Optional: save if you need to make authenticated requests)
 
-    // 5. Redirect frontend client to original destination stored in 'state' (fallback to /dashboard)
+    // 6. Redirect frontend client to original destination stored in 'state' (fallback to /dashboard)
     const targetRedirect = state && (state.startsWith('/') || state.startsWith('http')) ? state : '/dashboard';
     return res.redirect(targetRedirect);
   } catch (err) {

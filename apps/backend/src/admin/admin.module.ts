@@ -6,8 +6,10 @@ import { ServiceConnectorsModule } from '../service-connectors/service-connector
 import { AdminController } from './admin.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminOpsController } from './admin-ops.controller';
+import { AdminCatalogController } from './admin-catalog.controller';
 import { AdminService } from './admin.service';
 import { AdminOpsService } from './admin-ops.service';
+import { AdminCatalogService } from './admin-catalog.service';
 
 @Module({
   imports: [
@@ -22,8 +24,8 @@ import { AdminOpsService } from './admin-ops.service';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AdminController, AdminAuthController, AdminOpsController],
-  providers: [AdminService, AdminOpsService],
-  exports: [AdminService, AdminOpsService],
+  controllers: [AdminController, AdminAuthController, AdminOpsController, AdminCatalogController],
+  providers: [AdminService, AdminOpsService, AdminCatalogService],
+  exports: [AdminService, AdminOpsService, AdminCatalogService],
 })
 export class AdminModule {}

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
-import { SECTORS, CATEGORIES, SUBCATEGORIES, type Sector, type Category, type Subcategory } from '../data/sectors';
+import type { Sector, Category, Subcategory } from '../data/sectors';
 
 async function fetchSectors(): Promise<Sector[]> {
   const res = await apiClient.get('/sectors');
@@ -24,7 +24,6 @@ export function useGetSectors() {
     queryKey: ['sectors'],
     queryFn: fetchSectors,
     staleTime: 5 * 60 * 1000,
-    placeholderData: SECTORS,
   });
 }
 
@@ -34,7 +33,6 @@ export function useGetCategoriesBySector(sectorId?: string) {
     queryFn: () => fetchCategories(sectorId),
     enabled: !!sectorId,
     staleTime: 5 * 60 * 1000,
-    placeholderData: sectorId ? CATEGORIES.filter(c => c.sectorId === sectorId) : [],
   });
 }
 
@@ -44,6 +42,5 @@ export function useGetSubCategoriesByCategory(categoryId?: string) {
     queryFn: () => fetchSubCategories(categoryId),
     enabled: !!categoryId,
     staleTime: 5 * 60 * 1000,
-    placeholderData: categoryId ? SUBCATEGORIES.filter(sc => sc.categoryId === categoryId) : [],
   });
 }

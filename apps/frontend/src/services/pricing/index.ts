@@ -6,8 +6,13 @@ export const pricingApi = {
     return res.data;
   },
 
-  subscribeMembership: async (level: string, tier: string) => {
-    const res = await apiClient.post('/pricing/subscribe', { level, tier });
+  subscribeMembership: async (
+    level: string,
+    tier: string = 'standard',
+    billing: string = 'monthly',
+    isTrial: boolean = false,
+  ) => {
+    const res = await apiClient.post('/pricing/subscribe', { level, tier, billing, isTrial });
     return res.data;
   },
 

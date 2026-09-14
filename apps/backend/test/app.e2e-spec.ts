@@ -150,6 +150,15 @@ describe('MCOM Backend (e2e)', () => {
         });
     });
 
+    it('GET /google/google-business with lat and lng should return mock results', () => {
+      return request(app.getHttpServer())
+        .get('/google/google-business?queryText=Coffee&lat=51.5074&lng=-0.1278&radius=5')
+        .expect(200)
+        .expect((res) => {
+          expect(Array.isArray(res.body)).toBe(true);
+        });
+    });
+
     it('POST /localmall/onboarding/check-location should return proximity info', () => {
       return request(app.getHttpServer())
         .post('/localmall/onboarding/check-location')

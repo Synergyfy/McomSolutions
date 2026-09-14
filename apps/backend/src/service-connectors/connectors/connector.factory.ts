@@ -9,10 +9,9 @@ import { RedisService } from '../../redis/redis.service';
 const SUPPORTED_PLATFORMS: Record<string, string> = {
   'MCOM Mall': 'mcomMall',
   'MCOM Rewards': 'mcomRewards',
-  // Future connectors — uncomment when implemented:
-  // 'MCOM Spin': 'mcomSpin',
-  // 'GBS Audit': 'gbsAudit',
-  // 'GBS Expo': 'gbsExpo',
+  // Future platforms (MCOM Spin, GBS Audit, GBS Expo, …) resolve through the
+  // DB-driven GenericHttpConnector below once they are registered in the Admin
+  // Console with a billingApiUrl — no code change required here.
 }
 
 @Injectable()

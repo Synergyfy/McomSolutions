@@ -814,6 +814,14 @@ app.get('/auth/callback', async (req, res) => {
   });
 
   const { accessToken, refreshToken, user } = response.data;
+  // Entitlement Resolution: Check active plan for ${detail.name} (Direct Plan or MCOM Membership bundle)
+  const appPlan = user.businessProfile?.appPlan;
+  if (appPlan && appPlan.status === 'active') {
+    console.log('Active plan:', appPlan.planName, '(' + appPlan.planId + ') via', appPlan.source);
+    if (appPlan.source === 'membership') {
+      console.log('Bundled via MCOM Membership:', appPlan.membershipPlanName);
+    }
+  }
   // Store session or issue local session JWT...
   res.redirect('/dashboard');
 });`;
@@ -837,7 +845,12 @@ export async function GET(request: Request) {
   });
 
   const data = await res.json();
-  // Check user dynamic permissions: data.user.permissions?.canAccess_${detail.platformSlug || 'slug'}
+  // 1. Dynamic permission access check:
+  const canAccess = data.user?.permissions?.canAccess_${detail.platformSlug || 'slug'};
+  // 2. Resolved plan entitlements (Direct or bundled via MCOM Membership):
+  const appPlan = data.user?.businessProfile?.appPlan;
+  // appPlan.source: 'membership' | 'direct'
+  // appPlan.quotas: { ...limits, ...features }
   return NextResponse.redirect(new URL('/dashboard', request.url));
 }`;
 

@@ -189,10 +189,15 @@ function ActionModal({ modal, walletId, onClose }: { modal: Exclude<ModalState, 
   const [limits, setLimits] = useState({ dailyDebitLimit: '', monthlyDebitLimit: '', maxBalance: '' });
   const [error, setError] = useState<string | null>(null);
 
-  const mutation = useAdminWalletMutation(
-    walletId,
-    modal.kind === 'freeze' ? 'freeze' : modal.kind === 'unfreeze' ? 'unfreeze' : modal.kind === 'close' ? 'close' : modal.kind,
-  );
+  const action =
+    modal.kind === 'freeze' ? 'freeze'
+    : modal.kind === 'unfreeze' ? 'unfreeze'
+    : modal.kind === 'close' ? 'close'
+    : modal.kind === 'credit' ? 'credit'
+    : modal.kind === 'debit' ? 'debit'
+    : 'limits';
+
+  const mutation = useAdminWalletMutation(walletId, action);
   const reverseMutation = useReverseTransaction();
 
   const submit = async () => {
@@ -227,7 +232,7 @@ function ActionModal({ modal, walletId, onClose }: { modal: Exclude<ModalState, 
     modal.kind === 'credit' ? 'Manual Credit' :
     modal.kind === 'debit' ? 'Manual Debit' :
     modal.kind === 'limits' ? 'Set Wallet Limits' :
-    `Reverse Transaction ${modal.txn.type === 'CREDIT' ? '+' : '−'}${modal.txn.amount}`;
+    modal.kind === 'reverse' ? `Reverse Transaction ${modal.txn.type === 'CREDIT' ? '+' : '−'}${modal.txn.amount}` : '';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>

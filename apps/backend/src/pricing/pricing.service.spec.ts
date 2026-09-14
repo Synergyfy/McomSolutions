@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { PricingService, MEMBERSHIP_PLANS } from './pricing.service';
+import { PricingService } from './pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotFoundException } from '@nestjs/common';
 
@@ -19,6 +19,13 @@ describe('PricingService', () => {
     platformPackage: {
       upsert: jest.fn(),
     },
+    membershipPlan: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    packageTemplate: {
+      findFirst: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
@@ -36,15 +43,18 @@ describe('PricingService', () => {
 
   // ─── getPlans ────────────────────────────────────
   describe('getPlans', () => {
-    it('should return all membership plans', async () => {
-      const plans = await service.getPlans();
-      expect(plans).toEqual(MEMBERSHIP_PLANS);
-      expect(plans).toHaveLength(4);
-    });
+    it('should return membership plans from the database', async () => {
+      mockPrisma.membershipPlan.findMany.mockResolvedValue([
+        { name: 'Bronze', description: 'Basic', price: 10, billingCycle: 'Monthly', platformAccess: ['Loyalty'], permissions: ['Basic Dashboard'] },
+        { name: 'Silver', description: 'Advanced', price: 75, billingCycle: 'Monthly', platformAccess: ['Loyalty', 'Mall'], permissions: ['Standard Dashboard'] },
+        { name: 'Gold', description: 'Pro', price: 350, billingCycle: 'Monthly', platformAccess: ['Loyalty', 'Mall', 'Rewards'], permissions: ['Full Dashboard'] },
+        { name: 'Platinum', description: 'Elite', price: 1200, billingCycle: 'Monthly', platformAccess: ['Loyalty', 'Mall', 'Rewards', 'Audit', 'Expo'], permissions: ['Full Dashboard', 'API Access'] },
+      ]);
 
-    it('should include Bronze, Silver, Gold, Platinum', () => {
-      const planIds = MEMBERSHIP_PLANS.map((p) => p.id);
-      expect(planIds).toEqual(['Bronze', 'Silver', 'Gold', 'Platinum']);
+      const plans = await service.getPlans();
+      expect(plans).toHaveLength(4);
+      expect(plans[0]).toMatchObject({ id: 'Bronze', price: 10, monthlyPrice: 10, quarterlyPrice: 27, annualPrice: 96 });
+      expect(plans[0].features).toEqual(['Basic Dashboard']);
     });
   });
 
@@ -59,6 +69,7 @@ describe('PricingService', () => {
 
     it('should throw NotFoundException for invalid plan level', async () => {
       mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
       await expect(
         service.subscribeMembership('b1', 'InvalidLevel', 'Normal', 'monthly', false),
       ).rejects.toThrow(NotFoundException);
@@ -67,6 +78,7 @@ describe('PricingService', () => {
     it('should activate subscription and create billing transaction', async () => {
       const business = { id: 'b1', businessName: 'Test Biz' };
       mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ price: 10 });
       mockPrisma.businessProfile.update.mockResolvedValue({
         ...business,
         membershipLevel: 'Bronze',
@@ -93,6 +105,7 @@ describe('PricingService', () => {
     it('should apply 20% yearly discount', async () => {
       const business = { id: 'b1' };
       mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ price: 10 });
       mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Bronze', membershipTier: 'Normal', membershipStatus: 'active' });
       mockPrisma.billingTransaction.create.mockResolvedValue({});
 
@@ -101,9 +114,55 @@ describe('PricingService', () => {
       expect(result.price).toBe(96);
     });
 
+    it('should apply 10% quarterly discount', async () => {
+      const business = { id: 'b1' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ price: 10 });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Bronze', membershipTier: 'Normal', membershipStatus: 'active' });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+
+      const result = await service.subscribeMembership('b1', 'Bronze', 'Normal', 'quarterly', false);
+      // Monthly: 10, Quarterly: Math.floor(10 * 0.9) * 3 = 27
+      expect(result.price).toBe(27);
+    });
+
+    it('should auto-provision bundled platform packages', async () => {
+      const business = { id: 'b1' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'gold-id',
+        name: 'Gold',
+        price: 350,
+        includedApps: [
+          { platform: 'MCOM Solutions', planName: 'MCOM Business Growth', planId: 'mcom-sol-growth' },
+          { platform: 'MCOM Mall', planName: 'Mall Standard', planId: 'mall-std' },
+        ],
+      });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Gold', membershipTier: 'Normal', membershipStatus: 'active' });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+      mockPrisma.platformPackage = { upsert: jest.fn().mockResolvedValue({}) } as any;
+
+      await service.subscribeMembership('b1', 'Gold', 'Normal', 'monthly', false);
+
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Solutions' } },
+          create: expect.objectContaining({ packageName: 'MCOM Business Growth' }),
+        }),
+      );
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Mall' } },
+          create: expect.objectContaining({ packageName: 'Mall Standard' }),
+        }),
+      );
+    });
+
     it('should set trial status for trial subscriptions', async () => {
       const business = { id: 'b1' };
       mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ price: 75 });
       mockPrisma.businessProfile.update.mockResolvedValue({
         ...business,
         membershipLevel: 'Silver',
@@ -129,8 +188,24 @@ describe('PricingService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('should throw NotFoundException if no package template exists', async () => {
+      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
+      mockPrisma.packageTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.purchasePackage('b1', 'mall', 'Standard'),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.platformPackage.upsert).not.toHaveBeenCalled();
+    });
+
     it('should upsert platform package and create billing transaction', async () => {
       mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
+      mockPrisma.packageTemplate.findFirst.mockResolvedValue({
+        name: 'Standard',
+        price: 29,
+        usageLimits: { campaignsLimit: 1, rewardsLimit: 5 },
+        billingCycle: 'monthly',
+      });
       mockPrisma.platformPackage.upsert.mockResolvedValue({
         id: 'pkg-1',
         platform: 'mall',
@@ -141,10 +216,21 @@ describe('PricingService', () => {
       const result = await service.purchasePackage('b1', 'mall', 'Standard');
       expect(result.platform).toBe('mall');
       expect(result.packageName).toBe('Standard');
+      expect(mockPrisma.billingTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amount: 29 }),
+        }),
+      );
     });
 
-    it('should set correct pricing for enterprise packages', async () => {
+    it('should price from the PackageTemplate catalog when available', async () => {
       mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1' });
+      mockPrisma.packageTemplate.findFirst.mockResolvedValue({
+        name: 'Enterprise',
+        price: 199,
+        usageLimits: { campaignsLimit: -1, rewardsLimit: -1 },
+        billingCycle: 'monthly',
+      });
       mockPrisma.platformPackage.upsert.mockResolvedValue({
         id: 'pkg-2',
         platform: 'rewards',

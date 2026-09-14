@@ -113,7 +113,8 @@ export default function LoginPage() {
 
       // If business user without completed onboarding, take to /getstarted/business
       if (res?.user?.role === 'BUSINESS' && (!res?.user?.isOnboarded || !res?.user?.businessId)) {
-        navigate('/getstarted/business');
+        const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+        navigate(`/getstarted/business${searchStr}`);
         return;
       }
 
@@ -170,7 +171,8 @@ export default function LoginPage() {
 
         // If the user has not completed onboarding, take them directly to /getstarted/business
         if (user?.role === 'BUSINESS' && (!user?.isOnboarded || !user?.businessId)) {
-          navigate('/getstarted/business');
+          const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+          navigate(`/getstarted/business${searchStr}`);
           return;
         }
 
