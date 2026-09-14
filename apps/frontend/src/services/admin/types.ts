@@ -698,3 +698,99 @@ export interface ConsoleAuditQuery {
   clientId?: string
   action?: string
 }
+
+// ─── Sector, Category, SubCategory Catalog ───────────────────
+export interface AdminSubCategory {
+  id: string
+  categoryId: string
+  name: string
+  slug: string
+  sortOrder: number
+  createdAt?: string
+  updatedAt?: string
+  category?: {
+    id: string
+    name: string
+    slug: string
+    sector?: { id: string; name: string; slug: string }
+  }
+}
+
+export interface AdminCategory {
+  id: string
+  sectorId: string
+  name: string
+  slug: string
+  sortOrder: number
+  createdAt?: string
+  updatedAt?: string
+  subCategories?: AdminSubCategory[]
+  sector?: { id: string; name: string; slug: string }
+  _count?: { subCategories: number }
+}
+
+export interface AdminSector {
+  id: string
+  name: string
+  slug: string
+  sortOrder: number
+  createdAt?: string
+  updatedAt?: string
+  categories?: AdminCategory[]
+  _count?: { categories: number }
+}
+
+export interface CatalogStats {
+  totalSectors: number
+  totalCategories: number
+  totalSubcategories: number
+}
+
+export interface CatalogTreeData {
+  sectors: (AdminSector & {
+    categories: (AdminCategory & {
+      subCategories: AdminSubCategory[]
+    })[]
+  })[]
+  stats: CatalogStats
+}
+
+export interface CreateSectorInput {
+  name: string
+  slug?: string
+  sortOrder?: number
+}
+
+export interface UpdateSectorInput {
+  name?: string
+  slug?: string
+  sortOrder?: number
+}
+
+export interface CreateCategoryInput {
+  sectorId: string
+  name: string
+  slug?: string
+  sortOrder?: number
+}
+
+export interface UpdateCategoryInput {
+  sectorId?: string
+  name?: string
+  slug?: string
+  sortOrder?: number
+}
+
+export interface CreateSubCategoryInput {
+  categoryId: string
+  name: string
+  slug?: string
+  sortOrder?: number
+}
+
+export interface UpdateSubCategoryInput {
+  categoryId?: string
+  name?: string
+  slug?: string
+  sortOrder?: number
+}

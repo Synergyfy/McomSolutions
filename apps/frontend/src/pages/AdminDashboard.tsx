@@ -19,6 +19,7 @@ import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import AssessmentPanel from '../components/admin/AssessmentPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
+import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -36,6 +37,7 @@ const ADMIN_TABS: AdminTab[] = [
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
   'assessment',
+  'sectors-categories',
 ];
 
 export default function AdminDashboard() {
@@ -78,6 +80,7 @@ export default function AdminDashboard() {
       boroughs: { title: 'Borough Management', subtitle: 'Command center for local borough ecosystems and engagement systems' },
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
       'assessment': { title: 'Business Assessment', subtitle: 'Configure the onboarding assessment questions for new businesses' },
+      'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -133,6 +136,8 @@ export default function AdminDashboard() {
         return <LocalMallsPanel />;
       case 'assessment':
         return <AssessmentPanel />;
+      case 'sectors-categories':
+        return <SectorsCategoriesPanel />;
       default:
         return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
     }

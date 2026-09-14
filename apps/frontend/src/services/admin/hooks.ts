@@ -33,6 +33,12 @@ import type {
   ExternalPlan,
   CreateExternalPlanInput,
   CreateCampaignInput,
+  CreateSectorInput,
+  UpdateSectorInput,
+  CreateCategoryInput,
+  UpdateCategoryInput,
+  CreateSubCategoryInput,
+  UpdateSubCategoryInput,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1142,5 +1148,143 @@ export const useCampaignAction = () => {
     mutationFn: ({ id, data }: { id: string; data: { action: 'pause' | 'resume' | 'complete' } }) =>
       adminApi.campaignAction(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'campaigns'] }),
+  })
+}
+
+// ─── Catalog (Sectors, Categories, Subcategories) ───────
+export const useAdminCatalogTree = () => {
+  return useQuery({
+    queryKey: ['admin', 'catalog', 'tree'],
+    queryFn: () => adminApi.getCatalogTree(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useAdminSectors = () => {
+  return useQuery({
+    queryKey: ['admin', 'catalog', 'sectors'],
+    queryFn: () => adminApi.getSectors(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateSector = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateSectorInput) => adminApi.createSector(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['sectors'] })
+    },
+  })
+}
+
+export const useUpdateSector = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateSectorInput }) =>
+      adminApi.updateSector(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['sectors'] })
+    },
+  })
+}
+
+export const useDeleteSector = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteSector(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['sectors'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['subcategories'] })
+    },
+  })
+}
+
+export const useAdminCategories = (sectorId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'catalog', 'categories', sectorId],
+    queryFn: () => adminApi.getCategories(sectorId),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateCategoryInput) => adminApi.createCategory(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+}
+
+export const useUpdateCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateCategoryInput }) =>
+      adminApi.updateCategory(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+    },
+  })
+}
+
+export const useDeleteCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteCategory(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
+      queryClient.invalidateQueries({ queryKey: ['subcategories'] })
+    },
+  })
+}
+
+export const useAdminSubCategories = (categoryId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'catalog', 'subcategories', categoryId],
+    queryFn: () => adminApi.getSubCategories(categoryId),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateSubCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateSubCategoryInput) => adminApi.createSubCategory(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['subcategories'] })
+    },
+  })
+}
+
+export const useUpdateSubCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateSubCategoryInput }) =>
+      adminApi.updateSubCategory(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['subcategories'] })
+    },
+  })
+}
+
+export const useDeleteSubCategory = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteSubCategory(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalog'] })
+      queryClient.invalidateQueries({ queryKey: ['subcategories'] })
+    },
   })
 }

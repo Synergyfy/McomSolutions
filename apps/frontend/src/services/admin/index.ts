@@ -44,6 +44,16 @@ import type {
   ExternalSeason,
   Campaign,
   CreateCampaignInput,
+  AdminSector,
+  AdminCategory,
+  AdminSubCategory,
+  CatalogTreeData,
+  CreateSectorInput,
+  UpdateSectorInput,
+  CreateCategoryInput,
+  UpdateCategoryInput,
+  CreateSubCategoryInput,
+  UpdateSubCategoryInput,
 } from './types'
 
 export const adminApi = {
@@ -752,5 +762,86 @@ export const adminApi = {
   campaignAction: async (id: string, data: { action: 'pause' | 'resume' | 'complete' }) => {
     const res = await apiClient.post(`/admin/campaigns/${id}/action`, data)
     return res.data as ApiResponse<Campaign>
+  },
+
+  // ─── Catalog (Sectors, Categories, Subcategories) ───────
+  getCatalogTree: async () => {
+    const res = await apiClient.get('/admin/catalog/tree')
+    return res.data as ApiResponse<CatalogTreeData>
+  },
+
+  getSectors: async () => {
+    const res = await apiClient.get('/admin/catalog/sectors')
+    return res.data as ApiResponse<AdminSector[]>
+  },
+
+  getSector: async (id: string) => {
+    const res = await apiClient.get(`/admin/catalog/sectors/${id}`)
+    return res.data as ApiResponse<AdminSector>
+  },
+
+  createSector: async (data: CreateSectorInput) => {
+    const res = await apiClient.post('/admin/catalog/sectors', data)
+    return res.data as ApiResponse<AdminSector>
+  },
+
+  updateSector: async (id: string, data: UpdateSectorInput) => {
+    const res = await apiClient.put(`/admin/catalog/sectors/${id}`, data)
+    return res.data as ApiResponse<AdminSector>
+  },
+
+  deleteSector: async (id: string) => {
+    const res = await apiClient.delete(`/admin/catalog/sectors/${id}`)
+    return res.data as ApiResponse<any>
+  },
+
+  getCategories: async (sectorId?: string) => {
+    const res = await apiClient.get('/admin/catalog/categories', { params: sectorId ? { sectorId } : undefined })
+    return res.data as ApiResponse<AdminCategory[]>
+  },
+
+  getCategory: async (id: string) => {
+    const res = await apiClient.get(`/admin/catalog/categories/${id}`)
+    return res.data as ApiResponse<AdminCategory>
+  },
+
+  createCategory: async (data: CreateCategoryInput) => {
+    const res = await apiClient.post('/admin/catalog/categories', data)
+    return res.data as ApiResponse<AdminCategory>
+  },
+
+  updateCategory: async (id: string, data: UpdateCategoryInput) => {
+    const res = await apiClient.put(`/admin/catalog/categories/${id}`, data)
+    return res.data as ApiResponse<AdminCategory>
+  },
+
+  deleteCategory: async (id: string) => {
+    const res = await apiClient.delete(`/admin/catalog/categories/${id}`)
+    return res.data as ApiResponse<any>
+  },
+
+  getSubCategories: async (categoryId?: string) => {
+    const res = await apiClient.get('/admin/catalog/subcategories', { params: categoryId ? { categoryId } : undefined })
+    return res.data as ApiResponse<AdminSubCategory[]>
+  },
+
+  getSubCategory: async (id: string) => {
+    const res = await apiClient.get(`/admin/catalog/subcategories/${id}`)
+    return res.data as ApiResponse<AdminSubCategory>
+  },
+
+  createSubCategory: async (data: CreateSubCategoryInput) => {
+    const res = await apiClient.post('/admin/catalog/subcategories', data)
+    return res.data as ApiResponse<AdminSubCategory>
+  },
+
+  updateSubCategory: async (id: string, data: UpdateSubCategoryInput) => {
+    const res = await apiClient.put(`/admin/catalog/subcategories/${id}`, data)
+    return res.data as ApiResponse<AdminSubCategory>
+  },
+
+  deleteSubCategory: async (id: string) => {
+    const res = await apiClient.delete(`/admin/catalog/subcategories/${id}`)
+    return res.data as ApiResponse<any>
   },
 }
