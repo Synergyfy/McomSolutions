@@ -198,16 +198,63 @@ class PlanConfigurationDto {
   featureFlags?: PlanFeatureFlagsDto
 }
 
+export class CreatePlanVariantDto {
+  @ApiProperty({ example: 'STANDARD', enum: ['STANDARD', 'PRO', 'PRO_PLUS', 'Standard', 'Pro', 'Pro+'] })
+  @IsString()
+  @IsNotEmpty()
+  tier: string;
+
+  @ApiProperty({ example: 29.99, description: 'One-off price for full tier duration' })
+  @IsNumber()
+  @Type(() => Number)
+  @Min(0)
+  price: number;
+
+  @ApiPropertyOptional({ example: ['Priority support'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  features?: string[];
+
+  @ApiPropertyOptional({ type: PlanConfigurationDto })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PlanConfigurationDto)
+  configuration?: PlanConfigurationDto;
+
+  @ApiPropertyOptional({ example: 'price_abc123' })
+  @IsOptional()
+  @IsString()
+  stripePriceId?: string;
+
+  @ApiPropertyOptional({ example: 'P-123456' })
+  @IsOptional()
+  @IsString()
+  paypalPlanId?: string;
+}
+
 export class CreateExternalPlanDto {
   @ApiProperty({ example: 'Gold Plan', description: 'Plan name' })
   @IsString()
   @IsNotEmpty()
   name: string
 
+  @ApiPropertyOptional({ example: 'gold-plan', description: 'Unique slug' })
+  @IsOptional()
+  @IsString()
+  slug?: string
+
+  @ApiPropertyOptional({ type: [CreatePlanVariantDto], description: 'Standard, Pro and Pro+ variants' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreatePlanVariantDto)
+  variants?: CreatePlanVariantDto[]
+
   @ApiProperty({ example: 'MCOM Mall', description: 'Target platform for the plan' })
   @IsString()
   @IsNotEmpty()
-  @IsIn(['MCOM Mall', 'MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'])
   platform: string
 
   @ApiPropertyOptional({ example: 'Premium tier for established businesses' })

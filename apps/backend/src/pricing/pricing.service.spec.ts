@@ -26,6 +26,9 @@ describe('PricingService', () => {
     packageTemplate: {
       findFirst: jest.fn(),
     },
+    ecosystemSubscription: {
+      create: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
@@ -126,7 +129,7 @@ describe('PricingService', () => {
       expect(result.price).toBe(27);
     });
 
-    it('should auto-provision bundled platform packages', async () => {
+    it('should auto-provision bundled platform packages with matching tier variant quotas', async () => {
       const business = { id: 'b1' };
       mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
       mockPrisma.membershipPlan.findFirst.mockResolvedValue({
@@ -134,27 +137,67 @@ describe('PricingService', () => {
         name: 'Gold',
         price: 350,
         includedApps: [
-          { platform: 'MCOM Solutions', planName: 'MCOM Business Growth', planId: 'mcom-sol-growth' },
-          { platform: 'MCOM Mall', planName: 'Mall Standard', planId: 'mall-std' },
+          {
+            platform: 'MCOM Mall',
+            planName: 'Mall Gold',
+            variants: [
+              { tier: 'STANDARD', configuration: { quotas: { maxListings: 10, maxProducts: 5 }, featureFlags: { priorityInSearch: false } } },
+              { tier: 'PRO', configuration: { quotas: { maxListings: 25, maxProducts: 15 }, featureFlags: { priorityInSearch: true } } },
+              { tier: 'PRO_PLUS', configuration: { quotas: { maxListings: 50, maxProducts: 50 }, featureFlags: { priorityInSearch: true, customBranding: true } } },
+            ],
+          },
         ],
       });
-      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Gold', membershipTier: 'Normal', membershipStatus: 'active' });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Gold', membershipTier: 'Pro', membershipStatus: 'active' });
       mockPrisma.billingTransaction.create.mockResolvedValue({});
       mockPrisma.platformPackage = { upsert: jest.fn().mockResolvedValue({}) } as any;
 
-      await service.subscribeMembership('b1', 'Gold', 'Normal', 'monthly', false);
+      // Subscribe to Pro tier
+      await service.subscribeMembership('b1', 'Gold', 'Pro', 'monthly', false);
 
-      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledTimes(2);
-      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Solutions' } },
-          create: expect.objectContaining({ packageName: 'MCOM Business Growth' }),
-        }),
-      );
       expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Mall' } },
-          create: expect.objectContaining({ packageName: 'Mall Standard' }),
+          create: expect.objectContaining({
+            limits: expect.objectContaining({ maxListings: 25, maxProducts: 15, priorityInSearch: true }),
+            billingCycle: '180 Days',
+          }),
+        }),
+      );
+    });
+
+    it('should auto-provision Pro+ variant quotas for Pro+ membership', async () => {
+      const business = { id: 'b1' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'gold-id',
+        name: 'Gold',
+        price: 350,
+        includedApps: [
+          {
+            platform: 'MCOM Mall',
+            planName: 'Mall Gold',
+            variants: [
+              { tier: 'STANDARD', configuration: { quotas: { maxListings: 10 } } },
+              { tier: 'PRO', configuration: { quotas: { maxListings: 25 } } },
+              { tier: 'PRO_PLUS', configuration: { quotas: { maxListings: 100 } } },
+            ],
+          },
+        ],
+      });
+      mockPrisma.businessProfile.update.mockResolvedValue({ ...business, membershipLevel: 'Gold', membershipTier: 'ProPlus', membershipStatus: 'active' });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+      mockPrisma.platformPackage = { upsert: jest.fn().mockResolvedValue({}) } as any;
+
+      await service.subscribeMembership('b1', 'Gold', 'Pro+', 'yearly', false);
+
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId_platform: { businessId: 'b1', platform: 'MCOM Mall' } },
+          create: expect.objectContaining({
+            limits: expect.objectContaining({ maxListings: 100 }),
+            billingCycle: 'Annually',
+          }),
         }),
       );
     });
@@ -176,6 +219,56 @@ describe('PricingService', () => {
       expect(result.membershipStatus).toBe('trial');
       expect(result.isTrial).toBe(true);
       expect(result.price).toBe(0);
+    });
+
+    it('should assign Pro+ tier with annual expiry and tier-specific entitlements', async () => {
+      const business = { id: 'b1', businessName: 'Acme Retail' };
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'plan-bronze',
+        name: 'Bronze',
+        price: 49,
+        tierPrices: { Standard: 49, Pro: 99, 'Pro+': 180 },
+        tierEntitlements: [
+          { resourceKey: 'business_vcards', name: 'Business VCards', standard: 10, pro: 25, proPlus: 50 },
+          { resourceKey: 'consumer_vcards', name: 'Consumer VCards', standard: 50, pro: 100, proPlus: 200 },
+        ],
+        includedApps: [
+          { platform: 'MCOM Mall', planName: 'Bronze Suite' }
+        ],
+      });
+      mockPrisma.businessProfile.update.mockResolvedValue({
+        ...business,
+        membershipLevel: 'Bronze',
+        membershipTier: 'Pro+',
+        membershipStatus: 'active',
+      });
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+
+      const result = await service.subscribeMembership('b1', 'Bronze', 'Pro+', 'yearly', false);
+
+      expect(result.tier).toBe('Pro+');
+      expect(result.price).toBe(180);
+      expect(result.entitlements.business_vcards).toBe(50);
+      expect(result.entitlements.consumer_vcards).toBe(200);
+      expect(result.durationDays).toBeGreaterThanOrEqual(365);
+      expect(mockPrisma.platformPackage.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            billingCycle: 'Annually',
+            limits: expect.objectContaining({ business_vcards: 50, consumer_vcards: 200 }),
+          }),
+        }),
+      );
+      expect(mockPrisma.ecosystemSubscription.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            itemName: 'Bronze (Pro+)',
+            billingCycle: 'Annually',
+            amount: 180,
+          }),
+        }),
+      );
     });
   });
 

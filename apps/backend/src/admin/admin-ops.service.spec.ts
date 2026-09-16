@@ -175,8 +175,6 @@ describe('AdminOpsService', () => {
       const result = await service.getSupportedPlatforms();
       expect(result.success).toBe(true);
       expect(result.data).toEqual([
-        { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
-        { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
         {
           name: 'Mcom vCard',
           clientId: 'mcom-vcard',

@@ -7,6 +7,9 @@ import { GoogleOAuthService } from './google-oauth.service';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
+import { RegisterDto } from './dto/register.dto';
+import type { Response } from 'express';
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -18,10 +21,13 @@ export class AuthController {
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
-  async register(@Body() registerDto: any, @Res({ passthrough: true }) res: any) {
+  async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+    const normalizedRole = (registerDto.role || 'BUSINESS').toUpperCase().replace('-', '_');
     let result;
-    if (registerDto.role === 'CUSTOMER') {
+    if (normalizedRole === 'CUSTOMER') {
       result = await this.authService.registerCustomer(registerDto);
+    } else if (['AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'].includes(normalizedRole)) {
+      result = await this.authService.registerAffiliate(registerDto);
     } else {
       result = await this.authService.registerBusiness(registerDto);
     }

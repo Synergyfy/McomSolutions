@@ -50,8 +50,13 @@ export interface WalletSummary {
 }
 
 export interface TopUpInitiateResult {
-  sessionId: string;
-  checkoutUrl: string;
+  clientSecret?: string;
+  paymentIntentId?: string;
+  topUpRequestId?: string;
+  amount?: number;
+  currency?: string;
+  sessionId?: string;
+  checkoutUrl?: string;
   status: string;
 }
 
@@ -64,9 +69,14 @@ export const walletApi = {
   getTransaction: (id: string) =>
     apiClient.get<WalletTransaction>(`/wallet/transactions/${id}`).then((r) => r.data),
 
-  initiateTopUp: (amount: number, returnUrl?: string, cancelUrl?: string) =>
+  initiateTopUp: (amount: number, returnUrl?: string, cancelUrl?: string, provider = 'stripe') =>
     apiClient
-      .post<TopUpInitiateResult>('/wallet/topup/initiate', { amount, returnUrl, cancelUrl })
+      .post<TopUpInitiateResult>('/wallet/topup/initiate', { amount, returnUrl, cancelUrl, provider })
+      .then((r) => r.data),
+
+  confirmTopUp: (topUpRequestId: string, paymentIntentId: string) =>
+    apiClient
+      .post<{ success: boolean; balance: number }>('/wallet/topup/confirm', { topUpRequestId, paymentIntentId })
       .then((r) => r.data),
 
   getTopUpHistory: (page = 1, limit = 20) =>

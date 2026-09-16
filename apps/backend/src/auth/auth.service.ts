@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import axios from 'axios';
 import { Role } from '@prisma/client';
+import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -40,8 +41,11 @@ export class AuthService {
     subject: string,
     intro: string,
   ): Promise<void> {
-    const from = this.config.get<string>('SMTP_FROM') || 'MCOM Solutions <no-reply@mcomsolutions.com>';
-    const smtpFrom = this.config.get<string>('SMTP_FROM') || 'no-reply@mcomsolutions.com';
+    const from =
+      process.env.SMTP_FROM ||
+      this.config.get<string>('SMTP_FROM') ||
+      'CentralHub Solution <no-reply@centralhubsolution.com>';
+    const smtpFrom = process.env.SMTP_FROM || this.config.get<string>('SMTP_FROM') || 'no-reply@centralhubsolution.com';
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
@@ -58,8 +62,11 @@ export class AuthService {
     `;
 
     // Preferred path: Resend transactional email API (RESEND_API_KEY configured).
-    const resendApiKey = this.config.get<string>('RESEND_API_KEY');
+    const rawResendApiKey = this.config.get<string>('RESEND_API_KEY') || process.env.RESEND_API_KEY;
+    const resendApiKey = rawResendApiKey ? rawResendApiKey.replace(/['"\s]+/g, '') : undefined;
     if (resendApiKey) {
+      const maskedKey = `${resendApiKey.slice(0, 7)}...${resendApiKey.slice(-4)}`;
+      this.logger.log(`[Resend] Sending email to ${email} (key: ${maskedKey})`);
       try {
         const response = await axios.post(
           'https://api.resend.com/emails',
@@ -74,8 +81,12 @@ export class AuthService {
         );
         this.logger.log(`[Resend] Email sent to ${email} (id=${response.data?.id ?? 'n/a'})`);
         return;
-      } catch (err) {
-        this.logger.error('[Resend] Failed to send email, falling back to SMTP:', err as any);
+      } catch (err: any) {
+        const errorData = err.response?.data;
+        this.logger.error(
+          `[Resend] Failed to send email to ${email}: ${JSON.stringify(errorData || err.message)}`,
+        );
+        this.logger.warn(`[OTP Fallback] Verification code for ${email}: ${code}`);
       }
     } else {
       this.logger.debug('[Resend] RESEND_API_KEY not set — using SMTP fallback.');
@@ -461,6 +472,85 @@ export class AuthService {
           customerProfile: {
             create: {},
           },
+        },
+      });
+      return user;
+    });
+
+    return this.login(newUser);
+  }
+
+  async registerAffiliate(data: RegisterDto) {
+    const email = data.email ? data.email.toLowerCase().trim() : '';
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existing) {
+      throw new ConflictException('Email already registered');
+    }
+
+    const salt = await bcrypt.genSalt();
+    const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
+
+    const rawRole = (data.role || 'AGENT').toString().toUpperCase().replace('-', '_');
+    let targetRole: Role = Role.AGENT;
+    if (rawRole === 'ACCOUNT_MANAGER' || rawRole === 'MANAGER') {
+      targetRole = Role.ACCOUNT_MANAGER;
+    } else if (rawRole === 'CONSULTANT') {
+      targetRole = Role.CONSULTANT;
+    } else {
+      targetRole = Role.AGENT;
+    }
+
+    const phone = data.phone || data.phoneNumber || null;
+
+    const newUser = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          password: passwordHash,
+          role: targetRole,
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
+          registrationSource: 'affiliate-portal',
+          wallet: {
+            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+          },
+          ...(targetRole === Role.AGENT
+            ? {
+                agentProfile: {
+                  create: {
+                    phone,
+                    status: 'Active',
+                    permissions: ['view_tasks', 'submit_deliverables'],
+                  },
+                },
+              }
+            : targetRole === Role.ACCOUNT_MANAGER
+            ? {
+                accountManagerProfile: {
+                  create: {
+                    phone,
+                    status: 'Active',
+                    assignedBusinesses: 0,
+                  },
+                },
+              }
+            : {
+                consultantProfile: {
+                  create: {
+                    phone,
+                    status: 'Active',
+                    specialisation: data.specialisation || 'General Consulting',
+                  },
+                },
+              }),
+        },
+        include: {
+          agentProfile: true,
+          accountManagerProfile: true,
+          consultantProfile: true,
         },
       });
       return user;

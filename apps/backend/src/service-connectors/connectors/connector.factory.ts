@@ -6,13 +6,7 @@ import { ServiceConnector } from './connector.interface';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 
-const SUPPORTED_PLATFORMS: Record<string, string> = {
-  'MCOM Mall': 'mcomMall',
-  'MCOM Rewards': 'mcomRewards',
-  // Future platforms (MCOM Spin, GBS Audit, GBS Expo, …) resolve through the
-  // DB-driven GenericHttpConnector below once they are registered in the Admin
-  // Console with a billingApiUrl — no code change required here.
-}
+const SUPPORTED_PLATFORMS: Record<string, string> = {};
 
 @Injectable()
 export class ConnectorFactory {
@@ -44,8 +38,9 @@ export class ConnectorFactory {
       client = await this.prisma.ssoClient.findFirst({
         where: {
           OR: [
-            { name: platform },
-            { platformSlug: platform.toLowerCase() },
+            { name: { equals: platform, mode: 'insensitive' } },
+            { platformSlug: { equals: platform, mode: 'insensitive' } },
+            { clientId: { equals: platform, mode: 'insensitive' } },
           ],
           isActive: true,
           billingApiUrl: { not: null },

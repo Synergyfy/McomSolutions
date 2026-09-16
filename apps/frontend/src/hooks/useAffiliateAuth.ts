@@ -39,11 +39,12 @@ export const useAffiliateAuth = () => {
       }
 
       setAuth(user, accessToken);
-      if (user?.role) {
-        navigate(`/dashboard/${user.role.toLowerCase().replace('_', '-')}`);
-      } else {
-        navigate("/dashboard/agent"); // fallback
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('auth_token', accessToken);
+        localStorage.setItem('business_user', JSON.stringify(user));
       }
+      const ssoUrl = import.meta.env.VITE_AFFILIATE_SSO_URL || 'http://localhost:7088/api/v1/auth/sso/login';
+      window.location.href = ssoUrl;
     },
   });
 
@@ -78,14 +79,35 @@ export const useAffiliateAuth = () => {
           }
         }
         setAuth(user, accessToken);
-        if (user?.role) {
-          navigate(`/dashboard/${user.role.toLowerCase().replace('_', '-')}`);
-        } else {
-          navigate("/dashboard/agent");
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth_token', accessToken);
+          localStorage.setItem('business_user', JSON.stringify(user));
         }
-      } else {
-        navigate("/login");
       }
+    },
+  });
+
+  const checkEmailMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const response = await affiliateApiClient.get(`/auth/check-email?email=${encodeURIComponent(email)}`);
+      return response.data;
+    },
+  });
+
+  const sendOtpMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const response = await affiliateApiClient.post('/auth/send-otp', { email });
+      return response.data;
+    },
+  });
+
+  const verifyOtpMutation = useMutation({
+    mutationFn: async ({ email, code }: { email: string; code: string }) => {
+      const response = await affiliateApiClient.post('/auth/verify-otp', { email, code });
+      if (!response.data?.valid) {
+        throw new Error('Invalid or expired verification code');
+      }
+      return response.data;
     },
   });
 
@@ -117,6 +139,12 @@ export const useAffiliateAuth = () => {
     isLoggingIn: loginMutation.isPending,
     signup: signupMutation.mutateAsync,
     isSigningUp: signupMutation.isPending,
+    checkEmail: checkEmailMutation.mutateAsync,
+    isCheckingEmail: checkEmailMutation.isPending,
+    sendOtp: sendOtpMutation.mutateAsync,
+    isSendingOtp: sendOtpMutation.isPending,
+    verifyOtp: verifyOtpMutation.mutateAsync,
+    isVerifyingOtp: verifyOtpMutation.isPending,
     logout: logoutMutation.mutateAsync,
     isLoggingOut: logoutMutation.isPending,
     deleteAccount: deleteAccountMutation.mutateAsync,

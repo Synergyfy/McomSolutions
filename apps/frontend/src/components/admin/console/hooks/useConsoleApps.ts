@@ -26,6 +26,7 @@ export const useRegisterApp = () => {
     mutationFn: (data: RegisterAppInput) => consoleApi.registerApp(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
     },
   })
 }
@@ -38,6 +39,7 @@ export const useUpdateApp = () => {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.invalidateQueries({ queryKey: appKey(vars.clientId) })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
     },
   })
 }
@@ -48,6 +50,7 @@ export const useDeactivateApp = () => {
     mutationFn: (clientId: string) => consoleApi.deactivateApp(clientId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
     },
   })
 }

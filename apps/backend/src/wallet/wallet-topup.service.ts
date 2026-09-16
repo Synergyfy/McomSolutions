@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,7 +6,7 @@ import { WalletService } from './wallet.service';
 import { WalletLedgerService } from './wallet-ledger.service';
 import { WalletLockUtil } from './utils/wallet-lock.util';
 import { RedisService } from '../redis/redis.service';
-import { TopUpInitiateDto } from './dto/wallet-operations.dto';
+import { TopUpInitiateDto, ConfirmTopUpDto } from './dto/wallet-operations.dto';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 
@@ -47,37 +47,89 @@ export class WalletTopUpService {
         currency: dto.currency || 'GBP',
         walletCurrency: wallet.currency,
         exchangeRate,
-        provider: 'stripe',
+        provider: dto.provider || 'stripe',
         status: 'PENDING',
       },
     });
 
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'payment',
-      customer_email: undefined, // resolved from the authenticated user in the success page
-      line_items: [
-        {
-          price_data: {
-            currency: (dto.currency || 'GBP').toLowerCase(),
-            unit_amount: Math.round(dto.amount * 100),
-            product_data: {
-              name: 'MCOM Wallet Top-Up',
-              description: `Credit ${dto.amount} ${dto.currency || 'GBP'} to your MCOM wallet`,
-            },
-          },
-          quantity: 1,
-        },
-      ],
+    // Create a Stripe PaymentIntent for the in-app Stripe Elements modal flow
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: Math.round(dto.amount * 100),
+      currency: (dto.currency || 'GBP').toLowerCase(),
+      automatic_payment_methods: { enabled: true },
       metadata: { topUpRequestId: topUp.id, userId },
-      success_url: dto.returnUrl || `${frontendUrl}/dashboard/wallet?topup=success`,
-      cancel_url: dto.cancelUrl || `${frontendUrl}/dashboard/wallet?topup=cancelled`,
+      description: `MCOM Wallet Top-Up (${dto.currency || 'GBP'} ${dto.amount})`,
     });
 
+    await this.prisma.walletTopUpRequest.update({
+      where: { id: topUp.id },
+      data: { providerRef: paymentIntent.id },
+    });
+
+    // Also create a Checkout Session as an alternative redirect fallback if returnUrl was explicitly supplied
+    let checkoutUrl: string | null = null;
+    let sessionId: string | null = null;
+    if (dto.returnUrl) {
+      try {
+        const session = await this.stripe.checkout.sessions.create({
+          mode: 'payment',
+          line_items: [
+            {
+              price_data: {
+                currency: (dto.currency || 'GBP').toLowerCase(),
+                unit_amount: Math.round(dto.amount * 100),
+                product_data: {
+                  name: 'MCOM Wallet Top-Up',
+                  description: `Credit ${dto.amount} ${dto.currency || 'GBP'} to your MCOM wallet`,
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          metadata: { topUpRequestId: topUp.id, userId },
+          success_url: dto.returnUrl,
+          cancel_url: dto.cancelUrl || `${frontendUrl}/dashboard/wallet?topup=cancelled`,
+        });
+        sessionId = session.id;
+        checkoutUrl = session.url;
+      } catch (err) {
+        this.logger.warn(`Failed to create fallback Checkout session: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
     return {
-      sessionId: session.id,
-      checkoutUrl: session.url,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      topUpRequestId: topUp.id,
+      amount: dto.amount,
+      currency: dto.currency || 'GBP',
       status: 'PENDING',
+      sessionId,
+      checkoutUrl,
     };
+  }
+
+  async confirmStripeTopUp(userId: string, dto: ConfirmTopUpDto) {
+    if (!this.stripe) {
+      throw new InternalServerErrorException('Stripe is not configured on this server.');
+    }
+
+    const intent = await this.stripe.paymentIntents.retrieve(dto.paymentIntentId);
+    if (intent.status !== 'succeeded') {
+      throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
+    }
+
+    if (intent.metadata?.userId && intent.metadata.userId !== userId) {
+      throw new BadRequestException('Payment intent does not belong to this user.');
+    }
+
+    if (intent.metadata?.topUpRequestId && intent.metadata.topUpRequestId !== dto.topUpRequestId) {
+      throw new BadRequestException('Payment intent metadata does not match top-up request.');
+    }
+
+    return this.fulfillTopUp(dto.topUpRequestId, intent.id, intent.status, {
+      paymentIntentId: intent.id,
+    });
   }
 
   /**
@@ -117,7 +169,23 @@ export class WalletTopUpService {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        await this.handleCheckoutCompleted(session);
+        const topUpRequestId = session.metadata?.topUpRequestId;
+        if (topUpRequestId) {
+          await this.fulfillTopUp(topUpRequestId, session.id, session.payment_status || 'paid', {
+            sessionId: session.id,
+            paymentIntentId: session.payment_intent,
+          });
+        }
+        break;
+      }
+      case 'payment_intent.succeeded': {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        const topUpRequestId = intent.metadata?.topUpRequestId;
+        if (topUpRequestId) {
+          await this.fulfillTopUp(topUpRequestId, intent.id, intent.status, {
+            paymentIntentId: intent.id,
+          });
+        }
         break;
       }
       default:
@@ -127,25 +195,28 @@ export class WalletTopUpService {
     return { received: true };
   }
 
-  private async handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-    const topUpRequestId = session.metadata?.topUpRequestId;
-    if (!topUpRequestId) {
-      this.logger.warn(`Checkout session ${session.id} has no topUpRequestId metadata`);
-      return;
-    }
-
+  /**
+   * Idempotent fulfillment of wallet top-up under the distributed wallet lock.
+   */
+  async fulfillTopUp(
+    topUpRequestId: string,
+    providerRef: string,
+    paymentStatus: string,
+    metadataExtra?: Record<string, any>,
+  ) {
     const request = await this.prisma.walletTopUpRequest.findUnique({
       where: { id: topUpRequestId },
     });
     if (!request) {
-      this.logger.error(`Top-up request ${topUpRequestId} not found for session ${session.id}`);
-      return;
+      this.logger.error(`Top-up request ${topUpRequestId} not found`);
+      throw new NotFoundException(`Top-up request ${topUpRequestId} not found`);
     }
 
     // Idempotency: already processed → no-op
     if (request.status === 'COMPLETED') {
       this.logger.log(`Top-up request ${topUpRequestId} already completed — skipping`);
-      return;
+      const wallet = await this.walletService.ensureWallet(request.userId);
+      return { success: true, balance: wallet.balance.toNumber() };
     }
 
     const wallet = await this.walletService.ensureWallet(request.userId);
@@ -161,7 +232,7 @@ export class WalletTopUpService {
       });
       if (freshRequest.status === 'COMPLETED') {
         this.logger.log(`Top-up request ${request.id} already completed (in lock) — skipping`);
-        return;
+        return { success: true, balance: fresh.balance.toNumber() };
       }
 
       const balanceBefore = fresh.balance;
@@ -171,7 +242,7 @@ export class WalletTopUpService {
         await this.prisma.$transaction([
           this.prisma.walletTopUpRequest.update({
             where: { id: request.id },
-            data: { status: 'COMPLETED', completedAt: new Date(), providerStatus: session.payment_status, providerRef: session.id },
+            data: { status: 'COMPLETED', completedAt: new Date(), providerStatus: paymentStatus, providerRef },
           }),
           this.prisma.walletTransaction.create({
             data: {
@@ -185,17 +256,17 @@ export class WalletTopUpService {
               platformName: 'MCOM Central',
               platformSlug: 'system',
               category: 'TOP_UP',
-              reference: session.id,
+              reference: providerRef,
               description: `Wallet top-up via Stripe (${request.currency} ${request.amount})`,
               metadata: {
                 topUpRequestId: request.id,
                 provider: 'stripe',
-                sessionId: session.id,
-                paymentIntentId: session.payment_intent,
+                providerRef,
+                ...metadataExtra,
               } as Prisma.InputJsonValue,
               idempotencyKey: `topup:${request.id}`,
               status: 'COMPLETED',
-              initiatedBy: 'webhook:stripe',
+              initiatedBy: 'stripe:payment_intent',
             },
           }),
           this.prisma.wallet.update({
@@ -205,11 +276,13 @@ export class WalletTopUpService {
         ]);
         await this.redis.del(`wallet:balance:${request.userId}`);
         this.logger.log(`Wallet credited ${creditAmount.toNumber()} MCOM for top-up ${request.id}`);
+        return { success: true, balance: balanceAfter.toNumber() };
       } catch (err) {
-        // Unique idempotency key collision → another webhook delivery already processed it
+        // Unique idempotency key collision → another confirmation or webhook already processed it
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          this.logger.log(`Top-up ${request.id} already processed (duplicate webhook) — skipping`);
-          return;
+          this.logger.log(`Top-up ${request.id} already processed (duplicate) — skipping`);
+          const latestWallet = await this.prisma.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
+          return { success: true, balance: latestWallet.balance.toNumber() };
         }
         throw err;
       }

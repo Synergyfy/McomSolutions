@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -37,7 +37,43 @@ import {
 } from './dto/admin.dto';
 
 @Injectable()
-export class AdminService {
+export class AdminService implements OnModuleInit {
+
+  async onModuleInit() {
+    await this.ensureDefaultTiers();
+  }
+
+  async ensureDefaultTiers() {
+    try {
+      const defaultTiers = [
+        { name: 'Standard', slug: 'standard', durationDays: 90, isAnnual: false, sortOrder: 1 },
+        { name: 'Pro', slug: 'pro', durationDays: 180, isAnnual: false, sortOrder: 2 },
+        { name: 'Pro+', slug: 'pro-plus', durationDays: null, isAnnual: true, sortOrder: 3 },
+      ];
+
+      for (const t of defaultTiers) {
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO tiers (id, name, slug, duration_days, is_annual, sort_order, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
+           ON CONFLICT (slug) DO UPDATE
+           SET name = EXCLUDED.name,
+               duration_days = EXCLUDED.duration_days,
+               is_annual = EXCLUDED.is_annual,
+               sort_order = EXCLUDED.sort_order,
+               updated_at = NOW()`,
+          t.name,
+          t.slug,
+          t.durationDays,
+          t.isAnnual,
+          t.sortOrder,
+        );
+      }
+    } catch {
+      // Ignored if table not yet available
+    }
+  }
+
+
 
   /**
    * Generates a strong temporary password for admin-created users.
@@ -965,6 +1001,8 @@ export class AdminService {
           includedApps: (dto.includedApps as unknown as Prisma.InputJsonValue) || [],
           tierPrices: dto.tierPrices || undefined,
           tierFeatures: dto.tierFeatures || undefined,
+          tierEntitlements: dto.tierEntitlements ?? undefined,
+          tierDurations: dto.tierDurations ?? undefined,
           whoItIsFor: dto.whoItIsFor || undefined,
           badge: dto.badge || undefined,
           color: dto.color || undefined,
@@ -972,6 +1010,8 @@ export class AdminService {
           archived: false,
         },
       });
+
+
 
       await this.logAuditTx(tx, 'Membership Created', 'Membership', dto.name, `Created ${dto.name} membership`, adminName);
       return result;
@@ -998,6 +1038,9 @@ export class AdminService {
           ...(platformAccess ? { platformAccess } : {}),
         },
       });
+
+
+
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
       return result;
     });
@@ -1035,6 +1078,10 @@ export class AdminService {
           monthlyPrice: dto.monthlyPrice ?? dto.price,
           quarterlyPrice: dto.quarterlyPrice ?? (dto.price ? Math.floor(dto.price * 0.9 * 3) : null),
           annualPrice: dto.annualPrice ?? (dto.price ? Math.floor(dto.price * 0.8 * 12) : null),
+          tierPrices: dto.tierPrices ?? undefined,
+          tierFeatures: dto.tierFeatures ?? undefined,
+          tierEntitlements: dto.tierEntitlements ?? undefined,
+          tierDurations: dto.tierDurations ?? undefined,
           isDefault: dto.isDefault ?? false,
           type: dto.type ?? 'STANDARD',
           trialDuration: dto.trialDuration ?? null,
@@ -1044,6 +1091,8 @@ export class AdminService {
           archived: false,
         },
       });
+
+
 
       await this.logAuditTx(tx, 'Package Created', 'Package', dto.name, `Created ${dto.name} package`, adminName);
       return result;
@@ -1061,6 +1110,9 @@ export class AdminService {
         where: { id },
         data: updates,
       });
+
+
+
       await this.logAuditTx(tx, 'Package Updated', 'Package', id, `Updated package template settings`, adminName);
       return result;
     });

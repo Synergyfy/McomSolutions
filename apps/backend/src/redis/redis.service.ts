@@ -151,7 +151,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
    */
   async setNx(key: string, value: any, ttlSeconds = 10): Promise<boolean> {
     if (!this.isRedisAvailable || !this.client) {
-      if (process.env.NODE_ENV === 'test') {
+      if (process.env.NODE_ENV !== 'production') {
         const cached = this.memoryCache.get(key);
         if (cached && Date.now() < cached.expiresAt) {
           return false;
@@ -170,6 +170,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return result === 'OK';
     } catch (e: any) {
       this.logger.warn(`Redis setNx error for key ${key}: ${e.message}`);
+      if (process.env.NODE_ENV !== 'production') {
+        const cached = this.memoryCache.get(key);
+        if (cached && Date.now() < cached.expiresAt) {
+          return false;
+        }
+        this.memoryCache.set(key, {
+          value,
+          expiresAt: Date.now() + ttlSeconds * 1000,
+        });
+        return true;
+      }
       throw new ServiceUnavailableException('Redis unavailable — wallet operations suspended');
     }
   }

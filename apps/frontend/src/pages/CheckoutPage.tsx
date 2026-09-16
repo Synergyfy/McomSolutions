@@ -12,8 +12,11 @@ import {
   Star, 
   Trophy, 
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  Calendar
 } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { usePricing } from '../context/PricingContext';
 import { useStripeInitiate, useStripeConfirm, usePaypalInitiate } from '../services/payment/hooks';
 
 const ICON_MAP = {
@@ -46,8 +49,14 @@ export default function CheckoutPage() {
   const { mutateAsync: paypalInitiate } = usePaypalInitiate();
 
   const planId = (searchParams.get('plan') || 'Bronze') as 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
-  const tier = (searchParams.get('tier') || 'Normal') as 'Normal' | 'Pro' | 'Pro+';
-  const billing = searchParams.get('billing') || 'monthly';
+  const initialTierParam = searchParams.get('tier') || 'Standard';
+  const [selectedTier, setSelectedTier] = useState<'Standard' | 'Pro' | 'Pro+'>(() => {
+    if (initialTierParam.toLowerCase() === 'pro+') return 'Pro+';
+    if (initialTierParam.toLowerCase() === 'pro') return 'Pro';
+    return 'Standard';
+  });
+  const tier = selectedTier;
+  const billing = searchParams.get('billing') || (selectedTier === 'Pro+' ? 'yearly' : 'monthly');
   const isTrial = searchParams.get('isTrial') === 'true';
 
   const [paymentProvider, setPaymentProvider] = useState<'stripe' | 'paypal'>('stripe');
@@ -67,15 +76,26 @@ export default function CheckoutPage() {
   const userRaw = localStorage.getItem('business_user');
   const user = userRaw ? JSON.parse(userRaw) : null;
 
-  // Calculate pricing details
-  const basePrice = useMemo(() => {
-    const prices = PLAN_PRICES[planId] || PLAN_PRICES.Bronze;
-    return prices[tier] || prices.Normal;
-  }, [planId, tier]);
+  const { plans } = usePricing();
+  const currentPlan = plans.find(
+    (p) => p.name.toLowerCase() === planId.toLowerCase() || p.id.toLowerCase() === planId.toLowerCase()
+  );
 
-  const discount = billing === 'yearly' ? 0.2 : 0;
+  // Calculate pricing details dynamically
+  const basePrice = useMemo(() => {
+    if (currentPlan?.tierPrices) {
+      const tp = currentPlan.tierPrices as any;
+      const direct = tp[selectedTier] ?? (selectedTier === 'Standard' ? tp.Normal : undefined);
+      if (direct != null && typeof direct === 'number') return direct;
+    }
+    const prices = PLAN_PRICES[planId as keyof typeof PLAN_PRICES] || PLAN_PRICES.Bronze;
+    const legacyKey = selectedTier === 'Standard' ? 'Normal' : selectedTier;
+    return prices[legacyKey as keyof typeof prices] || prices.Normal;
+  }, [currentPlan, selectedTier, planId]);
+
+  const discount = (billing === 'yearly' || selectedTier === 'Pro+') ? 0.2 : 0;
   const finalMonthlyPrice = Math.floor(basePrice * (1 - discount));
-  const subtotal = billing === 'yearly' ? finalMonthlyPrice * 12 : basePrice;
+  const subtotal = (billing === 'yearly' || selectedTier === 'Pro+') ? (basePrice > 300 ? basePrice : finalMonthlyPrice * 12) : basePrice;
   const total = isTrial ? 0 : subtotal;
 
   // Formatting card number inputs

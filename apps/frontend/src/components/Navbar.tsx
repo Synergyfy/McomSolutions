@@ -142,7 +142,7 @@ export default function Navbar() {
           ) : (
             <>
               <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
-              <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+              <Link to="/register" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
                 Get Started
               </Link>
             </>
@@ -198,7 +198,7 @@ export default function Navbar() {
               ) : (
                 <>
                   <Link to="/login" className="font-medium">Sign In</Link>
-                  <Link to="/getstarted" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
+                  <Link to="/register" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
                     Get Started
                   </Link>
                 </>

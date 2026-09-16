@@ -406,10 +406,7 @@ export class AdminOpsService {
   }
 
   // ─── External Platform Packages ─────────────────────────
-  private static readonly NAMED_PLATFORMS: PlatformInfo[] = [
-    { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
-    { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
-  ];
+  private static readonly NAMED_PLATFORMS: PlatformInfo[] = [];
 
   async getSupportedPlatforms(): Promise<{ success: boolean; data: PlatformInfo[] }> {
     const namedNames = new Set(AdminOpsService.NAMED_PLATFORMS.map((p) => p.name.toLowerCase()));
@@ -447,7 +444,7 @@ export class AdminOpsService {
 
     return {
       success: true,
-      data: [...AdminOpsService.NAMED_PLATFORMS, ...dynamicPlatforms],
+      data: dynamicPlatforms,
     };
   }
 

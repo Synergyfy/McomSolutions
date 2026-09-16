@@ -33,17 +33,59 @@ export class McomRewardsConnector implements ServiceConnector {
 
   private mapPlanResponse(data: any): ExternalPlan {
     const raw = data?.data ?? data;
+
+    let variants: any[] | undefined = undefined;
+    let tierPrices: Record<string, number> | undefined = undefined;
+    let tierFeatures: Record<string, string[]> | undefined = undefined;
+
+    if (Array.isArray(raw.variants) && raw.variants.length > 0) {
+      variants = raw.variants.map((v: any) => {
+        const tierName = v.tierLevel?.name || v.tier || 'STANDARD';
+        const activePrice = Array.isArray(v.prices)
+          ? v.prices.find((p: any) => p.isActive)?.amount ?? v.prices[0]?.amount
+          : v.price;
+        return {
+          id: v.id,
+          tier: tierName,
+          tierLevel: v.tierLevel,
+          price: activePrice != null ? Number(activePrice) : undefined,
+          features: Array.isArray(v.features) ? v.features : [],
+          configuration: v.configuration || {},
+          isActive: v.isActive ?? true,
+          stripePriceId: v.stripePriceId,
+          paypalPlanId: v.paypalPlanId,
+        };
+      });
+
+      tierPrices = {};
+      tierFeatures = {};
+      for (const v of variants) {
+        const key = v.tier === 'PRO_PLUS' || v.tier === 'Pro+' ? 'Pro+' : v.tier === 'PRO' || v.tier === 'Pro' ? 'Pro' : 'Standard';
+        if (v.price != null) tierPrices[key] = v.price;
+        if (v.features) tierFeatures[key] = v.features;
+      }
+    }
+
+    const standardPrice = tierPrices?.Standard ?? raw.monthlyPrice;
+    const proPrice = tierPrices?.Pro ?? raw.quarterlyPrice;
+    const proPlusPrice = tierPrices?.['Pro+'] ?? raw.annualPrice;
+
     return {
       id: raw.id,
       name: raw.name,
+      slug: raw.slug,
       description: raw.description,
-      monthlyPrice: raw.monthlyPrice,
-      quarterlyPrice: raw.quarterlyPrice,
-      annualPrice: raw.annualPrice,
-      features: raw.features,
-      configuration: raw.configuration,
-      isActive: raw.isActive,
-      isDefault: raw.isDefault,
+      variants,
+      tierPrices,
+      tierFeatures,
+      tierDurations: { Standard: 90, Pro: 180, 'Pro+': 365 },
+      monthlyPrice: standardPrice != null ? Number(standardPrice) : undefined,
+      quarterlyPrice: proPrice != null ? Number(proPrice) : undefined,
+      annualPrice: proPlusPrice != null ? Number(proPlusPrice) : undefined,
+      features: raw.features || tierFeatures?.Standard || [],
+      configuration: raw.configuration || variants?.[0]?.configuration || {},
+      isActive: raw.isActive ?? true,
+      isDefault: raw.isDefault ?? false,
       type: raw.type,
       trialDuration: raw.trialDuration,
       seasonId: raw.seasonId,
@@ -53,8 +95,8 @@ export class McomRewardsConnector implements ServiceConnector {
       paypalMonthlyPlanId: raw.paypalMonthlyPlanId,
       paypalQuarterlyPlanId: raw.paypalQuarterlyPlanId,
       paypalAnnualPlanId: raw.paypalAnnualPlanId,
-      created_at: raw.created_at,
-      updated_at: raw.updated_at,
+      created_at: raw.created_at || raw.createdAt,
+      updated_at: raw.updated_at || raw.updatedAt,
     };
   }
 

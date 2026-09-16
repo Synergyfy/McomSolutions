@@ -245,12 +245,25 @@ export class WalletService {
     idempotencyKey?: string,
     ipAddress?: string,
   ): Promise<TransactionReceiptDto> {
+    if (idempotencyKey) {
+      const existing = await this.checkIdempotency(idempotencyKey, partner.clientId);
+      if (existing) return existing;
+    }
+
     const hold = await this.prisma.walletHold.findUnique({ where: { id: holdId } });
     if (!hold) throw new NotFoundException('Hold not found');
     if (hold.platformClientId !== partner.clientId) {
       throw new ForbiddenException('Hold does not belong to this platform');
     }
     if (hold.status !== 'ACTIVE') {
+      if (hold.status === 'CAPTURED') {
+        const existingTxn = await this.prisma.walletTransaction.findFirst({
+          where: { holdId },
+        });
+        if (existingTxn) {
+          return this.toReceipt(existingTxn);
+        }
+      }
       throw new ConflictException(`Hold is not active (status: ${hold.status})`);
     }
 
@@ -262,6 +275,14 @@ export class WalletService {
       this.assertWalletActive(fresh.status);
       const freshHold = await this.prisma.walletHold.findUniqueOrThrow({ where: { id: holdId } });
       if (freshHold.status !== 'ACTIVE') {
+        if (freshHold.status === 'CAPTURED') {
+          const existingTxn = await this.prisma.walletTransaction.findFirst({
+            where: { holdId },
+          });
+          if (existingTxn) {
+            return this.toReceipt(existingTxn);
+          }
+        }
         throw new ConflictException(`Hold is not active (status: ${freshHold.status})`);
       }
 
@@ -269,7 +290,7 @@ export class WalletService {
       const balanceBefore = fresh.balance;
       const balanceAfter = safeSubtract(balanceBefore, amount);
 
-      const [txn] = await this.prisma.$transaction([
+      const [, txn] = await this.prisma.$transaction([
         this.prisma.walletHold.update({
           where: { id: holdId },
           data: { status: 'CAPTURED', capturedAt: new Date() },
@@ -576,17 +597,20 @@ export class WalletService {
   }
 
   toReceipt(txn: any): TransactionReceiptDto {
+    const toNum = (val: any) =>
+      val == null ? 0 : typeof val?.toNumber === 'function' ? val.toNumber() : Number(val);
+
     return {
       success: true,
       transactionId: txn.id,
       type: txn.type,
-      amount: txn.amount.toNumber(),
-      balanceBefore: txn.balanceBefore.toNumber(),
-      balanceAfter: txn.balanceAfter.toNumber(),
+      amount: toNum(txn.amount),
+      balanceBefore: toNum(txn.balanceBefore),
+      balanceAfter: toNum(txn.balanceAfter),
       currency: txn.currency,
       reference: txn.reference ?? null,
       idempotencyKey: txn.idempotencyKey ?? null,
-      processedAt: txn.createdAt.toISOString(),
+      processedAt: txn.createdAt instanceof Date ? txn.createdAt.toISOString() : (txn.createdAt ?? new Date().toISOString()),
     };
   }
 }

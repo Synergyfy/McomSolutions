@@ -50,13 +50,28 @@ export const useTopUpHistory = () =>
   });
 
 export const useInitiateTopUp = () => {
+  return useMutation({
+    mutationFn: ({
+      amount,
+      returnUrl,
+      cancelUrl,
+      provider,
+    }: {
+      amount: number;
+      returnUrl?: string;
+      cancelUrl?: string;
+      provider?: string;
+    }) => walletApi.initiateTopUp(amount, returnUrl, cancelUrl, provider),
+  });
+};
+
+export const useConfirmTopUp = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ amount, returnUrl, cancelUrl }: { amount: number; returnUrl?: string; cancelUrl?: string }) =>
-      walletApi.initiateTopUp(amount, returnUrl, cancelUrl),
+    mutationFn: ({ topUpRequestId, paymentIntentId }: { topUpRequestId: string; paymentIntentId: string }) =>
+      walletApi.confirmTopUp(topUpRequestId, paymentIntentId),
     onSuccess: () => {
-      // Balance refreshes once the Stripe webhook credits the wallet.
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: walletQueryKeys.all }), 4000);
+      queryClient.invalidateQueries({ queryKey: walletQueryKeys.all });
     },
   });
 };

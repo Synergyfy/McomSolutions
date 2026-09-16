@@ -100,6 +100,18 @@ export interface IncludedAppPlan {
   quotas?: Record<string, any>
 }
 
+export interface TierEntitlementResource {
+  id?: string
+  resourceKey: string
+  name: string
+  description?: string
+  badge?: string
+  standard: number | string
+  pro: number | string
+  proPlus: number | string
+  usedOn?: string[]
+}
+
 export interface MembershipPlan {
   id: string
   name: string
@@ -115,6 +127,8 @@ export interface MembershipPlan {
   includedApps?: IncludedAppPlan[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
+  tierEntitlements?: TierEntitlementResource[]
+  tierDurations?: Record<string, number>
   whoItIsFor?: string
   badge?: string
   color?: string
@@ -133,6 +147,10 @@ export interface PackageTemplate {
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  tierEntitlements?: TierEntitlementResource[]
+  tierDurations?: Record<string, number>
   isDefault?: boolean
   type?: string
   trialDuration?: number
@@ -411,6 +429,8 @@ export interface CreatePlanInput {
   includedApps?: IncludedAppPlan[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
+  tierEntitlements?: TierEntitlementResource[]
+  tierDurations?: Record<string, number>
   whoItIsFor?: string
   badge?: string
   color?: string
@@ -430,6 +450,10 @@ export interface CreatePackageInput {
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  tierEntitlements?: TierEntitlementResource[]
+  tierDurations?: Record<string, number>
   isDefault?: boolean
   type?: string
   trialDuration?: number
@@ -545,10 +569,41 @@ export interface PlatformInfo {
   planSchemaEndpoint?: string | null
 }
 
+export interface ExternalPlanVariant {
+  id?: string
+  tier: 'STANDARD' | 'PRO' | 'PRO_PLUS' | 'Standard' | 'Pro' | 'Pro+'
+  tierLevel?: {
+    name: string
+    durationDays?: number | null
+    isCalendarYear?: boolean
+  }
+  price?: number
+  features?: string[]
+  configuration?: PlanConfiguration
+  isActive?: boolean
+  stripePriceId?: string
+  paypalPlanId?: string
+}
+
+export interface CreatePlanVariantInput {
+  tier: 'STANDARD' | 'PRO' | 'PRO_PLUS' | 'Standard' | 'Pro' | 'Pro+'
+  price: number
+  features?: string[]
+  configuration?: PlanConfiguration
+  stripePriceId?: string
+  paypalPlanId?: string
+}
+
 export interface ExternalPlan {
   id: string
   name: string
+  slug?: string
   description?: string
+  variants?: ExternalPlanVariant[]
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  tierEntitlements?: TierEntitlementResource[]
+  tierDurations?: Record<string, number>
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
@@ -572,7 +627,9 @@ export interface ExternalPlan {
 export interface CreateExternalPlanInput {
   name: string
   platform: string
+  slug?: string
   description?: string
+  variants?: CreatePlanVariantInput[]
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
