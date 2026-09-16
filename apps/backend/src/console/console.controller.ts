@@ -93,6 +93,26 @@ export class ConsoleController {
   }
 
   @Delete('apps/:clientId')
+  @ApiOperation({ summary: 'Delete or deactivate an application' })
+  @ApiParam({ name: 'clientId', example: 'mcom-vcard' })
+  @ApiQuery({ name: 'permanent', required: false, type: Boolean, description: 'If true, permanently purges app and all traces from the system' })
+  @ApiOkResponse({ description: 'App deleted or deactivated' })
+  @ApiNotFoundResponse({ description: 'App not found' })
+  @ApiForbiddenResponse({ description: 'System apps cannot be deleted or deactivated' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  deleteApp(
+    @Param('clientId') clientId: string,
+    @Query('permanent') permanent: string | boolean | undefined,
+    @Req() req: Request,
+  ) {
+    const isPermanent = permanent === true || permanent === 'true';
+    if (isPermanent) {
+      return this.consoleService.deleteApp(clientId, (req.user as any).userId, req);
+    }
+    return this.consoleService.deactivateApp(clientId, (req.user as any).userId, req);
+  }
+
+  @Post('apps/:clientId/deactivate')
   @ApiOperation({ summary: 'Deactivate (soft-delete) an application' })
   @ApiParam({ name: 'clientId', example: 'mcom-vcard' })
   @ApiOkResponse({ description: 'App deactivated and its SSO sessions invalidated' })

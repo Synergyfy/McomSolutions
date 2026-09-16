@@ -183,6 +183,36 @@ describe('Mcom Console (e2e)', () => {
       expect(detail.body.isActive).toBe(false);
     });
 
+    it('permanently deletes an app and its traces when permanent=true', async () => {
+      // Register a temp app to delete
+      const tempId = `e2e-delete-${Date.now()}`;
+      await request(app.getHttpServer())
+        .post('/admin/console/apps')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Temp Deletion App',
+          clientId: tempId,
+          redirectUris: ['https://temp.mcom.com/callback'],
+          corsOrigins: ['https://temp.mcom.com'],
+          scopes: ['profile'],
+        })
+        .expect(201);
+
+      // Delete permanently
+      const delRes = await request(app.getHttpServer())
+        .delete(`/admin/console/apps/${tempId}?permanent=true`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      expect(delRes.body.success).toBe(true);
+      expect(delRes.body.message).toContain('permanently deleted');
+
+      // Verify app no longer exists
+      await request(app.getHttpServer())
+        .get(`/admin/console/apps/${tempId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+    });
+
     it('returns paginated audit logs', async () => {
       const res = await request(app.getHttpServer())
         .get('/admin/console/audit-logs')

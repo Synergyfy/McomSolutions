@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import affiliateApiClient from "../lib/affiliateApiClient";
+import { setSharedAuthCookies, clearSharedAuthCookies } from "../services/api";
 import { useAffiliateAuthStore } from "../store/useAffiliateAuthStore";
 import { useNavigate } from "react-router-dom";
 
@@ -42,9 +43,14 @@ export const useAffiliateAuth = () => {
       if (typeof window !== 'undefined') {
         localStorage.setItem('auth_token', accessToken);
         localStorage.setItem('business_user', JSON.stringify(user));
+        setSharedAuthCookies(accessToken, data.refreshToken || null, user);
       }
-      const ssoUrl = import.meta.env.VITE_AFFILIATE_SSO_URL || 'http://localhost:7088/api/v1/auth/sso/login';
-      window.location.href = ssoUrl;
+
+      if (import.meta.env.VITE_AFFILIATE_SSO_URL) {
+        window.location.href = import.meta.env.VITE_AFFILIATE_SSO_URL;
+      } else {
+        navigate('/dashboard');
+      }
     },
   });
 
@@ -82,6 +88,7 @@ export const useAffiliateAuth = () => {
         if (typeof window !== 'undefined') {
           localStorage.setItem('auth_token', accessToken);
           localStorage.setItem('business_user', JSON.stringify(user));
+          setSharedAuthCookies(accessToken, data.refreshToken || null, user);
         }
       }
     },
@@ -117,6 +124,11 @@ export const useAffiliateAuth = () => {
     },
     onSuccess: () => {
       clearAuth();
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('business_user');
+        clearSharedAuthCookies();
+      }
       navigate("/login");
     },
   });
@@ -128,6 +140,11 @@ export const useAffiliateAuth = () => {
     },
     onSuccess: () => {
       clearAuth();
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('business_user');
+        clearSharedAuthCookies();
+      }
       navigate("/");
     },
   });

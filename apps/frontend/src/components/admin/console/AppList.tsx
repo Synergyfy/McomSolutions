@@ -21,11 +21,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useConsoleApps, useDeactivateApp } from './hooks/useConsoleApps';
 import AppHealthBadge from './AppHealthBadge';
+import DeleteAppModal from './DeleteAppModal';
 import type { SsoClientListItem } from '../../../services/admin/types';
 
 interface AppListProps {
@@ -40,6 +42,7 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
   const { data, isLoading, isError, refetch } = useConsoleApps();
   const deactivateApp = useDeactivateApp();
   const [confirmDisable, setConfirmDisable] = useState<SsoClientListItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SsoClientListItem | null>(null);
   const [disableError, setDisableError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
@@ -232,6 +235,7 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
               onCopyId={handleCopyClientId}
               onManage={() => onManage(app.clientId)}
               onDisable={() => setConfirmDisable(app)}
+              onDelete={() => setDeleteTarget(app)}
             />
           ))}
         </div>
@@ -349,14 +353,23 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
                           <Settings2 className="w-3.5 h-3.5" /> Manage
                         </button>
                         {!app.isSystemApp && (
-                          <button
-                            onClick={() => setConfirmDisable(app)}
-                            disabled={!app.isActive}
-                            title={app.isActive ? 'Deactivate application' : 'Already deactivated'}
-                            className="p-1.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-transparent hover:border-red-100"
-                          >
-                            <Ban className="w-3.5 h-3.5" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setConfirmDisable(app)}
+                              disabled={!app.isActive}
+                              title={app.isActive ? 'Deactivate application' : 'Already deactivated'}
+                              className="p-1.5 rounded-xl text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-transparent hover:border-amber-100"
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(app)}
+                              title="Permanently delete application"
+                              className="p-1.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors border border-transparent hover:border-red-100"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -373,7 +386,7 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmDisable(null)} />
           <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
               <Ban className="w-6 h-6" />
             </div>
             <h3 className="font-bold text-gray-900 text-lg mb-1 font-display">
@@ -410,7 +423,7 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
                   }
                 }}
                 disabled={deactivateApp.isPending}
-                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl font-bold text-xs hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
               >
                 {deactivateApp.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Confirm Deactivation
@@ -418,6 +431,14 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {deleteTarget && (
+        <DeleteAppModal
+          app={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );
@@ -429,6 +450,7 @@ function AppCard({
   onCopyId,
   onManage,
   onDisable,
+  onDelete,
 }: {
   key?: string;
   app: SsoClientListItem;
@@ -436,6 +458,7 @@ function AppCard({
   onCopyId: (clientId: string, e: MouseEvent) => void;
   onManage: () => void;
   onDisable: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -530,14 +553,23 @@ function AppCard({
             <Settings2 className="w-3 h-3" /> Manage & Keys
           </button>
           {!app.isSystemApp && (
-            <button
-              onClick={onDisable}
-              disabled={!app.isActive}
-              title={app.isActive ? 'Deactivate application' : 'Already deactivated'}
-              className="p-1.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <Ban className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                onClick={onDisable}
+                disabled={!app.isActive}
+                title={app.isActive ? 'Deactivate application' : 'Already deactivated'}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Ban className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={onDelete}
+                title="Permanently delete application"
+                className="p-1.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
         </div>
       </div>

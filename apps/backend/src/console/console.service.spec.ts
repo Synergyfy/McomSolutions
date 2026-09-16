@@ -40,23 +40,42 @@ describe('ConsoleService', () => {
     }),
   };
 
-  const mockPrisma = {
+  const mockPrisma: any = {
     ssoClient: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     ssoSession: {
+      deleteMany: jest.fn(),
+    },
+    ssoAuthCode: {
+      deleteMany: jest.fn(),
+    },
+    appWebhookLog: {
       deleteMany: jest.fn(),
     },
     consoleAuditLog: {
       create: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
+      deleteMany: jest.fn(),
     },
-    $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
+    walletHold: {
+      deleteMany: jest.fn(),
+    },
+    walletTransaction: {
+      updateMany: jest.fn(),
+    },
+    $transaction: jest.fn(async (arg: any) => {
+      if (typeof arg === 'function') {
+        return arg(mockPrisma);
+      }
+      return Promise.all(arg);
+    }),
   };
 
   const mockWebhookDispatcher = {
@@ -210,6 +229,63 @@ describe('ConsoleService', () => {
       expect(prisma.consoleAuditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: 'deactivate_app' }) }),
       );
+    });
+  });
+
+  describe('deleteApp', () => {
+    it('should block deleting system core apps', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(clientRecord({ clientId: 'mcom-mall', isSystemApp: true }));
+      await expect(service.deleteApp('mcom-mall', 'admin-1')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException for non-existent app', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      await expect(service.deleteApp('ghost-app', 'admin-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should atomically purge all app traces and caches', async () => {
+      const record = clientRecord({
+        clientId: 'mcom-custom',
+        platformSlug: 'custom-slug',
+        apiKey: 'ak_custom_123',
+      });
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(record);
+      mockPrisma.ssoSession.deleteMany.mockResolvedValue({ count: 3 });
+      mockPrisma.ssoAuthCode.deleteMany.mockResolvedValue({ count: 1 });
+      mockPrisma.appWebhookLog.deleteMany.mockResolvedValue({ count: 5 });
+      mockPrisma.consoleAuditLog.deleteMany.mockResolvedValue({ count: 10 });
+      mockPrisma.walletHold.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.walletTransaction.updateMany.mockResolvedValue({ count: 2 });
+      mockPrisma.ssoClient.delete.mockResolvedValue(record);
+
+      const result = await service.deleteApp('mcom-custom', 'admin-1');
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain('mcom-custom');
+      expect(mockPrisma.ssoSession.deleteMany).toHaveBeenCalledWith({ where: { clientId: record.id } });
+      expect(mockPrisma.ssoAuthCode.deleteMany).toHaveBeenCalledWith({ where: { clientId: record.id } });
+      expect(mockPrisma.appWebhookLog.deleteMany).toHaveBeenCalledWith({ where: { clientId: 'mcom-custom' } });
+      expect(mockPrisma.consoleAuditLog.deleteMany).toHaveBeenCalledWith({ where: { clientId: 'mcom-custom' } });
+      expect(mockPrisma.walletHold.deleteMany).toHaveBeenCalledWith({ where: { platformClientId: 'mcom-custom' } });
+      expect(mockPrisma.walletTransaction.updateMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { platformClientId: 'mcom-custom' },
+            { platformSlug: 'custom-slug' },
+          ],
+        },
+        data: {
+          platformClientId: null,
+          platformSlug: null,
+        },
+      });
+      expect(mockPrisma.ssoClient.delete).toHaveBeenCalledWith({ where: { clientId: 'mcom-custom' } });
+
+      // Cache invalidation
+      expect(redis.del).toHaveBeenCalledWith('sso_client:mcom-custom');
+      expect(redis.del).toHaveBeenCalledWith('sso_client:slug:custom-slug');
+      expect(redis.del).toHaveBeenCalledWith('sso_client:apikey:ak_custom_123');
+      expect(ssoService.invalidateCorsCache).toHaveBeenCalled();
     });
   });
 

@@ -23,7 +23,10 @@ export const consoleApi = {
     apiClient.patch<SsoClientDetail>(`/admin/console/apps/${clientId}`, dto).then((r) => r.data),
 
   deactivateApp: (clientId: string) =>
-    apiClient.delete<{ success: boolean; message: string }>(`/admin/console/apps/${clientId}`).then((r) => r.data),
+    apiClient.post<{ success: boolean; message: string }>(`/admin/console/apps/${clientId}/deactivate`).then((r) => r.data),
+
+  deleteApp: (clientId: string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/admin/console/apps/${clientId}?permanent=true`).then((r) => r.data),
 
   rotateClientSecret: (clientId: string, reason?: string) =>
     apiClient.post<{ clientSecret: string }>(`/admin/console/apps/${clientId}/rotate-secret`, { reason }).then((r) => r.data),
