@@ -8,7 +8,10 @@ import { UserRole } from "../types/affiliate-auth";
 export default function AffiliateSignup() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const { signup, isSigningUp } = useAffiliateAuth();
+    const [showPassword, setShowPassword] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const { checkEmail, sendOtp } = useAffiliateAuth();
     const [role, setRole] = useState<UserRole>('agent');
 
     useEffect(() => {
@@ -23,21 +26,47 @@ export default function AffiliateSignup() {
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
+        setError(null);
         const formData = new FormData(e.currentTarget);
-        const firstName = formData.get('firstName') as string;
-        const lastName = formData.get('lastName') as string;
-        const email = formData.get('email') as string;
-        const password = formData.get('password') as string;
+        const firstName = (formData.get('firstName') as string || '').trim();
+        const lastName = (formData.get('lastName') as string || '').trim();
+        const email = (formData.get('email') as string || '').trim().toLowerCase();
+        const password = (formData.get('password') as string || '');
 
+        if (!firstName || !lastName) {
+            setError("Please provide your first and last name.");
+            return;
+        }
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            setError("Please enter a valid email address.");
+            return;
+        }
+        if (password.length < 8) {
+            setError("Password must be at least 8 characters long.");
+            return;
+        }
+
+        setIsSubmitting(true);
         try {
-            await signup({ email, password, firstName, lastName, role });
-        } catch (error: any) {
-            console.error("Signup failed", error);
-            if (error.response?.status === 409) {
-                alert("This email is already registered. Please sign in or use a different email.");
-            } else {
-                alert(error.response?.data?.message || "An error occurred during signup. Please try again.");
+            const checkRes = await checkEmail(email);
+            if (checkRes?.exists) {
+                setError("This email is already registered. Please sign in or use a different email.");
+                setIsSubmitting(false);
+                return;
             }
+
+            // Send real OTP via backend
+            const otpRes = await sendOtp(email);
+
+            // Navigate to verification screen with state
+            navigate("/register/affiliate/verify-email", {
+                state: { firstName, lastName, email, password, role, devCode: otpRes?.code, mode: otpRes?.mode },
+            });
+        } catch (err: any) {
+            console.error("Signup failed", err);
+            setError(err.response?.data?.message || err.message || "Failed to start registration. Please try again.");
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -98,6 +127,12 @@ export default function AffiliateSignup() {
                         </div>
                     </div>
 
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl font-medium">
+                            {error}
+                        </div>
+                    )}
+
                     <form className="space-y-5" onSubmit={handleSubmit}>
                         <div className="grid grid-cols-2 gap-4">
                             <AuthInput
@@ -139,19 +174,25 @@ export default function AffiliateSignup() {
                                     name="password"
                                     className="block w-full pl-10 pr-12 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary bg-white text-text-main placeholder-gray-400 transition-all outline-none font-medium"
                                     placeholder="••••••••"
-                                    type="password"
+                                    type={showPassword ? "text" : "password"}
                                     required
                                 />
-                                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-text-main" type="button">
-                                    <span className="material-symbols-outlined text-xl">visibility</span>
+                                <button 
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-text-main transition-colors" 
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                >
+                                    <span className="material-symbols-outlined text-xl">
+                                        {showPassword ? "visibility_off" : "visibility"}
+                                    </span>
                                 </button>
                             </div>
-                            <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider ml-1 font-display">Must be at least 8 characters with one special symbol.</p>
+                            <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider ml-1 font-display">Must be at least 8 characters.</p>
                         </div>
 
                         <div className="flex items-start gap-3 py-2">
                             <input
-                                className="mt-1 w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary accent-primary"
+                                className="mt-1 w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary accent-primary cursor-pointer"
                                 id="terms"
                                 type="checkbox"
                                 required
@@ -162,11 +203,11 @@ export default function AffiliateSignup() {
                         </div>
 
                         <button
-                            className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-4 rounded-xl shadow-2xl shadow-primary/20 transition-all duration-300 transform active:scale-[0.98] tracking-widest font-display disabled:opacity-50"
+                            className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-4 rounded-xl shadow-2xl shadow-primary/20 transition-all duration-300 transform active:scale-[0.98] tracking-widest font-display disabled:opacity-50 cursor-pointer"
                             type="submit"
-                            disabled={isSigningUp}
+                            disabled={isSubmitting}
                         >
-                            {isSigningUp ? "Creating Account..." : "Create Account"}
+                            {isSubmitting ? "Sending Verification Code..." : "Continue to Verification"}
                         </button>
                     </form>
 

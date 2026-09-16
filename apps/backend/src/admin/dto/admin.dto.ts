@@ -336,6 +336,14 @@ export class CreateMembershipPlanDto {
   @IsArray()
   @IsString({ each: true })
   features?: string[];
+
+  @ApiPropertyOptional({ description: 'Tier-based resource entitlements matrix' })
+  @IsOptional()
+  tierEntitlements?: any;
+
+  @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
+  @IsOptional()
+  tierDurations?: Record<string, number>;
 }
 
 export class CreatePackageTemplateDto {
@@ -406,6 +414,24 @@ export class CreatePackageTemplateDto {
   @IsArray()
   @IsString({ each: true })
   accessRights: string[];
+
+  @ApiPropertyOptional({ example: { Standard: 99, Pro: 180, 'Pro+': 350 } })
+  @IsOptional()
+  @IsObject()
+  tierPrices?: Record<string, number>;
+
+  @ApiPropertyOptional({ example: { Standard: ['Basic'], Pro: ['Advanced'] } })
+  @IsOptional()
+  @IsObject()
+  tierFeatures?: Record<string, string[]>;
+
+  @ApiPropertyOptional({ description: 'Tier-based resource entitlements matrix' })
+  @IsOptional()
+  tierEntitlements?: any;
+
+  @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
+  @IsOptional()
+  tierDurations?: Record<string, number>;
 }
 
 export class CreateSubscriptionDto {
@@ -1330,6 +1356,14 @@ export class UpdateMembershipPlanDto {
   @IsOptional()
   @IsBoolean()
   archived?: boolean;
+
+  @ApiPropertyOptional({ description: 'Tier-based resource entitlements matrix' })
+  @IsOptional()
+  tierEntitlements?: any;
+
+  @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
+  @IsOptional()
+  tierDurations?: Record<string, number>;
 }
 
 export class UpdatePackageTemplateDto {
@@ -1409,6 +1443,24 @@ export class UpdatePackageTemplateDto {
   @IsOptional()
   @IsBoolean()
   archived?: boolean;
+
+  @ApiPropertyOptional({ example: { Standard: 99, Pro: 180, 'Pro+': 350 } })
+  @IsOptional()
+  @IsObject()
+  tierPrices?: Record<string, number>;
+
+  @ApiPropertyOptional({ example: { Standard: ['Basic'], Pro: ['Advanced'] } })
+  @IsOptional()
+  @IsObject()
+  tierFeatures?: Record<string, string[]>;
+
+  @ApiPropertyOptional({ description: 'Tier-based resource entitlements matrix' })
+  @IsOptional()
+  tierEntitlements?: any;
+
+  @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
+  @IsOptional()
+  tierDurations?: Record<string, number>;
 }
 
 export class UpdateBoroughDto {

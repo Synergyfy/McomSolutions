@@ -13,7 +13,7 @@ import { WalletService } from './wallet.service';
 import { WalletLedgerService } from './wallet-ledger.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { FilterTransactionsDto, WalletSummaryQueryDto } from './dto/filter-transactions.dto';
-import { TopUpInitiateDto } from './dto/wallet-operations.dto';
+import { TopUpInitiateDto, ConfirmTopUpDto } from './dto/wallet-operations.dto';
 import {
   PaginatedWalletTransactionsDto,
   TransactionReceiptDto,
@@ -60,10 +60,16 @@ export class WalletController {
   }
 
   @Post('topup/initiate')
-  @ApiOperation({ summary: 'Start a wallet top-up → returns Stripe Checkout URL' })
+  @ApiOperation({ summary: 'Start a wallet top-up → returns Stripe PaymentIntent clientSecret or Checkout URL' })
   @ApiCreatedResponse({ type: WalletTopUpInitiateDto })
   async initiateTopUp(@Req() req: any, @Body() dto: TopUpInitiateDto) {
     return this.topUpService.initiateTopUp(req.user.userId, dto);
+  }
+
+  @Post('topup/confirm')
+  @ApiOperation({ summary: 'Confirm completed Stripe payment intent and credit wallet in-app' })
+  async confirmTopUp(@Req() req: any, @Body() dto: ConfirmTopUpDto) {
+    return this.topUpService.confirmStripeTopUp(req.user.userId, dto);
   }
 
   @Get('topup/history')

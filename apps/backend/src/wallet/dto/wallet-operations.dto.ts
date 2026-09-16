@@ -26,6 +26,16 @@ export class PlaceHoldDto {
   @IsString()
   @MaxLength(200)
   description?: string;
+
+  @ApiPropertyOptional({ description: 'Optional partner metadata payload' })
+  @IsOptional()
+  metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({ example: 24, description: 'Hold duration in hours' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  ttlHours?: number;
 }
 
 export class CaptureHoldDto {
@@ -42,6 +52,21 @@ export class CaptureHoldDto {
   @IsOptional()
   @IsEnum(TransactionCategory)
   category?: TransactionCategory;
+
+  @ApiPropertyOptional({ example: 50, description: 'Amount to capture' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  amount?: number;
+
+  @ApiPropertyOptional({ example: 'mall-membership-123' })
+  @IsOptional()
+  @IsString()
+  reference?: string;
+
+  @ApiPropertyOptional({ description: 'Optional partner metadata payload' })
+  @IsOptional()
+  metadata?: Record<string, any>;
 }
 
 export class ReleaseHoldDto {
@@ -100,4 +125,21 @@ export class TopUpInitiateDto {
   @IsOptional()
   @IsString()
   cancelUrl?: string;
+
+  @ApiPropertyOptional({ example: 'stripe', enum: ['stripe', 'paypal'], default: 'stripe' })
+  @IsOptional()
+  @IsString()
+  provider?: string;
+}
+
+export class ConfirmTopUpDto {
+  @ApiProperty({ example: 'clx...topup-request-id', description: 'ID of the WalletTopUpRequest record' })
+  @IsString()
+  @IsNotEmpty()
+  topUpRequestId: string;
+
+  @ApiProperty({ example: 'pi_3MtwBwLkdIwHu7ix28a3tqPa', description: 'Stripe PaymentIntent ID' })
+  @IsString()
+  @IsNotEmpty()
+  paymentIntentId: string;
 }

@@ -110,7 +110,55 @@ export class GenericHttpConnector implements ServiceConnector {
 
   private unwrapPlan(data: any): ExternalPlan {
     const raw = data?.data ?? data;
-    return raw as ExternalPlan;
+    if (!raw) return raw as ExternalPlan;
+
+    if (!Array.isArray(raw.variants) || raw.variants.length === 0) {
+      return raw as ExternalPlan;
+    }
+
+    const variants = raw.variants.map((v: any) => {
+      const tierName = v.tierLevel?.name || v.tier || 'STANDARD';
+      const activePrice = Array.isArray(v.prices)
+        ? v.prices.find((p: any) => p.isActive)?.amount ?? v.prices[0]?.amount
+        : v.price;
+      return {
+        id: v.id,
+        tier: tierName,
+        tierLevel: v.tierLevel,
+        price: activePrice != null ? Number(activePrice) : undefined,
+        features: Array.isArray(v.features) ? v.features : [],
+        configuration: v.configuration || {},
+        isActive: v.isActive ?? true,
+        stripePriceId: v.stripePriceId,
+        paypalPlanId: v.paypalPlanId,
+      };
+    });
+
+    const tierPrices: Record<string, number> = {};
+    const tierFeatures: Record<string, string[]> = {};
+    for (const v of variants) {
+      const key = v.tier === 'PRO_PLUS' || v.tier === 'Pro+' ? 'Pro+' : v.tier === 'PRO' || v.tier === 'Pro' ? 'Pro' : 'Standard';
+      if (v.price != null) tierPrices[key] = v.price;
+      if (v.features) tierFeatures[key] = v.features;
+    }
+
+    const standardPrice = tierPrices.Standard ?? raw.monthlyPrice;
+    const proPrice = tierPrices.Pro ?? raw.quarterlyPrice;
+    const proPlusPrice = tierPrices['Pro+'] ?? raw.annualPrice;
+
+    return {
+      ...raw,
+      slug: raw.slug,
+      variants,
+      tierPrices: raw.tierPrices || tierPrices,
+      tierFeatures: raw.tierFeatures || tierFeatures,
+      tierDurations: raw.tierDurations || { Standard: 90, Pro: 180, 'Pro+': 365 },
+      monthlyPrice: standardPrice != null ? Number(standardPrice) : raw.monthlyPrice,
+      quarterlyPrice: proPrice != null ? Number(proPrice) : raw.quarterlyPrice,
+      annualPrice: proPlusPrice != null ? Number(proPlusPrice) : raw.annualPrice,
+      features: raw.features || tierFeatures.Standard || [],
+      configuration: raw.configuration || variants[0]?.configuration || {},
+    };
   }
 
   private async call<T>(fn: () => Promise<{ data: T }>): Promise<T> {

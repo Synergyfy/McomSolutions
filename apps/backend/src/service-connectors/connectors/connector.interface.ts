@@ -1,7 +1,46 @@
+export interface ExternalPlanVariant {
+  id?: string
+  tier: 'STANDARD' | 'PRO' | 'PRO_PLUS' | 'Standard' | 'Pro' | 'Pro+'
+  tierLevel?: {
+    name: string
+    durationDays?: number | null
+    isCalendarYear?: boolean
+  }
+  price?: number
+  features?: string[]
+  configuration?: {
+    quotas?: Record<string, any>
+    featureFlags?: Record<string, any>
+    disabledNavIds?: string[]
+  }
+  isActive?: boolean
+  stripePriceId?: string
+  paypalPlanId?: string
+}
+
+export interface CreatePlanVariantInput {
+  tier: 'STANDARD' | 'PRO' | 'PRO_PLUS' | 'Standard' | 'Pro' | 'Pro+'
+  price: number
+  features?: string[]
+  configuration?: {
+    quotas?: Record<string, any>
+    featureFlags?: Record<string, any>
+    disabledNavIds?: string[]
+  }
+  stripePriceId?: string
+  paypalPlanId?: string
+}
+
 export interface ExternalPlan {
   id: string
   name: string
+  slug?: string
   description?: string
+  variants?: ExternalPlanVariant[]
+  tierPrices?: Record<string, number>
+  tierFeatures?: Record<string, string[]>
+  tierEntitlements?: any[]
+  tierDurations?: Record<string, number>
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
@@ -24,7 +63,9 @@ export interface ExternalPlan {
 
 export interface CreateExternalPlanInput {
   name: string
+  slug?: string
   description?: string
+  variants?: CreatePlanVariantInput[]
   monthlyPrice?: number
   quarterlyPrice?: number
   annualPrice?: number
@@ -51,6 +92,7 @@ export interface CreateExternalPlanInput {
       monthlyRewardBudget?: number
       maxTeamMembers?: number
       maxRewardPoints?: number
+      [key: string]: any
     }
     featureFlags?: {
       // MCOM Mall feature flags
@@ -66,7 +108,10 @@ export interface CreateExternalPlanInput {
       hasAccessToCRM?: boolean
       canUpdateReward?: boolean
       canCreateRewardFromScratch?: boolean
+      [key: string]: any
     }
+    disabledNavIds?: string[]
+    [key: string]: any
   }
   isActive?: boolean
   isDefault?: boolean

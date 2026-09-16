@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles } from 'lucide-react';
+import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles, Shield } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import PlanFormModal from './PlanFormModal';
+import TieredPlanEditorModal from './TieredPlanEditorModal';
+import LocalPackageEditorModal from './LocalPackageEditorModal';
 import {
   useAdminPlans,
   useAdminPackages,
@@ -60,10 +62,7 @@ export default function PlanManagementPanel() {
 
   const membershipPlans = plansRes?.data ?? [];
   const packages = packagesRes?.data ?? [];
-  const platforms: PlatformInfo[] = platformsRes?.data ?? [
-    { name: 'MCOM Mall', clientId: 'mcom-mall', platformSlug: 'mall', isNamed: true, hasBillingApi: true },
-    { name: 'MCOM Rewards', clientId: 'mcom-loyalty', platformSlug: 'rewards', isNamed: true, hasBillingApi: true },
-  ];
+  const platforms: PlatformInfo[] = platformsRes?.data ?? [];
 
   const externalPlatformNames = new Set(platforms.map((p) => p.name.toLowerCase()));
   const localPackages = packages.filter((p) => !externalPlatformNames.has((p.platform || '').toLowerCase()));
@@ -159,16 +158,31 @@ export default function PlanManagementPanel() {
                       </button>
                     </div>
                   </div>
-                  <div className="space-y-1 mb-3">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold text-gray-900">£{plan.monthlyPrice ?? plan.price}</span>
-                      <span className="text-xs text-gray-400">/monthly</span>
+                  <div className="space-y-2 mb-3 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Configured Tiers</div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-white p-2 rounded-lg border border-gray-100 shadow-2xs">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">Standard</div>
+                        <div className="text-sm font-black text-gray-900">£{plan.tierPrices?.Standard ?? plan.monthlyPrice ?? plan.price}</div>
+                        <div className="text-[9px] text-gray-400 font-semibold">90 Days</div>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-orange-200/80 shadow-2xs">
+                        <div className="text-[10px] font-bold text-orange-600 uppercase">Pro</div>
+                        <div className="text-sm font-black text-gray-900">£{plan.tierPrices?.Pro ?? Math.round((plan.monthlyPrice ?? plan.price) * 2.5)}</div>
+                        <div className="text-[9px] text-orange-500 font-semibold">180 Days</div>
+                      </div>
+                      <div className="bg-white p-2 rounded-lg border border-purple-200/80 shadow-2xs">
+                        <div className="text-[10px] font-bold text-purple-600 uppercase">Pro+</div>
+                        <div className="text-sm font-black text-gray-900">£{plan.tierPrices?.['Pro+'] ?? plan.annualPrice ?? Math.round((plan.monthlyPrice ?? plan.price) * 5)}</div>
+                        <div className="text-[9px] text-purple-500 font-semibold">Annual</div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-gray-500 font-medium">
-                      <span>Quarterly: <strong className="text-gray-800">£{plan.quarterlyPrice ?? Math.round((plan.price * 3) * 0.9)}</strong></span>
-                      <span>•</span>
-                      <span>Annual: <strong className="text-gray-800">£{plan.annualPrice ?? Math.round((plan.price * 12) * 0.8)}</strong></span>
-                    </div>
+                    {Array.isArray(plan.tierEntitlements) && plan.tierEntitlements.length > 0 && (
+                      <div className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 mt-1">
+                        <Shield className="w-3 h-3 text-emerald-600" />
+                        {plan.tierEntitlements.length} resource quotas enforced live
+                      </div>
+                    )}
                   </div>
 
                   {/* Bundled App Plans */}
@@ -284,9 +298,31 @@ export default function PlanManagementPanel() {
                         </button>
                       </div>
                     </div>
-                    <div className="flex items-baseline gap-1 mb-3">
-                      <span className="text-xl font-bold">£{pkg.price}</span>
-                      <span className="text-xs text-gray-400">/{pkg.billingCycle.toLowerCase()}</span>
+                    <div className="space-y-2 mb-3 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Configured Tiers</div>
+                      <div className="grid grid-cols-3 gap-1.5 text-center">
+                        <div className="bg-white p-1.5 rounded-lg border border-gray-100 shadow-2xs">
+                          <div className="text-[9px] font-bold text-gray-500">Standard</div>
+                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.Standard ?? pkg.price}</div>
+                          <div className="text-[8px] text-gray-400 font-semibold">90d</div>
+                        </div>
+                        <div className="bg-white p-1.5 rounded-lg border border-orange-200/80 shadow-2xs">
+                          <div className="text-[9px] font-bold text-orange-600">Pro</div>
+                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.Pro ?? Math.round(pkg.price * 2.5)}</div>
+                          <div className="text-[8px] text-orange-500 font-semibold">180d</div>
+                        </div>
+                        <div className="bg-white p-1.5 rounded-lg border border-purple-200/80 shadow-2xs">
+                          <div className="text-[9px] font-bold text-purple-600">Pro+</div>
+                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.['Pro+'] ?? Math.round(pkg.price * 5)}</div>
+                          <div className="text-[8px] text-purple-500 font-semibold">Annual</div>
+                        </div>
+                      </div>
+                      {Array.isArray(pkg.tierEntitlements) && pkg.tierEntitlements.length > 0 && (
+                        <div className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 mt-1">
+                          <Shield className="w-3 h-3 text-emerald-600" />
+                          {pkg.tierEntitlements.length} resource quotas enforced
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       {pkg.features.map((f) => (
@@ -307,21 +343,21 @@ export default function PlanManagementPanel() {
       <AnimatePresence>
         {/* Memberships Modals */}
         {showAddMembership && (
-          <PlanFormModal
-            title="Create Membership"
+          <TieredPlanEditorModal
+            mode="membership"
             onClose={() => setShowAddMembership(false)}
-            onSave={(data: CreatePlanInput) => {
+            onSaveMembership={(data: CreatePlanInput) => {
               createPlan.mutate(data);
               setShowAddMembership(false);
             }}
           />
         )}
         {editMembership && (
-          <PlanFormModal
-            title="Edit Membership"
-            initial={membershipPlans.find((p) => p.id === editMembership)}
+          <TieredPlanEditorModal
+            mode="membership"
+            initialPlan={membershipPlans.find((p) => p.id === editMembership)}
             onClose={() => setEditMembership(null)}
-            onSave={(data: Partial<CreatePlanInput>) => {
+            onSaveMembership={(data: CreatePlanInput) => {
               updatePlan.mutate({ id: editMembership!, data });
               setEditMembership(null);
             }}
@@ -330,23 +366,26 @@ export default function PlanManagementPanel() {
 
         {/* Local Package Modals */}
         {showAddPackage && (
-          <PackageFormModal
-            title="Create Local Package"
+          <LocalPackageEditorModal
             onClose={() => setShowAddPackage(false)}
+            isSubmitting={createPackage.isPending}
             onSave={(data: CreatePackageInput) => {
-              createPackage.mutate(data);
-              setShowAddPackage(false);
+              createPackage.mutate(data, {
+                onSuccess: () => setShowAddPackage(false),
+              });
             }}
           />
         )}
         {editPackage !== null && (
-          <PackageFormModal
-            title="Edit Local Package"
-            initial={packages.find((p) => p.id === editPackage)}
+          <LocalPackageEditorModal
+            initialPackage={packages.find((p) => p.id === editPackage)}
             onClose={() => setEditPackage(null)}
-            onSave={(data: Partial<CreatePackageInput>) => {
-              updatePackage.mutate({ id: editPackage!.toString(), data });
-              setEditPackage(null);
+            isSubmitting={updatePackage.isPending}
+            onSave={(data: CreatePackageInput) => {
+              updatePackage.mutate(
+                { id: editPackage!.toString(), data },
+                { onSuccess: () => setEditPackage(null) }
+              );
             }}
           />
         )}
@@ -465,83 +504,97 @@ function PlatformPlansSection({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {plans.map((plan: ExternalPlan) => (
-            <div key={plan.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="font-bold text-gray-900">{plan.name}</h4>
-                  <p className="text-xs text-gray-500">{plan.description}</p>
-                  <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-brand-blue rounded text-[9px] font-bold">
-                    {plan.type || 'STANDARD'}
-                  </span>
+          {plans.map((plan: ExternalPlan) => {
+            const standardPrice = plan.tierPrices?.Standard ?? plan.monthlyPrice;
+            const proPrice = plan.tierPrices?.Pro ?? plan.quarterlyPrice;
+            const proPlusPrice = plan.tierPrices?.['Pro+'] ?? plan.annualPrice;
+
+            return (
+              <div key={plan.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="font-bold text-gray-900">{plan.name}</h4>
+                    <p className="text-xs text-gray-500">{plan.description}</p>
+                    <span className="inline-block mt-1 px-2 py-0.5 bg-blue-50 text-brand-blue rounded text-[9px] font-bold">
+                      {plan.type || '3-TIER MATRIX'}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => onEditPlan(plan)}
+                      className="p-1.5 bg-gray-50 rounded-lg hover:bg-blue-50 transition-all"
+                      title="Edit Plan"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
+                    <button
+                      onClick={() => onDeletePlan(plan)}
+                      className="p-1.5 bg-gray-50 rounded-lg hover:bg-red-50 transition-all"
+                      title="Delete Plan"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-gray-400" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => onEditPlan(plan)}
-                    className="p-1.5 bg-gray-50 rounded-lg hover:bg-blue-50 transition-all"
-                    title="Edit Plan"
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-gray-400" />
-                  </button>
-                  <button
-                    onClick={() => onDeletePlan(plan)}
-                    className="p-1.5 bg-gray-50 rounded-lg hover:bg-red-50 transition-all"
-                    title="Delete Plan"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-gray-400" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-baseline gap-3 mb-3">
-                {plan.monthlyPrice != null && (
-                  <div>
-                    <span className="text-xl font-bold">£{plan.monthlyPrice}</span>
-                    <span className="text-[10px] text-gray-400">/mo</span>
-                  </div>
-                )}
-                {plan.quarterlyPrice != null && (
-                  <div>
-                    <span className="text-xl font-bold">£{plan.quarterlyPrice}</span>
-                    <span className="text-[10px] text-gray-400">/qtr</span>
-                  </div>
-                )}
-                {plan.annualPrice != null && (
-                  <div>
-                    <span className="text-xl font-bold">£{plan.annualPrice}</span>
-                    <span className="text-[10px] text-gray-400">/yr</span>
-                  </div>
-                )}
-              </div>
-              {plan.features && plan.features.length > 0 && (
-                <div className="space-y-1.5 mb-3">
-                  {plan.features.slice(0, 3).map((f) => (
-                    <div key={f} className="flex items-center gap-2 text-xs text-gray-600">
-                      <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                      {f}
+
+                <div className="space-y-2 mb-3 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Configured Tiers</div>
+                  <div className="grid grid-cols-3 gap-1.5 text-center">
+                    <div className="bg-white p-1.5 rounded-lg border border-gray-100 shadow-2xs">
+                      <div className="text-[9px] font-bold text-gray-500 uppercase">Standard</div>
+                      <div className="text-xs font-black text-gray-900">
+                        {standardPrice != null ? `£${standardPrice}` : '—'}
+                      </div>
+                      <div className="text-[8px] text-gray-400 font-semibold">90 Days</div>
                     </div>
-                  ))}
-                  {plan.features.length > 3 && (
-                    <div className="text-[10px] text-gray-400">+{plan.features.length - 3} more</div>
-                  )}
-                </div>
-              )}
-              {plan.configuration?.quotas && Object.keys(plan.configuration.quotas).length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <div className="text-[9px] font-bold text-gray-400 uppercase mb-1">Configured Quotas</div>
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(plan.configuration.quotas).map(([k, val]) => {
-                      if (val === undefined || val === null || typeof val === 'boolean') return null;
-                      return (
-                        <span key={k} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 rounded text-[9px]">
-                          {k.replace(/^max/, '')}: {val === -1 ? '∞' : String(val)}
-                        </span>
-                      );
-                    })}
+                    <div className="bg-white p-1.5 rounded-lg border border-orange-200/80 shadow-2xs">
+                      <div className="text-[9px] font-bold text-orange-600 uppercase">Pro</div>
+                      <div className="text-xs font-black text-gray-900">
+                        {proPrice != null ? `£${proPrice}` : '—'}
+                      </div>
+                      <div className="text-[8px] text-orange-500 font-semibold">180 Days</div>
+                    </div>
+                    <div className="bg-white p-1.5 rounded-lg border border-purple-200/80 shadow-2xs">
+                      <div className="text-[9px] font-bold text-purple-600 uppercase">Pro+</div>
+                      <div className="text-xs font-black text-gray-900">
+                        {proPlusPrice != null ? `£${proPlusPrice}` : '—'}
+                      </div>
+                      <div className="text-[8px] text-purple-500 font-semibold">Annual</div>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {plan.features && plan.features.length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {plan.features.slice(0, 3).map((f) => (
+                      <div key={f} className="flex items-center gap-2 text-xs text-gray-600">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        {f}
+                      </div>
+                    ))}
+                    {plan.features.length > 3 && (
+                      <div className="text-[10px] text-gray-400">+{plan.features.length - 3} more</div>
+                    )}
+                  </div>
+                )}
+                {plan.configuration?.quotas && Object.keys(plan.configuration.quotas).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="text-[9px] font-bold text-gray-400 uppercase mb-1">Configured Quotas</div>
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(plan.configuration.quotas).map(([k, val]) => {
+                        if (val === undefined || val === null || typeof val === 'boolean') return null;
+                        return (
+                          <span key={k} className="px-1.5 py-0.5 bg-gray-50 text-gray-500 rounded text-[9px]">
+                            {k.replace(/^max/, '')}: {val === -1 ? '∞' : String(val)}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -607,6 +660,15 @@ function ConfirmModal({
   );
 }
 
+type VariantTierKey = 'STANDARD' | 'PRO' | 'PRO_PLUS';
+
+interface TierData {
+  price: number | undefined;
+  features: string[];
+  quotas: Record<string, any>;
+  featureFlags: Record<string, boolean>;
+}
+
 function ExternalPlanFormModal({
   title,
   platform,
@@ -626,41 +688,70 @@ function ExternalPlanFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [manualSeasonMode, setManualSeasonMode] = useState(false);
+  const [activeTier, setActiveTier] = useState<VariantTierKey>('STANDARD');
 
-  const buildInitialState = (): CreateExternalPlanInput => {
+  const buildInitialTierData = (tierKey: VariantTierKey): TierData => {
     if (initial) {
+      // Find variant by tier
+      const variant = (initial.variants || []).find(
+        (v) => (v.tier || '').toUpperCase().replace('-', '_') === tierKey
+      );
+      if (variant) {
+        return {
+          price: variant.price,
+          features: variant.features ? [...variant.features] : [],
+          quotas: variant.configuration?.quotas ? JSON.parse(JSON.stringify(variant.configuration.quotas)) : {},
+          featureFlags: variant.configuration?.featureFlags ? JSON.parse(JSON.stringify(variant.configuration.featureFlags)) : {},
+        };
+      }
+
+      // Fallback from top-level fields
+      const price =
+        tierKey === 'STANDARD'
+          ? (initial.tierPrices?.Standard ?? initial.monthlyPrice)
+          : tierKey === 'PRO'
+          ? (initial.tierPrices?.Pro ?? initial.quarterlyPrice)
+          : (initial.tierPrices?.['Pro+'] ?? initial.annualPrice);
+
+      const feats =
+        tierKey === 'STANDARD'
+          ? (initial.tierFeatures?.Standard ?? initial.features ?? [])
+          : tierKey === 'PRO'
+          ? (initial.tierFeatures?.Pro ?? initial.features ?? [])
+          : (initial.tierFeatures?.['Pro+'] ?? initial.features ?? []);
+
       return {
-        name: initial.name || '',
-        platform: platformName,
-        description: initial.description || '',
-        monthlyPrice: initial.monthlyPrice ?? undefined,
-        quarterlyPrice: initial.quarterlyPrice ?? undefined,
-        annualPrice: initial.annualPrice ?? undefined,
-        features: initial.features ? [...initial.features] : [],
-        configuration: initial.configuration ? JSON.parse(JSON.stringify(initial.configuration)) : {},
-        isActive: initial.isActive ?? true,
-        isDefault: initial.isDefault ?? false,
-        type: initial.type || 'STANDARD',
-        trialDuration: initial.trialDuration ?? undefined,
-        seasonId: initial.seasonId || undefined,
+        price: price != null ? Number(price) : undefined,
+        features: [...feats],
+        quotas: initial.configuration?.quotas ? JSON.parse(JSON.stringify(initial.configuration.quotas)) : {},
+        featureFlags: initial.configuration?.featureFlags ? JSON.parse(JSON.stringify(initial.configuration.featureFlags)) : {},
       };
     }
+
     return {
-      name: '',
-      platform: platformName,
-      description: '',
-      monthlyPrice: undefined,
-      quarterlyPrice: undefined,
-      annualPrice: undefined,
+      price: undefined,
       features: [],
-      configuration: {},
-      isActive: true,
-      isDefault: false,
-      type: 'STANDARD',
+      quotas: {},
+      featureFlags: {},
     };
   };
 
-  const [form, setForm] = useState<CreateExternalPlanInput>(buildInitialState);
+  const [tiers, setTiers] = useState<Record<VariantTierKey, TierData>>({
+    STANDARD: buildInitialTierData('STANDARD'),
+    PRO: buildInitialTierData('PRO'),
+    PRO_PLUS: buildInitialTierData('PRO_PLUS'),
+  });
+
+  const [basicInfo, setBasicInfo] = useState({
+    name: initial?.name || '',
+    description: initial?.description || '',
+    type: initial?.type || 'STANDARD',
+    isActive: initial?.isActive ?? true,
+    isDefault: initial?.isDefault ?? false,
+    trialDuration: initial?.trialDuration ?? undefined,
+    seasonId: initial?.seasonId || undefined,
+  });
+
   const [featureInput, setFeatureInput] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -721,7 +812,6 @@ function ExternalPlanFormModal({
         ]
       : [];
 
-  // Custom quota/flag rows — only available in fallback mode so any platform stays workable.
   const [customQuotaFields, setCustomQuotaFields] = useState<PlanSchemaField[]>([]);
   const [customFlagFields, setCustomFlagFields] = useState<PlanSchemaField[]>([]);
   const [customKeyInput, setCustomKeyInput] = useState('');
@@ -729,6 +819,25 @@ function ExternalPlanFormModal({
 
   const quotaFields = [...(hasSchema ? schemaQuotaFields : fallbackQuotaFields), ...customQuotaFields];
   const flagFields = [...(hasSchema ? schemaFlagFields : fallbackFlagFields), ...customFlagFields];
+
+  const currentTierData = tiers[activeTier];
+
+  const updateCurrentTier = (updater: (prev: TierData) => TierData) => {
+    setTiers((prev) => ({
+      ...prev,
+      [activeTier]: updater(prev[activeTier]),
+    }));
+  };
+
+  const copyFromStandard = () => {
+    const standard = tiers.STANDARD;
+    updateCurrentTier((prev) => ({
+      ...prev,
+      features: [...standard.features],
+      quotas: JSON.parse(JSON.stringify(standard.quotas)),
+      featureFlags: JSON.parse(JSON.stringify(standard.featureFlags)),
+    }));
+  };
 
   const addCustomField = () => {
     const key = customKeyInput.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
@@ -748,124 +857,107 @@ function ExternalPlanFormModal({
   const removeCustomField = (key: string) => {
     setCustomQuotaFields((prev) => prev.filter((f) => f.key !== key));
     setCustomFlagFields((prev) => prev.filter((f) => f.key !== key));
-    setForm((prev) => {
-      const quotas = { ...prev.configuration?.quotas };
-      const featureFlags = { ...prev.configuration?.featureFlags };
-      delete (quotas as Record<string, unknown>)[key];
-      delete (featureFlags as Record<string, unknown>)[key];
-      return {
-        ...prev,
-        configuration: {
-          ...prev.configuration,
-          quotas,
-          featureFlags,
-        },
-      };
+    setTiers((prev) => {
+      const copy = { ...prev };
+      for (const t of ['STANDARD', 'PRO', 'PRO_PLUS'] as VariantTierKey[]) {
+        const q = { ...copy[t].quotas };
+        const ff = { ...copy[t].featureFlags };
+        delete q[key];
+        delete ff[key];
+        copy[t] = { ...copy[t], quotas: q, featureFlags: ff };
+      }
+      return copy;
     });
   };
 
   const addFeature = () => {
     const val = featureInput.trim();
-    if (val && !form.features?.includes(val)) {
-      setForm((prev) => ({ ...prev, features: [...(prev.features || []), val] }));
+    if (val && !currentTierData.features.includes(val)) {
+      updateCurrentTier((prev) => ({ ...prev, features: [...prev.features, val] }));
       setFeatureInput('');
     }
   };
 
-  const removeFeature = (f: string) =>
-    setForm((prev) => ({ ...prev, features: (prev.features || []).filter((x) => x !== f) }));
-
   const isUnlimited = (key: string): boolean => {
-    return form.configuration?.quotas?.[key as keyof typeof form.configuration.quotas] === -1;
+    return currentTierData.quotas?.[key] === -1;
   };
 
   const getQuotaDisplayValue = (key: string): string => {
-    const val = form.configuration?.quotas?.[key as keyof typeof form.configuration.quotas];
+    const val = currentTierData.quotas?.[key];
     if (val === -1 || val === undefined || typeof val === 'boolean') return '';
     return String(val);
   };
 
   const toggleUnlimited = (key: string) => {
-    setForm((prev) => {
-      const currentVal = prev.configuration?.quotas?.[key as keyof typeof prev.configuration.quotas];
+    updateCurrentTier((prev) => {
+      const currentVal = prev.quotas?.[key];
       const newVal = currentVal === -1 ? undefined : -1;
       return {
         ...prev,
-        configuration: {
-          ...prev.configuration,
-          quotas: {
-            ...prev.configuration?.quotas,
-            [key]: newVal,
-          },
+        quotas: {
+          ...prev.quotas,
+          [key]: newVal,
         },
       };
     });
   };
 
   const updateQuota = (key: string, value: string) => {
-    setForm((prev) => {
+    updateCurrentTier((prev) => {
       const numVal = value === '' ? undefined : parseInt(value);
       if (numVal !== undefined && numVal < 0) return prev;
       return {
         ...prev,
-        configuration: {
-          ...prev.configuration,
-          quotas: {
-            ...prev.configuration?.quotas,
-            [key]: numVal,
-          },
+        quotas: {
+          ...prev.quotas,
+          [key]: numVal,
+        },
+      };
+    });
+  };
+
+  const toggleQuotaBoolean = (key: string) => {
+    updateCurrentTier((prev) => {
+      const currentVal = prev.quotas?.[key];
+      return {
+        ...prev,
+        quotas: {
+          ...prev.quotas,
+          [key]: currentVal ? undefined : true,
         },
       };
     });
   };
 
   const updateFeatureFlag = (key: string, value: boolean) => {
-    setForm((prev) => ({
+    updateCurrentTier((prev) => ({
       ...prev,
-      configuration: {
-        ...prev.configuration,
-        featureFlags: {
-          ...prev.configuration?.featureFlags,
-          [key]: value,
-        },
+      featureFlags: {
+        ...prev.featureFlags,
+        [key]: value,
       },
     }));
-  };
-
-  const toggleQuotaBoolean = (key: string) => {
-    setForm((prev) => {
-      const currentVal = prev.configuration?.quotas?.[key as keyof typeof prev.configuration.quotas];
-      return {
-        ...prev,
-        configuration: {
-          ...prev.configuration,
-          quotas: {
-            ...prev.configuration?.quotas,
-            [key]: currentVal ? undefined : true,
-          },
-        },
-      };
-    });
   };
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!form.name.trim()) {
-      newErrors.name = 'Plan name is required';
+    if (!basicInfo.name.trim()) {
+      newErrors.name = 'Plan family name is required';
     }
 
-    if (form.type === 'TRIAL' && (!form.trialDuration || form.trialDuration < 1)) {
+    if (basicInfo.type === 'TRIAL' && (!basicInfo.trialDuration || basicInfo.trialDuration < 1)) {
       newErrors.trialDuration = 'Trial duration is required (min 1 day)';
     }
 
-    if (form.type === 'SEASONAL' && !form.seasonId) {
+    if (basicInfo.type === 'SEASONAL' && !basicInfo.seasonId) {
       newErrors.seasonId = 'Season ID is required for seasonal plans';
     }
 
-    const hasAnyPrice = form.monthlyPrice != null || form.quarterlyPrice != null || form.annualPrice != null;
-    if (!hasAnyPrice && form.type !== 'TRIAL') {
-      newErrors.pricing = 'At least one price is required';
+    if (basicInfo.type !== 'TRIAL') {
+      if (tiers.STANDARD.price === undefined) newErrors.standardPrice = 'Standard price is required';
+      if (tiers.PRO.price === undefined) newErrors.proPrice = 'Pro price is required';
+      if (tiers.PRO_PLUS.price === undefined) newErrors.proPlusPrice = 'Pro+ price is required';
     }
 
     setErrors(newErrors);
@@ -876,8 +968,62 @@ function ExternalPlanFormModal({
     if (!validate()) return;
     setIsSubmitting(true);
     setSubmitError(null);
+
+    const slug = basicInfo.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    const payload: CreateExternalPlanInput = {
+      name: basicInfo.name,
+      slug,
+      platform: platformName,
+      description: basicInfo.description,
+      type: basicInfo.type,
+      isActive: basicInfo.isActive,
+      isDefault: basicInfo.isDefault,
+      trialDuration: basicInfo.trialDuration,
+      seasonId: basicInfo.seasonId,
+      // 3-variant matrix structure
+      variants: [
+        {
+          tier: 'STANDARD',
+          price: tiers.STANDARD.price ?? 0,
+          features: tiers.STANDARD.features,
+          configuration: {
+            quotas: tiers.STANDARD.quotas,
+            featureFlags: tiers.STANDARD.featureFlags,
+          },
+        },
+        {
+          tier: 'PRO',
+          price: tiers.PRO.price ?? 0,
+          features: tiers.PRO.features,
+          configuration: {
+            quotas: tiers.PRO.quotas,
+            featureFlags: tiers.PRO.featureFlags,
+          },
+        },
+        {
+          tier: 'PRO_PLUS',
+          price: tiers.PRO_PLUS.price ?? 0,
+          features: tiers.PRO_PLUS.features,
+          configuration: {
+            quotas: tiers.PRO_PLUS.quotas,
+            featureFlags: tiers.PRO_PLUS.featureFlags,
+          },
+        },
+      ],
+      // Backwards-compatible top-level properties
+      monthlyPrice: tiers.STANDARD.price,
+      quarterlyPrice: tiers.PRO.price,
+      annualPrice: tiers.PRO_PLUS.price,
+      features: tiers.STANDARD.features,
+      configuration: {
+        quotas: tiers.STANDARD.quotas,
+        featureFlags: tiers.STANDARD.featureFlags,
+      },
+    };
+
     try {
-      const success = await onSave(form);
+      const success = await onSave(payload);
       if (success) onClose();
     } catch (e: any) {
       setSubmitError(e?.message || 'Something went wrong');
@@ -896,460 +1042,350 @@ function ExternalPlanFormModal({
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
       >
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-20">
           <div className="flex items-center gap-2">
-            <ExternalLink className="w-4 h-4 text-brand-blue" />
-            <h4 className="text-lg font-bold">{title}</h4>
+            <Layers className="w-5 h-5 text-brand-blue" />
+            <div>
+              <h4 className="text-lg font-bold">{title}</h4>
+              <p className="text-xs text-gray-400 font-medium">Atomic 3-Variant Matrix (Standard, Pro, Pro+)</p>
+            </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-all">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
-          {/* Basic Info */}
-          <div className="space-y-4">
-            <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Basic Info</h5>
-            <Field label="Plan Name" error={errors.name}>
-              <input
-                value={form.name}
-                onChange={(e) => {
-                  setForm((prev) => ({ ...prev, name: e.target.value }));
-                  setErrors((prev) => ({ ...prev, name: '' }));
-                }}
-                className={cn(fieldClass, errors.name && fieldErrorClass)}
-                placeholder={`e.g. ${platformName} Starter`}
-              />
-            </Field>
-            <Field label="Description">
-              <textarea
-                value={form.description || ''}
-                onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-                className={cn(fieldClass, "h-20 resize-none")}
-                placeholder="Tier description and summary"
-              />
-            </Field>
-            <div className="grid grid-cols-3 gap-4">
+        <div className="p-6 space-y-6">
+          {/* Plan Family Header */}
+          <div className="space-y-4 bg-gray-50/70 p-4 rounded-2xl border border-gray-100">
+            <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Plan Family Information</h5>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Plan Family Name" error={errors.name}>
+                <input
+                  value={basicInfo.name}
+                  onChange={(e) => {
+                    setBasicInfo((prev) => ({ ...prev, name: e.target.value }));
+                    setErrors((prev) => ({ ...prev, name: '' }));
+                  }}
+                  className={cn(fieldClass, "bg-white", errors.name && fieldErrorClass)}
+                  placeholder="e.g. Gold, Starter, Growth"
+                />
+              </Field>
               <Field label="Type">
                 <select
-                  value={form.type || 'STANDARD'}
-                  onChange={(e) => {
-                    setForm((prev) => ({ ...prev, type: e.target.value }));
-                    setErrors((prev) => ({ ...prev, trialDuration: '', seasonId: '' }));
-                  }}
-                  className={fieldClass}
+                  value={basicInfo.type}
+                  onChange={(e) => setBasicInfo((prev) => ({ ...prev, type: e.target.value }))}
+                  className={cn(fieldClass, "bg-white")}
                 >
-                  <option value="STANDARD">Standard</option>
-                  <option value="TRIAL">Trial</option>
+                  <option value="STANDARD">Standard Matrix</option>
+                  <option value="TRIAL">Free Trial</option>
                   <option value="SEASONAL">Seasonal</option>
                 </select>
               </Field>
-              <Field label="Active">
-                <button
-                  type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, isActive: !prev.isActive }))}
-                  className={cn(
-                    "w-full py-3 rounded-xl text-sm font-bold border transition-all",
-                    form.isActive
-                      ? "bg-green-50 border-green-200 text-green-700"
-                      : "bg-gray-50 border-gray-200 text-gray-400"
-                  )}
-                >
-                  {form.isActive ? 'Yes' : 'No'}
-                </button>
-              </Field>
-              <Field label="Default">
-                <button
-                  type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, isDefault: !prev.isDefault }))}
-                  className={cn(
-                    "w-full py-3 rounded-xl text-sm font-bold border transition-all",
-                    form.isDefault
-                      ? "bg-blue-50 border-blue-200 text-blue-700"
-                      : "bg-gray-50 border-gray-200 text-gray-400"
-                  )}
-                >
-                  {form.isDefault ? 'Yes' : 'No'}
-                </button>
-              </Field>
             </div>
-            {form.type === 'TRIAL' && (
-              <Field label="Trial Duration (days)" error={errors.trialDuration}>
+            <Field label="Description">
+              <input
+                value={basicInfo.description}
+                onChange={(e) => setBasicInfo((prev) => ({ ...prev, description: e.target.value }))}
+                className={cn(fieldClass, "bg-white")}
+                placeholder="High-level marketing summary of the plan family"
+              />
+            </Field>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={basicInfo.isActive}
+                  onChange={(e) => setBasicInfo((prev) => ({ ...prev, isActive: e.target.checked }))}
+                  className="w-4 h-4 rounded text-brand-blue border-gray-300"
+                />
+                <span className="text-xs font-bold text-gray-700">Active</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={basicInfo.isDefault}
+                  onChange={(e) => setBasicInfo((prev) => ({ ...prev, isDefault: e.target.checked }))}
+                  className="w-4 h-4 rounded text-brand-blue border-gray-300"
+                />
+                <span className="text-xs font-bold text-gray-700">Default Tier</span>
+              </label>
+            </div>
+          </div>
+
+          {/* 3-Variant Tier Navigator */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h5 className="text-[11px] font-black text-gray-900 uppercase tracking-widest flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-brand-blue" />
+                Configure 3 Tier Variants
+              </h5>
+              {activeTier !== 'STANDARD' && (
+                <button
+                  type="button"
+                  onClick={copyFromStandard}
+                  className="text-xs font-bold text-brand-blue hover:underline flex items-center gap-1"
+                >
+                  Copy features & quotas from Standard
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 bg-gray-100 p-1.5 rounded-2xl mb-5">
+              <button
+                type="button"
+                onClick={() => setActiveTier('STANDARD')}
+                className={cn(
+                  "py-2.5 px-3 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-0.5",
+                  activeTier === 'STANDARD'
+                    ? "bg-white text-gray-900 shadow-sm border border-gray-200"
+                    : "text-gray-500 hover:text-gray-900"
+                )}
+              >
+                <span>STANDARD</span>
+                <span className="text-[9px] font-bold text-gray-400">90 Days</span>
+                {tiers.STANDARD.price != null && (
+                  <span className="text-[10px] font-black text-brand-blue">£{tiers.STANDARD.price}</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTier('PRO')}
+                className={cn(
+                  "py-2.5 px-3 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-0.5",
+                  activeTier === 'PRO'
+                    ? "bg-white text-orange-600 shadow-sm border border-orange-200"
+                    : "text-gray-500 hover:text-gray-900"
+                )}
+              >
+                <span>PRO</span>
+                <span className="text-[9px] font-bold text-orange-400">180 Days</span>
+                {tiers.PRO.price != null && (
+                  <span className="text-[10px] font-black text-orange-600">£{tiers.PRO.price}</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTier('PRO_PLUS')}
+                className={cn(
+                  "py-2.5 px-3 rounded-xl text-xs font-black transition-all flex flex-col items-center gap-0.5",
+                  activeTier === 'PRO_PLUS'
+                    ? "bg-white text-purple-600 shadow-sm border border-purple-200"
+                    : "text-gray-500 hover:text-gray-900"
+                )}
+              >
+                <span>PRO+</span>
+                <span className="text-[9px] font-bold text-purple-400">Annual (Leap-Safe)</span>
+                {tiers.PRO_PLUS.price != null && (
+                  <span className="text-[10px] font-black text-purple-600">£{tiers.PRO_PLUS.price}</span>
+                )}
+              </button>
+            </div>
+
+            {/* Active Tier Configuration Box */}
+            <div className="space-y-5 border border-gray-200 p-5 rounded-2xl bg-white shadow-2xs">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-black uppercase",
+                    activeTier === 'STANDARD' ? "bg-blue-100 text-brand-blue" :
+                    activeTier === 'PRO' ? "bg-orange-100 text-orange-700" :
+                    "bg-purple-100 text-purple-700"
+                  )}>
+                    {activeTier === 'PRO_PLUS' ? 'Pro+' : activeTier} Variant
+                  </span>
+                  <span className="text-xs text-gray-400 font-semibold">
+                    Duration: {activeTier === 'STANDARD' ? '90 Days' : activeTier === 'PRO' ? '180 Days' : '1 Calendar Year'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Price */}
+              <Field
+                label={`Price for ${activeTier === 'PRO_PLUS' ? 'Pro+' : activeTier} Duration (£ GBP)`}
+                error={
+                  activeTier === 'STANDARD'
+                    ? errors.standardPrice
+                    : activeTier === 'PRO'
+                    ? errors.proPrice
+                    : errors.proPlusPrice
+                }
+              >
                 <input
                   type="number"
-                  min="1"
-                  value={form.trialDuration || ''}
+                  step="0.01"
+                  min="0"
+                  value={currentTierData.price ?? ''}
                   onChange={(e) => {
-                    setForm((prev) => ({ ...prev, trialDuration: parseInt(e.target.value) || undefined }));
-                    setErrors((prev) => ({ ...prev, trialDuration: '' }));
+                    const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                    updateCurrentTier((prev) => ({ ...prev, price: val }));
+                    setErrors((prev) => ({
+                      ...prev,
+                      standardPrice: '',
+                      proPrice: '',
+                      proPlusPrice: '',
+                    }));
                   }}
-                  className={cn(fieldClass, errors.trialDuration && fieldErrorClass)}
-                  placeholder="14"
+                  className={cn(
+                    fieldClass,
+                    (activeTier === 'STANDARD' ? errors.standardPrice : activeTier === 'PRO' ? errors.proPrice : errors.proPlusPrice) && fieldErrorClass
+                  )}
+                  placeholder="e.g. 59.99"
                 />
               </Field>
-            )}
-            {form.type === 'SEASONAL' && (
-              <Field label="Season" error={errors.seasonId}>
-                {seasonsLoading ? (
-                  <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-400">
-                    <Loader2 className="w-4 h-4 animate-spin text-brand-blue" />
-                    Loading available seasons from {platformName}...
-                  </div>
-                ) : availableSeasons.length > 0 && !manualSeasonMode ? (
-                  <div className="space-y-1.5">
-                    <select
-                      value={form.seasonId || ''}
-                      onChange={(e) => {
-                        setForm((prev) => ({ ...prev, seasonId: e.target.value }));
-                        setErrors((prev) => ({ ...prev, seasonId: '' }));
-                      }}
-                      className={cn(fieldClass, errors.seasonId && fieldErrorClass)}
-                    >
-                      <option value="">Select a Season...</option>
-                      {availableSeasons.map((s) => {
-                        const statusText = s.status || (s.isActive ? 'Active' : 'Inactive');
-                        return (
-                          <option key={s.id} value={s.id}>
-                            {s.name} ({statusText})
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <div className="flex justify-end">
+
+              {/* Display Features */}
+              <div className="space-y-3">
+                <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  Display Bullet Points ({activeTier === 'PRO_PLUS' ? 'Pro+' : activeTier})
+                </h5>
+                <div className="space-y-2">
+                  {currentTierData.features.map((f: string, i: number) => (
+                    <div key={`${f}-${i}`} className="flex items-center gap-2">
+                      <input
+                        value={f}
+                        onChange={(e) => {
+                          const arr = [...currentTierData.features];
+                          arr[i] = e.target.value;
+                          updateCurrentTier((prev) => ({ ...prev, features: arr }));
+                        }}
+                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                      />
                       <button
-                        type="button"
-                        onClick={() => setManualSeasonMode(true)}
-                        className="text-[11px] font-bold text-brand-blue hover:underline"
+                        onClick={() =>
+                          updateCurrentTier((prev) => ({
+                            ...prev,
+                            features: prev.features.filter((_, j) => j !== i),
+                          }))
+                        }
+                        className="p-2 text-gray-400 hover:text-red-500 transition-all"
                       >
-                        Enter Season UUID manually
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
+                  ))}
+                  <div className="flex gap-2">
                     <input
-                      value={form.seasonId || ''}
-                      onChange={(e) => {
-                        setForm((prev) => ({ ...prev, seasonId: e.target.value }));
-                        setErrors((prev) => ({ ...prev, seasonId: '' }));
+                      value={featureInput}
+                      onChange={(e) => setFeatureInput(e.target.value)}
+                      placeholder={`Add a bullet for ${activeTier}...`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addFeature();
+                        }
                       }}
-                      className={cn(fieldClass, errors.seasonId && fieldErrorClass)}
-                      placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                      className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
                     />
-                    <div className="flex items-center justify-between text-[11px]">
-                      {availableSeasons.length === 0 ? (
-                        <span className="text-gray-400 font-medium">
-                          No active seasons returned from {platformName}.
-                        </span>
-                      ) : (
-                        <span />
-                      )}
-                      {availableSeasons.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setManualSeasonMode(false)}
-                          className="text-brand-blue font-bold hover:underline"
-                        >
-                          Select from season dropdown
-                        </button>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={addFeature}
+                      className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
                   </div>
-                )}
-              </Field>
-            )}
-          </div>
-
-          {/* Pricing */}
-          <div className="space-y-4">
-            <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pricing (£ GBP)</h5>
-            {errors.pricing && <p className="text-xs text-red-500 font-medium">{errors.pricing}</p>}
-            <div className="grid grid-cols-3 gap-4">
-              <Field label="Monthly (£)">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.monthlyPrice ?? ''}
-                  onChange={(e) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      monthlyPrice: e.target.value ? parseFloat(e.target.value) : undefined,
-                    }));
-                    setErrors((prev) => ({ ...prev, pricing: '' }));
-                  }}
-                  className={cn(fieldClass, errors.pricing && fieldErrorClass)}
-                  placeholder="29.99"
-                />
-              </Field>
-              <Field label="Quarterly (£)">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.quarterlyPrice ?? ''}
-                  onChange={(e) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      quarterlyPrice: e.target.value ? parseFloat(e.target.value) : undefined,
-                    }));
-                    setErrors((prev) => ({ ...prev, pricing: '' }));
-                  }}
-                  className={cn(fieldClass, errors.pricing && fieldErrorClass)}
-                  placeholder="79.99"
-                />
-              </Field>
-              <Field label="Annual (£)">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.annualPrice ?? ''}
-                  onChange={(e) => {
-                    setForm((prev) => ({
-                      ...prev,
-                      annualPrice: e.target.value ? parseFloat(e.target.value) : undefined,
-                    }));
-                    setErrors((prev) => ({ ...prev, pricing: '' }));
-                  }}
-                  className={cn(fieldClass, errors.pricing && fieldErrorClass)}
-                  placeholder="299.99"
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Features */}
-          <div className="space-y-4">
-            <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Features</h5>
-            <div className="space-y-2">
-              {(form.features || []).map((f: string, i: number) => (
-                <div key={`${f}-${i}`} className="flex items-center gap-2">
-                  <input
-                    value={f}
-                    onChange={(e) => {
-                      const arr = [...(form.features || [])];
-                      arr[i] = e.target.value;
-                      setForm((prev) => ({ ...prev, features: arr }));
-                    }}
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                  />
-                  <button
-                    onClick={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        features: (prev.features || []).filter((_: any, j: number) => j !== i),
-                      }))
-                    }
-                    className="p-2 text-gray-400 hover:text-red-500 transition-all"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
                 </div>
-              ))}
-              <div className="flex gap-2">
-                <input
-                  value={featureInput}
-                  onChange={(e) => setFeatureInput(e.target.value)}
-                  placeholder="Add a feature..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addFeature();
-                    }
-                  }}
-                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                />
-                <button
-                  type="button"
-                  onClick={addFeature}
-                  className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
               </div>
-            </div>
-          </div>
 
-          {/* Quotas & Feature Flags (schema-driven with hardcoded fallback) */}
-          {schemaLoading ? (
-            <div className="flex items-center justify-center py-8 text-gray-400 bg-gray-50 rounded-2xl">
-              <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading {platformName} plan schema...
-            </div>
-          ) : (
-            (quotaFields.length > 0 || flagFields.length > 0) && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between">
-                  <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configuration</h5>
-                  {hasSchema ? (
-                    <span className="px-2 py-0.5 bg-blue-50 text-brand-blue border border-blue-100 rounded text-[9px] font-bold uppercase tracking-wider">
-                      Schema: {platformName}
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded text-[9px] font-bold uppercase tracking-wider">
-                      Fallback Config
-                    </span>
-                  )}
+              {/* Quotas & Flags */}
+              {schemaLoading ? (
+                <div className="flex items-center justify-center py-6 text-gray-400 bg-gray-50 rounded-xl">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading plan schema...
                 </div>
+              ) : (
+                <div className="space-y-4 pt-3 border-t border-gray-100">
+                  {quotaFields.length > 0 && (
+                    <div className="space-y-3">
+                      <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Enforced Numeric Quotas ({activeTier === 'PRO_PLUS' ? 'Pro+' : activeTier})
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {quotaFields.map((field) =>
+                          field.type === 'boolean' ? (
+                            <button
+                              key={field.key}
+                              type="button"
+                              onClick={() => toggleQuotaBoolean(field.key)}
+                              className={cn(
+                                "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between gap-2",
+                                currentTierData.quotas?.[field.key]
+                                  ? "bg-green-50 border-green-200 text-green-700"
+                                  : "bg-gray-50 border-gray-200 text-gray-400"
+                              )}
+                            >
+                              <span>{field.label}</span>
+                            </button>
+                          ) : (
+                            <div key={field.key} className="bg-gray-50 rounded-xl p-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="text-[9px] font-bold text-gray-400 uppercase">{field.label}</div>
+                                {field.unlimited && (
+                                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={isUnlimited(field.key)}
+                                      onChange={() => toggleUnlimited(field.key)}
+                                      className="w-3 h-3 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
+                                    />
+                                    <span className="text-[9px] font-bold text-gray-400">Unlimited</span>
+                                  </label>
+                                )}
+                              </div>
+                              <input
+                                type="number"
+                                min="0"
+                                value={getQuotaDisplayValue(field.key)}
+                                onChange={(e) => updateQuota(field.key, e.target.value)}
+                                disabled={isUnlimited(field.key)}
+                                placeholder={isUnlimited(field.key) ? 'Unlimited' : '0'}
+                                className={cn(
+                                  "w-full bg-transparent border-none focus:ring-0 text-sm font-bold",
+                                  isUnlimited(field.key) && "opacity-40 cursor-not-allowed"
+                                )}
+                              />
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-                {quotaFields.length > 0 && (
-                  <div className="space-y-3">
-                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Quotas</h5>
-                    <div className="grid grid-cols-2 gap-3">
-                      {quotaFields.map((field) =>
-                        field.type === 'boolean' ? (
+                  {flagFields.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Feature Permissions & Capabilities
+                      </h5>
+                      <div className="grid grid-cols-2 gap-3">
+                        {flagFields.map((field) => (
                           <button
                             key={field.key}
                             type="button"
-                            onClick={() => toggleQuotaBoolean(field.key)}
+                            onClick={() => updateFeatureFlag(field.key, !currentTierData.featureFlags?.[field.key])}
                             className={cn(
                               "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between gap-2",
-                              form.configuration?.quotas?.[field.key as keyof typeof form.configuration.quotas]
+                              currentTierData.featureFlags?.[field.key]
                                 ? "bg-green-50 border-green-200 text-green-700"
                                 : "bg-gray-50 border-gray-200 text-gray-400"
                             )}
                           >
                             <span>{field.label}</span>
-                            {customQuotaFields.some((f) => f.key === field.key) && (
-                              <span
-                                role="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeCustomField(field.key);
-                                }}
-                                className="p-1 rounded-lg hover:bg-red-100 hover:text-red-500 transition-all"
-                              >
-                                <X className="w-3 h-3" />
-                              </span>
-                            )}
                           </button>
-                        ) : (
-                          <div key={field.key} className="bg-gray-50 rounded-xl p-3">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="text-[9px] font-bold text-gray-400 uppercase">{field.label}</div>
-                              {field.unlimited && (
-                                <label className="flex items-center gap-1 cursor-pointer select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={isUnlimited(field.key)}
-                                    onChange={() => toggleUnlimited(field.key)}
-                                    className="w-3 h-3 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
-                                  />
-                                  <span className="text-[9px] font-bold text-gray-400">Unlimited</span>
-                                </label>
-                              )}
-                              {customQuotaFields.some((f) => f.key === field.key) && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeCustomField(field.key)}
-                                  className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-                            <input
-                              type="number"
-                              min="0"
-                              value={getQuotaDisplayValue(field.key)}
-                              onChange={(e) => updateQuota(field.key, e.target.value)}
-                              disabled={isUnlimited(field.key)}
-                              placeholder={isUnlimited(field.key) ? 'Unlimited' : '0'}
-                              className={cn(
-                                "w-full bg-transparent border-none focus:ring-0 text-sm font-bold",
-                                isUnlimited(field.key) && "opacity-40 cursor-not-allowed"
-                              )}
-                            />
-                          </div>
-                        )
-                      )}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {flagFields.length > 0 && (
-                  <div className="space-y-3">
-                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Feature Flags</h5>
-                    <div className="grid grid-cols-2 gap-3">
-                      {flagFields.map((field) => (
-                        <button
-                          key={field.key}
-                          type="button"
-                          onClick={() =>
-                            updateFeatureFlag(
-                              field.key,
-                              !form.configuration?.featureFlags?.[field.key as keyof typeof form.configuration.featureFlags]
-                            )
-                          }
-                          className={cn(
-                            "py-2 px-3 rounded-xl text-xs font-bold border transition-all text-left flex items-center justify-between gap-2",
-                            form.configuration?.featureFlags?.[field.key as keyof typeof form.configuration.featureFlags]
-                              ? "bg-green-50 border-green-200 text-green-700"
-                              : "bg-gray-50 border-gray-200 text-gray-400"
-                          )}
-                        >
-                          <span>{field.label}</span>
-                          {customFlagFields.some((f) => f.key === field.key) && (
-                            <span
-                              role="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeCustomField(field.key);
-                              }}
-                              className="p-1 rounded-lg hover:bg-red-100 hover:text-red-500 transition-all"
-                            >
-                              <X className="w-3 h-3" />
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Custom quota/flag rows — available when no schema is returned */}
-                {!hasSchema && (
-                  <div className="pt-2 border-t border-gray-100 space-y-3">
-                    <h5 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Add Custom Quota / Flag</h5>
-                    <div className="flex gap-2">
-                      <input
-                        value={customKeyInput}
-                        onChange={(e) => setCustomKeyInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            addCustomField();
-                          }
-                        }}
-                        placeholder="e.g. maxSpins"
-                        className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                      />
-                      <select
-                        value={customType}
-                        onChange={(e) => setCustomType(e.target.value as 'number' | 'boolean')}
-                        className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                      >
-                        <option value="number">Number</option>
-                        <option value="boolean">Boolean</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={addCustomField}
-                        className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all flex items-center gap-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          )}
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-100 space-y-3 sticky bottom-0 bg-white">
+        <div className="px-6 py-4 border-t border-gray-100 space-y-3 sticky bottom-0 bg-white z-20">
           {submitError && (
             <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-xs font-bold text-red-600">
               {submitError}
@@ -1371,12 +1407,12 @@ function ExternalPlanFormModal({
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {initial ? 'Saving...' : 'Creating...'}
+                  {initial ? 'Saving...' : 'Creating Plan Family...'}
                 </>
               ) : initial ? (
-                'Save Changes'
+                'Save All 3 Variants'
               ) : (
-                `Create on ${platformName}`
+                `Create 3-Tier Plan on ${platformName}`
               )}
             </button>
           </div>

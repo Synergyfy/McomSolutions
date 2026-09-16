@@ -89,6 +89,7 @@ model BusinessProfile {
   membershipTier   MembershipTier    @default(Normal)
   membershipStatus MembershipStatus  @default(active)
   membershipPlanName String?         @map("membership_plan_name")
+  membershipExpiresAt DateTime?      @map("membership_expires_at")
   apiKey           String?           @unique
   localMallName    String?
   localMallId      String?
@@ -96,6 +97,7 @@ model BusinessProfile {
   packages         PlatformPackage[]
   transactions     BillingTransaction[]
   notifications    Notification[]
+  subscriptions    Subscription[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 }
@@ -353,36 +355,42 @@ model MembershipPlan {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   // Multi-App Bundle & Dynamic Presentation Extensions
-  includedApps   Json?    @map("included_apps")
-  tierPrices     Json?    @map("tier_prices")
-  tierFeatures   Json?    @map("tier_features")
-  whoItIsFor     String?  @map("who_it_is_for")
-  badge          String?  @map("badge")
-  color          String?  @map("color")
-  features       String[] @default([]) @map("features")
+  includedApps     Json?    @map("included_apps")
+  tierPrices       Json?    @map("tier_prices")
+  tierFeatures     Json?    @map("tier_features")
+  tierEntitlements Json?    @map("tier_entitlements")
+  tierDurations    Json?    @map("tier_durations")
+  whoItIsFor       String?  @map("who_it_is_for")
+  badge            String?  @map("badge")
+  color            String?  @map("color")
+  features         String[] @default([]) @map("features")
 
   @@map("membership_plans")
 }
 
 model PackageTemplate {
-  id             String   @id @default(cuid())
-  name           String   @map("name")
-  platform       String   @map("platform")
-  description    String   @map("description")
-  price          Float    @map("price")
-  billingCycle   String   @map("billing_cycle")
-  monthlyPrice   Float?   @map("monthly_price")
-  quarterlyPrice Float?   @map("quarterly_price")
-  annualPrice    Float?   @map("annual_price")
-  features       String[] @map("features")
-  usageLimits    Json     @map("usage_limits")
-  accessRights   String[] @map("access_rights")
-  archived       Boolean  @default(false) @map("archived")
-  isDefault      Boolean  @default(false) @map("is_default")
-  type           String?  @default("STANDARD") @map("type")
-  trialDuration  Int?     @map("trial_duration")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  name             String   @map("name")
+  platform         String   @map("platform")
+  description      String   @map("description")
+  price            Float    @map("price")
+  billingCycle     String   @map("billing_cycle")
+  monthlyPrice     Float?   @map("monthly_price")
+  quarterlyPrice   Float?   @map("quarterly_price")
+  annualPrice      Float?   @map("annual_price")
+  tierPrices       Json?    @map("tier_prices")
+  tierFeatures     Json?    @map("tier_features")
+  tierEntitlements Json?    @map("tier_entitlements")
+  tierDurations    Json?    @map("tier_durations")
+  features         String[] @map("features")
+  usageLimits      Json     @map("usage_limits")
+  accessRights     String[] @map("access_rights")
+  archived         Boolean  @default(false) @map("archived")
+  isDefault        Boolean  @default(false) @map("is_default")
+  type             String?  @default("STANDARD") @map("type")
+  trialDuration    Int?     @map("trial_duration")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("package_templates")
 }
@@ -1241,4 +1249,109 @@ model FxRate {
 
   @@unique([base, quote])
   @@map("fx_rates")
+}
+
+// ─── RELATIONAL PLAN FAMILY & TIER ARCHITECTURE ──────────────────────────────
+// Decouples the Plan Family (Bronze/Silver/Gold/Packages) from the Tier (Standard/Pro/Pro+)
+
+enum PlanType {
+  MEMBERSHIP
+  PACKAGE
+}
+
+model Tier {
+  id           String        @id @default(cuid())
+  name         String        @unique @map("name") // Standard, Pro, Pro+
+  slug         String        @unique @map("slug")
+  durationDays Int?          @map("duration_days") // 90 for Standard, 180 for Pro, null for Pro+ (leap year aware)
+  isAnnual     Boolean       @default(false) @map("is_annual")
+  sortOrder    Int           @default(0) @map("sort_order")
+  variants     PlanVariant[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([sortOrder])
+  @@map("tiers")
+}
+
+model Plan {
+  id           String        @id @default(cuid())
+  name         String        @map("name") // e.g. Bronze, Silver, MCOM Solutions Suite
+  slug         String        @unique @map("slug")
+  type         PlanType      @default(MEMBERSHIP) @map("type")
+  platform     String?       @map("platform") // Null for global memberships, platform name for packages
+  description  String?       @map("description")
+  badge        String?       @map("badge") // e.g. MOST POPULAR, BEST VALUE
+  color        String?       @map("color")
+  whoItIsFor   String?       @map("who_it_is_for")
+  includedApps Json?         // Bundled platform apps (for memberships)
+  isActive     Boolean       @default(true) @map("is_active")
+  variants     PlanVariant[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([type])
+  @@index([platform])
+  @@index([isActive])
+  @@map("plans")
+}
+
+model PlanVariant {
+  id            String         @id @default(cuid())
+  planId        String         @map("plan_id")
+  plan          Plan           @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tierId        String         @map("tier_id")
+  tier          Tier           @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  isActive      Boolean        @default(true) @map("is_active")
+  features      String[]       @default([]) @map("features")
+  entitlements  Json?          @map("entitlements") // Resource limits: vcards, cards, face value, qr rules
+  prices        PlanPrice[]
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@unique([planId, tierId])
+  @@index([planId])
+  @@index([tierId])
+  @@map("plan_variants")
+}
+
+model PlanPrice {
+  id              String         @id @default(cuid())
+  planVariantId   String         @map("plan_variant_id")
+  planVariant     PlanVariant    @relation(fields: [planVariantId], references: [id], onDelete: Cascade)
+  currency        String         @default("GBP") @map("currency")
+  billingInterval String         @map("billing_interval") // '90_days', '180_days', 'annually'
+  amount          Float          @map("amount") // In GBP
+  isActive        Boolean        @default(true) @map("is_active")
+  effectiveFrom   DateTime       @default(now()) @map("effective_from")
+  effectiveTo     DateTime?      @map("effective_to")
+  subscriptions   Subscription[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  @@index([planVariantId])
+  @@index([isActive])
+  @@map("plan_prices")
+}
+
+model Subscription {
+  id            String          @id @default(cuid())
+  businessId    String          @map("business_id")
+  business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  planVariantId String          @map("plan_variant_id")
+  planVariant     PlanVariant     @relation(fields: [planVariantId], references: [id], onDelete: Restrict)
+  priceId       String          @map("price_id")
+  price         PlanPrice       @relation(fields: [priceId], references: [id], onDelete: Restrict)
+  status        String          @default("active") @map("status") // active, trial, expired, cancelled
+  startDate     DateTime        @default(now()) @map("start_date")
+  endDate       DateTime        @map("end_date")
+  amountPaid    Float           @map("amount_paid")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@index([planVariantId])
+  @@index([priceId])
+  @@index([status])
+  @@map("subscriptions")
 }

@@ -28,6 +28,10 @@ export interface PricingPlan {
   annualPrice: number;
   features: string[];
   includedApps?: IncludedAppPlan[];
+  tierPrices?: Record<string, number>;
+  tierFeatures?: Record<string, string[]>;
+  tierEntitlements?: any[];
+  tierDurations?: Record<string, number>;
 }
 
 interface PricingContextType {
@@ -91,6 +95,10 @@ const mapApiPlan = (p: any): PricingPlan => {
     annualPrice: annual,
     features: Array.isArray(p.features) ? p.features : [],
     includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
+    tierPrices: p.tierPrices,
+    tierFeatures: p.tierFeatures,
+    tierEntitlements: p.tierEntitlements,
+    tierDurations: p.tierDurations,
   };
 };
 
