@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
@@ -22,6 +22,11 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
   async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+    const confirmPassword = registerDto.confirm_password ?? registerDto.confirmPassword;
+    if (confirmPassword !== undefined && confirmPassword !== registerDto.password) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
     const normalizedRole = (registerDto.role || 'BUSINESS').toUpperCase().replace('-', '_');
     let result;
     if (normalizedRole === 'CUSTOMER') {

@@ -13,6 +13,16 @@ export class RegisterDto {
   @MinLength(8, { message: 'password must be at least 8 characters long' })
   password: string;
 
+  @ApiPropertyOptional({ example: 'StrongP@ssw0rd!', description: 'Confirm user password' })
+  @IsString()
+  @IsOptional()
+  confirm_password?: string;
+
+  @ApiPropertyOptional({ example: 'StrongP@ssw0rd!', description: 'Confirm user password (camelCase alias)' })
+  @IsString()
+  @IsOptional()
+  confirmPassword?: string;
+
   @ApiPropertyOptional({ example: 'John', description: 'User first name' })
   @IsString()
   @IsOptional()
