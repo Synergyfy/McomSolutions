@@ -168,6 +168,61 @@ export class ConsoleService {
     return { success: true, message: `App "${client.name}" deactivated` };
   }
 
+  async deleteApp(clientId: string, adminId: string, req?: Request) {
+    const client = await this.getClientOrThrow(clientId);
+
+    if (client.isSystemApp) {
+      throw new ForbiddenException(
+        'System apps cannot be deleted via Console. Edit the seed configuration instead.',
+      );
+    }
+
+    // Atomic purge of all application traces
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Delete SSO sessions and auth codes
+      await tx.ssoSession.deleteMany({ where: { clientId: client.id } });
+      await tx.ssoAuthCode.deleteMany({ where: { clientId: client.id } });
+
+      // 2. Delete webhook delivery logs
+      await tx.appWebhookLog.deleteMany({ where: { clientId } });
+
+      // 3. Delete console audit logs for this client
+      await tx.consoleAuditLog.deleteMany({ where: { clientId } });
+
+      // 4. Release / clean up wallet holds for this client if any
+      await tx.walletHold.deleteMany({ where: { platformClientId: clientId } });
+
+      // 5. Unlink wallet transactions without breaking financial ledger history
+      await tx.walletTransaction.updateMany({
+        where: {
+          OR: [
+            { platformClientId: clientId },
+            ...(client.platformSlug ? [{ platformSlug: client.platformSlug }] : []),
+          ],
+        },
+        data: {
+          platformClientId: null,
+          platformSlug: null,
+        },
+      });
+
+      // 6. Delete the SsoClient record
+      await tx.ssoClient.delete({ where: { clientId } });
+    });
+
+    // Clean up caches
+    await this.redis.del(`sso_client:${clientId}`);
+    if (client.platformSlug) {
+      await this.redis.del(`sso_client:slug:${client.platformSlug}`);
+    }
+    if (client.apiKey) {
+      await this.redis.del(`sso_client:apikey:${client.apiKey}`);
+    }
+    await this.ssoService.invalidateCorsCache();
+
+    return { success: true, message: `App "${client.name}" (${clientId}) and all associated traces permanently deleted` };
+  }
+
   // ─── SECRET ROTATION ───────────────────────────────────────────────────────
 
   async rotateClientSecret(clientId: string, adminId: string, req?: Request) {

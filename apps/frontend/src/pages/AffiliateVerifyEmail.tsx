@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useAffiliateAuthStore } from '../store/useAffiliateAuthStore';
 import { useAffiliateAuth } from '../hooks/useAffiliateAuth';
 
@@ -14,6 +14,7 @@ export default function AffiliateVerifyEmail() {
     const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
     const navigate = useNavigate();
     const location = useLocation();
+    const [searchParams] = useSearchParams();
     const { user } = useAffiliateAuthStore();
     const { verifyOtp, sendOtp, signup, login } = useAffiliateAuth();
 
@@ -141,18 +142,21 @@ export default function AffiliateVerifyEmail() {
                 });
             }
 
-            setSuccessMessage('Account successfully verified! Redirecting to 247GBS Affiliates portal...');
+            setSuccessMessage('Account successfully created and verified! Redirecting to dashboard...');
 
             setTimeout(() => {
-                const ssoUrl = import.meta.env.VITE_AFFILIATE_SSO_URL || 'http://localhost:7088/api/v1/auth/sso/login';
-                const portalUrl = import.meta.env.VITE_AFFILIATE_PORTAL_URL || 'http://localhost:7089';
-                const cleanRole = (regState?.role || 'agent').toLowerCase().replace('_', '-');
-
-                // If running in browser, launch SSO initiation or portal
-                try {
-                    window.location.href = ssoUrl;
-                } catch {
-                    window.location.href = `${portalUrl}/dashboard/${cleanRole}`;
+                const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl');
+                if (redirectParam) {
+                    if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+                        window.location.href = redirectParam;
+                    } else {
+                        navigate(redirectParam);
+                    }
+                } else if (import.meta.env.VITE_AFFILIATE_PORTAL_URL && !import.meta.env.VITE_AFFILIATE_PORTAL_URL.includes('localhost')) {
+                    const cleanRole = (regState?.role || 'agent').toLowerCase().replace('_', '-');
+                    window.location.href = `${import.meta.env.VITE_AFFILIATE_PORTAL_URL}/dashboard/${cleanRole}`;
+                } else {
+                    navigate('/dashboard');
                 }
             }, 1200);
 

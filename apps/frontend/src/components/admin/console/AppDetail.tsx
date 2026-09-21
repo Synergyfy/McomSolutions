@@ -53,6 +53,7 @@ import {
 } from './hooks/useConsoleApps';
 import { useAppHealth, useConsoleAuditLogs } from './hooks/useAppHealth';
 import AppHealthBadge from './AppHealthBadge';
+import DeleteAppModal from './DeleteAppModal';
 import { CONSOLE_ALLOWED_SCOPES, type SsoClientDetail, type UpdateAppInput } from '../../../services/admin/types';
 
 interface AppDetailProps {
@@ -93,6 +94,7 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
   };
 
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [rotation, setRotation] = useState<{ label: string; key: SecretKey; desc: string } | null>(null);
   const [rotationError, setRotationError] = useState<string | null>(null);
   const [rotationResult, setRotationResult] = useState<{ label: string; value: string } | null>(null);
@@ -170,13 +172,23 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
           
           <div className="flex items-center gap-2">
             <AppHealthBadge clientId={detail.clientId} enabled={!!detail.billingApiUrl} />
-            {!detail.isSystemApp && detail.isActive && (
-              <button
-                onClick={() => setConfirmDisable(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-xl font-bold text-xs hover:bg-red-100 transition-colors border border-red-100"
-              >
-                <Ban className="w-3.5 h-3.5" /> Disable App
-              </button>
+            {!detail.isSystemApp && (
+              <>
+                {detail.isActive && (
+                  <button
+                    onClick={() => setConfirmDisable(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-xl font-bold text-xs hover:bg-amber-100 transition-colors border border-amber-200/60"
+                  >
+                    <Ban className="w-3.5 h-3.5" /> Disable App
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-xl font-bold text-xs hover:bg-red-100 transition-colors border border-red-200/60"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete App
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -292,7 +304,7 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setConfirmDisable(false)} />
           <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4">
               <Ban className="w-6 h-6" />
             </div>
             <h3 className="font-bold text-gray-900 text-lg mb-1 font-display">Deactivate "{detail.name}"?</h3>
@@ -313,7 +325,7 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
                   onBack();
                 }}
                 disabled={deactivateApp.isPending}
-                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold text-xs hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                className="flex-1 py-2.5 bg-amber-600 text-white rounded-xl font-bold text-xs hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
               >
                 {deactivateApp.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 Confirm Deactivation
@@ -321,6 +333,15 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <DeleteAppModal
+          app={{ clientId: detail.clientId, name: detail.name }}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={onBack}
+        />
       )}
 
       {/* Secret Rotation Confirmation Modal */}

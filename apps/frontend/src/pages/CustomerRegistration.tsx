@@ -12,10 +12,12 @@ const UserRole = {
   BUSINESS: 'BUSINESS' as const,
   CUSTOMER: 'CUSTOMER' as const,
   AGENT: 'AGENT' as const,
+  CONSULTANT: 'CONSULTANT' as const,
+  ACCOUNT_MANAGER: 'ACCOUNT_MANAGER' as const,
   OWNER: 'OWNER' as const,
 };
 
-type UserRoleType = 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'OWNER';
+type UserRoleType = 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER' | 'OWNER';
 
 // ═══════════════════════════════════════════════════════════
 // Local UI helpers wrapping McomSolutions API hooks
@@ -265,11 +267,21 @@ export default function CustomerRegistration() {
   };
 
   useEffect(() => {
-    if (roleParam === 'customer') {
+    const r = (roleParam || '').toLowerCase().replace('-', '_');
+    if (r === 'customer') {
       setSelectedRole(UserRole.CUSTOMER);
       setIsRolePreselected(true);
-    } else if (roleParam === 'business') {
+    } else if (r === 'business') {
       setSelectedRole(UserRole.OWNER);
+      setIsRolePreselected(true);
+    } else if (r === 'agent') {
+      setSelectedRole(UserRole.AGENT);
+      setIsRolePreselected(true);
+    } else if (r === 'consultant') {
+      setSelectedRole(UserRole.CONSULTANT);
+      setIsRolePreselected(true);
+    } else if (r === 'account_manager') {
+      setSelectedRole(UserRole.ACCOUNT_MANAGER);
       setIsRolePreselected(true);
     } else {
       setIsRolePreselected(false);

@@ -22,10 +22,16 @@ export default function LoginPage() {
   const logout = useLogout();
 
   const clientId = searchParams.get('client_id');
-  const hasSsoIntent = !!clientId;
-  const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(hasSsoIntent);
+  const source = searchParams.get('source');
+  const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl');
+  const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
+  const hasCookie = typeof document !== 'undefined' && (document.cookie.includes('access=') || document.cookie.includes('mcom_session=') || document.cookie.includes('userId='));
+  const hasSsoIntent = !!clientId || !!source || !!redirectParam;
+  const shouldCheckSession = hasSsoIntent || hasToken || hasCookie;
 
-  const hasActiveSession = hasSsoIntent && !!currentUser && !sessionLoading;
+  const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(shouldCheckSession);
+
+  const hasActiveSession = !!currentUser && !sessionLoading;
 
   const performRedirect = async (clientIdParam?: string | null) => {
     const clientId = clientIdParam || searchParams.get('client_id');
@@ -195,9 +201,10 @@ export default function LoginPage() {
     }, 600);
   };
 
-  const getClientName = (id: string) => {
-    if (id === 'mcom-mall') return 'MCOM Mall';
-    if (id === 'mcom-loyalty') return 'MCOM Loyalty';
+  const getClientName = (id?: string | null) => {
+    if (!id) return 'MCOM Solutions';
+    if (id === 'mcom-mall' || id === 'mcommall') return 'MCOM Mall';
+    if (id === 'mcom-loyalty' || id === 'mcomloyalty') return 'MCOM Loyalty';
     if (id === '247gbs') return '24/7 GBS';
     return id;
   };
@@ -218,6 +225,15 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
+      if (currentUser?.role === 'ADMIN' && !clientId) {
+        navigate('/admin');
+        return;
+      }
+      if (currentUser?.role === 'BUSINESS' && (!currentUser?.isOnboarded || !currentUser?.businessId) && !clientId) {
+        const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+        navigate(`/getstarted/business${searchStr}`);
+        return;
+      }
       await performRedirect();
     } catch (err: any) {
       setError('Something went wrong. Please try again.');
@@ -238,7 +254,26 @@ export default function LoginPage() {
         className="max-w-md w-full glass rounded-[2.5rem] p-10 shadow-2xl"
       >
         <AnimatePresence mode="wait">
-          {hasActiveSession ? (
+          {shouldCheckSession && sessionLoading ? (
+            <motion.div
+              key="checking-session"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="text-center py-8"
+            >
+              <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-6 shadow-xl shadow-blue-500/20">
+                24
+              </div>
+              <div className="flex items-center justify-center gap-3 mb-2">
+                <Loader2 className="w-5 h-5 animate-spin text-brand-blue" />
+                <h2 className="text-xl font-bold text-gray-900">Verifying session...</h2>
+              </div>
+              <p className="text-sm text-gray-500">
+                {clientId ? `Checking sign-in for ${getClientName(clientId)}` : 'Checking authentication status...'}
+              </p>
+            </motion.div>
+          ) : hasActiveSession ? (
             <motion.div
               key="continue-as"
               initial={{ opacity: 0, y: 10 }}
@@ -253,10 +288,12 @@ export default function LoginPage() {
                 <p className="text-gray-500">You're already signed in to MCOM Solutions</p>
               </div>
 
-              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
-                <Lock className="w-5 h-5 shrink-0 text-blue-600" />
-                <span>Signing in to access <strong>{getClientName(clientId!)}</strong></span>
-              </div>
+              {clientId && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
+                  <Lock className="w-5 h-5 shrink-0 text-blue-600" />
+                  <span>Signing in to access <strong>{getClientName(clientId)}</strong></span>
+                </div>
+              )}
 
               <div className="mb-8 p-6 bg-white border border-gray-200 rounded-2xl">
                 <div className="flex items-center gap-4">

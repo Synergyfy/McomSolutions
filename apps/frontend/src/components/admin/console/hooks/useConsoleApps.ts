@@ -55,6 +55,18 @@ export const useDeactivateApp = () => {
   })
 }
 
+export const useDeleteApp = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => consoleApi.deleteApp(clientId),
+    onSuccess: (_data, clientId) => {
+      queryClient.invalidateQueries({ queryKey: appsKey })
+      queryClient.removeQueries({ queryKey: appKey(clientId) })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
+    },
+  })
+}
+
 export const useRotateClientSecret = () => {
   const queryClient = useQueryClient()
   return useMutation({
