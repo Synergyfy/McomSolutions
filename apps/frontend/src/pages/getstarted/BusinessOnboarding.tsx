@@ -602,6 +602,8 @@ function BusinessOnboardingInner() {
     localStorage.removeItem('businessOnboarding');
     localStorage.removeItem('businessOnboardingStep');
     localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('business_onboarding_draft');
+    sessionStorage.removeItem('onboarding_intent_token');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('business_user');
     localStorage.removeItem('pendingPlatformPurchase');
@@ -616,6 +618,8 @@ function BusinessOnboardingInner() {
     localStorage.removeItem('businessOnboarding');
     localStorage.removeItem('businessOnboardingStep');
     localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('business_onboarding_draft');
+    sessionStorage.removeItem('onboarding_intent_token');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('business_user');
     localStorage.removeItem('pendingPlatformPurchase');
@@ -668,6 +672,7 @@ function BusinessOnboardingInner() {
     const cleanupIntent = () => {
       try {
         localStorage.removeItem('mcom_sso_intent');
+        sessionStorage.removeItem('onboarding_intent_token');
       } catch { }
     };
 
@@ -1369,47 +1374,109 @@ function BusinessOnboardingInner() {
   useEffect(() => {
     setIsClient(true);
     try {
+      const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : searchParams;
+      const clientId = urlParams.get('client_id') || searchParams.get('client_id');
+      const source = urlParams.get('source') || searchParams.get('source');
+      const redirectUri = urlParams.get('redirect_uri') || searchParams.get('redirect_uri');
+      const redirect = urlParams.get('redirect') || urlParams.get('callbackUrl') || searchParams.get('redirect') || searchParams.get('callbackUrl');
+
+      const hasSsoParams = Boolean((clientId || source) && (redirectUri || redirect));
+
+      const existingSessionToken = sessionStorage.getItem('onboarding_intent_token');
+      let currentIntentToken = existingSessionToken;
+
+      if (hasSsoParams && !currentIntentToken) {
+        currentIntentToken = typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        sessionStorage.setItem('onboarding_intent_token', currentIntentToken);
+      }
+
       const draft = localStorage.getItem('business_onboarding_draft');
       if (draft) {
         const parsed = JSON.parse(draft);
-        if (parsed.formData) setFormData((prev: any) => ({ ...prev, ...parsed.formData }));
-        if (parsed.step !== undefined) {
-          setCurrentStep(parsed.step);
+
+        // If user arrived via fresh SSO entry (SSO params present but draft intentToken does not match session)
+        const isStaleDraftForSso = hasSsoParams && (!parsed.intentToken || parsed.intentToken !== currentIntentToken);
+
+        if (isStaleDraftForSso) {
+          // Keep form data only (avoids re-typing basic info)
+          if (parsed.formData) {
+            setFormData((prev: any) => ({ ...prev, ...parsed.formData }));
+          }
+          // Do NOT restore step, showChoosePlan, showProgrammeIntro, etc.
+          // Reset screen state flags to initial onboarding defaults
+          setCurrentStep(0);
+          setShowInitialPrompt(true);
+          setShowProgrammeIntro(false);
+          setShowChoosePlan(false);
+          setShowInitialAssessment(false);
+          setShowGoogleCategoryPage(false);
+          setShowFindClaimPage(false);
+          setShowBusinessPreviewPage(false);
+          setShowConnectGooglePage(false);
+          setShowBusinessTypePage(false);
+
+          // Synchronize localStorage draft with the fresh intent token and reset screen states
+          localStorage.setItem('business_onboarding_draft', JSON.stringify({
+            intentToken: currentIntentToken,
+            step: 0,
+            wizardStepIndex: 0,
+            formData: parsed.formData || {},
+            completedWizardSteps: [],
+            showInitialPrompt: true,
+            showGoogleCategoryPage: false,
+            showFindClaimPage: false,
+            showBusinessPreviewPage: false,
+            showConnectGooglePage: false,
+            showBusinessTypePage: false,
+            showProgrammeIntro: false,
+            showChoosePlan: false,
+            showInitialAssessment: false,
+          }));
+        } else {
+          // Restore full draft state normally
+          if (parsed.formData) setFormData((prev: any) => ({ ...prev, ...parsed.formData }));
+          if (parsed.step !== undefined) {
+            setCurrentStep(parsed.step);
+          }
+          if (parsed.completedWizardSteps) setCompletedSteps(new Set(parsed.completedWizardSteps));
+          if (parsed.showInitialPrompt !== undefined) setShowInitialPrompt(parsed.showInitialPrompt);
+          if (parsed.showGoogleCategoryPage !== undefined) setShowGoogleCategoryPage(parsed.showGoogleCategoryPage);
+          if (parsed.showFindClaimPage !== undefined) setShowFindClaimPage(parsed.showFindClaimPage);
+          if (parsed.showBusinessPreviewPage !== undefined) setShowBusinessPreviewPage(parsed.showBusinessPreviewPage);
+          if (parsed.showConnectGooglePage !== undefined) setShowConnectGooglePage(parsed.showConnectGooglePage);
+          if (parsed.showBusinessTypePage !== undefined) setShowBusinessTypePage(parsed.showBusinessTypePage);
+          if (parsed.showProgrammeIntro !== undefined) setShowProgrammeIntro(parsed.showProgrammeIntro);
+          if (parsed.showChoosePlan !== undefined) setShowChoosePlan(parsed.showChoosePlan);
+          if (parsed.showInitialAssessment !== undefined) setShowInitialAssessment(parsed.showInitialAssessment);
+          if (parsed.selectedPreviewBusiness) setSelectedPreviewBusiness(parsed.selectedPreviewBusiness);
+          if (parsed.googleSectorId) setGoogleSectorId(parsed.googleSectorId);
+          if (parsed.googleCategoryId) setGoogleCategoryId(parsed.googleCategoryId);
+          if (parsed.googleSubCategoryId) setGoogleSubCategoryId(parsed.googleSubCategoryId);
+          if (parsed.googleStep) setGoogleStep(parsed.googleStep);
+          if (parsed.searchName) setSearchName(parsed.searchName);
+          if (parsed.searchLoc) setSearchLoc(parsed.searchLoc);
+          if (parsed.searchRadius) setSearchRadius(parsed.searchRadius);
+          setRestoreToast(true);
+          setTimeout(() => setRestoreToast(false), 5000);
         }
-        if (parsed.completedWizardSteps) setCompletedSteps(new Set(parsed.completedWizardSteps));
-        if (parsed.showInitialPrompt !== undefined) setShowInitialPrompt(parsed.showInitialPrompt);
-        if (parsed.showGoogleCategoryPage !== undefined) setShowGoogleCategoryPage(parsed.showGoogleCategoryPage);
-        if (parsed.showFindClaimPage !== undefined) setShowFindClaimPage(parsed.showFindClaimPage);
-        if (parsed.showBusinessPreviewPage !== undefined) setShowBusinessPreviewPage(parsed.showBusinessPreviewPage);
-        if (parsed.showConnectGooglePage !== undefined) setShowConnectGooglePage(parsed.showConnectGooglePage);
-        if (parsed.showBusinessTypePage !== undefined) setShowBusinessTypePage(parsed.showBusinessTypePage);
-        if (parsed.showProgrammeIntro !== undefined) setShowProgrammeIntro(parsed.showProgrammeIntro);
-        if (parsed.showChoosePlan !== undefined) setShowChoosePlan(parsed.showChoosePlan);
-        if (parsed.showInitialAssessment !== undefined) setShowInitialAssessment(parsed.showInitialAssessment);
-        if (parsed.selectedPreviewBusiness) setSelectedPreviewBusiness(parsed.selectedPreviewBusiness);
-        if (parsed.googleSectorId) setGoogleSectorId(parsed.googleSectorId);
-        if (parsed.googleCategoryId) setGoogleCategoryId(parsed.googleCategoryId);
-        if (parsed.googleSubCategoryId) setGoogleSubCategoryId(parsed.googleSubCategoryId);
-        if (parsed.googleStep) setGoogleStep(parsed.googleStep);
-        if (parsed.searchName) setSearchName(parsed.searchName);
-        if (parsed.searchLoc) setSearchLoc(parsed.searchLoc);
-        if (parsed.searchRadius) setSearchRadius(parsed.searchRadius);
-        setRestoreToast(true);
-        setTimeout(() => setRestoreToast(false), 5000);
       } else {
         const cached = localStorage.getItem('businessOnboarding');
         const cachedStep = localStorage.getItem('businessOnboardingStep');
         const cachedCompleted = localStorage.getItem('businessOnboardingCompleted');
         if (cached) setFormData((prev: any) => ({ ...prev, ...JSON.parse(cached) }));
-        if (cachedStep) {
-          const step = parseInt(cachedStep, 10);
-          setCurrentStep(step);
-          if (step > 0) setShowInitialPrompt(false);
-        }
-        if (cachedCompleted) setCompletedSteps(new Set(JSON.parse(cachedCompleted)));
-        if (cached || cachedStep) {
-          setRestoreToast(true);
-          setTimeout(() => setRestoreToast(false), 5000);
+        if (!hasSsoParams) {
+          if (cachedStep) {
+            const step = parseInt(cachedStep, 10);
+            setCurrentStep(step);
+            if (step > 0) setShowInitialPrompt(false);
+          }
+          if (cachedCompleted) setCompletedSteps(new Set(JSON.parse(cachedCompleted)));
+          if (cached || cachedStep) {
+            setRestoreToast(true);
+            setTimeout(() => setRestoreToast(false), 5000);
+          }
         }
       }
     } catch {
@@ -1479,7 +1546,9 @@ function BusinessOnboardingInner() {
     localStorage.setItem('businessOnboardingCompleted', JSON.stringify([...completedSteps]));
     // Also save to new wizard draft key with full screen state
     try {
+      const intentToken = sessionStorage.getItem('onboarding_intent_token') ?? null;
       localStorage.setItem('business_onboarding_draft', JSON.stringify({
+        intentToken,
         step: currentStep,
         wizardStepIndex: currentStep,
         formData,
@@ -5002,6 +5071,7 @@ function BusinessOnboardingInner() {
       localStorage.removeItem('businessOnboardingStep');
       localStorage.removeItem('businessOnboardingCompleted');
       localStorage.removeItem('business_onboarding_draft');
+      sessionStorage.removeItem('onboarding_intent_token');
       localStorage.setItem('firstDashboardLogin', 'true');
       setProgrammeStarted();
       localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
@@ -5466,6 +5536,7 @@ function BusinessOnboardingInner() {
           localStorage.removeItem('businessOnboardingStep');
           localStorage.removeItem('businessOnboardingCompleted');
           localStorage.removeItem('business_onboarding_draft');
+          sessionStorage.removeItem('onboarding_intent_token');
           localStorage.removeItem('businessArea');
           localStorage.removeItem('localMallName');
           localStorage.removeItem('localMallId');
