@@ -1,11 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { decrypt } from '../console/crypto.util';
+import { WEBHOOK_DISPATCH_QUEUE } from '../queue/queue.constants';
 import axios from 'axios';
 import * as crypto from 'crypto';
 
-export interface PackageWebhookData {
+export interface PackageWebhookData extends Record<string, unknown> {
   packageId: string;
   mcomUserId: string;
   externalPlanId?: string | null;
@@ -16,7 +20,7 @@ export interface PackageWebhookData {
   amount?: number | null;
   currency: string;
   expiresAt?: string | null;
-  limits?: any;
+  limits?: Record<string, unknown> | null;
 }
 
 export interface WebhookDispatchResult {
@@ -34,12 +38,38 @@ export class WebhookDispatcherService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Optional()
+    @InjectQueue(WEBHOOK_DISPATCH_QUEUE)
+    private readonly webhookQueue?: Queue,
   ) {}
 
   /**
-   * Asynchronously dispatches a webhook in the background without blocking the caller.
+   * Enqueues a webhook into BullMQ for durable delivery with exponential backoff.
    */
-  dispatchAsync(platformIdentifier: string, event: string, data: any): void {
+  async enqueueWebhook(platformIdentifier: string, event: string, data: Record<string, unknown>): Promise<void> {
+    if (this.webhookQueue) {
+      try {
+        await this.webhookQueue.add(
+          'dispatch',
+          { platformIdentifier, event, data },
+          {
+            attempts: 5,
+            backoff: {
+              type: 'exponential',
+              delay: 2000,
+            },
+            removeOnComplete: { count: 1000 },
+            removeOnFail: false,
+          },
+        );
+        return;
+      } catch (err: any) {
+        this.logger.error(
+          `Failed to enqueue webhook to BullMQ: ${err.message}. Falling back to immediate execution.`,
+        );
+      }
+    }
+
     setImmediate(() => {
       this.dispatch(platformIdentifier, event, data).catch((err) => {
         this.logger.error(
@@ -47,6 +77,15 @@ export class WebhookDispatcherService {
           err.stack,
         );
       });
+    });
+  }
+
+  /**
+   * Asynchronously dispatches a webhook in the background without blocking the caller.
+   */
+  dispatchAsync(platformIdentifier: string, event: string, data: Record<string, unknown>): void {
+    this.enqueueWebhook(platformIdentifier, event, data).catch((err) => {
+      this.logger.error(`Error in dispatchAsync: ${err.message}`);
     });
   }
 
@@ -97,7 +136,8 @@ export class WebhookDispatcherService {
   async dispatch(
     platformIdentifier: string,
     event: string,
-    data: any,
+    data: Record<string, unknown>,
+    metadata?: { jobId?: string; retryCount?: number },
   ): Promise<WebhookDispatchResult> {
     const client = await this.prisma.ssoClient.findFirst({
       where: {
@@ -130,44 +170,38 @@ export class WebhookDispatcherService {
     const secret = this.resolveWebhookSecret(client);
     const signature = this.signPayload(rawBody, secret);
 
-    const maxAttempts = 3;
     let responseStatus: number | null = null;
     let responseBodyText: string | null = null;
     let delivered = false;
-    let lastError: any = null;
+    let lastError: Error | null = null;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const response = await axios.post(client.webhookUrl, rawBody, {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Mcom-Webhook-Signature': signature,
-            'User-Agent': 'McomSolutions-WebhookDispatcher/1.0',
-          },
-          timeout: 10000,
-          validateStatus: () => true, // Don't throw on HTTP status codes
-        });
+    try {
+      const response = await axios.post(client.webhookUrl, rawBody, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Mcom-Webhook-Signature': signature,
+          'User-Agent': 'McomSolutions-WebhookDispatcher/1.0',
+        },
+        timeout: 10000,
+        validateStatus: () => true, // Don't throw on HTTP status codes
+      });
 
-        responseStatus = response.status;
-        responseBodyText = typeof response.data === 'string'
+      responseStatus = response.status;
+      responseBodyText =
+        typeof response.data === 'string'
           ? response.data.slice(0, 1000)
           : JSON.stringify(response.data).slice(0, 1000);
 
-        if (response.status >= 200 && response.status < 300) {
-          delivered = true;
-          break;
-        } else {
-          lastError = new Error(`HTTP ${response.status}: ${responseBodyText}`);
-        }
-      } catch (err: any) {
-        lastError = err;
-        responseStatus = err.response?.status || null;
-        responseBodyText = err.message || 'Network error';
+      if (response.status >= 200 && response.status < 300) {
+        delivered = true;
+      } else {
+        lastError = new Error(`HTTP ${response.status}: ${responseBodyText}`);
       }
-
-      if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
-      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number }; message?: string };
+      lastError = err instanceof Error ? err : new Error(String(err));
+      responseStatus = axiosErr.response?.status || null;
+      responseBodyText = axiosErr.message || 'Network error';
     }
 
     let logId: string | undefined;
@@ -176,11 +210,13 @@ export class WebhookDispatcherService {
         data: {
           clientId: client.clientId,
           event,
-          payload: payload as any,
+          payload: payload as unknown as Prisma.InputJsonValue,
           statusCode: responseStatus,
           responseBody: responseBodyText,
           deliveredAt: delivered ? new Date() : null,
           failed: !delivered,
+          jobId: metadata?.jobId ?? null,
+          retryCount: metadata?.retryCount ?? 0,
         },
       });
       logId = log.id;
@@ -192,8 +228,9 @@ export class WebhookDispatcherService {
           webhookFailCount: delivered ? 0 : { increment: 1 },
         },
       });
-    } catch (dbErr: any) {
-      this.logger.error(`Failed to record webhook log: ${dbErr.message}`);
+    } catch (dbErr: unknown) {
+      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      this.logger.error(`Failed to record webhook log: ${msg}`);
     }
 
     if (delivered) {
@@ -201,7 +238,7 @@ export class WebhookDispatcherService {
       return { dispatched: true, statusCode: responseStatus, logId };
     } else {
       this.logger.warn(
-        `Failed to deliver ${event} webhook to "${client.clientId}" after ${maxAttempts} attempts: ${lastError?.message}`,
+        `Failed to deliver ${event} webhook to "${client.clientId}": ${lastError?.message}`,
       );
       return {
         dispatched: false,
@@ -212,25 +249,30 @@ export class WebhookDispatcherService {
     }
   }
 
-  private resolveWebhookSecret(client: any): string {
+  private resolveWebhookSecret(client: { clientId: string; webhookSecret?: string | null; hmacSecret?: string | null }): string {
     if (client.webhookSecret) {
       try {
         return decrypt(client.webhookSecret, this.encryptionKey());
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (typeof client.webhookSecret === 'string' && client.webhookSecret.startsWith('wh_')) {
+          this.logger.error(`Webhook secret for client "${client.clientId}" appears unencrypted (plaintext 'wh_' prefix). Used plaintext fallback; operations must re-encrypt secrets!`);
           return client.webhookSecret;
         }
-        this.logger.warn(`Failed to decrypt webhook secret for ${client.clientId}: ${err.message}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to decrypt webhook secret for ${client.clientId}: ${msg}`);
       }
     }
 
     if (client.hmacSecret) {
       try {
         return decrypt(client.hmacSecret, this.encryptionKey());
-      } catch {
+      } catch (err: unknown) {
         if (typeof client.hmacSecret === 'string' && client.hmacSecret.startsWith('hm_')) {
+          this.logger.error(`HMAC secret for client "${client.clientId}" appears unencrypted (plaintext 'hm_' prefix). Used plaintext fallback; operations must re-encrypt secrets!`);
           return client.hmacSecret;
         }
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to decrypt hmac secret for ${client.clientId}: ${msg}`);
       }
     }
 

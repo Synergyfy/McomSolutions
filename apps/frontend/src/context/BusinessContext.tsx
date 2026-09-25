@@ -23,13 +23,19 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   const [businesses, setBusinesses] = useState<Business[]>([]);
 
   useEffect(() => {
-    if (rawBusinesses) {
-      const mapped: Business[] = rawBusinesses.map((b: any) => ({
+    const list = Array.isArray(rawBusinesses)
+      ? rawBusinesses
+      : Array.isArray(rawBusinesses?.data)
+        ? rawBusinesses.data
+        : [];
+
+    if (list.length > 0) {
+      const mapped: Business[] = list.map((b: any) => ({
         id: b.id,
         name: b.businessName,
         membership: `${b.membershipLevel || 'Bronze'} ${b.membershipTier || 'Normal'}`,
         source: b.businessType || 'Onboarded',
-        joined: new Date(b.createdAt).toISOString().split('T')[0],
+        joined: b.createdAt ? new Date(b.createdAt).toISOString().split('T')[0] : '',
       }));
       setBusinesses(mapped);
     } else {

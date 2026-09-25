@@ -10,7 +10,7 @@ import { RedisService } from '../../redis/redis.service';
  */
 @Injectable()
 export class WalletLockUtil {
-  private readonly TTL = 10; // seconds — auto-release prevents deadlock
+  private readonly TTL = 30; // seconds — auto-release prevents deadlock
 
   constructor(private readonly redis: RedisService) {}
 

@@ -136,7 +136,7 @@ describe('WebhookDispatcherService', () => {
     });
   });
 
-  it('should retry up to 3 times on failure and log the failure', async () => {
+  it('should attempt delivery and log the failure when target returns 500', async () => {
     mockedAxios.post.mockResolvedValue({
       status: 500,
       data: 'Internal Server Error',
@@ -146,7 +146,7 @@ describe('WebhookDispatcherService', () => {
 
     expect(result.dispatched).toBe(false);
     expect(result.statusCode).toBe(500);
-    expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
 
     expect(prisma.appWebhookLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -205,5 +205,27 @@ describe('WebhookDispatcherService', () => {
         limits: { maxLinks: 50 },
       }),
     );
+  });
+
+  it('should record jobId and retryCount when provided in metadata', async () => {
+    mockedAxios.post.mockResolvedValue({
+      status: 200,
+      data: { received: true },
+    } as any);
+
+    await service.dispatch('links', 'package.created', { test: true }, {
+      jobId: 'job-123',
+      retryCount: 2,
+    });
+
+    expect(prisma.appWebhookLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        clientId: 'mcom-links',
+        event: 'package.created',
+        statusCode: 200,
+        jobId: 'job-123',
+        retryCount: 2,
+      }),
+    });
   });
 });

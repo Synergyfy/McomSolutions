@@ -1,15 +1,74 @@
-import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
-import { MembershipLevel, MembershipTier, Role } from '@prisma/client';
+import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import axios from 'axios';
 
+export interface CompleteOnboardingInput {
+  email?: string;
+  grant?: string;
+  firstName?: string;
+  lastName?: string;
+  businessName?: string;
+  businessType?: string;
+  businessPhone?: string;
+  googlePlaceId?: string;
+  password?: string;
+  address?: string;
+  postcode?: string;
+  website?: string;
+  openingHours?: string;
+  industry?: string;
+  category?: string;
+  subCategory?: string;
+  source?: string;
+  photos?: any[];
+  [key: string]: unknown;
+}
+
+export interface BusinessHoursItem {
+  dayOfWeek: number;
+  openTime: string;
+  closeTime: string;
+  is24h?: boolean;
+}
+
+export interface UpdateProfileInput {
+  businessName?: string;
+  phone?: string;
+  businessPhone?: string;
+  address?: string;
+  postcode?: string;
+  website?: string;
+  logoUrl?: string;
+  openingHours?: string;
+  socialMedia?: string;
+  description?: string;
+  shortDescription?: string;
+  category?: string;
+  categoryId?: string;
+  subCategory?: string;
+  subCategoryId?: string;
+  industry?: string;
+  sectorId?: string;
+  businessType?: string;
+  listingType?: string[];
+  businessHours?: BusinessHoursItem[];
+  location?: {
+    addressLine1?: string;
+    postcode?: string;
+  };
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class BusinessService {
+  private readonly logger = new Logger(BusinessService.name);
+
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
@@ -59,7 +118,7 @@ export class BusinessService {
         };
       });
     } catch (err) {
-      console.error('Error querying Nominatim API for postcode:', err);
+      this.logger.error('Error querying Nominatim API for postcode:', err);
       return [];
     }
   }
@@ -76,7 +135,7 @@ export class BusinessService {
         resolvedArea = response.data.result.admin_district || '';
       }
     } catch (err) {
-      console.error('Error fetching postcode info from postcodes.io:', err);
+      this.logger.error('Error fetching postcode info from postcodes.io:', err);
     }
 
     // Match against LocalMall postcode areas (DB-backed — no fabricated malls).
@@ -110,12 +169,23 @@ export class BusinessService {
     };
   }
 
-  // ─── Google Places Lookup ─────────────────────────────
-  async searchGoogleBusinesses(queryText: string, radius?: number, lat?: number, lng?: number) {
+  private getGoogleApiKey(): string {
     const apiKey = this.configService.get<string>('GOOGLE_PLACES_API_KEY');
     if (!apiKey) {
       throw new ServiceUnavailableException('Google Places API is not configured.');
     }
+    return apiKey;
+  }
+
+  async getGooglePhotoStream(photoReference: string, maxWidthPx: number = 800) {
+    const apiKey = this.getGoogleApiKey();
+    const url = `https://places.googleapis.com/v1/${photoReference}/media?maxWidthPx=${maxWidthPx}&key=${apiKey}`;
+    return axios.get(url, { responseType: 'stream' });
+  }
+
+  // ─── Google Places Lookup ─────────────────────────────
+  async searchGoogleBusinesses(queryText: string, radius?: number, lat?: number, lng?: number) {
+    const apiKey = this.getGoogleApiKey();
 
     try {
       const payload: Record<string, any> = { textQuery: queryText };
@@ -157,9 +227,9 @@ export class BusinessService {
         const types = place.types || [];
         const primaryType = types[0] || 'establishment';
         const photoName = place.photos?.[0]?.name;
-        const heroImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${apiKey}` : '';
-        const thumbImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${apiKey}` : '';
-        const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${apiKey}`);
+        const heroImg = photoName ? `/api/v1/business/google/photo?photoReference=${encodeURIComponent(photoName)}&maxWidthPx=800` : '';
+        const thumbImg = photoName ? `/api/v1/business/google/photo?photoReference=${encodeURIComponent(photoName)}&maxWidthPx=200` : '';
+        const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `/api/v1/business/google/photo?photoReference=${encodeURIComponent(ph.name)}&maxWidthPx=800`);
 
         return {
           googlePlaceId: place.id,
@@ -186,7 +256,7 @@ export class BusinessService {
         };
       });
     } catch (err: any) {
-      console.error('Error fetching from Google Places API:', err?.response?.data || err.message);
+      this.logger.error('Error fetching from Google Places API:', err?.response?.data || err.message);
       throw new ServiceUnavailableException('Google Places API request failed.');
     }
   }
@@ -198,10 +268,7 @@ export class BusinessService {
 
   // ─── Google Place Details ─────────────────────────────
   async getGooglePlaceDetails(placeId: string) {
-    const apiKey = this.configService.get<string>('GOOGLE_PLACES_API_KEY');
-    if (!apiKey) {
-      throw new ServiceUnavailableException('Google Places API is not configured.');
-    }
+    const apiKey = this.getGoogleApiKey();
 
     try {
       const response = await axios.get(
@@ -222,9 +289,9 @@ export class BusinessService {
       const types = place.types || [];
       const primaryType = types[0] || 'establishment';
       const photoName = place.photos?.[0]?.name;
-      const heroImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=800&key=${apiKey}` : '';
-      const thumbImg = photoName ? `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=200&key=${apiKey}` : '';
-      const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `https://places.googleapis.com/v1/${ph.name}/media?maxWidthPx=800&key=${apiKey}`);
+      const heroImg = photoName ? `/api/v1/business/google/photo?photoReference=${encodeURIComponent(photoName)}&maxWidthPx=800` : '';
+      const thumbImg = photoName ? `/api/v1/business/google/photo?photoReference=${encodeURIComponent(photoName)}&maxWidthPx=200` : '';
+      const allPhotos = (place.photos || []).slice(0, 5).map((ph: any) => `/api/v1/business/google/photo?photoReference=${encodeURIComponent(ph.name)}&maxWidthPx=800`);
 
       return {
         googlePlaceId: place.id,
@@ -255,7 +322,7 @@ export class BusinessService {
         googleCategoryId: `gcid:${primaryType}`,
       };
     } catch (err: any) {
-      console.error('Error fetching from Google Place Details API:', err?.response?.data || err.message);
+      this.logger.error('Error fetching from Google Place Details API:', err?.response?.data || err.message);
       if (err instanceof NotFoundException) throw err;
       if (err?.response?.status === 404) {
         throw new NotFoundException(`Google place details for id '${placeId}' not found`);
@@ -314,12 +381,15 @@ export class BusinessService {
       try {
         email = await this.googleOAuth.exchangeCodeForEmail(code, redirectUri);
       } catch (err: any) {
-        console.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
+        this.logger.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
+        const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
         return payload.type === 'claim'
-          ? this.claimFailureScript()
-          : this.loginFailureScript('Google authentication failed');
+          ? this.claimFailureScript(targetOrigin)
+          : this.loginFailureScript('Google authentication failed', targetOrigin);
       }
     }
+
+    const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
 
     if (payload.type === 'login' || payload.type === 'sim-login') {
       const user = await this.prisma.user.findUnique({
@@ -328,7 +398,7 @@ export class BusinessService {
       });
 
       if (!user) {
-        return this.loginFailureScript('No account found for this email. Please register first.');
+        return this.loginFailureScript('No account found for this email. Please register first.', targetOrigin);
       }
 
       const auth = await this.authService.login(user);
@@ -336,20 +406,23 @@ export class BusinessService {
       if (res) {
         res.cookie('mcom_session', auth.accessToken, {
           httpOnly: true,
-          secure: false,
+          secure: process.env.NODE_ENV === 'production',
           sameSite: 'lax',
           maxAge: 7 * 24 * 60 * 60 * 1000,
         });
       }
+
+      const safeAuth = JSON.stringify(auth).replace(/</g, '\\u003c');
+      const safeUser = JSON.stringify(auth.user).replace(/</g, '\\u003c');
 
       return `
         <script>
           if (window.opener) {
             window.opener.postMessage({
               type: 'GOOGLE_LOGIN_SUCCESS',
-              auth: ${JSON.stringify(auth)},
-              user: ${JSON.stringify(auth.user)}
-            }, '*');
+              auth: ${safeAuth},
+              user: ${safeUser}
+            }, '${this.escapeHtml(targetOrigin)}');
             window.close();
           } else {
             document.write("Login successful! Redirecting...");
@@ -361,7 +434,7 @@ export class BusinessService {
     if (payload.type === 'claim') {
       const { placeId, returnUrl } = payload;
       if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl || !/^https?:\/\//.test(returnUrl)) {
-        return this.claimFailureScript();
+        return this.claimFailureScript(targetOrigin);
       }
 
       // Bind the verified email to a short-lived grant the onboarding endpoint
@@ -377,7 +450,7 @@ export class BusinessService {
               placeId: '${placeId}',
               email: '${this.escapeHtml(email)}',
               grant: '${this.escapeHtml(grant)}'
-            }, '*');
+            }, '${targetOrigin}');
             window.close();
           } else {
             document.write("Claim successful! You can close this window now.");
@@ -386,25 +459,36 @@ export class BusinessService {
       `;
     }
 
-    return this.claimFailureScript();
+    return this.claimFailureScript(targetOrigin);
   }
 
-  private claimFailureScript() {
+  private getTargetOrigin(returnUrl?: string): string {
+    if (returnUrl) {
+      try {
+        return new URL(returnUrl).origin;
+      } catch {
+        // Fall back to configured frontend URL
+      }
+    }
+    return this.configService.get<string>('FRONTEND_URL') || 'https://mcomsolutions.com';
+  }
+
+  private claimFailureScript(targetOrigin = 'https://mcomsolutions.com') {
     return `
       <script>
         if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '*');
+          window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '${targetOrigin}');
         }
         window.close();
       </script>
     `;
   }
 
-  private loginFailureScript(error: string) {
+  private loginFailureScript(error: string, targetOrigin = 'https://mcomsolutions.com') {
     return `
       <script>
         if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' }, '*');
+          window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' }, '${targetOrigin}');
         }
         window.close();
       </script>
@@ -475,7 +559,7 @@ export class BusinessService {
     };
   }
 
-  async completeGoogleOnboarding(data: any) {
+  async completeGoogleOnboarding(data: CompleteOnboardingInput) {
     const emailFromBody = data.email ? data.email.toLowerCase().trim() : '';
     // The verified email always comes from the signed grant (if present) — the
     // body field is never trusted when a grant exists.
@@ -628,7 +712,7 @@ export class BusinessService {
     return profile;
   }
 
-  async updateProfile(businessId: string, updates: any) {
+  async updateProfile(businessId: string, updates: UpdateProfileInput) {
     const address = updates.location?.addressLine1 || updates.address;
     const postcode = updates.location?.postcode || updates.postcode;
     const phone = updates.businessPhone || updates.phone;
@@ -641,7 +725,7 @@ export class BusinessService {
     let openingHours = updates.openingHours;
     if (updates.businessHours && Array.isArray(updates.businessHours)) {
       openingHours = updates.businessHours
-        .map((h: any) => {
+        .map((h: BusinessHoursItem) => {
           const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
           const day = dayNames[h.dayOfWeek] || `Day ${h.dayOfWeek}`;
           return `${day}: ${h.openTime} - ${h.closeTime}${h.is24h ? ' (24h)' : ''}`;
@@ -683,18 +767,36 @@ export class BusinessService {
   }
 
   // ─── Directory & Administration CRUD ──────────────────
-  async findAll(searchQuery?: string) {
-    return this.prisma.businessProfile.findMany({
-      where: searchQuery ? {
-        OR: [
-          { businessName: { contains: searchQuery, mode: 'insensitive' } },
-          { email: { contains: searchQuery, mode: 'insensitive' } },
-        ]
-      } : {},
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+  async findAll(searchQuery?: string, page: number = 1, limit: number = 20) {
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const where = searchQuery ? {
+      OR: [
+        { businessName: { contains: searchQuery, mode: 'insensitive' as const } },
+        { email: { contains: searchQuery, mode: 'insensitive' as const } },
+      ],
+    } : {};
+
+    const [data, total] = await Promise.all([
+      this.prisma.businessProfile.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limitNum,
+      }),
+      this.prisma.businessProfile.count({ where }),
+    ]);
+
+    return {
+      success: true,
+      data,
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+    };
   }
 
   async findOne(id: string) {

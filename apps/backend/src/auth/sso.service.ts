@@ -1,15 +1,115 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma, SsoClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
+export type SsoClientSafe = Omit<SsoClient, 'clientSecret' | 'webhookSecret'> & {
+  clientSecret?: string;
+  webhookSecret?: string | null;
+};
+
+export interface AppPlanView {
+  source?: string;
+  platform?: string;
+  clientId?: string | null;
+  planId?: string;
+  planName?: string;
+  status?: string;
+  quotas?: Record<string, unknown>;
+  limits?: Record<string, unknown>;
+  expiresAt?: Date | string | null;
+  membershipPlanName?: string | null;
+  directPlan?: {
+    planId?: string;
+    planName?: string;
+    limits?: Record<string, unknown>;
+    status?: string;
+    expiresAt?: Date | string | null;
+  } | null;
+  membershipPlan?: {
+    planId?: string;
+    planName?: string;
+    quotas?: Record<string, unknown>;
+    membershipPlanName?: string | null;
+  } | null;
+}
+
+export interface EntitlementPackage {
+  id: string;
+  platform: string;
+  packageName: string;
+  externalPlanId?: string | null;
+  planName?: string | null;
+  planType?: string | null;
+  status: string;
+  limits?: Prisma.JsonValue;
+  expiresAt?: Date | string | null;
+  billingCycle?: string | null;
+  amount?: number | Prisma.Decimal | null;
+  [key: string]: unknown;
+}
+
+export interface EntitlementBusinessProfile {
+  id?: string | null;
+  businessName?: string | null;
+  membershipPlanName?: string | null;
+  membershipLevel?: string | null;
+  membershipStatus?: string | null;
+  membershipTier?: string | null;
+  packages?: EntitlementPackage[];
+  phone?: string | null;
+  address?: string | null;
+  postcode?: string | null;
+  [key: string]: unknown;
+}
+
+export interface EntitlementUser {
+  id?: string;
+  role?: string;
+  email?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  businessProfile?: EntitlementBusinessProfile | null;
+  [key: string]: unknown;
+}
+
+export interface EntitlementClient {
+  id?: string;
+  clientId?: string;
+  platformSlug?: string | null;
+  name?: string;
+  [key: string]: unknown;
+}
+
+export interface RegisterClientInput {
+  clientId: string;
+  clientSecret: string;
+  name: string;
+  redirectUris: string[];
+  scopes?: string[];
+  logoUrl?: string | null;
+  apiKey?: string | null;
+  description?: string | null;
+  appUrl?: string | null;
+  billingApiUrl?: string | null;
+  hmacSecret?: string | null;
+  webhookSecret?: string | null;
+  webhookUrl?: string | null;
+  platformSlug?: string | null;
+  corsOrigins?: string[];
+  isSystemApp?: boolean;
+  metadata?: Prisma.InputJsonValue;
+}
+
 @Injectable()
 export class SsoService {
-  private readonly memCache = new Map<string, { data: any; exp: number }>();
+  private readonly logger = new Logger(SsoService.name);
+  private readonly memCache = new Map<string, { data: SsoClientSafe; exp: number }>();
   private static readonly MEM_TTL_MS = 30_000;
 
   constructor(
@@ -29,7 +129,7 @@ export class SsoService {
     return secret;
   }
 
-  generateToken(payload: Record<string, any>): string {
+  generateToken(payload: Record<string, unknown>): string {
     const secret = this.getSsoJwtSecret();
     return this.jwtService.sign(payload, {
       secret,
@@ -155,7 +255,7 @@ export class SsoService {
       expiresIn: parseInt(refreshTokenTtl, 10),
     });
 
-    // Save SSO Session in DB
+    // Save SSO Session in DB (refresh token is hashed with SHA-256)
     const sessionExpiresAt = new Date();
     sessionExpiresAt.setSeconds(sessionExpiresAt.getSeconds() + parseInt(refreshTokenTtl, 10));
 
@@ -164,7 +264,7 @@ export class SsoService {
         userId: user.id,
         clientId: authCode.client.id,
         accessToken,
-        refreshToken,
+        refreshToken: this.hashToken(refreshToken),
         expiresAt: sessionExpiresAt,
       },
     });
@@ -197,10 +297,30 @@ export class SsoService {
     };
   }
 
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   async refreshSsoToken(refreshToken: string) {
-    const session = await this.prisma.ssoSession.findUnique({
-      where: { refreshToken },
+    const hashedToken = this.hashToken(refreshToken);
+    let session = await this.prisma.ssoSession.findUnique({
+      where: { refreshToken: hashedToken },
     });
+
+    // TODO: Remove after migration — run hash-sessions script
+    // Fallback for sessions created before hashing rollout
+    if (!session) {
+      session = await this.prisma.ssoSession.findUnique({
+        where: { refreshToken },
+      });
+      if (session) {
+        this.logger.warn(`Legacy plaintext refresh token detected for session ${session.id}; upgrading to SHA-256 hash.`);
+        await this.prisma.ssoSession.update({
+          where: { id: session.id },
+          data: { refreshToken: hashedToken },
+        });
+      }
+    }
 
     if (!session || session.expiresAt < new Date()) {
       if (session) {
@@ -210,7 +330,7 @@ export class SsoService {
     }
 
     const jwtSecret = this.getSsoJwtSecret();
-    let payload: any;
+    let payload: { sub: string; [key: string]: unknown };
     try {
       payload = this.jwtService.verify(refreshToken, { secret: jwtSecret });
     } catch (e) {
@@ -312,15 +432,23 @@ export class SsoService {
    * Resolves platform entitlements for a user across both direct platform packages
    * (the former standalone system) and memberships (multi-app bundles).
    */
-  async resolveEntitlements(user: any, client?: any, explicitPlatform?: string | null) {
+  async resolveEntitlements(
+    user: EntitlementUser | null | undefined,
+    client?: EntitlementClient | null,
+    explicitPlatform?: string | null,
+  ) {
     const businessProfile = user?.businessProfile;
-    const packages: any[] = businessProfile?.packages ?? [];
+    const packages: EntitlementPackage[] = businessProfile?.packages ?? [];
     const membershipLevel = businessProfile?.membershipLevel || 'Bronze';
     const membershipStatus = businessProfile?.membershipStatus || 'active';
     const membershipTier = businessProfile?.membershipTier || 'Normal';
     const isMembershipActive = membershipStatus === 'active' || membershipStatus === 'trial';
 
-    let membershipPlan: any = null;
+    let membershipPlan: {
+      name: string;
+      includedApps?: unknown;
+      [key: string]: unknown;
+    } | null = null;
     if (isMembershipActive && businessProfile) {
       const planName = businessProfile.membershipPlanName || businessProfile.membershipLevel;
       if (planName) {
@@ -338,20 +466,21 @@ export class SsoService {
       clientId: string | null;
       planId: string;
       planName: string;
-      quotas: Record<string, any>;
-      limits: Record<string, any>;
+      quotas: Record<string, unknown>;
+      limits: Record<string, unknown>;
     }> = [];
 
     if (membershipPlan && Array.isArray(membershipPlan.includedApps)) {
-      for (const app of membershipPlan.includedApps as any[]) {
+      for (const rawApp of membershipPlan.includedApps) {
+        const app = rawApp as Record<string, unknown>;
         if (app && (app.platform || app.platformName)) {
-          const platform = app.platform || app.platformName;
-          const planName = app.planName || app.name || 'Standard';
-          const planId = app.planId || app.id || 'standard';
-          const quotas = app.quotas || app.limits || app.usageLimits || {};
+          const platform = String(app.platform || app.platformName);
+          const planName = String(app.planName || app.name || 'Standard');
+          const planId = String(app.planId || app.id || 'standard');
+          const quotas = (app.quotas || app.limits || app.usageLimits || {}) as Record<string, unknown>;
           membershipAppPlans.push({
             platform,
-            clientId: app.clientId || null,
+            clientId: app.clientId ? String(app.clientId) : null,
             planId,
             planName,
             quotas,
@@ -378,7 +507,7 @@ export class SsoService {
         planName: pkg.planName || pkg.packageName,
         planType: pkg.planType || 'STANDARD',
         status: pkg.status,
-        limits: (pkg.limits as Record<string, any>) || {},
+        limits: (pkg.limits as Record<string, unknown>) || {},
         expiresAt: pkg.expiresAt || null,
         billingCycle: pkg.billingCycle || null,
         source: (isFromMembership ? 'membership' : 'direct') as 'membership' | 'direct',
@@ -400,7 +529,7 @@ export class SsoService {
             planName: memApp.planName,
             planType: 'MEMBERSHIP_INCLUDED',
             status: membershipStatus,
-            limits: memApp.quotas || {},
+            limits: (memApp.quotas as Record<string, unknown>) || {},
             expiresAt: null,
             billingCycle: null,
             source: 'membership' as const,
@@ -410,7 +539,7 @@ export class SsoService {
     }
 
     // Resolve appPlan for the specific calling client or explicit platform (if identified)
-    let appPlan: any = null;
+    let appPlan: AppPlanView | null = null;
     if (client || explicitPlatform) {
       // 1. Check for active direct package
       const directPackageMatch = enrichedPackages.find(
@@ -528,7 +657,7 @@ export class SsoService {
 
   async getUserInfoFromToken(accessToken: string, requestedClientId?: string) {
     const jwtSecret = this.getSsoJwtSecret();
-    let payload: any;
+    let payload: { sub: string; [key: string]: unknown };
     try {
       payload = this.jwtService.verify(accessToken, { secret: jwtSecret });
     } catch (e) {
@@ -545,7 +674,7 @@ export class SsoService {
     }
 
     // Try to find client from SSO session or requested clientId
-    let client: any = null;
+    let client: EntitlementClient | null = null;
     const session = await this.prisma.ssoSession.findUnique({
       where: { accessToken },
       include: { client: true },
@@ -585,7 +714,7 @@ export class SsoService {
     };
   }
 
-  async getClientByClientId(clientId: string) {
+  async getClientByClientId(clientId: string): Promise<SsoClientSafe | null> {
     // L1: in-memory cache (fastest, no network)
     const mem = this.memCache.get(clientId);
     if (mem && mem.exp > Date.now()) {
@@ -594,7 +723,7 @@ export class SsoService {
 
     // L2: Redis cache (shared across instances)
     const cacheKey = `sso_client:${clientId}`;
-    const cached = await this.redisService.get<any>(cacheKey);
+    const cached = await this.redisService.get<SsoClientSafe>(cacheKey);
     if (cached) {
       this.memCache.set(clientId, { data: cached, exp: Date.now() + SsoService.MEM_TTL_MS });
       return cached;
@@ -606,12 +735,15 @@ export class SsoService {
     });
 
     if (client) {
-      // Cache client object in Redis for 5 minutes (300s) and L1 for 30s
-      await this.redisService.set(cacheKey, client, 300);
-      this.memCache.set(clientId, { data: client, exp: Date.now() + SsoService.MEM_TTL_MS });
+      // Cache safe client object in Redis for 5 minutes (300s) and L1 for 30s
+      // Strip clientSecret and webhookSecret before caching in Redis, in L1, and returning
+      const { clientSecret, webhookSecret, ...safeClient } = client;
+      await this.redisService.set(cacheKey, safeClient, 300);
+      this.memCache.set(clientId, { data: safeClient, exp: Date.now() + SsoService.MEM_TTL_MS });
+      return safeClient;
     }
 
-    return client;
+    return null;
   }
 
   async invalidateMemCache(clientId?: string) {
@@ -647,7 +779,7 @@ export class SsoService {
     await this.redisService.del('cors:all_origins');
   }
 
-  async registerClient(data: any) {
+  async registerClient(data: RegisterClientInput) {
     const salt = await bcrypt.genSalt();
     const clientSecret = await bcrypt.hash(data.clientSecret, salt);
 

@@ -29,6 +29,7 @@ describe('BusinessService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
+      count: jest.fn().mockResolvedValue(1),
     },
     notification: {
       createMany: jest.fn(),
@@ -427,16 +428,21 @@ describe('BusinessService', () => {
 
   // ─── findAll ───────────────────────────────────
   describe('findAll', () => {
-    it('should return all profiles', async () => {
+    it('should return all profiles with pagination', async () => {
       mockPrisma.businessProfile.findMany.mockResolvedValue([{ id: 'b1' }]);
+      mockPrisma.businessProfile.count.mockResolvedValue(1);
       const result = await service.findAll();
-      expect(result).toHaveLength(1);
+      expect(result.data).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(20);
     });
 
     it('should filter by search query', async () => {
       mockPrisma.businessProfile.findMany.mockResolvedValue([{ id: 'b1', businessName: 'Test' }]);
+      mockPrisma.businessProfile.count.mockResolvedValue(1);
       const result = await service.findAll('Test');
-      expect(result).toHaveLength(1);
+      expect(result.data).toHaveLength(1);
       expect(mockPrisma.businessProfile.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {

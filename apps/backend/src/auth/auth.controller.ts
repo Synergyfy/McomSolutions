@@ -17,7 +17,7 @@ export class AuthController {
     private prisma: PrismaService,
     private googleOAuth: GoogleOAuthService,
     private configService: ConfigService,
-  ) {}
+  ) { }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
@@ -39,7 +39,7 @@ export class AuthController {
 
     res.cookie('mcom_session', result.accessToken, {
       httpOnly: true,
-      secure: false, // In local development HTTP is fine; set secure in prod if HTTPS
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
@@ -64,7 +64,7 @@ export class AuthController {
 
     res.cookie('mcom_session', result.accessToken, {
       httpOnly: true,
-      secure: false,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
@@ -171,7 +171,7 @@ export class AuthController {
         </style>
       </head>
       <body class="bg-gray-50 flex flex-col justify-center items-center min-h-screen p-6">
-        <div class="max-w-md w-full bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100">
+        <div class="max-w-md w-full bg-white p-8 rounded-4xl shadow-xl border border-gray-100">
           <div class="w-12 h-12 flex items-center justify-center bg-blue-50 text-blue-600 rounded-2xl mb-6 mx-auto">
             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.24.61 4.48 1.64l2.42-2.42C17.3 1.5 14.93 0 12.24 0c-6.07 0-11 4.93-11 11s4.93 11 11 11c5.83 0 11.23-4.14 11.23-11 0-.7-.08-1.37-.23-1.715h-11z"/></svg>
           </div>

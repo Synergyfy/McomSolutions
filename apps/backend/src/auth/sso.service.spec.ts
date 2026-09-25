@@ -348,6 +348,55 @@ describe('SsoService', () => {
       mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
       expect(await service.getClientByClientId('missing')).toBeNull();
     });
+
+    it('should strip clientSecret and webhookSecret before caching in Redis', async () => {
+      const dbClient = {
+        id: 'c1',
+        clientId: 'app-with-secrets',
+        clientSecret: 'super-secret-hash',
+        webhookSecret: 'enc-webhook-secret',
+        hmacSecret: 'enc-hmac-secret',
+        name: 'App With Secrets',
+      };
+      mockRedisService.get.mockResolvedValue(null);
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(dbClient);
+
+      const result = await service.getClientByClientId('app-with-secrets');
+      expect(result).not.toBeNull();
+      expect(result).not.toHaveProperty('clientSecret');
+      expect(result).not.toHaveProperty('webhookSecret');
+      expect(result).toMatchObject({
+        id: 'c1',
+        clientId: 'app-with-secrets',
+        name: 'App With Secrets',
+        hmacSecret: 'enc-hmac-secret',
+      });
+
+      // Assert L1 in-memory cache also returns the sanitized client
+      mockPrisma.ssoClient.findUnique.mockClear();
+      const l1Result = await service.getClientByClientId('app-with-secrets');
+      expect(mockPrisma.ssoClient.findUnique).not.toHaveBeenCalled();
+      expect(l1Result).not.toHaveProperty('clientSecret');
+      expect(l1Result).not.toHaveProperty('webhookSecret');
+
+      expect(mockRedisService.set).toHaveBeenCalledWith(
+        'sso_client:app-with-secrets',
+        expect.not.objectContaining({
+          clientSecret: 'super-secret-hash',
+          webhookSecret: 'enc-webhook-secret',
+        }),
+        300,
+      );
+      expect(mockRedisService.set).toHaveBeenCalledWith(
+        'sso_client:app-with-secrets',
+        expect.objectContaining({
+          id: 'c1',
+          clientId: 'app-with-secrets',
+          name: 'App With Secrets',
+        }),
+        300,
+      );
+    });
   });
 
   // ─── getAllCorsOrigins ────────────────────────────

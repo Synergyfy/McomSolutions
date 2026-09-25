@@ -5,8 +5,11 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
 import axios from 'axios';
@@ -16,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SsoService } from '../auth/sso.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
+import { WEBHOOK_DISPATCH_QUEUE, WEBHOOK_DISPATCH_DLQ } from '../queue/queue.constants';
 import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { ConsoleAuditQueryDto } from './dto/console-audit-query.dto';
@@ -38,6 +42,12 @@ export class ConsoleService {
     private readonly config: ConfigService,
     private readonly ssoService: SsoService,
     private readonly webhookDispatcher: WebhookDispatcherService,
+    @Optional()
+    @InjectQueue(WEBHOOK_DISPATCH_QUEUE)
+    private readonly dispatchQueue?: Queue,
+    @Optional()
+    @InjectQueue(WEBHOOK_DISPATCH_DLQ)
+    private readonly dlqQueue?: Queue,
   ) {}
 
   // ─── CRUD ──────────────────────────────────────────────────────────────────
@@ -527,6 +537,52 @@ export class ConsoleService {
       lastWebhookAt: client.lastWebhookAt,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
+    };
+  }
+
+  // ─── Webhook DLQ Management ───────────────────────────
+  async getDlqJobs(limit = 50) {
+    if (!this.dlqQueue) {
+      return { success: true, count: 0, jobs: [] };
+    }
+    const jobs = await this.dlqQueue.getJobs(['waiting', 'failed', 'completed'], 0, limit - 1);
+    return {
+      success: true,
+      count: jobs.length,
+      jobs: jobs.map((j) => ({
+        id: j.id,
+        name: j.name,
+        data: j.data,
+        failedReason: j.failedReason,
+        attemptsMade: j.attemptsMade,
+        timestamp: j.timestamp,
+      })),
+    };
+  }
+
+  async replayDlqJob(jobId: string) {
+    if (!this.dlqQueue || !this.dispatchQueue) {
+      throw new BadRequestException('Queue system is not enabled');
+    }
+    const job = await this.dlqQueue.getJob(jobId);
+    if (!job) {
+      throw new NotFoundException(`DLQ job '${jobId}' not found`);
+    }
+
+    const payload = job.data?.data || job.data;
+    await this.dispatchQueue.add(
+      'dispatch',
+      payload,
+      {
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+      },
+    );
+    await job.remove();
+
+    return {
+      success: true,
+      message: `Re-queued job '${jobId}' for delivery`,
     };
   }
 }

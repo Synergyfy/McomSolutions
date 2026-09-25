@@ -91,10 +91,10 @@ export const useLogout = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  return () => {
+  return (redirectPath?: string) => {
     authApi.logout();
     queryClient.clear(); // clears all cached queries including ssoToken, currentUser, profile
-    navigate('/login');
+    navigate(redirectPath || '/login');
   };
 };
 

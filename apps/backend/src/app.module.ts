@@ -16,6 +16,7 @@ import { ServiceConnectorsModule } from './service-connectors/service-connectors
 import { ConsoleModule } from './console/console.module';
 import { WalletModule } from './wallet/wallet.module';
 import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
+import { QueueModule } from './queue/queue.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 import { RedisModule } from './redis/redis.module';
@@ -71,6 +72,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     ConsoleModule,
     WalletModule,
     WebhookDispatcherModule,
+    QueueModule,
   ],
   controllers: [],
   providers: [],

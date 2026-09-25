@@ -5,7 +5,8 @@ import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
-import { InternalServerErrorException } from '@nestjs/common';
+import { RedisService } from '../redis/redis.service';
+import { InternalServerErrorException, BadRequestException } from '@nestjs/common';
 
 const mockSetupIntents = {
   create: jest.fn().mockResolvedValue({ client_secret: 'seti_mock_secret' }),
@@ -286,6 +287,29 @@ describe('PaymentService', () => {
 
       await expect(service.paypalCapture('order-456')).rejects.toThrow(
         'PayPal order metadata is missing',
+      );
+    });
+
+    it('should throw BadRequestException if orderId was already captured (idempotency)', async () => {
+      const mockRedis = {
+        get: jest.fn().mockResolvedValue(true),
+        set: jest.fn(),
+      };
+      const module = await Test.createTestingModule({
+        providers: [
+          PaymentService,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: PricingService, useValue: mockPricingService },
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: ServiceConnectorsService, useValue: mockConnectorsService },
+          { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+          { provide: RedisService, useValue: mockRedis },
+        ],
+      }).compile();
+      const redisService = module.get<PaymentService>(PaymentService);
+
+      await expect(redisService.paypalCapture('order-already-captured')).rejects.toThrow(
+        'PayPal order order-already-captured has already been processed.',
       );
     });
   });

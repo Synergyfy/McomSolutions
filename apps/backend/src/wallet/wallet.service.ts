@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, TransactionCategory, TransactionStatus, TransactionType } from '@prisma/client';
+import { Prisma, TransactionCategory, TransactionStatus, TransactionType, Wallet, WalletTransaction } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -491,7 +491,7 @@ export class WalletService {
     return agg._sum.amount ?? new Decimal(0);
   }
 
-  private async checkDebitLimits(wallet: any, amount: Decimal): Promise<void> {
+  private async checkDebitLimits(wallet: Wallet, amount: Decimal): Promise<void> {
     if (!wallet.dailyDebitLimit && !wallet.monthlyDebitLimit) return;
 
     const now = new Date();
@@ -581,7 +581,7 @@ export class WalletService {
     };
   }
 
-  private toWalletDto(wallet: any): WalletDto {
+  private toWalletDto(wallet: Wallet): WalletDto {
     return {
       id: wallet.id,
       userId: wallet.userId,
