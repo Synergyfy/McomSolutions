@@ -4,16 +4,20 @@ import {
   BadGatewayException,
   NotFoundException,
   UnauthorizedException,
+  UnprocessableEntityException,
   InternalServerErrorException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import axios from 'axios';
 import { PricingService } from '../pricing/pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
+import { ExternalPlan } from '../service-connectors/connectors/connector.interface';
 
 @Injectable()
 export class PaymentService {
@@ -27,6 +31,7 @@ export class PaymentService {
     private pricingService: PricingService,
     private connectorsService: ServiceConnectorsService,
     private webhookDispatcher: WebhookDispatcherService,
+    @Optional() private redis?: RedisService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -54,6 +59,18 @@ export class PaymentService {
   // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
   private async getPayPalAccessToken(): Promise<string> {
+    const cacheKey = 'paypal:access_token';
+    if (this.redis) {
+      try {
+        const cached = await this.redis.get<string>(cacheKey);
+        if (cached) {
+          return cached;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Redis error retrieving PayPal access token: ${err.message}`);
+      }
+    }
+
     const clientId = this.config.get<string>('PAYPAL_CLIENT_ID');
     const clientSecret = this.config.get<string>('PAYPAL_CLIENT_SECRET');
 
@@ -70,7 +87,18 @@ export class PaymentService {
       },
     );
 
-    return response.data.access_token;
+    const accessToken = response.data?.access_token;
+    const expiresIn = response.data?.expires_in || 3600;
+    if (accessToken && this.redis) {
+      try {
+        const ttl = Math.max(60, expiresIn - 300);
+        await this.redis.set(cacheKey, accessToken, ttl);
+      } catch (err: any) {
+        this.logger.warn(`Redis error caching PayPal access token: ${err.message}`);
+      }
+    }
+
+    return accessToken;
   }
 
   private async resolvePlanPrice(
@@ -195,6 +223,13 @@ export class PaymentService {
   }
 
   async paypalCapture(orderId: string) {
+    if (this.redis) {
+      const alreadyCaptured = await this.redis.get<boolean>(`paypal:captured:${orderId}`);
+      if (alreadyCaptured) {
+        throw new BadRequestException(`PayPal order ${orderId} has already been processed.`);
+      }
+    }
+
     const token = await this.getPayPalAccessToken();
 
     const capture = await axios.post(
@@ -217,13 +252,19 @@ export class PaymentService {
     }
 
     const isTrial = isTrialStr === 'true';
-    return this.pricingService.subscribeMembership(
+    const result = await this.pricingService.subscribeMembership(
       businessId,
       level,
       tier,
       (billing as 'monthly' | 'yearly') || 'monthly',
       isTrial,
     );
+
+    if (this.redis) {
+      await this.redis.set(`paypal:captured:${orderId}`, true, 86400 * 7);
+    }
+
+    return result;
   }
 
   // ─── PLATFORM PLAN PURCHASES ──────────────────────────────────────────────────
@@ -271,26 +312,19 @@ export class PaymentService {
   private async resolveBusinessId(userId: string): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { businessProfile: true },
+      select: {
+        id: true,
+        email: true,
+        businessProfile: { select: { id: true } },
+      },
     });
     if (!user) {
       throw new UnauthorizedException('Session expired. Please log in again.');
     }
-    if (user?.businessProfile?.id) {
-      return user.businessProfile.id;
+    if (!user.businessProfile?.id) {
+      throw new UnprocessableEntityException('Business profile is required before initiating payments.');
     }
-    // Create a minimal business profile if none exists (onboarding flow)
-    const profile = await this.prisma.businessProfile.create({
-      data: {
-        user: { connect: { id: userId } },
-        businessName: user?.email?.split('@')[0] || 'Business',
-        email: user?.email || '',
-        businessType: 'retail',
-        country: 'United Kingdom',
-        phone: '',
-      },
-    });
-    return profile.id;
+    return user.businessProfile.id;
   }
 
   private validatePlatformPlan(plan: any, platform: string) {
@@ -372,72 +406,18 @@ export class PaymentService {
       }
     }
 
-    const existingPackage = await this.prisma.platformPackage.findUnique({
-      where: { businessId_platform: { businessId, platform } },
-    });
-    const eventType =
-      existingPackage && existingPackage.status === 'active'
-        ? 'package.renewed'
-        : 'package.created';
-
-    const package_ = await this.prisma.platformPackage.upsert({
-      where: { businessId_platform: { businessId, platform } },
-      update: {
-        packageName: plan.name,
-        externalPlanId,
-        planName: plan.name,
-        planType: plan.type || 'STANDARD',
-        status: 'active',
-        expiresAt: isTrial && plan.trialDuration
-          ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
-          : this.calculateExpiry(billingCycle),
-        provider: 'stripe',
-        providerSubscriptionId: intentId,
-        amount: isTrial ? 0 : amountGBP,
-        currency: 'GBP',
-        billingCycle,
-        limits: plan.configuration?.quotas || {},
-      },
-      create: {
-        businessId,
-        platform,
-        packageName: plan.name,
-        externalPlanId,
-        planName: plan.name,
-        planType: plan.type || 'STANDARD',
-        status: 'active',
-        expiresAt: isTrial && plan.trialDuration
-          ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
-          : this.calculateExpiry(billingCycle),
-        provider: 'stripe',
-        providerSubscriptionId: intentId,
-        amount: isTrial ? 0 : amountGBP,
-        currency: 'GBP',
-        billingCycle,
-        limits: plan.configuration?.quotas || {},
-      },
-    });
-
-    await this.prisma.billingTransaction.create({
-      data: {
-        businessId,
-        amount: isTrial ? 0 : amountGBP,
-        description: `MCOM ${platform} — ${plan.name} (${billingCycle})`,
-        status: isTrial ? 'trial' : 'paid',
-        platformPackageId: package_.id,
-        provider: 'stripe',
-        providerPaymentId: intentId,
-      },
-    });
-
-    // Asynchronously dispatch package lifecycle webhook to registered partner app
-    this.webhookDispatcher.dispatchPackageEvent(eventType, {
+    return this.activatePlatformPackage({
+      businessId,
       platform,
+      externalPlanId,
+      plan,
+      billingCycle,
+      amountGBP,
+      isTrial,
+      provider: 'stripe',
+      providerPaymentId: intentId,
       userId,
-      package: package_,
     });
-
-    return package_;
   }
 
   async platformPaypalInitiate(
@@ -496,6 +476,13 @@ export class PaymentService {
   }
 
   async platformPaypalCapture(orderId: string) {
+    if (this.redis) {
+      const alreadyCaptured = await this.redis.get<boolean>(`paypal:captured:${orderId}`);
+      if (alreadyCaptured) {
+        throw new BadRequestException(`PayPal order ${orderId} has already been processed.`);
+      }
+    }
+
     const token = await this.getPayPalAccessToken();
 
     const capture = await axios.post(
@@ -522,6 +509,51 @@ export class PaymentService {
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     const isTrial = plan.type === 'TRIAL';
 
+    const result = await this.activatePlatformPackage({
+      businessId,
+      platform,
+      externalPlanId,
+      plan,
+      billingCycle,
+      amountGBP,
+      isTrial,
+      provider: 'paypal',
+      providerPaymentId: orderId,
+    });
+
+    if (this.redis) {
+      await this.redis.set(`paypal:captured:${orderId}`, true, 86400 * 7);
+    }
+
+    return result;
+  }
+
+  // ─── SHARED PACKAGE ACTIVATION HELPER ─────────────────────────────────────────
+
+  private async activatePlatformPackage(params: {
+    businessId: string;
+    platform: string;
+    externalPlanId: string;
+    plan: ExternalPlan;
+    billingCycle: string;
+    amountGBP: number;
+    isTrial: boolean;
+    provider: 'stripe' | 'paypal';
+    providerPaymentId: string;
+    userId?: string;
+  }) {
+    const {
+      businessId,
+      platform,
+      externalPlanId,
+      plan,
+      billingCycle,
+      amountGBP,
+      isTrial,
+      provider,
+      providerPaymentId,
+    } = params;
+
     const existingPackage = await this.prisma.platformPackage.findUnique({
       where: { businessId_platform: { businessId, platform } },
     });
@@ -530,41 +562,33 @@ export class PaymentService {
         ? 'package.renewed'
         : 'package.created';
 
+    const expiresAt =
+      isTrial && plan.trialDuration
+        ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
+        : this.calculateExpiry(billingCycle);
+
+    const packageData = {
+      packageName: plan.name,
+      externalPlanId,
+      planName: plan.name,
+      planType: plan.type || 'STANDARD',
+      status: 'active',
+      expiresAt,
+      provider,
+      providerSubscriptionId: providerPaymentId,
+      amount: isTrial ? 0 : amountGBP,
+      currency: 'GBP',
+      billingCycle,
+      limits: plan.configuration?.quotas || {},
+    };
+
     const package_ = await this.prisma.platformPackage.upsert({
       where: { businessId_platform: { businessId, platform } },
-      update: {
-        packageName: plan.name,
-        externalPlanId,
-        planName: plan.name,
-        planType: plan.type || 'STANDARD',
-        status: 'active',
-        expiresAt: isTrial && plan.trialDuration
-          ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
-          : this.calculateExpiry(billingCycle),
-        provider: 'paypal',
-        providerSubscriptionId: orderId,
-        amount: isTrial ? 0 : amountGBP,
-        currency: 'GBP',
-        billingCycle,
-        limits: plan.configuration?.quotas || {},
-      },
+      update: packageData,
       create: {
         businessId,
         platform,
-        packageName: plan.name,
-        externalPlanId,
-        planName: plan.name,
-        planType: plan.type || 'STANDARD',
-        status: 'active',
-        expiresAt: isTrial && plan.trialDuration
-          ? new Date(Date.now() + plan.trialDuration * 24 * 60 * 60 * 1000)
-          : this.calculateExpiry(billingCycle),
-        provider: 'paypal',
-        providerSubscriptionId: orderId,
-        amount: isTrial ? 0 : amountGBP,
-        currency: 'GBP',
-        billingCycle,
-        limits: plan.configuration?.quotas || {},
+        ...packageData,
       },
     });
 
@@ -575,21 +599,25 @@ export class PaymentService {
         description: `MCOM ${platform} — ${plan.name} (${billingCycle})`,
         status: isTrial ? 'trial' : 'paid',
         platformPackageId: package_.id,
-        provider: 'paypal',
-        providerPaymentId: orderId,
+        provider,
+        providerPaymentId,
       },
     });
 
     // Resolve mcomUserId to dispatch package lifecycle webhook
-    const business = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
-      select: { userId: true },
-    });
+    let resolvedUserId = params.userId;
+    if (!resolvedUserId) {
+      const business = await this.prisma.businessProfile.findUnique({
+        where: { id: businessId },
+        select: { userId: true },
+      });
+      resolvedUserId = business?.userId || '';
+    }
 
-    if (business?.userId) {
+    if (resolvedUserId) {
       this.webhookDispatcher.dispatchPackageEvent(eventType, {
         platform,
-        userId: business.userId,
+        userId: resolvedUserId,
         package: package_,
       });
     }

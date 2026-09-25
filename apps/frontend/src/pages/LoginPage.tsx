@@ -27,7 +27,8 @@ export default function LoginPage() {
   const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
   const hasCookie = typeof document !== 'undefined' && (document.cookie.includes('access=') || document.cookie.includes('mcom_session=') || document.cookie.includes('userId='));
   const hasSsoIntent = !!clientId || !!source || !!redirectParam;
-  const shouldCheckSession = hasSsoIntent || hasToken || hasCookie;
+  // Only verify session if credentials actually exist in browser storage/cookies
+  const shouldCheckSession = hasToken || hasCookie;
 
   const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(shouldCheckSession);
 
@@ -205,20 +206,23 @@ export default function LoginPage() {
     if (!id) return 'MCOM Solutions';
     if (id === 'mcom-mall' || id === 'mcommall') return 'MCOM Mall';
     if (id === 'mcom-loyalty' || id === 'mcomloyalty') return 'MCOM Loyalty';
-    if (id === '247gbs') return '24/7 GBS';
+    if (id === '247gbs' || id === '247gbs-affiliate') return '24/7 GBS Affiliate';
     return id;
   };
 
   const getInitials = (user: any) => {
+    if (!user) return '?';
     const first = user.firstName || '';
     const last = user.lastName || '';
     if (first || last) return `${first}${last}`.toUpperCase().slice(0, 2);
+    if (user.name) return user.name.slice(0, 2).toUpperCase();
     return (user.email || '?')[0].toUpperCase();
   };
 
   const getDisplayName = (user: any) => {
+    if (!user) return 'User';
     const name = [user.firstName, user.lastName].filter(Boolean).join(' ');
-    return name || user.email;
+    return name || user.name || user.email || 'User';
   };
 
   const handleContinueAsUser = async () => {
@@ -243,7 +247,8 @@ export default function LoginPage() {
   };
 
   const handleUseDifferentAccount = () => {
-    logout();
+    const search = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    logout(`/login${search}`);
   };
 
   return (
@@ -253,7 +258,7 @@ export default function LoginPage() {
         animate={{ opacity: 1, scale: 1 }}
         className="max-w-md w-full glass rounded-[2.5rem] p-10 shadow-2xl"
       >
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {shouldCheckSession && sessionLoading ? (
             <motion.div
               key="checking-session"
@@ -302,7 +307,7 @@ export default function LoginPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-lg font-bold text-gray-900 truncate">{getDisplayName(currentUser)}</p>
-                    <p className="text-sm text-gray-500 truncate">{currentUser.email}</p>
+                    <p className="text-sm text-gray-500 truncate">{currentUser?.email || ''}</p>
                   </div>
                 </div>
               </div>
@@ -326,7 +331,7 @@ export default function LoginPage() {
                   </>
                 ) : (
                   <>
-                    Continue as {currentUser.firstName || currentUser.email.split('@')[0]}
+                    Continue as {currentUser?.firstName || currentUser?.name || currentUser?.email?.split('@')[0] || 'User'}
                     <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                   </>
                 )}

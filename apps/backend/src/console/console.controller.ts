@@ -239,4 +239,26 @@ export class ConsoleController {
   listAuditLogs(@Query() query: ConsoleAuditQueryDto) {
     return this.consoleService.listAuditLogs(query);
   }
+
+  // ─── Webhook Dead-Letter Queue (DLQ) ───────────────────
+  @Get('webhooks/dlq')
+  @ApiOperation({ summary: 'List dead-lettered webhook dispatch jobs' })
+  @ApiQuery({ name: 'limit', required: false, example: 50, description: 'Max DLQ jobs to return' })
+  @ApiOkResponse({ description: 'List of dead-lettered jobs' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  getDlqJobs(@Query('limit') limit?: number) {
+    return this.consoleService.getDlqJobs(limit ? Number(limit) : 50);
+  }
+
+  @Post('webhooks/dlq/replay/:jobId')
+  @ApiOperation({ summary: 'Replay a dead-lettered webhook job back to main queue' })
+  @ApiParam({ name: 'jobId', example: '123' })
+  @ApiOkResponse({ description: 'Replay result' })
+  @ApiNotFoundResponse({ description: 'Job not found in DLQ' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  replayDlqJob(@Param('jobId') jobId: string) {
+    return this.consoleService.replayDlqJob(jobId);
+  }
 }

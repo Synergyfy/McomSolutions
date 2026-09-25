@@ -52,7 +52,11 @@ async function bootstrap() {
   // merged in at boot and refreshed every 60 seconds via getAllCorsOrigins().
   const ssoService = app.get(SsoService);
   await refreshCorsOrigins(ssoService);
-  setInterval(() => refreshCorsOrigins(ssoService), 60_000);
+  const corsInterval = setInterval(() => refreshCorsOrigins(ssoService), 60_000);
+  app.enableShutdownHooks();
+  const cleanupCors = () => clearInterval(corsInterval);
+  process.once('SIGTERM', cleanupCors);
+  process.once('SIGINT', cleanupCors);
 
   app.enableCors({
     origin: (origin, callback) => {

@@ -199,11 +199,14 @@ model AppWebhookLog {
   responseBody String?   @map("response_body")
   deliveredAt  DateTime? @map("delivered_at")
   failed       Boolean   @default(false) @map("failed")
+  jobId        String?   @map("job_id")
+  retryCount   Int       @default(0) @map("retry_count")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([clientId])
   @@index([createdAt])
   @@index([clientId, createdAt])
+  @@index([jobId])
   @@map("app_webhook_logs")
 }
 

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { WalletReconciliationService } from './wallet-reconciliation.service';
 import { WalletService } from './wallet.service';
 
@@ -8,6 +9,7 @@ describe('WalletReconciliationService', () => {
   let service: WalletReconciliationService;
   let prisma: any;
   let walletService: any;
+  let redis: any;
 
   const mockPrisma = {
     walletTransaction: {
@@ -27,12 +29,18 @@ describe('WalletReconciliationService', () => {
     releaseHoldInternal: jest.fn(),
   };
 
+  const mockRedis = {
+    setNx: jest.fn().mockResolvedValue(true),
+    del: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WalletReconciliationService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: WalletService, useValue: mockWalletService },
+        { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();
 

@@ -52,27 +52,39 @@ export class SsoController {
     // Check for mcom_session cookie
     const sessionCookie = req.cookies?.['mcom_session'];
     let userId: string | null = null;
+    let userRole: string | null = null;
 
     if (sessionCookie) {
       try {
         const payload = await this.ssoService.getUserInfoFromToken(sessionCookie, clientId);
         userId = payload.sub;
+        userRole = (payload.role as string) ?? null;
       } catch (e) {
         // Cookie invalid or expired
       }
     }
 
     const scopes = scope ? scope.split(' ') : ['profile', 'email'];
+    const prompt = (req.query['prompt'] as string) || '';
 
-    if (userId) {
-      // Already authenticated, generate auth code and redirect back to client app
+    // Check if the current user session is authorized for 247gbs affiliate
+    const isAffiliateClient = clientId === '247gbs-affiliate' || clientId === '247gbs';
+    const isEligibleAffiliate =
+      !isAffiliateClient ||
+      ['agent', 'account_manager', 'consultant', 'admin', 'affiliate'].includes(
+        (userRole || '').toLowerCase().replace(/[\s-]+/g, '_'),
+      );
+
+    if (userId && prompt !== 'login' && prompt !== 'select_account' && isEligibleAffiliate) {
+      // Already authenticated with valid role, generate auth code and redirect back to client app
       const code = await this.ssoService.generateAuthCode(userId, clientId, redirectUri, scopes);
       return res.redirect(`${redirectUri}?code=${code}&state=${state}`);
     }
 
-    // Not authenticated, redirect to central login page
+    // Not authenticated or role needs explicit login/switch, redirect to central login page
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const loginUrl = `${frontendUrl}/login?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=${encodeURIComponent(scopes.join(' '))}`;
+    const promptParam = prompt ? `&prompt=${encodeURIComponent(prompt)}` : '';
+    const loginUrl = `${frontendUrl}/login?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=${encodeURIComponent(scopes.join(' '))}${promptParam}`;
     return res.redirect(loginUrl);
   }
 

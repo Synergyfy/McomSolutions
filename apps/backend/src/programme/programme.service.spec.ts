@@ -41,10 +41,12 @@ describe('ProgrammeService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      upsert: jest.fn(),
     },
     auditLog: {
       create: jest.fn().mockResolvedValue({ id: 'log-1' }),
     },
+    $transaction: jest.fn((cb) => (typeof cb === 'function' ? cb(mockPrisma) : Promise.all(cb))),
   };
 
   beforeEach(async () => {
@@ -173,12 +175,24 @@ describe('ProgrammeService', () => {
         currentDay: 1,
         extendedBy: 0,
       });
-      mockPrisma.programmeTaskStatus.findUnique.mockResolvedValue(null);
-      mockPrisma.programmeTaskStatus.create.mockResolvedValue({ id: 't1', status: 'completed' });
+      mockPrisma.programmeTaskStatus.upsert.mockResolvedValue({ id: 't1', status: 'completed' });
       mockPrisma.businessProgramme.update.mockResolvedValue({});
 
       await service.setTaskStatus('b1', { missionId: 'm1', status: 'completed' });
-      expect(mockPrisma.programmeTaskStatus.create).toHaveBeenCalled();
+      expect(mockPrisma.programmeTaskStatus.upsert).toHaveBeenCalledWith({
+        where: {
+          businessProgrammeId_missionId: {
+            businessProgrammeId: 'b1',
+            missionId: 'm1',
+          },
+        },
+        update: { status: 'completed' },
+        create: {
+          businessProgrammeId: 'b1',
+          missionId: 'm1',
+          status: 'completed',
+        },
+      });
       expect(mockPrisma.businessProgramme.update).toHaveBeenCalledWith({
         where: { id: 'b1' },
         data: { completedMissions: ['m1'] },
@@ -193,10 +207,23 @@ describe('ProgrammeService', () => {
         currentDay: 1,
         extendedBy: 0,
       });
-      mockPrisma.programmeTaskStatus.findUnique.mockResolvedValue({ id: 't1' });
-      mockPrisma.programmeTaskStatus.update.mockResolvedValue({ id: 't1', status: 'in_progress' });
+      mockPrisma.programmeTaskStatus.upsert.mockResolvedValue({ id: 't1', status: 'in_progress' });
 
       await service.setTaskStatus('b1', { missionId: 'm1', status: 'in_progress' });
+      expect(mockPrisma.programmeTaskStatus.upsert).toHaveBeenCalledWith({
+        where: {
+          businessProgrammeId_missionId: {
+            businessProgrammeId: 'b1',
+            missionId: 'm1',
+          },
+        },
+        update: { status: 'in_progress' },
+        create: {
+          businessProgrammeId: 'b1',
+          missionId: 'm1',
+          status: 'in_progress',
+        },
+      });
       expect(mockPrisma.businessProgramme.update).toHaveBeenCalledWith({
         where: { id: 'b1' },
         data: { completedMissions: ['m2'] },

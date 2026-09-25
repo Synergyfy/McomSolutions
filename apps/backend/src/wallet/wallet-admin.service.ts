@@ -60,26 +60,36 @@ export class WalletAdminService {
       this.prisma.wallet.count({ where }),
     ]);
 
+    const walletIds = data.map((w) => w.id);
+    const holdsGrouped = walletIds.length > 0
+      ? await this.prisma.walletHold.groupBy({
+          by: ['walletId'],
+          where: { walletId: { in: walletIds }, status: 'ACTIVE' },
+          _sum: { amount: true },
+        })
+      : [];
+
+    const holdsMap = new Map<string, Decimal>(
+      holdsGrouped.map((h) => [h.walletId, h._sum.amount ?? new Decimal(0)]),
+    );
+
+    const items = data.map((w) => {
+      const holdAmount = holdsMap.get(w.id) ?? new Decimal(0);
+      return {
+        id: w.id,
+        userId: w.userId,
+        email: w.user.email,
+        balance: w.balance.toNumber(),
+        availableBalance: w.balance.minus(holdAmount).toNumber(),
+        currency: w.currency,
+        status: w.status,
+        createdAt: w.createdAt.toISOString(),
+      };
+    });
+
     return {
       success: true,
-      data: await Promise.all(
-        data.map(async (w) => {
-          const holds = await this.prisma.walletHold.aggregate({
-            where: { walletId: w.id, status: 'ACTIVE' },
-            _sum: { amount: true },
-          });
-          return {
-            id: w.id,
-            userId: w.userId,
-            email: w.user.email,
-            balance: w.balance.toNumber(),
-            availableBalance: w.balance.minus(holds._sum.amount ?? new Decimal(0)).toNumber(),
-            currency: w.currency,
-            status: w.status,
-            createdAt: w.createdAt.toISOString(),
-          };
-        }),
-      ),
+      data: items,
       total,
       page,
       limit,
@@ -316,35 +326,57 @@ export class WalletAdminService {
     const since = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 86400000);
     const until = dateTo ? new Date(`${dateTo}T23:59:59.999Z`) : new Date();
 
-    const [credits, debits] = await Promise.all([
-      this.prisma.walletTransaction.groupBy({
-        by: ['createdAt'],
-        where: { type: 'CREDIT', status: 'COMPLETED', createdAt: { gte: since, lte: until } },
-        _sum: { amount: true },
-        _count: true,
-      }),
-      this.prisma.walletTransaction.groupBy({
-        by: ['createdAt'],
-        where: { type: 'DEBIT', status: 'COMPLETED', createdAt: { gte: since, lte: until } },
-        _sum: { amount: true },
-        _count: true,
-      }),
-    ]);
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        day: Date;
+        type: string;
+        total_amount: Decimal | number | string | null;
+        count: number | bigint;
+      }>
+    >`
+      SELECT
+        DATE_TRUNC('day', created_at) AS day,
+        type,
+        SUM(amount) AS total_amount,
+        COUNT(*)::int AS count
+      FROM wallet_transactions
+      WHERE status = 'COMPLETED'
+        AND created_at >= ${since}
+        AND created_at <= ${until}
+      GROUP BY DATE_TRUNC('day', created_at), type
+      ORDER BY day ASC
+    `;
 
-    const byDay = new Map<string, { date: string; credits: number; debits: number; creditCount: number; debitCount: number }>();
-    for (const row of credits) {
-      const day = row.createdAt.toISOString().slice(0, 10);
-      const entry = byDay.get(day) || { date: day, credits: 0, debits: 0, creditCount: 0, debitCount: 0 };
-      entry.credits += row._sum.amount?.toNumber() ?? 0;
-      entry.creditCount += row._count;
-      byDay.set(day, entry);
-    }
-    for (const row of debits) {
-      const day = row.createdAt.toISOString().slice(0, 10);
-      const entry = byDay.get(day) || { date: day, credits: 0, debits: 0, creditCount: 0, debitCount: 0 };
-      entry.debits += row._sum.amount?.toNumber() ?? 0;
-      entry.debitCount += row._count;
-      byDay.set(day, entry);
+    const byDay = new Map<
+      string,
+      { date: string; credits: number; debits: number; creditCount: number; debitCount: number }
+    >();
+
+    for (const row of rows) {
+      const dayStr =
+        row.day instanceof Date
+          ? row.day.toISOString().slice(0, 10)
+          : String(row.day).slice(0, 10);
+      const entry = byDay.get(dayStr) || {
+        date: dayStr,
+        credits: 0,
+        debits: 0,
+        creditCount: 0,
+        debitCount: 0,
+      };
+
+      const amt = Number(row.total_amount) || 0;
+      const cnt = Number(row.count) || 0;
+
+      if (row.type === 'CREDIT') {
+        entry.credits += amt;
+        entry.creditCount += cnt;
+      } else if (row.type === 'DEBIT') {
+        entry.debits += amt;
+        entry.debitCount += cnt;
+      }
+
+      byDay.set(dayStr, entry);
     }
 
     return {

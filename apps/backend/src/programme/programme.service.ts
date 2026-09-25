@@ -306,39 +306,50 @@ export class ProgrammeService {
   }
 
   async setTaskStatus(id: string, dto: UpdateTaskStatusDto) {
-    const business = await this.ensureBusiness(id);
+    const { status, business } = await this.prisma.$transaction(async (tx) => {
+      const businessProgramme = await tx.businessProgramme.findUnique({ where: { id } });
+      if (!businessProgramme) {
+        throw new NotFoundException('Business programme not found');
+      }
 
-    const existing = await this.prisma.programmeTaskStatus.findUnique({
-      where: { businessProgrammeId_missionId: { businessProgrammeId: id, missionId: dto.missionId } },
-    });
-
-    let status;
-    if (existing) {
-      status = await this.prisma.programmeTaskStatus.update({
-        where: { id: existing.id },
-        data: { status: dto.status },
+      const taskStatus = await tx.programmeTaskStatus.upsert({
+        where: {
+          businessProgrammeId_missionId: {
+            businessProgrammeId: id,
+            missionId: dto.missionId,
+          },
+        },
+        update: {
+          status: dto.status,
+        },
+        create: {
+          businessProgrammeId: id,
+          missionId: dto.missionId,
+          status: dto.status,
+        },
       });
-    } else {
-      status = await this.prisma.programmeTaskStatus.create({
-        data: { businessProgrammeId: id, missionId: dto.missionId, status: dto.status },
-      });
-    }
 
-    if (dto.status === 'completed') {
-      const missions = new Set(business.completedMissions);
-      missions.add(dto.missionId);
-      await this.prisma.businessProgramme.update({
+      const missions = new Set(businessProgramme.completedMissions);
+      if (dto.status === 'completed') {
+        missions.add(dto.missionId);
+      } else {
+        missions.delete(dto.missionId);
+      }
+
+      const updatedBusiness = await tx.businessProgramme.update({
         where: { id },
         data: { completedMissions: Array.from(missions) },
       });
-    } else {
-      await this.prisma.businessProgramme.update({
-        where: { id },
-        data: { completedMissions: business.completedMissions.filter((m) => m !== dto.missionId) },
-      });
-    }
 
-    await this.logAudit('Business Programme Task Updated', 'BusinessProgramme', id, `Set task "${dto.missionId}" to "${dto.status}" for "${business.businessName}"`);
+      return { status: taskStatus, business: updatedBusiness };
+    });
+
+    await this.logAudit(
+      'Business Programme Task Updated',
+      'BusinessProgramme',
+      id,
+      `Set task "${dto.missionId}" to "${dto.status}" for "${business.businessName}"`,
+    );
     return { success: true, data: status };
   }
 

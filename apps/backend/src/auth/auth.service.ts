@@ -17,12 +17,38 @@ import { RegisterDto } from './dto/register.dto';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private _smtpTransporter: nodemailer.Transporter | null = null;
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
   ) {}
+
+  private getSmtpTransporter(): nodemailer.Transporter | null {
+    if (this._smtpTransporter) {
+      return this._smtpTransporter;
+    }
+    const smtpHost = this.config.get<string>('SMTP_HOST');
+    const smtpPort = this.config.get<string>('SMTP_PORT');
+    const smtpUser = this.config.get<string>('SMTP_USER');
+    const smtpPass = this.config.get<string>('SMTP_PASS')
+      ? this.config.get<string>('SMTP_PASS')!.replace(/\s+/g, '')
+      : undefined;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      return null;
+    }
+
+    this._smtpTransporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: parseInt(smtpPort || '587', 10),
+      secure: parseInt(smtpPort || '587', 10) === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+
+    return this._smtpTransporter;
+  }
 
   private isMockOtp(): boolean {
     const mockEnabled = this.config.get<string>('MOCK_OTP') === 'true';
@@ -41,11 +67,10 @@ export class AuthService {
     subject: string,
     intro: string,
   ): Promise<void> {
-    const from =
-      process.env.SMTP_FROM ||
+    const fromAddress =
       this.config.get<string>('SMTP_FROM') ||
+      process.env.SMTP_FROM ||
       'CentralHub Solution <no-reply@centralhubsolution.com>';
-    const smtpFrom = process.env.SMTP_FROM || this.config.get<string>('SMTP_FROM') || 'no-reply@centralhubsolution.com';
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
@@ -70,7 +95,7 @@ export class AuthService {
       try {
         const response = await axios.post(
           'https://api.resend.com/emails',
-          { from, to: [email], subject, html },
+          { from: fromAddress, to: [email], subject, html },
           {
             headers: {
               Authorization: `Bearer ${resendApiKey}`,
@@ -93,28 +118,15 @@ export class AuthService {
     }
 
     // Fallback: SMTP via nodemailer (legacy/dev path).
-    const smtpHost = this.config.get<string>('SMTP_HOST');
-    const smtpPort = this.config.get<string>('SMTP_PORT');
-    const smtpUser = this.config.get<string>('SMTP_USER');
-    const smtpPass = this.config.get<string>('SMTP_PASS')
-      ? this.config.get<string>('SMTP_PASS')!.replace(/\s+/g, '')
-      : undefined;
-
-    if (!smtpHost || !smtpUser || !smtpPass) {
+    const transporter = this.getSmtpTransporter();
+    if (!transporter) {
       this.logger.warn('SMTP variables are missing — verification code was not emailed.');
       return;
     }
 
     try {
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: parseInt(smtpPort || '587', 10),
-        secure: parseInt(smtpPort || '587', 10) === 465,
-        auth: { user: smtpUser, pass: smtpPass },
-      });
-
       await transporter.sendMail({
-        from: smtpFrom,
+        from: fromAddress,
         to: email,
         subject,
         text: `Your code is: ${code}. It is valid for 10 minutes.`,

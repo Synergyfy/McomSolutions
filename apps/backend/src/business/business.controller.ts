@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { BusinessService } from './business.service';
+import { BusinessService, CompleteOnboardingInput, UpdateProfileInput } from './business.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -98,9 +98,35 @@ export class BusinessController {
     return this.businessService.mapGoogleCategory(googleCategoryId || '');
   }
 
+  // ─── Google Photo Proxy ────────────────────────────────
+  @Get('google/photo')
+  async getGooglePhoto(
+    @Query('photoReference') photoReference: string,
+    @Query('maxWidthPx') maxWidthPx: string,
+    @Response() res: any,
+  ) {
+    if (!photoReference) {
+      throw new BadRequestException('photoReference is required');
+    }
+    const width = Number(maxWidthPx) || 800;
+    try {
+      const response = await this.businessService.getGooglePhotoStream(photoReference, width);
+      res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+      if (response.headers['cache-control']) {
+        res.setHeader('Cache-Control', response.headers['cache-control']);
+      } else {
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+      }
+      response.data.pipe(res);
+    } catch (err: any) {
+      const status = err.response?.status || 502;
+      res.status(status).json({ message: 'Failed to fetch Google photo', error: err.message });
+    }
+  }
+
   // ─── Complete Google Onboarding ───────────────────────
   @Post('google-business/complete-onboarding')
-  async completeGoogleOnboarding(@Body() body: any) {
+  async completeGoogleOnboarding(@Body() body: CompleteOnboardingInput) {
     return this.businessService.completeGoogleOnboarding(body);
   }
 
@@ -234,7 +260,7 @@ export class BusinessController {
 
   @UseGuards(JwtAuthGuard)
   @Put('business/profile')
-  async updateProfile(@Request() req: any, @Body() updates: any) {
+  async updateProfile(@Request() req: any, @Body() updates: UpdateProfileInput) {
     if (!req.user.businessId) {
       throw new NotFoundException('User does not have an active business profile');
     }
@@ -253,8 +279,12 @@ export class BusinessController {
   // ─── Directory Management (Secured) ───────────────────
   @UseGuards(JwtAuthGuard)
   @Get('business')
-  async getAllBusinesses(@Query('search') search?: string) {
-    return this.businessService.findAll(search);
+  async getAllBusinesses(
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.businessService.findAll(search, page, limit);
   }
 
   @UseGuards(JwtAuthGuard)
