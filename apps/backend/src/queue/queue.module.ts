@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
-import { WEBHOOK_DISPATCH_QUEUE, WEBHOOK_DISPATCH_DLQ } from './queue.constants';
+import {
+  WEBHOOK_DISPATCH_QUEUE,
+  WEBHOOK_DISPATCH_DLQ,
+  TASK_EVENT_QUEUE,
+  TASK_REWARD_QUEUE,
+} from './queue.constants';
 
 @Module({
   imports: [
@@ -48,6 +53,12 @@ import { WEBHOOK_DISPATCH_QUEUE, WEBHOOK_DISPATCH_DLQ } from './queue.constants'
       },
       {
         name: WEBHOOK_DISPATCH_DLQ,
+      },
+      {
+        name: TASK_EVENT_QUEUE,
+      },
+      {
+        name: TASK_REWARD_QUEUE,
       },
     ),
   ],

@@ -62,6 +62,7 @@ model User {
   resetCodes         PasswordResetCode[]
   wallet             Wallet?
   walletTopUps       WalletTopUpRequest[]
+  taskAssignments    UserTaskAssignment[]
 }
 
 model BusinessProfile {
@@ -906,6 +907,64 @@ model SupportAgent {
 
   @@index([role])
   @@map("support_agents")
+}
+
+// ─── TASK ENGINE (/admin/programme) ──────────────────────────────────────────
+
+enum TaskAudience {
+  BUSINESS
+  CUSTOMER
+  BOTH
+}
+
+enum TaskAssignmentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+}
+
+model TaskDefinition {
+  id             String               @id @default(cuid())
+  title          String               @map("title")
+  description    String               @map("description")
+  targetAudience TaskAudience         @default(BOTH) @map("target_audience")
+  featureKey     String               @map("feature_key")
+  deadlineDays   Int                  @default(7) @map("deadline_days")
+  rewardPoints   Int                  @default(50) @map("reward_points")
+  isActive       Boolean              @default(true) @map("is_active")
+  platform       String               @default("mcom_central") @map("platform")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  assignments    UserTaskAssignment[]
+
+  @@index([featureKey])
+  @@index([isActive])
+  @@map("task_definitions")
+}
+
+model UserTaskAssignment {
+  id             String               @id @default(cuid())
+  taskId         String               @map("task_id")
+  task           TaskDefinition       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId         String               @map("user_id")
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userType       Role                 @map("user_type")
+  status         TaskAssignmentStatus @default(PENDING) @map("status")
+  assignedAt     DateTime             @default(now()) @map("assigned_at")
+  deadlineAt     DateTime             @map("deadline_at")
+  completedAt    DateTime?            @map("completed_at")
+  rewardGranted  Boolean              @default(false) @map("reward_granted")
+  rewardPoints   Int                  @default(0) @map("reward_points")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@index([taskId])
+  @@index([status])
+  @@index([deadlineAt])
+  @@map("user_task_assignments")
 }
 
 // ─── ASSESSMENT (AssessmentPanel) ────────────────────────────────────────────

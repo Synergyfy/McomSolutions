@@ -104,4 +104,25 @@ export const businessApi = {
     const res = await apiClient.post('/auth/verify-otp', { email, code });
     return res.data;
   },
+
+  getMyTasks: async () => {
+    const res = await apiClient.get('/programme/my-tasks');
+    return res.data;
+  },
+
+  startMyTask: async (assignmentId: string) => {
+    const res = await apiClient.patch(`/programme/my-tasks/${assignmentId}/start`);
+    return res.data;
+  },
+
+  uploadFile: async (file: File) => {
+    const data = new FormData();
+    data.append('file', file);
+    const res = await apiClient.post('/business/upload', data, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return res.data;
+  },
 };

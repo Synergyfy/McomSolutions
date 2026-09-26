@@ -629,6 +629,57 @@ export const adminApi = {
     return res.data as ApiResponse<any>
   },
 
+  // ─── Task Engine (/admin/programme/tasks) ────────────
+  getTaskFeatures: async () => {
+    const res = await apiClient.get('/admin/programme/tasks/features')
+    return res.data as ApiResponse<any[]>
+  },
+
+  getTaskOverviewStats: async () => {
+    const res = await apiClient.get('/admin/programme/tasks/overview')
+    return res.data as ApiResponse<any>
+  },
+
+  getTaskDefinitions: async () => {
+    const res = await apiClient.get('/admin/programme/tasks')
+    return res.data as ApiResponse<any[]>
+  },
+
+  getTaskDefinition: async (id: string) => {
+    const res = await apiClient.get(`/admin/programme/tasks/${id}`)
+    return res.data as ApiResponse<any>
+  },
+
+  createTaskDefinition: async (data: any) => {
+    const res = await apiClient.post('/admin/programme/tasks', data)
+    return res.data as ApiResponse<any>
+  },
+
+  updateTaskDefinition: async (id: string, data: any) => {
+    const res = await apiClient.put(`/admin/programme/tasks/${id}`, data)
+    return res.data as ApiResponse<any>
+  },
+
+  deleteTaskDefinition: async (id: string) => {
+    const res = await apiClient.delete(`/admin/programme/tasks/${id}`)
+    return res.data as ApiResponse<any>
+  },
+
+  assignTask: async (id: string, data?: { userIds?: string[] }) => {
+    const res = await apiClient.post(`/admin/programme/tasks/${id}/assign`, data || {})
+    return res.data as ApiResponse<any>
+  },
+
+  getTaskAssignments: async (id: string, params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+    const res = await apiClient.get(`/admin/programme/tasks/${id}/assignments`, { params })
+    return res.data as ApiResponse<any[]> & { pagination?: any }
+  },
+
+  updateTaskAssignmentStatus: async (assignmentId: string, data: { status: string; grantReward?: boolean }) => {
+    const res = await apiClient.patch(`/admin/programme/tasks/assignments/${assignmentId}`, data)
+    return res.data as ApiResponse<any>
+  },
+
   // ─── System — API Keys ────────────────────────────────
   getApiKeys: async () => {
     const res = await apiClient.get('/admin/system/api-keys')
