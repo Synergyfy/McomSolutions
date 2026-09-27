@@ -1,4 +1,10 @@
-import { PrismaClient, Role } from '@prisma/client';
+import {
+  PrismaClient,
+  Role,
+  SupportAgentRole,
+  TaskAssignmentStatus,
+  TaskAudience,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 
@@ -603,6 +609,309 @@ async function main() {
       enableFeaturedPlacement: true,
     },
   });
+
+  // 19. Seed Programme Phases
+  console.log('Seeding programme phases...');
+  const phasesData = [
+    {
+      name: 'Business Foundation',
+      dayStart: 1,
+      dayEnd: 7,
+      description: 'Verify identity, upload assets, confirm details, activate referral profile.',
+      color: 'orange',
+      order: 0,
+      missions: [
+        { id: 'verify-identity', title: 'Business Verification & Profile Foundation', description: 'Verify business identity and contact details.', estimatedMinutes: 15, reward: '+50 points', submissionType: 'internal_platform' },
+        { id: 'upload-logo', title: 'Upload Logo & Brand Assets', description: 'Upload your logo and brand assets (or request assistance).', estimatedMinutes: 10, reward: '+30 points', submissionType: 'internal_platform' },
+        { id: 'confirm-sector', title: 'Confirm Sector & Opening Hours', description: 'Confirm your sector/category and opening hours.', estimatedMinutes: 5, reward: '+20 points', submissionType: 'internal_platform' },
+        { id: 'activate-referral', title: 'Activate Referral Profile', description: 'Activate your 247GBS Affiliates referral profile (automatic).', estimatedMinutes: 2, reward: '+25 points', submissionType: 'internal_platform' },
+        { id: 'generate-qr', title: 'Generate QR & Smart Links', description: 'Generate your MCOM QLinks for customer engagement.', estimatedMinutes: 5, reward: '+25 points', submissionType: 'internal_platform' },
+      ],
+    },
+    {
+      name: 'Digital Presence',
+      dayStart: 8,
+      dayEnd: 21,
+      description: 'Create storefront, add products, publish offers.',
+      color: 'sky',
+      order: 1,
+      missions: [
+        { id: 'create-storefront', title: 'Create Storefront', description: 'Create your storefront and business description.', estimatedMinutes: 20, reward: '+100 points', submissionType: 'internal_platform', system: 'MCOM Mall' },
+        { id: 'add-products', title: 'Add Products & Services', description: 'Add products/services, photos, categories, pricing.', estimatedMinutes: 30, reward: '+150 points', submissionType: 'internal_platform', system: 'MCOM Mall' },
+        { id: 'publish-offers', title: 'Publish Initial Offers', description: 'Publish initial offers/promotions.', estimatedMinutes: 15, reward: '+75 points', submissionType: 'internal_platform', system: 'MCOM Mall' },
+      ],
+    },
+    {
+      name: 'Customer Retention',
+      dayStart: 22,
+      dayEnd: 35,
+      description: 'Create rewards programme, configure welcome offer, connect QR links.',
+      color: 'amber',
+      order: 2,
+      missions: [
+        { id: 'create-rewards', title: 'Create Rewards Programme', description: 'Create your points/rewards programme.', estimatedMinutes: 20, reward: '+100 points', submissionType: 'internal_platform', system: 'MCOM Rewards' },
+        { id: 'configure-welcome', title: 'Configure Welcome Offer', description: 'Configure welcome offer and customer benefits.', estimatedMinutes: 10, reward: '+50 points', submissionType: 'internal_platform', system: 'MCOM Rewards' },
+        { id: 'connect-qr-rewards', title: 'Connect QR Links to Rewards', description: 'Connect your QR links to rewards journeys.', estimatedMinutes: 10, reward: '+50 points', submissionType: 'internal_platform', system: 'MCOM Rewards' },
+      ],
+    },
+    {
+      name: 'Engagement & Capture',
+      dayStart: 36,
+      dayEnd: 49,
+      description: 'Create Spin campaign, configure Hotspot, test customer journeys.',
+      color: 'rose',
+      order: 3,
+      missions: [
+        { id: 'create-spin', title: 'Create Spin Campaign', description: 'Create your MCOM Spin campaign.', estimatedMinutes: 15, reward: '+75 points', submissionType: 'internal_platform', system: 'MCOM Spin' },
+        { id: 'configure-hotspot', title: 'Configure Hotspot/Wi-Fi', description: 'Configure Hotspot/Wi-Fi customer capture if applicable.', estimatedMinutes: 15, reward: '+50 points', submissionType: 'internal_platform', system: 'MCOM Hotspot' },
+        { id: 'test-journeys', title: 'Test Customer Journeys', description: 'Test customer journeys and data capture.', estimatedMinutes: 10, reward: '+25 points', submissionType: 'internal_platform' },
+      ],
+    },
+    {
+      name: 'Network & Visibility',
+      dayStart: 50,
+      dayEnd: 63,
+      description: 'Invite businesses, join community activities, prepare Expo profile.',
+      color: 'violet',
+      order: 4,
+      missions: [
+        { id: 'invite-businesses', title: 'Invite Other Businesses', description: 'Invite other businesses via referral tools.', estimatedMinutes: 10, reward: '+50 points', submissionType: 'internal_platform', system: '247GBS Affiliates' },
+        { id: 'join-community', title: 'Join Community Activities', description: 'Join borough/community activities and leaderboard challenges.', estimatedMinutes: 15, reward: '+75 points', submissionType: 'internal_platform', system: '247GBS Expo' },
+        { id: 'prepare-expo', title: 'Prepare Expo Profile', description: 'Prepare your Expo/networking profile if eligible.', estimatedMinutes: 10, reward: '+50 points', submissionType: 'internal_platform', system: '247GBS Expo' },
+      ],
+    },
+    {
+      name: 'Audit Readiness & Audit',
+      dayStart: 64,
+      dayEnd: 90,
+      description: 'Complete all assets, invite accountant, complete sector audit, receive recommendations.',
+      color: 'emerald',
+      order: 5,
+      missions: [
+        { id: 'ensure-complete', title: 'Ensure Profile & Assets Complete', description: 'Ensure profile, storefront, rewards, and assets are complete.', estimatedMinutes: 20, reward: '+100 points', submissionType: 'internal_platform' },
+        { id: 'invite-accountant', title: 'Invite Accountant', description: 'Invite accountant if needed for financial sections.', estimatedMinutes: 5, reward: '+25 points', submissionType: 'internal_platform' },
+        { id: 'complete-audit', title: 'Complete Business Audit', description: 'Complete the sector-specific audit.', estimatedMinutes: 30, reward: '+200 points', submissionType: 'internal_platform', system: '247GBS Audit' },
+        { id: 'review-submit', title: 'Review & Submit', description: 'Review, submit, and receive your Executive Summary and Recommendations.', estimatedMinutes: 15, reward: '+100 points', submissionType: 'internal_platform', system: '247GBS Audit' },
+      ],
+    },
+  ];
+
+  const seededPhases: Record<string, string> = {};
+  for (const p of phasesData) {
+    const existing = await prisma.programmePhase.findFirst({ where: { name: p.name } });
+    if (existing) {
+      const updated = await prisma.programmePhase.update({ where: { id: existing.id }, data: p });
+      seededPhases[p.name] = updated.id;
+    } else {
+      const created = await prisma.programmePhase.create({ data: p });
+      seededPhases[p.name] = created.id;
+    }
+  }
+
+  // 20. Seed Readiness Gates
+  console.log('Seeding readiness gates...');
+  const gatesData = [
+    { name: 'Audit Access', minProgressPercent: 80, isEnabled: true },
+    { name: 'Expo Publishing', minProgressPercent: 60, isEnabled: true },
+    { name: 'Campaign Creation', minProgressPercent: 40, isEnabled: true },
+    { name: 'Advanced Tools', minProgressPercent: 20, isEnabled: true },
+  ];
+  for (const g of gatesData) {
+    const existing = await prisma.readinessGate.findFirst({ where: { name: g.name } });
+    if (!existing) {
+      await prisma.readinessGate.create({ data: g });
+    }
+  }
+
+  // 21. Seed Support Agents
+  console.log('Seeding support agents...');
+  const agentsData: { name: string; role: SupportAgentRole; email: string }[] = [
+    { name: 'David Brown', role: SupportAgentRole.agent, email: 'david@mcomsolutions.co.uk' },
+    { name: 'Sarah Jenkins', role: SupportAgentRole.account_manager, email: 'sarah.jenkins@mcomsolutions.co.uk' },
+    { name: 'Frank Taylor', role: SupportAgentRole.consultant, email: 'frank@consultancy.com' },
+    { name: 'Michael Chang', role: SupportAgentRole.consultant, email: 'michael.chang@consultancy.com' },
+  ];
+  const agentMap: Record<string, { id: string; name: string }> = {};
+  for (const a of agentsData) {
+    const existing = await prisma.supportAgent.findUnique({ where: { email: a.email } });
+    if (existing) {
+      agentMap[a.email] = { id: existing.id, name: existing.name };
+    } else {
+      const created = await prisma.supportAgent.create({ data: a });
+      agentMap[a.email] = { id: created.id, name: created.name };
+    }
+  }
+
+  // 22. Seed Business Programmes
+  console.log('Seeding business programmes...');
+  const enrolledBusinesses = [
+    {
+      businessName: 'Global Retailers Ltd',
+      sector: 'retail',
+      currentDay: 26,
+      status: 'active' as const,
+      phaseName: 'Customer Retention',
+      agentEmail: 'david@mcomsolutions.co.uk',
+      amEmail: 'sarah.jenkins@mcomsolutions.co.uk',
+      consultantEmail: 'frank@consultancy.com',
+      completedMissions: ['verify-identity', 'upload-logo', 'confirm-sector', 'create-storefront', 'add-products'],
+    },
+    {
+      businessName: 'Eco Market',
+      sector: 'retail',
+      currentDay: 14,
+      status: 'active' as const,
+      phaseName: 'Digital Presence',
+      agentEmail: 'david@mcomsolutions.co.uk',
+      amEmail: 'sarah.jenkins@mcomsolutions.co.uk',
+      consultantEmail: 'michael.chang@consultancy.com',
+      completedMissions: ['verify-identity', 'upload-logo', 'confirm-sector', 'create-storefront'],
+    },
+  ];
+
+  for (const b of enrolledBusinesses) {
+    const existing = await prisma.businessProgramme.findFirst({ where: { businessName: b.businessName } });
+    const agent = agentMap[b.agentEmail];
+    const am = agentMap[b.amEmail];
+    const consultant = agentMap[b.consultantEmail];
+    const phaseId = seededPhases[b.phaseName];
+    const profile = await prisma.businessProfile.findFirst({ where: { businessName: b.businessName } });
+
+    const data = {
+      businessId: profile?.id ?? null,
+      businessName: b.businessName,
+      sector: b.sector,
+      currentDay: b.currentDay,
+      status: b.status,
+      phaseId: phaseId ?? null,
+      agentId: agent?.id ?? null,
+      agentName: agent?.name ?? '',
+      accountManagerId: am?.id ?? null,
+      accountManagerName: am?.name ?? '',
+      consultantId: consultant?.id ?? null,
+      consultantName: consultant?.name ?? '',
+      completedMissions: b.completedMissions,
+      startedAt: new Date(Date.now() - b.currentDay * 86400000),
+    };
+
+    if (existing) {
+      await prisma.businessProgramme.update({ where: { id: existing.id }, data });
+    } else {
+      await prisma.businessProgramme.create({ data });
+    }
+  }
+
+  // 23. Seed Task Definitions (Task Engine)
+  console.log('Seeding task definitions...');
+  const tasksData = [
+    {
+      title: 'Upload Official Business Logo',
+      description: 'Upload a high-resolution logo for your storefront and digital directory listings across the ecosystem.',
+      targetAudience: TaskAudience.BUSINESS,
+      featureKey: 'business.logo_uploaded',
+      deadlineDays: 7,
+      rewardPoints: 50,
+      isActive: true,
+      platform: 'mcom_central',
+    },
+    {
+      title: 'Complete Master Business Profile',
+      description: 'Fill in your primary business details including telephone, address, sector, category, and operating hours.',
+      targetAudience: TaskAudience.BUSINESS,
+      featureKey: 'business.profile_completed',
+      deadlineDays: 5,
+      rewardPoints: 100,
+      isActive: true,
+      platform: 'mcom_central',
+    },
+    {
+      title: 'Connect Google Business Listing',
+      description: 'Link and verify your existing Google Business profile to sync reviews, ratings, and location data.',
+      targetAudience: TaskAudience.BUSINESS,
+      featureKey: 'business.google_verified',
+      deadlineDays: 14,
+      rewardPoints: 75,
+      isActive: true,
+      platform: 'mcom_central',
+    },
+    {
+      title: 'Connect Social Media Channels',
+      description: 'Add your business Instagram, Facebook, LinkedIn, or Twitter links to boost cross-platform engagement.',
+      targetAudience: TaskAudience.BUSINESS,
+      featureKey: 'business.social_linked',
+      deadlineDays: 10,
+      rewardPoints: 40,
+      isActive: true,
+      platform: 'mcom_central',
+    },
+    {
+      title: 'Complete Customer Profile Details',
+      description: 'Add your contact details and preferences to personalize your ecosystem rewards.',
+      targetAudience: TaskAudience.CUSTOMER,
+      featureKey: 'customer.profile_completed',
+      deadlineDays: 7,
+      rewardPoints: 50,
+      isActive: true,
+      platform: 'mcom_central',
+    },
+  ];
+
+  const seededTasks = [];
+  for (const t of tasksData) {
+    const existing = await prisma.taskDefinition.findFirst({ where: { featureKey: t.featureKey } });
+    if (existing) {
+      const updated = await prisma.taskDefinition.update({ where: { id: existing.id }, data: t });
+      seededTasks.push(updated);
+    } else {
+      const created = await prisma.taskDefinition.create({ data: t });
+      seededTasks.push(created);
+    }
+  }
+
+  // 24. Seed Task Assignments for Existing Users
+  console.log('Seeding user task assignments...');
+  const users = await prisma.user.findMany({
+    where: { role: { in: [Role.BUSINESS, Role.CUSTOMER] } },
+  });
+  for (const user of users) {
+    const eligibleTasks = seededTasks.filter(
+      (task) =>
+        task.targetAudience === TaskAudience.BOTH ||
+        (user.role === Role.BUSINESS && task.targetAudience === TaskAudience.BUSINESS) ||
+        (user.role === Role.CUSTOMER && task.targetAudience === TaskAudience.CUSTOMER)
+    );
+
+    for (let i = 0; i < eligibleTasks.length; i++) {
+      const task = eligibleTasks[i];
+      const existing = await prisma.userTaskAssignment.findUnique({
+        where: { taskId_userId: { taskId: task.id, userId: user.id } },
+      });
+      if (!existing) {
+        const isCompleted = i === 0;
+        const status = isCompleted
+          ? TaskAssignmentStatus.COMPLETED
+          : i === 1
+          ? TaskAssignmentStatus.IN_PROGRESS
+          : TaskAssignmentStatus.PENDING;
+        const assignedAt = new Date(Date.now() - 3 * 86400000);
+        const deadlineAt = new Date(assignedAt.getTime() + task.deadlineDays * 86400000);
+
+        await prisma.userTaskAssignment.create({
+          data: {
+            taskId: task.id,
+            userId: user.id,
+            userType: user.role,
+            status,
+            assignedAt,
+            deadlineAt,
+            completedAt: isCompleted ? new Date() : null,
+            rewardGranted: isCompleted,
+            rewardPoints: isCompleted ? task.rewardPoints : 0,
+          },
+        });
+      }
+    }
+  }
 
   console.log('Seed completed successfully!');
 }

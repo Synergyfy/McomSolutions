@@ -131,7 +131,7 @@ export class AuthController {
   }
 
   @Get('google')
-  async googleAuth(@Res() res: any) {
+  async googleAuth(@Res() res: any, @Query('returnUrl') returnUrl?: string) {
     if (!this.googleOAuth.isConfigured()) {
       if (this.googleOAuth.isSimulatorEnabled()) {
         const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3010';
@@ -141,7 +141,7 @@ export class AuthController {
     }
     // Real OAuth redirect — state is HMAC-signed and short-lived so it cannot be forged
     const authUrl = this.googleOAuth.getAuthUrl(
-      this.googleOAuth.signState({ type: 'login' }),
+      this.googleOAuth.signState({ type: 'login', returnUrl }),
     );
     return res.redirect(authUrl);
   }

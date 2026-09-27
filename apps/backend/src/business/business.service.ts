@@ -442,14 +442,22 @@ export class BusinessService {
       return `
         <script>
           if (window.opener) {
-            window.opener.postMessage({
+            var msg = {
               type: 'GOOGLE_LOGIN_SUCCESS',
               auth: ${safeAuth},
               user: ${safeUser}
-            }, '${this.escapeHtml(targetOrigin)}');
+            };
+            var target = '${this.escapeHtml(targetOrigin)}';
+            window.opener.postMessage(msg, target);
+            if (target.indexOf('centralhubsolution.com') !== -1) {
+              var alt = target.indexOf('www.') !== -1
+                ? target.replace('www.', '')
+                : target.replace('://', '://www.');
+              try { window.opener.postMessage(msg, alt); } catch(e) {}
+            }
             window.close();
           } else {
-            document.write("Login successful! Redirecting...");
+            window.location.href = '${this.escapeHtml(targetOrigin)}/dashboard';
           }
         </script>
       `;
@@ -512,7 +520,15 @@ export class BusinessService {
     return `
       <script>
         if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' }, '${targetOrigin}');
+          var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' };
+          var target = '${targetOrigin}';
+          window.opener.postMessage(msg, target);
+          if (target.indexOf('centralhubsolution.com') !== -1) {
+            var alt = target.indexOf('www.') !== -1
+              ? target.replace('www.', '')
+              : target.replace('://', '://www.');
+            try { window.opener.postMessage(msg, alt); } catch(e) {}
+          }
         }
         window.close();
       </script>

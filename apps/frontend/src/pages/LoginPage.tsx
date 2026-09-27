@@ -137,7 +137,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     const backendUrl = import.meta.env.VITE_API_URL || '/api/v1';
-    const authUrl = `${backendUrl}/auth/google`;
+    const authUrl = `${backendUrl}/auth/google?returnUrl=${encodeURIComponent(window.location.origin)}`;
 
     const popup = window.open(
       authUrl,
@@ -159,11 +159,22 @@ export default function LoginPage() {
         window.location.origin,
         getOrigin(import.meta.env.VITE_BACKEND_URL),
         getOrigin(import.meta.env.VITE_API_URL),
+        'https://centralhubsolution.com',
+        'https://www.centralhubsolution.com',
         'http://localhost:3010',
         'http://localhost:3000',
         'http://localhost:5173'
       ].filter(Boolean);
       if (!allowedOrigins.includes(event.origin)) return;
+
+      if (event.data?.type === 'GOOGLE_LOGIN_FAILURE') {
+        window.removeEventListener('message', handleMessage);
+        clearInterval(pollTimer);
+        setError(event.data?.error || 'Google authentication failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
       if (event.data?.type !== 'GOOGLE_LOGIN_SUCCESS') return;
 
       window.removeEventListener('message', handleMessage);
