@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Building2, Gem, RefreshCw,
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
-  Terminal, Crown, LogOut, Menu, X, ChevronDown, Search, HelpCircle,
+  Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
   ChevronRight, ShoppingBag, AppWindow, Wallet, Layers
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -25,7 +25,6 @@ export type AdminTab =
   | 'programme'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
-  | 'assessment'
   | 'sectors-categories';
 
 interface NavGroup {
@@ -73,7 +72,6 @@ const NAV_GROUPS: NavGroup[] = [
       { tab: 'auth', icon: KeyRound, label: 'Authentication' },
       { tab: 'registration-flow', icon: UserPlus, label: 'Registration Flow' },
       { tab: 'business-profile', icon: Store, label: 'Business Profile' },
-      { tab: 'assessment', icon: HelpCircle, label: 'Business Assessment' },
     ],
   },
   {
