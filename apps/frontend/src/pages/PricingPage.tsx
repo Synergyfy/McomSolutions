@@ -81,29 +81,29 @@ export default function PricingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 tracking-tight">
+            <h1 className="text-3xl sm:text-5xl md:text-7xl font-bold text-gray-900 mb-4 sm:mb-6 tracking-tight">
               Join the <span className="text-brand-blue font-serif font-medium">MCOM</span> Business Network
             </h1>
-            <p className="text-xl text-gray-600 font-medium">
+            <p className="text-base sm:text-xl text-gray-600 font-medium">
               Get visibility, tools, and support to grow your business at any scale.
             </p>
           </motion.div>
 
           {/* Toggle and Tier Switcher */}
-          <div className="mt-12 flex flex-col items-center gap-8">
-            <div className="flex p-1 bg-gray-100 rounded-full">
+          <div className="mt-8 sm:mt-12 flex flex-col items-center gap-6 sm:gap-8">
+            <div className="flex flex-wrap sm:flex-nowrap p-1 bg-gray-100 rounded-2xl sm:rounded-full justify-center max-w-full">
               {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                 <button
                   key={cycle}
                   onClick={() => setBillingCycle(cycle)}
                   className={cn(
-                    "px-8 py-3 rounded-full text-sm font-semibold transition-all",
+                    "px-4 sm:px-8 py-2 sm:py-3 rounded-xl sm:rounded-full text-xs sm:text-sm font-semibold transition-all",
                     billingCycle === cycle ? "bg-white text-brand-blue shadow-lg" : "text-gray-500 hover:text-gray-700"
                   )}
                 >
                   {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
-                  {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
-                  {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
+                  {cycle === 'quarterly' && <span className="ml-1 sm:ml-2 text-[10px] bg-green-100 text-green-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full uppercase">Save 10%</span>}
+                  {cycle === 'yearly' && <span className="ml-1 sm:ml-2 text-[10px] bg-green-100 text-green-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full uppercase">Save 20%</span>}
                 </button>
               ))}
             </div>
@@ -111,7 +111,7 @@ export default function PricingPage() {
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-32">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-20 sm:mb-32">
           {plans.map((plan) => (
             <MembershipCard 
               key={plan.id}
@@ -123,25 +123,25 @@ export default function PricingPage() {
         </div>
 
         {/* Comparison Table Section (Collapsible) */}
-        <div className="mb-32">
+        <div className="mb-20 sm:mb-32">
           <button 
             onClick={() => setShowComparison(!showComparison)}
-            className="w-full flex items-center justify-between p-8 bg-gray-50 rounded-[2.5rem] border border-gray-100 hover:border-brand-blue/20 transition-all group shadow-sm"
+            className="w-full flex items-center justify-between p-4 sm:p-8 bg-gray-50 rounded-2xl sm:rounded-[2.5rem] border border-gray-100 hover:border-brand-blue/20 transition-all group shadow-sm gap-4"
           >
-            <div className="flex items-center gap-6">
-              <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-brand-blue border border-blue-50">
-                <Globe className="w-6 h-6" />
+            <div className="flex items-center gap-3 sm:gap-6 min-w-0">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white shadow-sm flex items-center justify-center text-brand-blue border border-blue-50 shrink-0">
+                <Globe className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div className="text-left">
-                 <h3 className="text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight">Compare Memberships</h3>
-                 <p className="text-sm text-gray-400 font-medium">Deep dive into specific tier differences</p>
+              <div className="text-left min-w-0">
+                 <h3 className="text-base sm:text-xl font-bold text-gray-900 group-hover:text-brand-blue transition-colors uppercase tracking-tight truncate">Compare Memberships</h3>
+                 <p className="text-xs sm:text-sm text-gray-400 font-medium truncate">Deep dive into specific tier differences</p>
               </div>
             </div>
             <div className={cn(
-               "w-10 h-10 rounded-full bg-white text-gray-400 flex items-center justify-center transition-all group-hover:bg-brand-blue group-hover:text-white shadow-sm border border-gray-100",
+               "w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white text-gray-400 flex items-center justify-center transition-all group-hover:bg-brand-blue group-hover:text-white shadow-sm border border-gray-100 shrink-0",
                showComparison ? "rotate-180" : ""
             )}>
-              <ChevronDown className="w-5 h-5" />
+              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
           </button>
 
@@ -154,9 +154,9 @@ export default function PricingPage() {
                 transition={{ duration: 0.5 }}
                 className="overflow-hidden"
               >
-                <div className="pt-12 px-2">
-                  <div className="overflow-x-auto glass rounded-[2.5rem] border-gray-100 p-8">
-                    <table className="w-full text-left">
+                <div className="pt-8 sm:pt-12 px-1 sm:px-2">
+                  <div className="overflow-x-auto glass rounded-2xl sm:rounded-[2.5rem] border-gray-100 p-4 sm:p-8">
+                    <table className="w-full text-left min-w-[600px]">
                       <thead>
                         <tr className="border-b border-gray-100">
                           <th className="pb-6 pt-2 font-bold text-gray-500 uppercase tracking-widest text-xs">Features</th>

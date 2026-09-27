@@ -149,9 +149,13 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile Toggle */}
-        <button className="md:hidden p-2" onClick={() => setIsOpen(!isOpen)}>
-          {isOpen ? <X /> : <Menu />}
+      {/* Mobile Toggle */}
+        <button 
+          className="md:hidden p-2 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors" 
+          onClick={() => setIsOpen(!isOpen)}
+          aria-label={isOpen ? "Close menu" : "Open menu"}
+        >
+          {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
 
@@ -159,50 +163,107 @@ export default function Navbar() {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-white border-t mt-4 overflow-hidden"
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="md:hidden bg-white/95 backdrop-blur-xl border border-gray-100 mt-3 rounded-2xl shadow-2xl overflow-hidden max-h-[calc(100dvh-5rem)] flex flex-col"
           >
-            <div className="flex flex-col p-6 gap-6">
-              <div className="space-y-4">
+            <div className="flex flex-col p-5 gap-5 overflow-y-auto overscroll-contain">
+              <div className="space-y-3">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Products</h3>
-                {PRODUCTS.map(product => (
-                  <Link key={product.id} to={`/product/${product.id}`} className="flex items-center gap-3">
-                    <div className={cn("p-2 rounded-lg text-white", product.color)}>
-                      <product.icon className="w-4 h-4" />
-                    </div>
-                    <span className="font-medium">{product.name}</span>
-                  </Link>
-                ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {PRODUCTS.map(product => (
+                    <Link 
+                      key={product.id} 
+                      to={`/product/${product.id}`} 
+                      onClick={() => setIsOpen(false)}
+                      className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                    >
+                      <div className={cn("p-2 rounded-lg text-white shrink-0", product.color)}>
+                        <product.icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-medium text-sm text-gray-900 block truncate">{product.name}</span>
+                        <span className="text-xs text-gray-500 block truncate">{product.tagline}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
-              <hr />
-              <Link to="/about" className="font-medium">About</Link>
+              <hr className="border-gray-100" />
+              <div className="flex flex-col gap-2">
+                <Link 
+                  to="/about" 
+                  onClick={() => setIsOpen(false)}
+                  className="font-medium text-gray-700 hover:text-brand-blue py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  About
+                </Link>
+                <Link 
+                  to="/contact" 
+                  onClick={() => setIsOpen(false)}
+                  className="font-medium text-gray-700 hover:text-brand-blue py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Contact
+                </Link>
+              </div>
+              <hr className="border-gray-100" />
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Pricing</h3>
-                <div className="space-y-2">
-                  <Link to="/membership" className="flex items-center gap-3 font-medium">
-                    <div className="p-1.5 rounded-lg bg-purple-100 text-purple-600"><LayoutGrid className="w-4 h-4" /></div>
-                    Membership
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Pricing</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Link 
+                    to="/membership" 
+                    onClick={() => setIsOpen(false)}
+                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
+                  >
+                    <div className="p-2 rounded-lg bg-purple-100 text-purple-600 shrink-0"><LayoutGrid className="w-4 h-4" /></div>
+                    <div>
+                      <span className="text-gray-900 block">Membership</span>
+                      <span className="text-xs text-gray-500 block">Plans & subscriptions</span>
+                    </div>
                   </Link>
-                  <Link to="/packages" className="flex items-center gap-3 font-medium">
-                    <div className="p-1.5 rounded-lg bg-amber-100 text-amber-600"><LayoutGrid className="w-4 h-4" /></div>
-                    Packages
+                  <Link 
+                    to="/packages" 
+                    onClick={() => setIsOpen(false)}
+                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
+                  >
+                    <div className="p-2 rounded-lg bg-amber-100 text-amber-600 shrink-0"><LayoutGrid className="w-4 h-4" /></div>
+                    <div>
+                      <span className="text-gray-900 block">Packages</span>
+                      <span className="text-xs text-gray-500 block">Platform-specific add-ons</span>
+                    </div>
                   </Link>
                 </div>
               </div>
-              {isLoggedIn ? (
-                <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
-                  Dashboard
-                </Link>
-              ) : (
-                <>
-                  <Link to="/login" className="font-medium">Sign In</Link>
-                  <Link to="/register" className="bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center">
-                    Get Started
+              <div className="pt-2">
+                {isLoggedIn ? (
+                  <Link 
+                    to="/dashboard" 
+                    onClick={() => setIsOpen(false)}
+                    className="block w-full bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
+                  >
+                    Dashboard
                   </Link>
-                </>
-              )}
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    <Link 
+                      to="/login" 
+                      onClick={() => setIsOpen(false)}
+                      className="block w-full py-2.5 text-center font-medium text-gray-700 hover:text-brand-blue rounded-xl border border-gray-200 hover:bg-gray-50 transition-colors"
+                    >
+                      Sign In
+                    </Link>
+                    <Link 
+                      to="/register" 
+                      onClick={() => setIsOpen(false)}
+                      className="block w-full bg-brand-blue text-white py-3 rounded-xl font-semibold text-center hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
+                    >
+                      Get Started
+                    </Link>
+                  </div>
+                )}
+              </div>
             </div>
           </motion.div>
         )}

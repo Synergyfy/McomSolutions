@@ -125,4 +125,9 @@ export const businessApi = {
     });
     return res.data;
   },
+
+  getEcosystemApps: async () => {
+    const res = await apiClient.get('/apps');
+    return res.data;
+  },
 };

@@ -159,20 +159,20 @@ export default function AdminLayout({ activeTab, onTabChange, title, subtitle, c
       )}
 
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-gray-200 flex flex-col",
+        "fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] bg-white border-r border-gray-200 flex flex-col",
         "transition-transform duration-300 ease-in-out",
         sidebarOpen ? "translate-x-0" : "-translate-x-full",
         "lg:translate-x-0"
       )}>
-        <div className="p-6 flex items-center justify-between border-b border-gray-100">
+        <div className="p-5 sm:p-6 flex items-center justify-between border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">AS</div>
+            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-glow">AS</div>
             <div>
-              <div className="font-black text-lg tracking-tighter text-gray-900">Admin Hub</div>
+              <div className="font-black text-base sm:text-lg tracking-tighter text-gray-900">Admin Hub</div>
               <div className="text-[9px] font-bold text-brand-blue uppercase tracking-widest">Global Ecosystem</div>
             </div>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors">
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors" aria-label="Close sidebar">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -210,26 +210,29 @@ export default function AdminLayout({ activeTab, onTabChange, title, subtitle, c
         </div>
       </aside>
 
-      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen flex flex-col">
-        <header className="sticky top-0 z-10 px-4 sm:px-6 lg:px-8 py-3 md:py-4 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-gray-200">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors">
+      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen flex flex-col min-w-0 overflow-x-hidden">
+        <header className={cn(
+          "sticky top-0 px-3 sm:px-6 lg:px-8 py-3 md:py-4 flex items-center justify-between bg-white/90 backdrop-blur-md border-b border-gray-200 gap-2 sm:gap-4 transition-all",
+          userMenuOpen ? "z-50" : "z-30"
+        )}>
+          <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors shrink-0" aria-label="Open sidebar">
               <Menu className="w-5 h-5" />
             </button>
-            <div>
-              <h1 className="text-lg md:text-xl font-bold tracking-tight text-gray-900">{title}</h1>
-              {subtitle && <p className="text-xs text-gray-500 font-medium hidden sm:block">{subtitle}</p>}
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg md:text-xl font-bold tracking-tight text-gray-900 truncate">{title}</h1>
+              {subtitle && <p className="text-xs text-gray-500 font-medium hidden sm:block truncate">{subtitle}</p>}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
             {headerActions}
-            <button className="p-2 text-gray-400 hover:text-gray-600 relative">
+            <button className="p-2 text-gray-400 hover:text-gray-600 relative shrink-0" aria-label="Notifications">
               <Bell className="w-4 h-4" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand-blue rounded-full" />
             </button>
-            <div className="relative">
-              <button onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 pl-3 border-l border-gray-200 group">
+            <div className={cn("relative shrink-0", userMenuOpen && "z-50")}>
+              <button onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-gray-200 group">
                 <div className="text-right hidden sm:block">
                   <div className="text-xs font-bold text-gray-900 group-hover:text-brand-blue transition-colors">{admin?.name || 'Admin'}</div>
                   <div className="text-[9px] text-gray-500 font-bold uppercase">{admin?.role || 'Admin'}</div>
@@ -262,7 +265,7 @@ export default function AdminLayout({ activeTab, onTabChange, title, subtitle, c
           </div>
         </header>
 
-        <div className="flex-1 p-4 sm:p-6 lg:p-8">
+        <div className="flex-1 p-3 sm:p-6 lg:p-8 min-w-0">
           {children}
         </div>
       </main>

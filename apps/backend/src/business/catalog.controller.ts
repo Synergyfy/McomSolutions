@@ -43,4 +43,32 @@ export class CatalogController {
     });
     return subcategories.map((s) => ({ id: s.id, name: s.name, categoryId: s.categoryId, slug: s.slug }));
   }
+
+  @Get('apps')
+  @ApiOperation({ summary: 'List active registered ecosystem applications' })
+  @ApiOkResponse({ description: 'List of active registered applications' })
+  async getApps() {
+    const apps = await this.prisma.ssoClient.findMany({
+      where: { isActive: true },
+      orderBy: [
+        { isSystemApp: 'desc' },
+        { createdAt: 'asc' },
+      ],
+      select: {
+        id: true,
+        clientId: true,
+        name: true,
+        description: true,
+        platformSlug: true,
+        appUrl: true,
+        redirectUris: true,
+        logoUrl: true,
+        isSystemApp: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return apps;
+  }
 }

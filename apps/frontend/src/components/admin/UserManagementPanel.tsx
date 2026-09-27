@@ -81,19 +81,21 @@ export default function UserManagementPanel() {
   return (
     <div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm">
-          {(['businesses', 'customers', 'agents', 'consultants', 'account-managers'] as UserTab[]).map(t => (
-            <button key={t} onClick={() => setUserTab(t)} className={cn("px-4 py-2 rounded-xl text-xs font-bold transition-all", userTab === t ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}>
-              {t === 'businesses' ? 'Businesses' : t === 'customers' ? 'Customers' : t === 'agents' ? 'Agents' : t === 'consultants' ? 'Consultants' : 'Account Mgrs'}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-48" />
+        <div className="overflow-x-auto max-w-full pb-1">
+          <div className="flex gap-1.5 sm:gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm shrink-0">
+            {(['businesses', 'customers', 'agents', 'consultants', 'account-managers'] as UserTab[]).map(t => (
+              <button key={t} onClick={() => setUserTab(t)} className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0", userTab === t ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}>
+                {t === 'businesses' ? 'Businesses' : t === 'customers' ? 'Customers' : t === 'agents' ? 'Agents' : t === 'consultants' ? 'Consultants' : 'Account Mgrs'}
+              </button>
+            ))}
           </div>
-          <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-2"><Plus className="w-4 h-4" /> Add New</button>
+        </div>
+        <div className="flex gap-2 sm:gap-3">
+          <div className="relative flex-1 sm:flex-initial">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-full sm:w-48" />
+          </div>
+          <button onClick={() => setShowAdd(true)} className="px-3 sm:px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-1.5 sm:gap-2 shrink-0"><Plus className="w-4 h-4" /> Add New</button>
         </div>
       </div>
 
@@ -135,13 +137,13 @@ export default function UserManagementPanel() {
   );
 }
 
-// ── Sub-components (BusinessTable, CustomerTable, etc.) unchanged ──
+// ── Sub-components (BusinessTable, CustomerTable, etc.) ──
 
 function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left min-w-[640px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Business</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Membership</th>
@@ -160,8 +162,8 @@ function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", b.status === 'Active' ? 'bg-green-500' : b.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500')} /><span className="text-xs font-bold">{b.status}</span></div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{b.revenue}</td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(b)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(b.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onEdit(b)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onDelete(b.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -177,7 +179,7 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left min-w-[600px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Customer</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Loyalty Points</th>
@@ -194,8 +196,8 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{c.loyaltyPoints?.toLocaleString()}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-red-500')} /><span className="text-xs font-bold">{c.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -211,7 +213,7 @@ function AgentTable({ data, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left min-w-[600px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Agent</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Permissions</th>
@@ -228,8 +230,8 @@ function AgentTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4"><div className="flex gap-1 flex-wrap">{a.permissions?.map((p: string) => <span key={p} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{p}</span>)}</div></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -245,7 +247,7 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left min-w-[600px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Consultant</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Specialisation</th>
@@ -279,7 +281,7 @@ function AccountManagerTable({ data, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left min-w-[600px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Manager</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Assigned Businesses</th>

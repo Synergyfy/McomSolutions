@@ -49,7 +49,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
       >
         <div className="absolute -right-10 -top-10 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
         <div className="absolute -right-4 bottom-0 w-32 h-32 bg-white/5 rounded-full" />
-        <div className="relative z-10">
+        <div className="relative z-[1]">
           <div className="flex items-start justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
             <div className="min-w-0 flex-1">
               <p className="text-orange-200 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1.5 sm:mb-2 leading-tight">Welcome to Your</p>

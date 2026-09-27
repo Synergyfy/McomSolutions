@@ -680,6 +680,10 @@ export interface SsoClientListItem {
   id: string
   clientId: string
   name: string
+  description?: string | null
+  appUrl?: string | null
+  logoUrl?: string | null
+  redirectUris?: string[]
   platformSlug: string | null
   isActive: boolean
   isSystemApp: boolean
