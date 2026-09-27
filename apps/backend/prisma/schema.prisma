@@ -956,6 +956,7 @@ model UserTaskAssignment {
   completedAt    DateTime?            @map("completed_at")
   rewardGranted  Boolean              @default(false) @map("reward_granted")
   rewardPoints   Int                  @default(0) @map("reward_points")
+  submissionData Json?                @map("submission_data")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 

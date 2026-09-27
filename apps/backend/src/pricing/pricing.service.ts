@@ -175,12 +175,25 @@ export class PricingService {
 
     if (this.taskEventQueue && updated?.userId) {
       this.taskEventQueue
-        .add('emit-task-event', {
-          userId: updated.userId,
-          userType: 'BUSINESS',
-          featureKey: 'business.membership_purchased',
-          meta: { timestamp: new Date().toISOString() },
-        })
+        .add(
+          'evaluate-task',
+          {
+            userId: updated.userId,
+            userType: 'BUSINESS',
+            featureKey: 'business.membership_purchased',
+            meta: {
+              level: validLevel,
+              tier: canonicalTier,
+              billing,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          {
+            jobId: `task-event-membership-${updated.userId}-${Date.now()}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+          },
+        )
         .catch((err) => this.logger.warn('Failed to emit task event for membership:', err));
     }
 
@@ -393,6 +406,25 @@ export class PricingService {
         status: 'paid',
       },
     });
+
+    if (this.taskEventQueue && business?.userId) {
+      this.taskEventQueue
+        .add(
+          'evaluate-task',
+          {
+            userId: business.userId,
+            userType: 'BUSINESS',
+            featureKey: 'business.package_purchased',
+            meta: { platform, packageName, timestamp: new Date().toISOString() },
+          },
+          {
+            jobId: `task-event-package-${business.userId}-${platform}-${Date.now()}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+          },
+        )
+        .catch((err) => this.logger.warn('Failed to emit task event for package:', err));
+    }
 
     return platformPackage;
   }

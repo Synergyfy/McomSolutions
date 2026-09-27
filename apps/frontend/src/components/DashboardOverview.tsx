@@ -12,7 +12,7 @@ import {
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
 import { cn } from '../lib/utils';
-import { useMyTasks, useStartMyTask } from '../services/business/hooks';
+import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases } from '../services/business/hooks';
 
 function TaskStartModal({
   mission,
@@ -140,13 +140,47 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     } catch {}
   }
 
-  const currentDay = getProgrammeDay();
-  const currentPhase = getPhaseForDay(currentDay);
-  const currentPhaseIndex = PROGRAMME_PHASES.findIndex(p => p.id === currentPhase?.id);
-
-  // Real backend tasks
   const { data: myTasksRes, isLoading: loadingMyTasks } = useMyTasks();
   const startTaskMutation = useStartMyTask();
+  const completeTaskMutation = useCompleteMyTask();
+
+  const { data: myProgrammeRes } = useMyProgramme();
+  const completeMissionMutation = useCompleteMission();
+  const { data: phasesRes } = useProgrammePhases();
+
+  const programmeData = (myProgrammeRes as any)?.data;
+  const completedMissionIds: string[] = Array.isArray(programmeData?.completedMissions)
+    ? programmeData.completedMissions
+    : [];
+
+  // DB phases are the source of truth; static PROGRAMME_PHASES is the fallback.
+  // Merge DB day-ranges/missions over static icons so the UI never breaks.
+  const activePhases = useMemo(() => {
+    const dbPhases = (phasesRes as any)?.data;
+    if (Array.isArray(dbPhases) && dbPhases.length > 0) {
+      return dbPhases.map((p: any, i: number) => {
+        const fallback = PROGRAMME_PHASES[i] || PROGRAMME_PHASES[0];
+        return {
+          ...fallback,
+          ...p,
+          id: p.id ?? fallback.id,
+          name: p.name ?? fallback.name,
+          dayStart: p.dayStart ?? fallback.dayStart,
+          dayEnd: p.dayEnd ?? fallback.dayEnd,
+          icon: fallback.icon,
+          missions: Array.isArray(p.missions) && p.missions.length > 0 ? p.missions : fallback.missions,
+        };
+      });
+    }
+    return PROGRAMME_PHASES;
+  }, [phasesRes]);
+
+  const currentDay = programmeData?.currentDay ?? getProgrammeDay();
+  const currentPhase = activePhases.find((p: any) => currentDay >= p.dayStart && currentDay <= p.dayEnd)
+    ?? getPhaseForDay(currentDay);
+  const currentPhaseIndex = activePhases.findIndex((p: any) => p.id === (currentPhase as any)?.id);
+
+  // Real backend tasks
 
   const [taskStatuses, setTaskStatuses] = useState<Record<string, TaskStatus>>(() => {
     const saved = localStorage.getItem('businessTaskStatuses');
@@ -194,15 +228,22 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     if (hasApiTasks) {
       return m.status === 'completed';
     }
+    if (completedMissionIds.includes(m.id)) return true;
     return (taskStatuses[m.id] || 'not_started') === 'completed';
   }).length;
   const computedProgress = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : getProgressForDay(currentDay);
+
+  const isMissionCompleted = (missionId: string) => {
+    if (completedMissionIds.includes(missionId)) return true;
+    return (taskStatuses[missionId] || 'not_started') === 'completed';
+  };
 
   const status = (id: string): TaskStatus => {
     const found = allMissions.find((m: any) => m.id === id);
     if (found && hasApiTasks) {
       return found.status;
     }
+    if (completedMissionIds.includes(id)) return 'completed';
     return taskStatuses[id] || 'not_started';
   };
 
@@ -243,8 +284,18 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     setActiveMission(null);
   };
 
-  const markComplete = (missionId: string) => {
-    setTaskStatuses(prev => ({ ...prev, [missionId]: 'completed' }));
+  const markComplete = async (missionOrTaskId: string, isApiTask: boolean) => {
+    try {
+      if (isApiTask) {
+        await completeTaskMutation.mutateAsync({ assignmentId: missionOrTaskId });
+      } else {
+        await completeMissionMutation.mutateAsync(missionOrTaskId);
+      }
+    } catch {
+      // Backend write failed — optimistic local fallback keeps the UI responsive
+    }
+    // Optimistic fallback for instant UI response
+    setTaskStatuses(prev => ({ ...prev, [missionOrTaskId]: 'completed' }));
   };
 
   const handleCloseModal = () => {
@@ -252,7 +303,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     setActiveMission(null);
   };
 
-  const nextPhase = currentPhaseIndex < PROGRAMME_PHASES.length - 1 ? PROGRAMME_PHASES[currentPhaseIndex + 1] : null;
+  const nextPhase = currentPhaseIndex < activePhases.length - 1 ? activePhases[currentPhaseIndex + 1] : null;
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-500 overflow-x-hidden">
@@ -311,7 +362,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
 
           {/* Phase Progress Dots - labels hidden on mobile to prevent cramming */}
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {PROGRAMME_PHASES.map((phase, i) => {
+            {activePhases.map((phase, i) => {
               const isCompleted = i < currentPhaseIndex;
               const isCurrent = i === currentPhaseIndex;
               return (
@@ -329,7 +380,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           </div>
           {/* Mobile phase labels - wrap to 2 rows to avoid any clipping */}
           <div className="sm:hidden mt-3 flex flex-wrap gap-1.5">
-            {PROGRAMME_PHASES.map((phase, i) => {
+            {activePhases.map((phase, i) => {
               const isCurrent = i === currentPhaseIndex;
               const isCompleted = i < currentPhaseIndex;
               return (
@@ -442,7 +493,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                             <span>Continue</span> <ArrowRight className="w-3 h-3" />
                           </button>
                           {isExternalLink && (
-                            <button onClick={() => markComplete(mission.id)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
+                            <button onClick={() => markComplete(mission.id, hasApiTasks)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
                               <CheckCircle2 className="w-3 h-3" /> Complete
                             </button>
                           )}
@@ -475,7 +526,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         >
           <h3 className="font-bold text-gray-900 mb-4">Phase Status</h3>
           <div className="space-y-2">
-            {PROGRAMME_PHASES.map((phase, i) => {
+            {activePhases.map((phase, i) => {
               const Icon = phase.icon;
               const isCompleted = i < currentPhaseIndex;
               const isCurrent = i === currentPhaseIndex;

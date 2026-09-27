@@ -100,6 +100,31 @@ export class BusinessService {
     }
   }
 
+  private async ensureBusinessProgramme(businessId: string, businessName: string, sector?: string | null) {
+    try {
+      const existing = await this.prisma.businessProgramme.findFirst({ where: { businessId } });
+      if (!existing) {
+        await this.prisma.businessProgramme.create({
+          data: {
+            businessId,
+            businessName,
+            sector: sector || '',
+            currentDay: 1,
+            status: 'active',
+            agentName: 'MCOM Onboarding Specialist',
+            accountManagerName: 'Dedicated Manager',
+            consultantName: 'Business Growth Advisor',
+            completedMissions: [],
+          },
+        });
+        this.logger.log(`Auto-enrolled business ${businessName} (${businessId}) into 90-Day Programme`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to auto-enroll business in programme: ${msg}`);
+    }
+  }
+
   // ─── Postcode Address Search ──────────────────────────
   async searchAddresses(postcode: string) {
     const cleanPostcode = postcode.toUpperCase().trim();
@@ -665,6 +690,13 @@ export class BusinessService {
         },
         include: { businessProfile: true },
       });
+      if (updatedUser.businessProfile) {
+        await this.ensureBusinessProgramme(
+          updatedUser.businessProfile.id,
+          updatedUser.businessProfile.businessName,
+          updatedUser.businessProfile.category,
+        );
+      }
       const loginRes = await this.authService.login(updatedUser);
       return {
         ...loginRes,
@@ -726,6 +758,11 @@ export class BusinessService {
     }
 
     if (newUser.businessProfile) {
+      await this.ensureBusinessProgramme(
+        newUser.businessProfile.id,
+        newUser.businessProfile.businessName,
+        newUser.businessProfile.category,
+      );
       await this.prisma.notification.createMany({
         data: [
           {

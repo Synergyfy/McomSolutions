@@ -92,6 +92,11 @@ export class TaskEventProcessor extends WorkerHost {
           );
         }
 
+        // Cross-sync automated completion into the 90-day BusinessProgramme
+        if (userType === 'BUSINESS') {
+          await this.syncToBusinessProgramme(userId, featureKey);
+        }
+
         this.logger.log(
           `Task "${assignment.task.title}" marked COMPLETED for user=${userId}. Reward job queued.`,
         );
@@ -99,5 +104,26 @@ export class TaskEventProcessor extends WorkerHost {
     }
 
     return { matched: assignments.length, completed: completedCount, expired: expiredCount };
+  }
+
+  private async syncToBusinessProgramme(userId: string, missionIdentifier: string) {
+    try {
+      const profile = await this.prisma.businessProfile.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+      if (!profile) return;
+      const prog = await this.prisma.businessProgramme.findFirst({
+        where: { businessId: profile.id },
+      });
+      if (!prog || prog.completedMissions.includes(missionIdentifier)) return;
+      await this.prisma.businessProgramme.update({
+        where: { id: prog.id },
+        data: { completedMissions: { push: missionIdentifier } },
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to sync automated task to BusinessProgramme: ${msg}`);
+    }
   }
 }

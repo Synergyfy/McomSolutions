@@ -115,6 +115,27 @@ export const businessApi = {
     return res.data;
   },
 
+  completeMyTask: async (assignmentId: string, submissionData?: any) => {
+    const res = await apiClient.post(`/programme/my-tasks/${assignmentId}/complete`, { submissionData });
+    return res.data;
+  },
+
+  // 90-Day Programme
+  getMyProgramme: async () => {
+    const res = await apiClient.get('/programme/my-programme');
+    return res.data;
+  },
+
+  completeMission: async (missionId: string) => {
+    const res = await apiClient.put(`/programme/my-programme/missions/${missionId}/complete`);
+    return res.data;
+  },
+
+  getProgrammePhases: async () => {
+    const res = await apiClient.get('/programme/phases');
+    return res.data;
+  },
+
   uploadFile: async (file: File) => {
     const data = new FormData();
     data.append('file', file);

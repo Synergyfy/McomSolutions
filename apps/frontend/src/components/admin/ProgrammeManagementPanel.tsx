@@ -23,6 +23,7 @@ import {
   useProgrammeAgents,
   useProgrammeBusinesses,
   useProgrammeBusinessAction,
+  useUpdateProgrammeBusiness,
   useCreateProgrammePhase,
   useUpdateProgrammePhase,
   useDeleteProgrammePhase,
@@ -114,11 +115,11 @@ const ACTION_CONFIGS: Record<BusinessAction, {
   fastTrack: {
     icon: FastForward,
     title: 'Fast-Track Business',
-    description: (b) => `Advance ${b.businessName} to a specific day. All missions up to that day will be marked as completed and their status updated accordingly.`,
+    description: (b) => `Advance ${b.businessName} to a specific day. Their programme will jump forward to that day (missions are tracked by the system automatically).`,
     inputType: 'number',
     inputLabel: 'Target Day',
-    inputPlaceholder: 'e.g. 90',
-    inputDefault: 90,
+    inputPlaceholder: 'e.g. 30',
+    inputDefault: 30,
     min: 1,
     max: 90,
     confirmLabel: 'Fast-Track',
@@ -1056,12 +1057,9 @@ function BusinessesSection() {
 
   const fastTrack = (b: BusinessProgrammeRecord, day: number) => {
     if (day >= 1 && day <= 90) {
-      const allMissionIds: string[] = [];
-      PROGRAMME_PHASES.forEach(p => p.missions.forEach(m => allMissionIds.push(m.id)));
-      const completedCount = Math.round((day / 90) * allMissionIds.length);
+      // Only update currentDay — backend will handle completedMissions
       updateBusiness(b.id, {
         currentDay: day,
-        completedMissions: allMissionIds.slice(0, completedCount),
         status: day >= 90 ? 'completed' : 'active',
       });
     }
@@ -1182,6 +1180,13 @@ function BusinessesSection() {
                     min="1" max="120"
                   />
                   <span className="text-xs text-gray-400">of {90 + (selectedBusiness.extendedBy || 0)}</span>
+                  <button
+                    onClick={() => businessAction.mutate({ id: selectedBusiness.id, data: { action: 'fastTrack', days: selectedBusiness.currentDay } })}
+                    disabled={businessAction.isPending}
+                    className="px-3 py-2 text-xs font-bold bg-brand-blue text-white rounded-lg hover:bg-brand-dark disabled:opacity-50 transition-colors"
+                  >
+                    Save Day
+                  </button>
                 </div>
               </div>
               <div className="flex-1">
@@ -1244,6 +1249,7 @@ function BusinessesSection() {
 function SupportSection() {
   const { data: bizRes } = useProgrammeBusinesses();
   const { data: agentsRes } = useProgrammeAgents();
+  const updateBizMutation = useUpdateProgrammeBusiness();
   const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>([]);
   const [selectedBiz, setSelectedBiz] = useState<string | null>(null);
 
@@ -1257,21 +1263,21 @@ function SupportSection() {
   const consultants = allAgents.filter(a => a.role === 'consultant');
 
   const assign = (bId: string, field: 'agentId' | 'accountManagerId' | 'consultantId', agent: SupportAgent | null) => {
-    setBusinesses(prev => prev.map(b => {
-      if (b.id !== bId) return b;
-      const updates: any = {};
-      if (field === 'agentId') {
-        updates.agentId = agent?.id || null;
-        updates.agentName = agent?.name || '';
-      } else if (field === 'accountManagerId') {
-        updates.accountManagerId = agent?.id || null;
-        updates.accountManagerName = agent?.name || '';
-      } else if (field === 'consultantId') {
-        updates.consultantId = agent?.id || null;
-        updates.consultantName = agent?.name || '';
-      }
-      return { ...b, ...updates };
-    }));
+    const updates: Partial<BusinessProgrammeRecord> = {};
+    if (field === 'agentId') {
+      updates.agentId = agent?.id || null;
+      updates.agentName = agent?.name || '';
+    } else if (field === 'accountManagerId') {
+      updates.accountManagerId = agent?.id || null;
+      updates.accountManagerName = agent?.name || '';
+    } else if (field === 'consultantId') {
+      updates.consultantId = agent?.id || null;
+      updates.consultantName = agent?.name || '';
+    }
+    // Optimistic local update
+    setBusinesses(prev => prev.map(b => b.id !== bId ? b : { ...b, ...updates }));
+    // Persist to backend
+    updateBizMutation.mutate({ id: bId, data: updates as any });
   };
 
   const getAssignedName = (b: BusinessProgrammeRecord, field: 'agentId' | 'accountManagerId' | 'consultantId', nameField: 'agentName' | 'accountManagerName' | 'consultantName') => {
@@ -1338,6 +1344,7 @@ function SupportSection() {
 
 function MonitoringSection() {
   const { data: bizRes } = useProgrammeBusinesses();
+  const businessAction = useProgrammeBusinessAction();
   const [businesses, setBusinesses] = useState<BusinessProgrammeRecord[]>([]);
 
   useEffect(() => {
@@ -1380,10 +1387,11 @@ function MonitoringSection() {
     }
   };
 
-  const bulkAction = (action: string) => {
+  const bulkAction = (action: 'pause' | 'resume') => {
     if (selectedIds.length === 0) return;
-    const msg = `${action} ${selectedIds.length} business(es)?`;
+    const msg = `${action.charAt(0).toUpperCase() + action.slice(1)} ${selectedIds.length} business(es)?`;
     if (confirm(msg)) {
+      selectedIds.forEach(id => businessAction.mutate({ id, data: { action } }));
       setSelectedIds([]);
     }
   };
@@ -1432,8 +1440,8 @@ function MonitoringSection() {
       {selectedIds.length > 0 && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3 p-3 bg-brand-blue/5 rounded-xl border border-brand-blue/20">
           <span className="text-sm font-bold text-brand-blue">{selectedIds.length} selected</span>
-          <button onClick={() => bulkAction('Pause')} className="px-3 py-1.5 text-xs font-bold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200">Pause</button>
-          <button onClick={() => bulkAction('Resume')} className="px-3 py-1.5 text-xs font-bold bg-green-100 text-green-700 rounded-lg hover:bg-green-200">Resume</button>
+          <button onClick={() => bulkAction('pause')} className="px-3 py-1.5 text-xs font-bold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200">Pause</button>
+          <button onClick={() => bulkAction('resume')} className="px-3 py-1.5 text-xs font-bold bg-green-100 text-green-700 rounded-lg hover:bg-green-200">Resume</button>
           <button onClick={() => setSelectedIds([])} className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-lg">Clear</button>
         </motion.div>
       )}

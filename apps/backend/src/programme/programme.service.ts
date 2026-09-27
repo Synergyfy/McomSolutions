@@ -266,7 +266,8 @@ export class ProgrammeService {
         data = { status: 'active' };
         break;
       case 'fastTrack':
-        data = { currentDay: Math.min(90, business.currentDay + 7) };
+        // `days` is used as the target day when provided; otherwise advance +7
+        data = { currentDay: Math.min(90, days ?? business.currentDay + 7) };
         break;
       case 'extend':
         data = {
@@ -353,9 +354,82 @@ export class ProgrammeService {
     return { success: true, data: status };
   }
 
+  // ─── User Dashboard (business-facing) ───────────────
+  async getBusinessProgrammeByBusinessId(businessId: string) {
+    let prog = await this.prisma.businessProgramme.findFirst({
+      where: { businessId },
+      include: { phase: true, taskStatuses: true },
+    });
+
+    // Auto-enroll if missing
+    if (!prog) {
+      const biz = await this.prisma.businessProfile.findUnique({ where: { id: businessId } });
+      if (!biz) {
+        throw new NotFoundException('Business profile not found');
+      }
+      prog = await this.prisma.businessProgramme.create({
+        data: {
+          businessId: biz.id,
+          businessName: biz.businessName,
+          sector: biz.category || biz.industry || '',
+          currentDay: 1,
+          status: 'active',
+          agentName: 'MCOM Onboarding Specialist',
+          accountManagerName: 'Dedicated Manager',
+          consultantName: 'Business Growth Advisor',
+          completedMissions: [],
+        },
+        include: { phase: true, taskStatuses: true },
+      });
+    }
+
+    return { success: true, data: prog };
+  }
+
+  async completeMissionForBusiness(businessId: string, missionId: string) {
+    const prog = await this.prisma.businessProgramme.findFirst({
+      where: { businessId },
+    });
+
+    if (!prog) {
+      throw new NotFoundException('Business programme not found');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Upsert task status
+      await tx.programmeTaskStatus.upsert({
+        where: {
+          businessProgrammeId_missionId: {
+            businessProgrammeId: prog.id,
+            missionId,
+          },
+        },
+        create: {
+          businessProgrammeId: prog.id,
+          missionId,
+          status: 'completed',
+        },
+        update: {
+          status: 'completed',
+        },
+      });
+
+      // 2. Add to completedMissions array if not already present
+      if (!prog.completedMissions.includes(missionId)) {
+        await tx.businessProgramme.update({
+          where: { id: prog.id },
+          data: {
+            completedMissions: { push: missionId },
+          },
+        });
+      }
+
+      return { success: true, missionId, status: 'completed' };
+    });
+  }
+
   // ─── Helpers ──────────────────────────────────────────
-  private async ensurePhase(id: string) {
-    const phase = await this.prisma.programmePhase.findUnique({ where: { id } });
+  private async ensurePhase(id: string) {    const phase = await this.prisma.programmePhase.findUnique({ where: { id } });
     if (!phase) throw new NotFoundException('Programme phase not found');
     return phase;
   }
