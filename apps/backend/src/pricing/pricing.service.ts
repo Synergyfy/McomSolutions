@@ -1,4 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { MembershipLevel, MembershipTier, MembershipStatus } from '@prisma/client';
 import {
@@ -18,7 +21,14 @@ const YEARLY_DISCOUNT = 0.2;
 
 @Injectable()
 export class PricingService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(PricingService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    @Optional()
+    @InjectQueue(TASK_EVENT_QUEUE)
+    private readonly taskEventQueue?: Queue<TaskEventJobData>,
+  ) {}
 
   private tierMultiplier(tier: string): number {
     const canonical = normalizeTier(tier);
@@ -162,6 +172,17 @@ export class PricingService {
         membershipExpiresAt: expiresAt,
       },
     });
+
+    if (this.taskEventQueue && updated?.userId) {
+      this.taskEventQueue
+        .add('emit-task-event', {
+          userId: updated.userId,
+          userType: 'BUSINESS',
+          featureKey: 'business.membership_purchased',
+          meta: { timestamp: new Date().toISOString() },
+        })
+        .catch((err) => this.logger.warn('Failed to emit task event for membership:', err));
+    }
 
     // Extract tier-specific quotas from tierEntitlements
     const tierQuotas: Record<string, any> = {};

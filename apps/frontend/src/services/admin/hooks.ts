@@ -942,6 +942,99 @@ export const useUpdateProgrammeBusinessTask = () => {
   })
 }
 
+// ─── Task Engine ─────────────────────────────────────────
+export const useTaskFeatures = () => {
+  return useQuery({
+    queryKey: ['admin', 'taskFeatures'],
+    queryFn: () => adminApi.getTaskFeatures(),
+    staleTime: 1000 * 60 * 30,
+  })
+}
+
+export const useTaskOverviewStats = () => {
+  return useQuery({
+    queryKey: ['admin', 'taskOverviewStats'],
+    queryFn: () => adminApi.getTaskOverviewStats(),
+    refetchInterval: 10000,
+  })
+}
+
+export const useTaskDefinitions = () => {
+  return useQuery({
+    queryKey: ['admin', 'taskDefinitions'],
+    queryFn: () => adminApi.getTaskDefinitions(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useCreateTaskDefinition = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => adminApi.createTaskDefinition(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskDefinitions'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskOverviewStats'] })
+    },
+  })
+}
+
+export const useUpdateTaskDefinition = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateTaskDefinition(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskDefinitions'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskOverviewStats'] })
+    },
+  })
+}
+
+export const useDeleteTaskDefinition = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteTaskDefinition(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskDefinitions'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskOverviewStats'] })
+    },
+  })
+}
+
+export const useAssignTask = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: { userIds?: string[] } }) =>
+      adminApi.assignTask(id, data),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskDefinitions'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskOverviewStats'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskAssignments', variables.id] })
+    },
+  })
+}
+
+export const useTaskAssignments = (id: string, params?: { status?: string; search?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'taskAssignments', id, params],
+    queryFn: () => adminApi.getTaskAssignments(id, params),
+    enabled: !!id,
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useUpdateTaskAssignmentStatus = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ assignmentId, data }: { assignmentId: string; data: { status: string; grantReward?: boolean } }) =>
+      adminApi.updateTaskAssignmentStatus(assignmentId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskAssignments'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskDefinitions'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'taskOverviewStats'] })
+    },
+  })
+}
+
 // ─── System — API Keys ──────────────────────────────────
 export const useAdminApiKeys = () => {
   return useQuery({

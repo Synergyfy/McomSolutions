@@ -255,20 +255,21 @@ export default function AffiliateVerifyEmail() {
                         </div>
                     )}
 
-                    <div className="flex gap-2 sm:gap-3 mb-8 justify-between">
+                    <div className="flex gap-1.5 sm:gap-2 md:gap-3 mb-6 sm:mb-8 justify-center">
                         {code.map((digit, index) => (
                             <input
                                 key={index}
                                 ref={el => { inputsRef.current[index] = el; }}
                                 type="text"
                                 inputMode="numeric"
+                                pattern="[0-9]*"
                                 autoComplete={index === 0 ? "one-time-code" : "off"}
                                 maxLength={6}
                                 value={digit}
                                 onChange={(e) => handleChange(index, e.target.value)}
                                 onKeyDown={(e) => handleKeyDown(index, e)}
                                 onPaste={(e) => handlePaste(index, e)}
-                                className="w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl font-bold bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all text-text-main"
+                                className="w-9 h-12 sm:w-12 sm:h-14 md:w-14 md:h-16 text-center text-xl sm:text-2xl font-bold bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary outline-none transition-all text-text-main"
                             />
                         ))}
                     </div>

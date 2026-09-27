@@ -160,11 +160,6 @@ const setAuthTokens = (tokens: any) => ({ type: 'SET_TOKENS', tokens });
 const setUserData = (user: any) => ({ type: 'SET_USER', user });
 const loadAuthFromCookies = () => ({ type: 'LOAD_AUTH' });
 
-const Cookies = {
-  set: (key: string, value: string, options?: any) => console.log(`Cookie Set: ${key} = ${value}`),
-  get: (key: string) => null,
-};
-
 const api = {
   post: async (endpoint: string, payload: any): Promise<{ data: any }> => {
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -737,6 +732,22 @@ function BusinessOnboardingInner() {
   };
 
   const dispatch = useDispatch();
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleMessageRef = useRef<((event: MessageEvent) => void) | null>(null);
+
+  // Clean up OAuth listeners and polling timer if component unmounts
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      if (handleMessageRef.current) {
+        window.removeEventListener('message', handleMessageRef.current);
+        handleMessageRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Handle OAuth popup callback ──────────────────────────────────────────
   // When Google redirects back, the popup reloads this page with ?claim=...
@@ -756,6 +767,34 @@ function BusinessOnboardingInner() {
         window.location.origin
       );
       window.close();
+    } else {
+      // Mobile full-page redirect fallback (no window.opener)
+      if (claimStatus === 'success') {
+        const saved = localStorage.getItem('pending_google_claim');
+        if (saved) {
+          try {
+            const biz = JSON.parse(saved);
+            localStorage.removeItem('pending_google_claim');
+            setIsGoogleOnboarding(true);
+            setShowConnectGooglePage(false);
+            handleGoogleSelectBranch({
+              googlePlaceId: biz.googlePlaceId || claimPlaceId,
+              businessName: biz.businessName,
+              address: biz.address,
+              postcode: biz.postcode,
+              businessPhone: biz.businessPhone,
+              googleCategoryId: biz.googleCategoryId,
+            });
+          } catch (e) {
+            console.error('Failed to restore mobile claim business', e);
+          }
+        }
+      } else {
+        setSubmitError(
+          'We could not verify your ownership of this business on Google. ' +
+          'Please try again or enter your details manually.'
+        );
+      }
     }
   }, []);
   // ─────────────────────────────────────────────────────────────────────────
@@ -964,6 +1003,13 @@ function BusinessOnboardingInner() {
       });
       const { authUrl } = res.data;
 
+      const isMobileDevice = typeof window !== 'undefined' && (window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+      if (isMobileDevice) {
+        localStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
+        window.location.href = authUrl;
+        return;
+      }
+
       const popup = window.open(
         authUrl,
         'google_oauth',
@@ -971,14 +1017,24 @@ function BusinessOnboardingInner() {
       );
 
       if (!popup) {
+        localStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
         window.location.href = authUrl;
         return;
+      }
+
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+      if (handleMessageRef.current) {
+        window.removeEventListener('message', handleMessageRef.current);
+        handleMessageRef.current = null;
       }
 
       const handleMessage = (event: MessageEvent) => {
         const getOrigin = (urlStr?: string) => {
           if (!urlStr) return '';
-          try { return new URL(urlStr).origin; } catch { return ''; }
+          try { return new URL(urlStr, window.location.origin).origin; } catch { return ''; }
         };
         const allowedOrigins = [
           window.location.origin,
@@ -990,8 +1046,14 @@ function BusinessOnboardingInner() {
         ].filter(Boolean);
         if (!allowedOrigins.includes(event.origin)) return;
         if (event.data?.type !== 'GOOGLE_CLAIM_RESULT') return;
-        window.removeEventListener('message', handleMessage);
-        clearInterval(pollTimer);
+        if (handleMessageRef.current) {
+          window.removeEventListener('message', handleMessageRef.current);
+          handleMessageRef.current = null;
+        }
+        if (pollTimerRef.current) {
+          clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+        }
         setIsSubmitting(false);
         if (event.data.success) {
           if (event.data.email) {
@@ -1017,12 +1079,19 @@ function BusinessOnboardingInner() {
           );
         }
       };
+      handleMessageRef.current = handleMessage;
       window.addEventListener('message', handleMessage);
 
-      const pollTimer = setInterval(() => {
+      pollTimerRef.current = setInterval(() => {
         if (popup.closed) {
-          clearInterval(pollTimer);
-          window.removeEventListener('message', handleMessage);
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+          if (handleMessageRef.current) {
+            window.removeEventListener('message', handleMessageRef.current);
+            handleMessageRef.current = null;
+          }
           setIsSubmitting(false);
         }
       }, 600);
@@ -1417,12 +1486,13 @@ function BusinessOnboardingInner() {
           setShowConnectGooglePage(false);
           setShowBusinessTypePage(false);
 
-          // Synchronize localStorage draft with the fresh intent token and reset screen states
+          const { password: _p, confirmPassword: _cp, ...sanitizedDraftForm } = parsed.formData || {};
+          // Synchronize localStorage draft with the fresh intent token and reset screen states (credentials stripped)
           localStorage.setItem('business_onboarding_draft', JSON.stringify({
             intentToken: currentIntentToken,
             step: 0,
             wizardStepIndex: 0,
-            formData: parsed.formData || {},
+            formData: sanitizedDraftForm,
             completedWizardSteps: [],
             showInitialPrompt: true,
             showGoogleCategoryPage: false,
@@ -1435,8 +1505,11 @@ function BusinessOnboardingInner() {
             showInitialAssessment: false,
           }));
         } else {
-          // Restore full draft state normally
-          if (parsed.formData) setFormData((prev: any) => ({ ...prev, ...parsed.formData }));
+          // Restore full draft state normally (credentials stripped from cache)
+          if (parsed.formData) {
+            const { password: _p, confirmPassword: _cp, ...restoredFormData } = parsed.formData;
+            setFormData((prev: any) => ({ ...prev, ...restoredFormData }));
+          }
           if (parsed.step !== undefined) {
             setCurrentStep(parsed.step);
           }
@@ -1538,10 +1611,11 @@ function BusinessOnboardingInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, isClient]);
 
-  // ─── Save to cache ───────────────────────────────────
+  // ─── Save to cache (Sanitized against sensitive credentials) ───────────
   useEffect(() => {
     if (!isClient) return;
-    localStorage.setItem('businessOnboarding', JSON.stringify(formData));
+    const { password: _p, confirmPassword: _cp, ...sanitizedFormData } = formData;
+    localStorage.setItem('businessOnboarding', JSON.stringify(sanitizedFormData));
     localStorage.setItem('businessOnboardingStep', currentStep.toString());
     localStorage.setItem('businessOnboardingCompleted', JSON.stringify([...completedSteps]));
     // Also save to new wizard draft key with full screen state
@@ -1551,7 +1625,7 @@ function BusinessOnboardingInner() {
         intentToken,
         step: currentStep,
         wizardStepIndex: currentStep,
-        formData,
+        formData: sanitizedFormData,
         completedWizardSteps: [...completedSteps],
         // Screen state
         showInitialPrompt,
@@ -2300,9 +2374,10 @@ function BusinessOnboardingInner() {
                 setGoogleCatDrillGroup(null);
                 setShowInitialPrompt(true);
               }}
-              className="hidden sm:block p-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors shrink-0"
+              className="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors shrink-0 font-bold text-xs"
             >
               <ChevronLeft className="w-5 h-5" />
+              <span className="sm:hidden">Back</span>
             </button>
           </div>
         </div>
@@ -2348,12 +2423,12 @@ function BusinessOnboardingInner() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
             {filteredCategories.map((item) => (
               <button
                 key={item.id}
                 onClick={item.onClick}
-                className="bg-white rounded-2xl p-6 border border-gray-200 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-gray-300 active:scale-95 transition-all group"
+                className="bg-white rounded-2xl p-4 sm:p-6 border border-gray-200 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-gray-300 active:scale-95 transition-all group"
               >
                 <div className="text-gray-700 group-hover:text-black transition-colors">
                   {item.icon}
@@ -2803,13 +2878,33 @@ function BusinessOnboardingInner() {
 
           {/* Quick Action Cards */}
           <div className="grid grid-cols-2 gap-4">
-            <button className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-xl border border-orange-100 hover:bg-orange-100 active:scale-95 transition-all text-orange-600">
+            <button
+              type="button"
+              onClick={() => {
+                const query = selectedPreviewBusiness.lat && selectedPreviewBusiness.lng
+                  ? `${selectedPreviewBusiness.lat},${selectedPreviewBusiness.lng}`
+                  : encodeURIComponent(selectedPreviewBusiness.address || selectedPreviewBusiness.businessName);
+                window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+              }}
+              className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-xl border border-orange-100 hover:bg-orange-100 active:scale-95 transition-all text-orange-600 cursor-pointer"
+            >
               <Map className="w-6 h-6 mb-1" />
               <span className="font-bold text-[10px] tracking-wider">DIRECTIONS</span>
             </button>
-            <button className="flex flex-col items-center justify-center p-4 bg-orange-50 rounded-xl border border-orange-100 hover:bg-orange-100 active:scale-95 transition-all text-orange-600">
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedPreviewBusiness.businessPhone) {
+                  window.location.href = `tel:${selectedPreviewBusiness.businessPhone}`;
+                }
+              }}
+              disabled={!selectedPreviewBusiness.businessPhone}
+              className={`flex flex-col items-center justify-center p-4 bg-orange-50 rounded-xl border border-orange-100 hover:bg-orange-100 active:scale-95 transition-all text-orange-600 ${!selectedPreviewBusiness.businessPhone ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
               <Phone className="w-6 h-6 mb-1" />
-              <span className="font-bold text-[10px] tracking-wider">CALL</span>
+              <span className="font-bold text-[10px] tracking-wider">
+                {selectedPreviewBusiness.businessPhone ? 'CALL' : 'NO PHONE'}
+              </span>
             </button>
           </div>
 
@@ -3218,7 +3313,7 @@ function BusinessOnboardingInner() {
         </header>
 
         {/* Main Content Canvas */}
-        <main className="flex-grow pt-18 md:pt-24 pb-12 px-6 flex justify-center w-full">
+        <main className="flex-grow pt-20 md:pt-24 pb-12 px-4 sm:px-6 flex justify-center w-full">
           <div className="w-full max-w-[640px] flex flex-col gap-8">
             {/* Title Section */}
             <section className="text-center md:text-left">
@@ -3364,7 +3459,7 @@ function BusinessOnboardingInner() {
         </header>
 
         {/* Main Content Canvas */}
-        <main className="flex-grow pt-18 md:pt-24 pb-12 px-6 flex justify-center w-full">
+        <main className="flex-grow pt-20 md:pt-24 pb-12 px-4 sm:px-6 flex justify-center w-full">
           <div className="w-full max-w-[640px] flex flex-col gap-8">
             {/* Onboarding Progress Stepper */}
             <div className="w-full">
@@ -3465,7 +3560,7 @@ function BusinessOnboardingInner() {
           </button>
         </header>
 
-        <main className="flex-1 flex flex-col items-center justify-start px-6 pt-18 md:pt-24 pb-10 max-w-[640px] mx-auto w-full">
+        <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-6 pt-20 md:pt-24 pb-10 max-w-[640px] mx-auto w-full">
           {/* Onboarding Progress Section */}
           <div className="w-full mb-8">
             <div className="flex justify-between items-end mb-2">
@@ -3584,7 +3679,7 @@ function BusinessOnboardingInner() {
           <div className="h-full bg-orange-600 w-[91.6%] transition-all duration-700 ease-out"></div>
         </div>
 
-        <main className="flex-1 flex flex-col items-center justify-start px-6 pt-18 md:pt-24 pb-10 max-w-[1024px] mx-auto w-full">
+        <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-6 pt-20 md:pt-24 pb-10 max-w-[1024px] mx-auto w-full">
           {/* Header Section */}
           <section className="mb-8 w-full text-center">
             <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mb-2">Step 11 of 12</p>
@@ -4115,7 +4210,7 @@ function BusinessOnboardingInner() {
           </div>
         </header>
 
-        <main className="max-w-[1280px] mx-auto px-6 pt-18 md:pt-24 pb-32 w-full flex-grow flex justify-center">
+        <main className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-20 md:pt-24 pb-32 w-full flex-grow flex justify-center">
           <div className="w-full max-w-[640px]">
             {/* Onboarding Stepper */}
             <div className="w-full mb-8">
@@ -4467,29 +4562,29 @@ function BusinessOnboardingInner() {
         <>
           <div className="min-h-screen bg-gray-50 py-12">
             <div className="max-w-7xl mx-auto px-4 sm:px-6">
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                 <div>
                   {currentUser?.businessProfile?.id && (
                     <button
                       onClick={() => performSSORedirect()}
-                      className="text-sm font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 px-4 py-2 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                      className="text-xs sm:text-sm font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 px-3 sm:px-4 py-2 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
                     >
                       <ChevronLeft className="w-4 h-4" /> Back to {platformName}
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center flex-wrap gap-2">
                   <button
                     onClick={handleRestartOnboarding}
-                    className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                    className="text-xs sm:text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
                   >
-                    <RefreshCw className="w-4 h-4" /> Restart Onboarding
+                    <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Restart Onboarding
                   </button>
                   <button
                     onClick={handleLogout}
-                    className="text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                    className="text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
                   >
-                    <LogOut className="w-4 h-4" /> Log Out
+                    <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Log Out
                   </button>
                 </div>
               </div>
@@ -4786,18 +4881,18 @@ function BusinessOnboardingInner() {
     return (
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <button
               onClick={handleRestartOnboarding}
-              className="text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              className="text-xs sm:text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
             >
-              <RefreshCw className="w-4 h-4" /> Restart Onboarding
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Restart Onboarding
             </button>
             <button
               onClick={handleLogout}
-              className="text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              className="text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
             >
-              <LogOut className="w-4 h-4" /> Log Out
+              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Log Out
             </button>
           </div>
           <div className="text-center max-w-3xl mx-auto mb-12">
@@ -4818,20 +4913,20 @@ function BusinessOnboardingInner() {
             </motion.div>
 
             {/* Billing Toggle */}
-            <div className="mt-8 flex flex-col items-center gap-4">
-              <div className="flex p-1 bg-gray-100 rounded-full">
+            <div className="mt-8 flex flex-col items-center gap-4 w-full">
+              <div className="flex p-1 bg-gray-100 rounded-2xl sm:rounded-full flex-col sm:flex-row w-full max-w-lg gap-1 sm:gap-0">
                 {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                   <button
                     key={cycle}
                     onClick={() => setPlanBillingCycle(cycle)}
                     className={cn(
-                      "px-6 md:px-8 py-3 rounded-full text-sm font-semibold transition-all",
-                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-lg" : "text-gray-500 hover:text-gray-700"
+                      "flex-1 px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 rounded-xl sm:rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5",
+                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md sm:shadow-lg" : "text-gray-500 hover:text-gray-700"
                     )}
                   >
-                    {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
-                    {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
-                    {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
+                    <span>{cycle.charAt(0).toUpperCase() + cycle.slice(1)}</span>
+                    {cycle === 'quarterly' && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded-full uppercase font-bold">Save 10%</span>}
+                    {cycle === 'yearly' && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded-full uppercase font-bold">Save 20%</span>}
                   </button>
                 ))}
               </div>
@@ -5084,14 +5179,14 @@ function BusinessOnboardingInner() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
 
             {/* Top Bar with Restart, Skip, and Logout */}
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
               <button
                 onClick={handleRestartOnboarding}
-                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
+                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer w-fit"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> Restart
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center flex-wrap gap-2">
                 <button
                   onClick={handleCompleteAndEnterDashboard}
                   className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
@@ -5461,7 +5556,7 @@ function BusinessOnboardingInner() {
           initial={{ y: 30, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-4xl md:text-5xl font-black text-gray-900 mb-3 text-center tracking-tight"
+          className="text-3xl sm:text-4xl md:text-5xl font-black text-gray-900 mb-3 text-center tracking-tight"
         >
           You&apos;re All Set!
         </motion.h1>
@@ -5470,7 +5565,7 @@ function BusinessOnboardingInner() {
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.7 }}
-          className="text-lg text-gray-500 mb-10 text-center max-w-md"
+          className="text-base sm:text-lg text-gray-500 mb-8 sm:mb-10 text-center max-w-md px-2"
         >
           <span className="font-bold text-gray-700">{formData.businessName || 'Your business'}</span>{' '}
           is successfully registered and ready to establish your storefront on LocalMall.
@@ -5493,10 +5588,10 @@ function BusinessOnboardingInner() {
             }
             await performSSORedirect(targetRoute);
           }}
-          className="px-10 py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-lg font-bold rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2"
+          className="w-full sm:w-auto px-6 sm:px-10 py-3.5 sm:py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-base sm:text-lg font-bold rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center justify-center gap-2 text-center"
         >
-          {formData.businessType === 'products' || formData.businessType === 'both' ? 'Start Product Setup' : 'Start Service Setup'}
-          <ChevronRight className="w-5 h-5" />
+          <span>{formData.businessType === 'products' || formData.businessType === 'both' ? 'Start Product Setup' : 'Start Service Setup'}</span>
+          <ChevronRight className="w-5 h-5 shrink-0" />
         </motion.button>
       </div>
     );
@@ -7203,7 +7298,7 @@ function BusinessOnboardingInner() {
         </div>
 
         {/* ─── Navigation ──────────────────────────────── */}
-        <div className="fixed bottom-4 left-4 right-4 p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-gray-200 shadow-2xl z-55 sm:static sm:bg-transparent sm:border-none sm:shadow-none sm:p-0 sm:mt-8">
+        <div className="fixed bottom-4 left-4 right-4 p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-gray-200 shadow-2xl z-[55] sm:static sm:bg-transparent sm:border-none sm:shadow-none sm:p-0 sm:mt-8">
           {submitError && !isGoogleOnboarding && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}

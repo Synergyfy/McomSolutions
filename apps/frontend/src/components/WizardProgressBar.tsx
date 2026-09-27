@@ -45,13 +45,12 @@ export default function WizardProgressBar({ steps, currentStep, completedSteps }
             <div key={i} className="flex flex-col items-center relative flex-1">
               <div className="flex items-center w-full">
                 <div
-                  className={`z-10 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
-                    isCompleted
+                  className={`z-10 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${isCompleted
                       ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30'
                       : isCurrent
                         ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md'
                         : 'bg-gray-100 text-gray-400 border border-gray-200'
-                  }`}
+                    }`}
                 >
                   {isCompleted ? (
                     <Check className="w-4 h-4" strokeWidth={3} />
@@ -60,14 +59,12 @@ export default function WizardProgressBar({ steps, currentStep, completedSteps }
                   )}
                 </div>
                 {i < steps.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-1 ${
-                    completedSteps.has(i) ? 'bg-orange-500' : 'bg-gray-200'
-                  }`} />
+                  <div className={`flex-1 h-0.5 mx-1 ${completedSteps.has(i) ? 'bg-orange-500' : 'bg-gray-200'
+                    }`} />
                 )}
               </div>
-              <span className={`mt-2 text-[10px] font-semibold text-center leading-tight max-w-[80px] ${
-                isCurrent ? 'text-orange-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'
-              }`}>
+              <span className={`mt-2 text-[10px] font-semibold text-center leading-tight max-w-20 hidden md:block ${isCurrent ? 'text-orange-600' : isCompleted ? 'text-gray-700' : 'text-gray-400'
+                }`}>
                 {step.label}
               </span>
             </div>

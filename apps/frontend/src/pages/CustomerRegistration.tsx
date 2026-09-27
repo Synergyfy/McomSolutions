@@ -122,18 +122,21 @@ function OTPInput({ length = 6, value, onChange }: OTPInputProps) {
   };
 
   return (
-    <div className="flex gap-2 justify-center">
+    <div className="flex gap-1.5 sm:gap-2 justify-center">
       {otp.map((digit, index) => (
         <input
           key={index}
           type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete={index === 0 ? "one-time-code" : "off"}
           maxLength={1}
           value={digit}
           onChange={(e) => handleChange(e, index)}
           onKeyDown={(e) => handleKeyDown(e, index)}
           onPaste={handlePaste}
           ref={(el) => { inputsRef.current[index] = el; }}
-          className="w-12 h-14 text-center text-2xl border border-gray-300 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all font-bold text-gray-800 bg-gray-50"
+          className="w-9 h-12 sm:w-12 sm:h-14 text-center text-xl sm:text-2xl border border-gray-300 rounded-lg sm:rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 outline-none transition-all font-bold text-gray-800 bg-gray-50"
         />
       ))}
     </div>

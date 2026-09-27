@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   PackageOpen, Wallet, Building2, ShieldCheck,
@@ -70,7 +70,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-[#F9FAFB] flex text-gray-900">
       {/* Mobile backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
@@ -91,14 +91,14 @@ export default function Dashboard() {
               <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Ecosystem Hub</div>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto scrollbar-hide">
           <NavItem icon={LayoutDashboard} label="Overview" active={activeTab === 'overview'} onClick={() => handleNav('overview')} />
           <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => handleNav('all-products')} />
@@ -128,20 +128,23 @@ export default function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-72 bg-mesh min-h-screen pb-20 lg:pb-0">
-        <header className="sticky top-0 z-10 px-4 sm:px-6 lg:px-12 py-3 md:py-6 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-gray-200">
+      <main className="flex-1 lg:ml-72 min-w-0 max-w-full bg-mesh min-h-screen pb-20 lg:pb-0 overflow-x-hidden">
+        <header className={cn(
+          "sticky top-0 px-4 sm:px-6 lg:px-12 py-3 md:py-6 flex items-center justify-between bg-white/90 backdrop-blur-md border-b border-gray-200 transition-all",
+          userMenuOpen ? "z-50" : "z-30"
+        )}>
           <div className="flex items-center gap-4">
             {/* Hamburger hidden on mobile — replaced by bottom tab nav */}
             <div className="relative w-full max-w-xs hidden sm:block">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Search ecosystem..."
                 className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:bg-white transition-all text-sm"
               />
             </div>
           </div>
-          
+
           <div className="flex items-center gap-3 md:gap-6">
             <button className="p-2 text-gray-400 hover:text-gray-600 relative">
               <Bell className="w-5 h-5" />
@@ -152,7 +155,7 @@ export default function Dashboard() {
             </button>
 
             {/* User Menu Dropdown */}
-            <div className="relative">
+            <div className={cn("relative", userMenuOpen && "z-50")}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className="flex items-center gap-2 md:gap-3 pl-2 md:pl-4 border-l border-gray-200 group"
@@ -169,7 +172,7 @@ export default function Dashboard() {
 
               {userMenuOpen && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                  <div className="fixed inset-0 z-40 bg-black/5" onClick={() => setUserMenuOpen(false)} />
                   <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3 z-50">
                     <div className="px-3 py-3 border-b border-gray-100 mb-2">
                       <div className="font-bold text-gray-900 text-sm">{displayName}</div>
@@ -216,7 +219,7 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <div className="p-4 sm:p-6 lg:p-12">
+        <div className="p-2.5 sm:p-5 lg:p-8 min-w-0 max-w-full">
           {activeTab === 'overview' && (
             showFirstWelcome ? (
               <FirstDashboardWelcome
@@ -244,31 +247,31 @@ export default function Dashboard() {
 
       {/* Mobile Bottom Tab Nav - 3 tabs + More */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 flex items-center justify-around px-1 pt-1.5 pb-[max(8px,env(safe-area-inset-bottom))] shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
-          <button onClick={() => handleNav('overview')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "text-orange-600" : "text-gray-400")}>
-            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "bg-orange-50" : "")}>
-              <LayoutDashboard className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] font-bold leading-none">Overview</span>
-          </button>
-          <button onClick={() => handleNav('all-products')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "text-orange-600" : "text-gray-400")}>
-            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "bg-orange-50" : "")}>
-              <Grid className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] font-bold leading-none">Products</span>
-          </button>
-          <button onClick={() => handleNav('billing')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "text-orange-600" : "text-gray-400")}>
-            <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "bg-orange-50" : "")}>
-              <Wallet className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] font-bold leading-none">Billing</span>
-          </button>
-          <button onClick={() => setMoreSheetOpen(true)} className="flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl text-gray-400">
-            <div className="p-1.5 rounded-xl bg-gray-50">
-              <MoreHorizontal className="w-5 h-5" />
-            </div>
-            <span className="text-[10px] font-bold leading-none">More</span>
-          </button>
-        </nav>
+        <button onClick={() => handleNav('overview')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "text-orange-600" : "text-gray-400")}>
+          <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'overview' ? "bg-orange-50" : "")}>
+            <LayoutDashboard className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold leading-none">Overview</span>
+        </button>
+        <button onClick={() => handleNav('all-products')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "text-orange-600" : "text-gray-400")}>
+          <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'all-products' ? "bg-orange-50" : "")}>
+            <Grid className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold leading-none">Products</span>
+        </button>
+        <button onClick={() => handleNav('billing')} className={cn("flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "text-orange-600" : "text-gray-400")}>
+          <div className={cn("p-1.5 rounded-xl transition-colors", activeTab === 'billing' ? "bg-orange-50" : "")}>
+            <Wallet className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold leading-none">Billing</span>
+        </button>
+        <button onClick={() => setMoreSheetOpen(true)} className="flex flex-col items-center justify-center gap-1 flex-1 py-1.5 rounded-xl text-gray-400">
+          <div className="p-1.5 rounded-xl bg-gray-50">
+            <MoreHorizontal className="w-5 h-5" />
+          </div>
+          <span className="text-[10px] font-bold leading-none">More</span>
+        </button>
+      </nav>
 
       {/* More Sheet */}
       <AnimatePresence>
@@ -301,25 +304,25 @@ export default function Dashboard() {
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">General</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <SheetItem icon={ShieldCheck} label="Access" active={activeTab==='access'} onClick={() => handleNav('access')} />
-                    <SheetItem icon={Bell} label="Alerts" active={activeTab==='notifications'} onClick={() => handleNav('notifications')} />
-                    <SheetItem icon={HelpCircle} label="Support" active={activeTab==='support'} onClick={() => handleNav('support')} />
+                    <SheetItem icon={ShieldCheck} label="Access" active={activeTab === 'access'} onClick={() => handleNav('access')} />
+                    <SheetItem icon={Bell} label="Alerts" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
+                    <SheetItem icon={HelpCircle} label="Support" active={activeTab === 'support'} onClick={() => handleNav('support')} />
                   </div>
                 </div>
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Billing & Plans</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <SheetItem icon={CreditCard} label="Memberships" active={activeTab==='memberships'} onClick={() => handleNav('memberships')} />
-                    <SheetItem icon={PackageOpen} label="Packages" active={activeTab==='packages'} onClick={() => handleNav('packages')} />
-                    <SheetItem icon={Wallet} label="Billing" active={activeTab==='billing'} onClick={() => handleNav('billing')} />
-                    <SheetItem icon={Wallet} label="Wallet" active={activeTab==='wallet'} onClick={() => handleNav('wallet')} />
+                    <SheetItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
+                    <SheetItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => handleNav('packages')} />
+                    <SheetItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
+                    <SheetItem icon={Wallet} label="Wallet" active={activeTab === 'wallet'} onClick={() => handleNav('wallet')} />
                   </div>
                 </div>
                 <div>
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Account</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <SheetItem icon={Building2} label="Profile" active={activeTab==='business-profile'} onClick={() => handleNav('business-profile')} />
-                    <SheetItem icon={Settings} label="Settings" active={activeTab==='settings'} onClick={() => handleNav('settings')} />
+                    <SheetItem icon={Building2} label="Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+                    <SheetItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
                     <SheetItem icon={LogOut} label="Sign Out" onClick={handleLogout} danger />
                   </div>
                 </div>

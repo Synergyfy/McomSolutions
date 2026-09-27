@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { BusinessService, CompleteOnboardingInput, UpdateProfileInput } from './business.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
@@ -6,9 +6,12 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import * as fs from 'fs';
+import { v2 as cloudinary } from 'cloudinary';
 
 @Controller()
 export class BusinessController {
+  private readonly logger = new Logger(BusinessController.name);
+
   constructor(
     private businessService: BusinessService,
     private googleOAuth: GoogleOAuthService,
@@ -21,7 +24,7 @@ export class BusinessController {
   }
 
   // ─── File Uploads ─────────────────────────────────────
-  @Post('upload')
+  @Post(['upload', 'business/upload'])
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -52,6 +55,39 @@ export class BusinessController {
     if (!file) {
       throw new NotFoundException('No file uploaded');
     }
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (cloudName && apiKey && apiSecret) {
+      try {
+        cloudinary.config({
+          cloud_name: cloudName,
+          api_key: apiKey,
+          api_secret: apiSecret,
+          secure: true,
+        });
+
+        const uploadResult = await cloudinary.uploader.upload(file.path, {
+          folder: 'mcom/logos',
+          resource_type: 'auto',
+        });
+
+        // Clean up temporary local disk file
+        try {
+          if (file.path && fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        } catch {}
+
+        this.logger.log(`Uploaded file to Cloudinary: ${uploadResult.secure_url}`);
+        return { secure_url: uploadResult.secure_url || uploadResult.url };
+      } catch (err: any) {
+        this.logger.error('Failed to upload to Cloudinary, falling back to local storage:', err);
+      }
+    }
+
     const protocol = req.protocol;
     const host = req.get('host');
     const fileUrl = `${protocol}://${host}/uploads/${file.filename}`;

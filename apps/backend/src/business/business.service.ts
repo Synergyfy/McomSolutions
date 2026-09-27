@@ -1,4 +1,7 @@
-import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -74,7 +77,28 @@ export class BusinessService {
     private authService: AuthService,
     private configService: ConfigService,
     private googleOAuth: GoogleOAuthService,
+    @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
   ) {}
+
+  private async emitTaskEvent(
+    userId: string,
+    userType: 'BUSINESS' | 'CUSTOMER',
+    featureKey: string,
+    meta?: Record<string, unknown>,
+  ) {
+    if (!this.taskEventQueue) return;
+    try {
+      await this.taskEventQueue.add('evaluate-task', {
+        userId,
+        userType,
+        featureKey,
+        meta,
+      });
+      this.logger.log(`Enqueued task-event ${featureKey} for user ${userId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to enqueue task-event for ${featureKey}:`, err as any);
+    }
+  }
 
   // ─── Postcode Address Search ──────────────────────────
   async searchAddresses(postcode: string) {
@@ -680,6 +704,11 @@ export class BusinessService {
 
     const loginRes = await this.authService.login(newUser);
 
+    if (newUser.id) {
+      this.emitTaskEvent(newUser.id, 'BUSINESS', 'business.profile_completed');
+      this.emitTaskEvent(newUser.id, 'BUSINESS', 'business.google_verified');
+    }
+
     if (newUser.businessProfile) {
       await this.prisma.notification.createMany({
         data: [
@@ -737,7 +766,7 @@ export class BusinessService {
       ? (updates.listingType.includes('product') && updates.listingType.includes('service') ? 'both' : (updates.listingType.includes('product') ? 'products' : 'services'))
       : (updates.businessType || undefined);
 
-    return this.prisma.businessProfile.update({
+    const updated = await this.prisma.businessProfile.update({
       where: { id: businessId },
       data: {
         businessName: updates.businessName,
@@ -755,6 +784,26 @@ export class BusinessService {
         businessType,
       },
     });
+
+    if (updated?.userId) {
+      if (updates.logoUrl && updates.logoUrl.trim().length > 0) {
+        this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.logo_uploaded');
+      }
+      if (updates.socialMedia && updates.socialMedia.trim().length > 0) {
+        this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.social_linked');
+      }
+      if (openingHours && openingHours.trim().length > 0) {
+        this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.opening_hours_set');
+      }
+      if (updated.businessName && updated.phone && (updated.address || updated.postcode)) {
+        this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.profile_completed');
+      }
+      if (updated.isOnGoogle || updated.googlePlaceId) {
+        this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.google_verified');
+      }
+    }
+
+    return updated;
   }
 
   async generateApiKey(businessId: string) {

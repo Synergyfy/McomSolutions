@@ -103,3 +103,40 @@ export const useDeleteBusiness = () => {
     },
   });
 };
+
+export const useMyTasks = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['my-tasks'],
+    queryFn: () => businessApi.getMyTasks(),
+    enabled: !!token,
+    staleTime: 1000 * 30, // 30 seconds
+  });
+};
+
+export const useStartMyTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: string) => businessApi.startMyTask(assignmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
+export const useUploadBusinessFile = () => {
+  return useMutation({
+    mutationFn: (file: File) => businessApi.uploadFile(file),
+  });
+};
+
+export const useEcosystemApps = () => {
+  return useQuery({
+    queryKey: ['ecosystem-apps'],
+    queryFn: () => businessApi.getEcosystemApps(),
+    staleTime: 1000 * 60, // 1 minute
+  });
+};
+
+
+

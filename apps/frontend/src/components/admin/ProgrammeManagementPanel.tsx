@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Rocket, Settings, Users, BarChart3, Shield, Crown,
@@ -9,8 +10,10 @@ import {
   User, HeadphonesIcon, Briefcase, ToggleLeft,
   GripVertical, ArrowUpDown, Download, Upload,
   FileText, Calendar, Target, Check, X, Lock,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Loader2
+  ChevronLeft, ChevronsLeft, ChevronsRight, Loader2,
+  Zap, Building2
 } from 'lucide-react';
+import TaskEngineSection from './TaskEngineSection';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../../lib/programmeData';
 import type { ProgrammePhase, ProgrammeMission } from '../../lib/programmeData';
 import { cn } from '../../lib/utils';
@@ -61,7 +64,7 @@ interface SupportAgent {
   email: string;
 }
 
-type SubTab = 'config' | 'businesses' | 'monitoring';
+type SubTab = 'config' | 'tasks' | 'businesses' | 'monitoring';
 
 const INTERNAL_PLATFORMS = [
   { id: 'mall', name: 'MCOM Mall' },
@@ -269,6 +272,10 @@ interface TaskFormData {
   system: string;
   systemUrl: string;
   ctaLabel: string;
+  targetAudience: 'BUSINESS' | 'CUSTOMER' | 'BOTH';
+  featureKey: string;
+  deadlineDays: number;
+  rewardPoints: number;
 }
 
 const EMPTY_TASK: TaskFormData = {
@@ -282,6 +289,10 @@ const EMPTY_TASK: TaskFormData = {
   system: 'MCOM Central',
   systemUrl: '',
   ctaLabel: 'Continue',
+  targetAudience: 'BUSINESS',
+  featureKey: 'business.logo_uploaded',
+  deadlineDays: 7,
+  rewardPoints: 50,
 };
 
 function TaskEditorModal({
@@ -374,6 +385,69 @@ function TaskEditorModal({
                 />
               </div>
 
+              {/* Target Audience */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Target Audience</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'BUSINESS', label: 'Business', icon: Building2 },
+                    { id: 'CUSTOMER', label: 'Customer', icon: User },
+                    { id: 'BOTH', label: 'Both', icon: Users },
+                  ].map(aud => (
+                    <button
+                      key={aud.id}
+                      type="button"
+                      onClick={() => setLocal({ ...local, targetAudience: aud.id as any })}
+                      className={cn(
+                        'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                        local.targetAudience === aud.id
+                          ? 'bg-brand-blue text-white border-brand-blue shadow-sm'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                      )}
+                    >
+                      <aud.icon className="w-3.5 h-3.5" />
+                      {aud.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Task Type / Module Trigger Feature */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-brand-blue" />
+                  Task Type / Module Trigger Feature (BullMQ Worker)
+                </label>
+                <p className="text-[11px] text-gray-400 -mt-1">
+                  Specify what feature action in MCOM Central auto-completes this task and issues rewards.
+                </p>
+                <select
+                  value={local.featureKey || 'business.logo_uploaded'}
+                  onChange={e => setLocal({ ...local, featureKey: e.target.value })}
+                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 font-medium"
+                >
+                  <optgroup label="Business Actions">
+                    <option value="business.logo_uploaded">Upload Business Logo & Assets</option>
+                    <option value="business.profile_completed">Complete Master Business Profile</option>
+                    <option value="business.opening_hours_set">Set Operating Opening Hours</option>
+                    <option value="business.social_linked">Connect Social Media Accounts</option>
+                    <option value="business.google_verified">Connect Google Business Listing</option>
+                    <option value="business.membership_purchased">Purchase Business Membership</option>
+                  </optgroup>
+                  <optgroup label="Customer Actions">
+                    <option value="customer.profile_completed">Complete Customer Profile Info</option>
+                    <option value="customer.membership_purchased">Purchase Customer Membership</option>
+                  </optgroup>
+                  <optgroup label="Other / Manual">
+                    <option value="custom_action">Custom Action - Manual / External Verification</option>
+                  </optgroup>
+                </select>
+                <div className="text-[11px] text-brand-blue bg-blue-50/70 border border-blue-200/60 p-2 rounded-lg flex items-center gap-1.5 mt-1">
+                  <Zap className="w-3 h-3 text-brand-blue shrink-0" />
+                  <span>Connected to background message queue workers for automated completion verification.</span>
+                </div>
+              </div>
+
               {/* Submission Type */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Submission Type</label>
@@ -439,29 +513,61 @@ function TaskEditorModal({
 
               <div className="border-t border-gray-100" />
 
-              {/* Time & Reward */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Time to Complete & Reward Points */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Est. Time</label>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Time to Complete (Deadline)</label>
                   <div className="relative">
                     <input
                       type="number"
-                      value={local.estimatedMinutes}
-                      onChange={e => setLocal({ ...local, estimatedMinutes: parseInt(e.target.value) || 1 })}
+                      value={local.deadlineDays || 7}
+                      onChange={e => setLocal({ ...local, deadlineDays: parseInt(e.target.value) || 1 })}
                       className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
                       min="1"
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-semibold">minutes</span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-bold">Days</span>
+                  </div>
+                  <div className="flex gap-1 mt-1">
+                    {[3, 7, 14, 30].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setLocal({ ...local, deadlineDays: d })}
+                        className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 text-[10px] font-semibold"
+                      >
+                        {d}d
+                      </button>
+                    ))}
                   </div>
                 </div>
+
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Reward</label>
-                  <input
-                    value={local.reward}
-                    onChange={e => setLocal({ ...local, reward: e.target.value })}
-                    className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
-                    placeholder="+50 points"
-                  />
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Reward in Points (Wallet)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={local.rewardPoints ?? 50}
+                      onChange={e => {
+                        const pts = parseInt(e.target.value) || 0;
+                        setLocal({ ...local, rewardPoints: pts, reward: `+${pts} points` });
+                      }}
+                      className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
+                      min="0"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-amber-500 font-bold">MCOM Pts</span>
+                  </div>
+                  <div className="flex gap-1 mt-1">
+                    {[25, 50, 100, 250].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setLocal({ ...local, rewardPoints: p, reward: `+${p} points` })}
+                        className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 text-[10px] font-bold"
+                      >
+                        +{p}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -703,13 +809,17 @@ function ConfigSection() {
       system: mission.system || '',
       systemUrl: mission.systemUrl || '',
       ctaLabel: mission.ctaLabel || 'Continue',
+      targetAudience: (mission as any).targetAudience || 'BUSINESS',
+      featureKey: (mission as any).featureKey || 'business.logo_uploaded',
+      deadlineDays: (mission as any).deadlineDays || 7,
+      rewardPoints: (mission as any).rewardPoints || 50,
     });
     setModalOpen(true);
   };
 
   const saveTask = (data: TaskFormData) => {
     if (!activePhaseId) return;
-    const mission: ProgrammeMission = {
+    const mission: any = {
       id: data.id,
       title: data.title,
       description: data.description,
@@ -720,6 +830,10 @@ function ConfigSection() {
       system: data.submissionType === 'internal_platform' ? data.system : undefined,
       systemUrl: data.submissionType === 'external_link' ? data.systemUrl : undefined,
       ctaLabel: data.ctaLabel,
+      targetAudience: data.targetAudience,
+      featureKey: data.featureKey,
+      deadlineDays: data.deadlineDays,
+      rewardPoints: data.rewardPoints,
     };
 
     setPhases(prev => prev.map(p => {
@@ -845,8 +959,17 @@ function ConfigSection() {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-gray-800 text-sm">{mission.title}</p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-[10px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {mission.estimatedMinutes} min</span>
+                        <span className="text-[10px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {(mission as any).deadlineDays ? `${(mission as any).deadlineDays}d deadline` : `${mission.estimatedMinutes} min`}</span>
                         <span className="text-[10px] text-amber-600 font-semibold">{mission.reward}</span>
+                        {(mission as any).targetAudience && (
+                          <span className="text-[10px] text-brand-blue bg-blue-50 px-1.5 py-0.5 rounded font-bold">{(mission as any).targetAudience}</span>
+                        )}
+                        {(mission as any).featureKey && (
+                          <span className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1">
+                            <Zap className="w-2.5 h-2.5 text-indigo-600" />
+                            {(mission as any).featureKey}
+                          </span>
+                        )}
                         {mission.submissionType === 'internal_platform' && mission.system ? (
                           <span className="text-[10px] text-sky-600 font-semibold">{mission.system}</span>
                         ) : mission.submissionType === 'external_link' ? (
@@ -1607,18 +1730,33 @@ function MonitoringSection() {
 
 const SUB_TABS: { id: SubTab; label: string; icon: any }[] = [
   { id: 'config', label: 'Programme Config', icon: Settings },
+  { id: 'tasks', label: 'Task Engine & Rewards', icon: Target },
   { id: 'businesses', label: 'Business Override', icon: Users },
   { id: 'monitoring', label: 'Monitoring', icon: BarChart3 },
 ];
 
 export default function ProgrammeManagementPanel() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlTab = searchParams.get('subTab') as SubTab;
+
   const [subTab, setSubTab] = useState<SubTab>(() => {
-    return (localStorage.getItem('adminProgrammeSubTab') as SubTab) || 'config';
+    if (urlTab && ['config', 'tasks', 'businesses', 'monitoring'].includes(urlTab)) {
+      return urlTab;
+    }
+    return (localStorage.getItem('adminProgrammeSubTab') as SubTab) || 'tasks';
   });
 
   useEffect(() => {
-    localStorage.setItem('adminProgrammeSubTab', subTab);
-  }, [subTab]);
+    if (urlTab && ['config', 'tasks', 'businesses', 'monitoring'].includes(urlTab) && urlTab !== subTab) {
+      setSubTab(urlTab);
+    }
+  }, [urlTab]);
+
+  const handleTabChange = (newTab: SubTab) => {
+    setSubTab(newTab);
+    localStorage.setItem('adminProgrammeSubTab', newTab);
+    setSearchParams({ subTab: newTab });
+  };
 
   return (
     <div className="space-y-6">
@@ -1641,7 +1779,7 @@ export default function ProgrammeManagementPanel() {
         {SUB_TABS.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setSubTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={cn(
               "flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all",
               subTab === tab.id
@@ -1665,6 +1803,7 @@ export default function ProgrammeManagementPanel() {
           transition={{ duration: 0.2 }}
         >
           {subTab === 'config' && <ConfigSection />}
+          {subTab === 'tasks' && <TaskEngineSection />}
           {subTab === 'businesses' && <BusinessesSection />}
           {subTab === 'monitoring' && <MonitoringSection />}
         </motion.div>

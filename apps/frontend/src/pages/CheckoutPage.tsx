@@ -207,62 +207,130 @@ export default function CheckoutPage() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-6">
-        <Link to="/pricing" className="inline-flex items-center gap-2 text-gray-500 hover:text-brand-blue transition-colors font-bold text-sm mb-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <Link to="/pricing" className="inline-flex items-center gap-2 text-gray-500 hover:text-brand-blue transition-colors font-bold text-sm mb-6 sm:mb-8">
           <ArrowLeft className="w-4 h-4" /> Back to plans
         </Link>
 
-        <h1 className="text-4xl font-black text-gray-900 mb-8 tracking-tight">Complete Checkout</h1>
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900 mb-6 sm:mb-8 tracking-tight">Complete Checkout</h1>
 
         {errorMessage && (
-          <div className="mb-8 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-semibold flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-red-600" />
-            {errorMessage}
+          <div className="mb-6 sm:mb-8 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm font-semibold flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
-        <div className="grid lg:grid-cols-12 gap-10 items-start">
+        <div className="flex flex-col lg:grid lg:grid-cols-12 gap-6 lg:gap-10 items-start">
+          {/* Order Summary (First on mobile for clear purchase context, sticky on desktop) */}
+          <div className="w-full order-1 lg:order-2 lg:col-span-5 space-y-6 lg:sticky lg:top-24">
+            <div className="bg-white border border-gray-100 rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 sm:mb-6">Order Summary</h2>
+
+              <div className="flex items-start gap-3 sm:gap-4 mb-5 sm:mb-6 pb-5 sm:pb-6 border-b border-gray-50">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand-blue/5 flex items-center justify-center text-brand-blue shadow-sm shrink-0">
+                  <PlanIcon className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm sm:text-base">{planId} Member</h3>
+                  <p className="text-[11px] sm:text-xs text-gray-500 font-bold uppercase tracking-wider">{tier} tier • {billing} Billing</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 sm:space-y-4 mb-5 sm:mb-6">
+                <div className="flex justify-between text-xs sm:text-sm font-semibold text-gray-500">
+                  <span>Base Subscription</span>
+                  <span>£{basePrice.toLocaleString()} / mo</span>
+                </div>
+                {billing === 'yearly' && (
+                  <div className="flex justify-between text-xs sm:text-sm font-semibold text-green-600 bg-green-50 px-2.5 sm:px-3 py-1.5 rounded-lg">
+                    <span>Yearly discount (20%)</span>
+                    <span>-£{Math.floor(basePrice * 0.2).toLocaleString()} / mo</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs sm:text-sm font-semibold text-gray-500 pt-2 border-t border-gray-50">
+                  <span>Subtotal</span>
+                  <span>£{finalMonthlyPrice.toLocaleString()} / mo</span>
+                </div>
+                {isTrial && (
+                  <div className="flex justify-between text-xs sm:text-sm font-semibold text-green-600 bg-green-50 px-2.5 sm:px-3 py-1.5 rounded-lg">
+                    <span>Trial Mode Discount</span>
+                    <span>-£{subtotal.toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 border-t border-gray-100 flex justify-between items-baseline mb-5 sm:mb-6">
+                <span className="font-black text-gray-900 text-base sm:text-lg">Total Due Today</span>
+                <span className="text-2xl sm:text-3xl font-black text-gray-900">£{total.toLocaleString()}</span>
+              </div>
+
+              {isTrial && (
+                <div className="p-3.5 sm:p-4 bg-blue-50/50 rounded-2xl text-xs text-blue-800 font-semibold border border-blue-100 leading-relaxed mb-5 sm:mb-6">
+                  <Sparkles className="w-4 h-4 text-brand-blue inline mr-1" />
+                  <strong>7-Day Free Trial:</strong> Your payment method will be validated today, but not charged. After 7 days, you will be billed £{subtotal.toLocaleString()} for the {billing} cycle unless canceled.
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 sm:gap-3 text-xs text-gray-400 font-medium">
+                <Lock className="w-4 h-4 text-green-500 shrink-0" />
+                <span>SSL Encrypted & Securing transactions via Stripe & PayPal</span>
+              </div>
+            </div>
+
+            {/* Platform Access Guarantee */}
+            <div className="bg-white border border-gray-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm flex items-start gap-3 sm:gap-4">
+              <ShieldCheck className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-gray-900 text-sm sm:text-base mb-1">MCOM Unified Access</h4>
+                <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                  Your purchase instantly grants you appropriate permission settings across all MCOM systems, including MCOM Mall, MCOM Rewards, Spin, Audit, and Q-Links.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Checkout Form */}
-          <div className="lg:col-span-7 bg-white border border-gray-100 rounded-[2.5rem] p-8 shadow-sm">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">1. Select Payment Method</h2>
+          <div className="w-full order-2 lg:order-1 lg:col-span-7 bg-white border border-gray-100 rounded-2xl sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm">
+            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4 sm:mb-6">1. Select Payment Method</h2>
             
-            <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
               <button
                 type="button"
                 onClick={() => setPaymentProvider('stripe')}
-                className={`p-5 rounded-2xl border-2 flex flex-col items-center gap-3 font-semibold transition-all ${
+                className={`p-3.5 sm:p-5 rounded-2xl border-2 flex flex-col items-center gap-2 sm:gap-3 font-semibold transition-all ${
                   paymentProvider === 'stripe' 
                     ? 'border-brand-blue bg-blue-50/50 text-brand-blue shadow-sm' 
                     : 'border-gray-200 hover:border-gray-300 text-gray-500'
                 }`}
               >
-                <CreditCard className="w-6 h-6" />
-                <span className="text-sm">Credit Card</span>
+                <CreditCard className="w-5 h-5 sm:w-6 sm:h-6" />
+                <span className="text-xs sm:text-sm">Credit Card</span>
               </button>
               <button
                 type="button"
                 onClick={() => setPaymentProvider('paypal')}
-                className={`p-5 rounded-2xl border-2 flex flex-col items-center gap-3 font-semibold transition-all ${
+                className={`p-3.5 sm:p-5 rounded-2xl border-2 flex flex-col items-center gap-2 sm:gap-3 font-semibold transition-all ${
                   paymentProvider === 'paypal' 
                     ? 'border-brand-blue bg-blue-50/50 text-brand-blue shadow-sm' 
                     : 'border-gray-200 hover:border-gray-300 text-gray-500'
                 }`}
               >
-                <span className="text-lg font-black italic text-blue-900">Pay<span className="text-blue-500">Pal</span></span>
-                <span className="text-sm">PayPal Account</span>
+                <span className="text-base sm:text-lg font-black italic text-blue-900">Pay<span className="text-blue-500">Pal</span></span>
+                <span className="text-xs sm:text-sm">PayPal Account</span>
               </button>
             </div>
 
             <form onSubmit={handlePayment}>
               {paymentProvider === 'stripe' ? (
-                <div className="space-y-5">
-                  <h3 className="text-base font-bold text-gray-900 mb-2">2. Enter Card Information</h3>
+                <div className="space-y-4 sm:space-y-5">
+                  <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-2">2. Enter Card Information</h3>
                   
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Name on Card</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 sm:mb-2">Name on Card</label>
                     <input
                       type="text"
-                      className={`w-full px-5 py-4 border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardName ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
+                      className={`w-full px-4 sm:px-5 py-3 sm:py-4 text-sm sm:text-base border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardName ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
                       placeholder="Jane Doe"
                       value={cardName}
                       onChange={(e) => setCardName(e.target.value)}
@@ -271,26 +339,26 @@ export default function CheckoutPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Card Number</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 sm:mb-2">Card Number</label>
                     <div className="relative">
                       <input
                         type="text"
-                        className={`w-full pl-12 pr-5 py-4 border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardNumber ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
+                        className={`w-full pl-11 sm:pl-12 pr-4 sm:pr-5 py-3 sm:py-4 text-sm sm:text-base border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardNumber ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
                         placeholder="4242 4242 4242 4242"
                         value={cardNumber}
                         onChange={handleCardNumberChange}
                       />
-                      <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <CreditCard className="absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                     </div>
                     {formErrors.cardNumber && <p className="text-red-500 text-xs mt-1 font-semibold">{formErrors.cardNumber}</p>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Expiration Date</label>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 sm:mb-2">Expiration Date</label>
                       <input
                         type="text"
-                        className={`w-full px-5 py-4 border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardExpiry ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
+                        className={`w-full px-4 sm:px-5 py-3 sm:py-4 text-sm sm:text-base border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardExpiry ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
                         placeholder="MM/YY"
                         value={cardExpiry}
                         onChange={handleExpiryChange}
@@ -298,10 +366,10 @@ export default function CheckoutPage() {
                       {formErrors.cardExpiry && <p className="text-red-500 text-xs mt-1 font-semibold">{formErrors.cardExpiry}</p>}
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Security Code (CVC)</label>
+                      <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 sm:mb-2">Security Code (CVC)</label>
                       <input
                         type="password"
-                        className={`w-full px-5 py-4 border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardCvc ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
+                        className={`w-full px-4 sm:px-5 py-3 sm:py-4 text-sm sm:text-base border rounded-xl bg-gray-50 font-semibold focus:bg-white transition-all outline-none ${formErrors.cardCvc ? 'border-red-500' : 'border-gray-200 focus:border-brand-blue'}`}
                         placeholder="123"
                         value={cardCvc}
                         onChange={handleCvcChange}
@@ -311,17 +379,17 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               ) : (
-                <div className="p-8 rounded-3xl border border-blue-100 bg-blue-50/20 text-center mb-6">
-                  <span className="inline-block text-3xl font-black italic text-blue-900 mb-3">Pay<span className="text-blue-500">Pal</span></span>
-                  <p className="text-sm text-gray-600 font-medium mb-6">Clicking confirm will securely verify your PayPal checkout credentials for the subscription.</p>
+                <div className="p-6 sm:p-8 rounded-2xl sm:rounded-3xl border border-blue-100 bg-blue-50/20 text-center mb-6">
+                  <span className="inline-block text-2xl sm:text-3xl font-black italic text-blue-900 mb-2 sm:mb-3">Pay<span className="text-blue-500">Pal</span></span>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium mb-4 sm:mb-6">Clicking confirm will securely verify your PayPal checkout credentials for the subscription.</p>
                 </div>
               )}
 
-              <div className="mt-8 pt-6 border-t border-gray-100">
+              <div className="mt-6 sm:mt-8 pt-5 sm:pt-6 border-t border-gray-100">
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="w-full py-5 bg-brand-blue text-white rounded-2xl text-lg font-black hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-3 disabled:opacity-50"
+                  className="w-full py-4 sm:py-5 bg-brand-blue text-white rounded-xl sm:rounded-2xl text-base sm:text-lg font-black hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 sm:gap-3 disabled:opacity-50"
                 >
                   {isProcessing ? (
                     <>
@@ -335,74 +403,6 @@ export default function CheckoutPage() {
                 </button>
               </div>
             </form>
-          </div>
-
-          {/* Order Summary */}
-          <div className="lg:col-span-5 space-y-6">
-            <div className="bg-white border border-gray-100 rounded-[2.5rem] p-8 shadow-sm">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">Order Summary</h2>
-
-              <div className="flex items-start gap-4 mb-6 pb-6 border-b border-gray-50">
-                <div className="w-12 h-12 rounded-xl bg-brand-blue/5 flex items-center justify-center text-brand-blue shadow-sm">
-                  <PlanIcon className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900">{planId} Member</h3>
-                  <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">{tier} tier • {billing} Billing</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-6">
-                <div className="flex justify-between text-sm font-semibold text-gray-500">
-                  <span>Base Subscription</span>
-                  <span>£{basePrice.toLocaleString()} / mo</span>
-                </div>
-                {billing === 'yearly' && (
-                  <div className="flex justify-between text-sm font-semibold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
-                    <span>Yearly discount (20%)</span>
-                    <span>-£{Math.floor(basePrice * 0.2).toLocaleString()} / mo</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm font-semibold text-gray-500 pt-2 border-t border-gray-50">
-                  <span>Subtotal</span>
-                  <span>£{finalMonthlyPrice.toLocaleString()} / mo</span>
-                </div>
-                {isTrial && (
-                  <div className="flex justify-between text-sm font-semibold text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
-                    <span>Trial Mode Discount</span>
-                    <span>-£{subtotal.toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-4 border-t border-gray-100 flex justify-between items-baseline mb-6">
-                <span className="font-black text-gray-900 text-lg">Total Due Today</span>
-                <span className="text-3xl font-black text-gray-900">£{total.toLocaleString()}</span>
-              </div>
-
-              {isTrial && (
-                <div className="p-4 bg-blue-50/50 rounded-2xl text-xs text-blue-800 font-semibold border border-blue-100 leading-relaxed mb-6">
-                  <Sparkles className="w-4 h-4 text-brand-blue inline mr-1" />
-                  <strong>7-Day Free Trial:</strong> Your payment method will be validated today, but not charged. After 7 days, you will be billed £{subtotal.toLocaleString()} for the {billing} cycle unless canceled.
-                </div>
-              )}
-
-              <div className="flex items-center gap-3 text-xs text-gray-400 font-medium">
-                <Lock className="w-4 h-4 text-green-500" />
-                <span>SSL Encrypted & Securing transactions via Stripe & PayPal</span>
-              </div>
-            </div>
-
-            {/* Platform Access Guarantee */}
-            <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex items-start gap-4">
-              <ShieldCheck className="w-8 h-8 text-green-500 shrink-0 mt-1" />
-              <div>
-                <h4 className="font-bold text-gray-900 mb-1">MCOM Unified Access</h4>
-                <p className="text-xs text-gray-500 font-medium leading-relaxed">
-                  Your purchase instantly grants you appropriate permission settings across all MCOM systems, including MCOM Mall, MCOM Rewards, Spin, Audit, and Q-Links.
-                </p>
-              </div>
-            </div>
           </div>
         </div>
       </div>

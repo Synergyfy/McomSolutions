@@ -78,7 +78,7 @@ export default function AdminLogin() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@mcomsolutions.co.uk"
+                  placeholder="Enter your email"
                   className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-brand-blue/5 focus:bg-white transition-all font-bold text-sm"
                   required
                 />

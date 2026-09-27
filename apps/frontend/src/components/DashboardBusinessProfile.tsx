@@ -1,18 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Globe, MapPin, Phone, Mail, Link2,
   Instagram, Twitter, Facebook, CheckCircle2, AlertCircle,
-  Edit2, Upload, ShieldCheck, Camera, Plus, ExternalLink
+  Edit2, Upload, ShieldCheck, Camera, Plus, ExternalLink, Loader2
 } from 'lucide-react';
-import { useProfile, useUpdateProfile, useGenerateApiKey } from '../services/business/hooks';
+import { useProfile, useUpdateProfile, useGenerateApiKey, useUploadBusinessFile } from '../services/business/hooks';
 
 export default function DashboardBusinessProfile() {
   const { data: profile, isLoading: loading } = useProfile();
   const { mutateAsync: updateProfile } = useUpdateProfile();
   const { mutateAsync: generateApiKey } = useGenerateApiKey();
+  const uploadLogoMutation = useUploadBusinessFile();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [logoSuccess, setLogoSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     businessName: '',
@@ -30,6 +34,7 @@ export default function DashboardBusinessProfile() {
     category: '',
     isOnGoogle: false,
     apiKey: '',
+    logoUrl: '',
   });
 
   useEffect(() => {
@@ -50,12 +55,45 @@ export default function DashboardBusinessProfile() {
         category: profile.category || '',
         isOnGoogle: profile.isOnGoogle || false,
         apiKey: profile.apiKey || '',
+        logoUrl: profile.logoUrl || '',
       });
     }
   }, [profile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (PNG, JPG, SVG, WebP)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image file size must be less than 5MB');
+      return;
+    }
+
+    setError(null);
+    try {
+      const res = await uploadLogoMutation.mutateAsync(file);
+      const newLogoUrl = res.secure_url;
+      setFormData(prev => ({ ...prev, logoUrl: newLogoUrl }));
+      // Save to business profile immediately to persist and trigger task event worker
+      await updateProfile({ ...formData, logoUrl: newLogoUrl });
+      setLogoSuccess(true);
+      setTimeout(() => setLogoSuccess(false), 5000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to upload logo.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleSave = async () => {
@@ -117,6 +155,13 @@ export default function DashboardBusinessProfile() {
         </div>
       </div>
 
+      {logoSuccess && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-bold rounded-2xl flex items-center gap-2.5 animate-in fade-in">
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
+          <span>Official business logo updated and verified! Points awarded to your wallet.</span>
+        </div>
+      )}
+
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-2xl flex items-start gap-2.5">
           <AlertCircle className="w-5 h-5 shrink-0" />
@@ -127,10 +172,62 @@ export default function DashboardBusinessProfile() {
       {/* Profile Hero */}
       <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-10">
         <div className="flex flex-col md:flex-row items-start gap-8">
-          <div className="relative flex-shrink-0">
-            <div className="w-32 h-32 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl flex items-center justify-center shadow-xl shadow-orange-500/25 text-white text-5xl font-black">
-              {formData.businessName ? formData.businessName.charAt(0).toUpperCase() : 'B'}
+          {/* Logo container */}
+          <div className="flex flex-col items-center flex-shrink-0">
+            <div className="relative group">
+              <div className="w-32 h-32 rounded-3xl border-2 border-gray-100 bg-gray-50 flex items-center justify-center shadow-xl overflow-hidden relative group-hover:border-orange-300 transition-all">
+                {formData.logoUrl ? (
+                  <img
+                    src={formData.logoUrl}
+                    alt={formData.businessName || 'Business Logo'}
+                    className="w-full h-full object-contain p-2 bg-white"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white text-5xl font-black">
+                    {formData.businessName ? formData.businessName.charAt(0).toUpperCase() : 'B'}
+                  </div>
+                )}
+
+                {/* Uploading Overlay */}
+                {uploadLogoMutation.isPending && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center gap-1.5 text-white">
+                    <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
+                    <span className="text-[10px] font-bold">Uploading...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Hidden File Input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={handleLogoChange}
+              />
+
+              {/* Camera Trigger Badge */}
+              <button
+                type="button"
+                disabled={uploadLogoMutation.isPending}
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute -bottom-2 -right-2 p-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-full shadow-lg border-2 border-white transition-transform hover:scale-110 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center"
+                title="Upload Business Logo"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
             </div>
+
+            {/* Quick Text Button */}
+            <button
+              type="button"
+              disabled={uploadLogoMutation.isPending}
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-3 text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 transition-colors disabled:opacity-50"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>{uploadLogoMutation.isPending ? 'Uploading...' : formData.logoUrl ? 'Change Logo' : 'Upload Logo'}</span>
+            </button>
           </div>
 
           <div className="flex-1 min-w-0">
