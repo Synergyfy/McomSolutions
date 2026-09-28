@@ -538,9 +538,9 @@ export class BusinessService {
                 window.opener.postMessage({
                   type: 'GOOGLE_CLAIM_RESULT',
                   success: true,
-                  placeId: '${placeId}',
-                  email: '${this.escapeHtml(email)}',
-                  grant: '${this.escapeHtml(grant)}'
+                  placeId: ${JSON.stringify(placeId)},
+                  email: ${JSON.stringify(email)},
+                  grant: ${JSON.stringify(grant)}
                 }, '${targetOrigin}');
                 window.close();
               }
@@ -548,7 +548,7 @@ export class BusinessService {
               hasOpener = false;
             }
             if (!hasOpener) {
-              var targetUrl = '${this.escapeHtml(mobileRedirectUrl)}';
+              var targetUrl = ${JSON.stringify(mobileRedirectUrl)};
               var btn = document.getElementById('redirectBtn');
               if (btn) btn.style.display = 'inline-block';
               window.location.replace(targetUrl);
@@ -609,7 +609,7 @@ export class BusinessService {
             hasOpener = false;
           }
           if (!hasOpener) {
-            window.location.replace('${this.escapeHtml(mobileRedirectUrl)}');
+            window.location.replace(${JSON.stringify(mobileRedirectUrl)});
           }
         </script>
       </body>
@@ -621,7 +621,7 @@ export class BusinessService {
     return `
       <script>
         if (window.opener) {
-          var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' };
+          var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${JSON.stringify(error)} };
           var target = '${targetOrigin}';
           window.opener.postMessage(msg, target);
           if (target.indexOf('centralhubsolution.com') !== -1) {

@@ -779,14 +779,53 @@ function BusinessOnboardingInner() {
   const { data: subcategories, isLoading: subcategoriesLoading } = useGetSubCategoriesByCategory(formData.categoryId);
 
   // --- Google Onboarding State ---
+  const getSafeParam = (params: URLSearchParams | null, key: string): string => {
+    if (!params) return '';
+    return params.get(key) || params.get(`amp;${key}`) || '';
+  };
+
   const initialSearchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const isClaimReturn = Boolean(initialSearchParams?.get('claim'));
-  const isClaimSuccess = initialSearchParams?.get('claim') === 'success';
+  const initialClaim = getSafeParam(initialSearchParams, 'claim');
+  const isClaimReturn = Boolean(initialClaim);
+  const isClaimSuccess = initialClaim === 'success';
+
+  // Seed storage immediately if URL query params contain verified grant or email
+  if (typeof window !== 'undefined' && initialSearchParams) {
+    const qGrant = getSafeParam(initialSearchParams, 'grant');
+    if (qGrant) {
+      sessionStorage.setItem('mcom_google_claim_grant', qGrant);
+      localStorage.setItem('mcom_google_claim_grant', qGrant);
+    }
+    const qEmail = getSafeParam(initialSearchParams, 'email');
+    if (qEmail) {
+      sessionStorage.setItem('mcom_google_claim_email', qEmail);
+      localStorage.setItem('mcom_google_claim_email', qEmail);
+    }
+    const qPlaceId = getSafeParam(initialSearchParams, 'placeId');
+    if (qPlaceId) {
+      sessionStorage.setItem('mcom_google_claim_place_id', qPlaceId);
+      localStorage.setItem('mcom_google_claim_place_id', qPlaceId);
+    }
+  }
 
   const [isGoogleOnboarding, setIsGoogleOnboarding] = useState(isClaimSuccess);
   const [googleStep, setGoogleStep] = useState<'branch_select' | 'fail_safe_form' | 'review_claim' | null>(null);
-  const [googleEmail, setGoogleEmail] = useState(() => initialSearchParams?.get('email') || '');
-  const [googleClaimGrant, setGoogleClaimGrant] = useState(() => initialSearchParams?.get('grant') || '');
+  const [googleEmail, setGoogleEmail] = useState(() => {
+    const param = getSafeParam(initialSearchParams, 'email');
+    if (param) return param;
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('mcom_google_claim_email') || localStorage.getItem('mcom_google_claim_email') || '';
+    }
+    return '';
+  });
+  const [googleClaimGrant, setGoogleClaimGrant] = useState(() => {
+    const param = getSafeParam(initialSearchParams, 'grant');
+    if (param) return param;
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('mcom_google_claim_grant') || localStorage.getItem('mcom_google_claim_grant') || '';
+    }
+    return '';
+  });
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
@@ -1042,14 +1081,22 @@ function BusinessOnboardingInner() {
         if (event.data.success) {
           if (event.data.email) {
             setGoogleEmail(event.data.email);
+            sessionStorage.setItem('mcom_google_claim_email', event.data.email);
+            localStorage.setItem('mcom_google_claim_email', event.data.email);
           }
           if (event.data.grant) {
             setGoogleClaimGrant(event.data.grant);
+            sessionStorage.setItem('mcom_google_claim_grant', event.data.grant);
+            localStorage.setItem('mcom_google_claim_grant', event.data.grant);
+          }
+          if (event.data.placeId) {
+            sessionStorage.setItem('mcom_google_claim_place_id', event.data.placeId);
+            localStorage.setItem('mcom_google_claim_place_id', event.data.placeId);
           }
           setIsGoogleOnboarding(true);
           setShowConnectGooglePage(false);
           handleGoogleSelectBranch({
-            googlePlaceId: selectedPreviewBusiness.googlePlaceId,
+            googlePlaceId: selectedPreviewBusiness.googlePlaceId || selectedPreviewBusiness.place_id,
             businessName: selectedPreviewBusiness.businessName,
             address: selectedPreviewBusiness.address,
             postcode: selectedPreviewBusiness.postcode,
@@ -1157,15 +1204,41 @@ function BusinessOnboardingInner() {
       const postcode = b.postcode || extractPostcode(address) || '';
       const phone = googlePhoneInput || b.businessPhone || b.formatted_phone_number || '';
 
+      const effectiveGrant =
+        googleClaimGrant ||
+        (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_grant') || localStorage.getItem('mcom_google_claim_grant') || '') : '') ||
+        getSafeParam(new URLSearchParams(window.location.search), 'grant') ||
+        '';
+
+      const effectiveEmail =
+        googleEmail ||
+        (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_email') || localStorage.getItem('mcom_google_claim_email') || '') : '') ||
+        getSafeParam(new URLSearchParams(window.location.search), 'email') ||
+        formData.email ||
+        '';
+
+      const effectivePlaceId =
+        b.googlePlaceId ||
+        b.place_id ||
+        (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_place_id') || localStorage.getItem('mcom_google_claim_place_id') || '') : '') ||
+        getSafeParam(new URLSearchParams(window.location.search), 'placeId') ||
+        '';
+
+      if (!effectiveGrant && effectivePlaceId) {
+        setSubmitError('Google verification is missing or expired. Please verify your business with Google again.');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Call backend to complete onboarding
       const res = await api.post('google-business/complete-onboarding', {
-        email: googleEmail,
-        grant: googleClaimGrant,
+        email: effectiveEmail,
+        grant: effectiveGrant,
         password: formData.password,
         firstName: ownerFirstName,
         lastName: ownerLastName,
         businessType: ownerBusinessType,
-        googlePlaceId: b.googlePlaceId || b.place_id || '',
+        googlePlaceId: effectivePlaceId,
         businessName,
         businessPhone: phone,
         address,
@@ -1187,6 +1260,18 @@ function BusinessOnboardingInner() {
         userRole: user?.role || 'owner',
         packageInfo: user?.packageInfo ? { planType: user.packageInfo.planType } : null,
       }));
+
+      // Clean up temporary claim tokens from storage
+      try {
+        localStorage.removeItem('pending_google_claim');
+        sessionStorage.removeItem('pending_google_claim');
+        localStorage.removeItem('mcom_google_claim_grant');
+        sessionStorage.removeItem('mcom_google_claim_grant');
+        localStorage.removeItem('mcom_google_claim_email');
+        sessionStorage.removeItem('mcom_google_claim_email');
+        localStorage.removeItem('mcom_google_claim_place_id');
+        sessionStorage.removeItem('mcom_google_claim_place_id');
+      } catch { /* ignore */ }
 
       // ─── BOTH MODES: Sync form data and proceed ───
       setFormData((prev: any) => ({
@@ -1374,10 +1459,10 @@ function BusinessOnboardingInner() {
 
   // ── Handle OAuth popup callback & mobile redirect fallback ────────────────
   useEffect(() => {
-    const claimStatus = searchParams.get('claim');
-    const claimPlaceId = searchParams.get('placeId');
-    const claimEmail = searchParams.get('email');
-    const claimGrant = searchParams.get('grant');
+    const claimStatus = getSafeParam(searchParams, 'claim');
+    const claimPlaceId = getSafeParam(searchParams, 'placeId');
+    const claimEmail = getSafeParam(searchParams, 'email');
+    const claimGrant = getSafeParam(searchParams, 'grant');
     if (!claimStatus) return;
 
     if (window.opener && !window.opener.closed) {
@@ -1395,11 +1480,23 @@ function BusinessOnboardingInner() {
     } else {
       // Mobile full-page redirect flow (no window.opener)
       if (claimStatus === 'success') {
-        if (claimEmail) {
-          setGoogleEmail(claimEmail);
+        const effectiveGrant = claimGrant || (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_grant') || localStorage.getItem('mcom_google_claim_grant') || '') : '');
+        const effectiveEmail = claimEmail || (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_email') || localStorage.getItem('mcom_google_claim_email') || '') : '');
+        const effectivePlaceIdFromQuery = claimPlaceId || (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_place_id') || localStorage.getItem('mcom_google_claim_place_id') || '') : '');
+
+        if (effectiveEmail) {
+          setGoogleEmail(effectiveEmail);
+          sessionStorage.setItem('mcom_google_claim_email', effectiveEmail);
+          localStorage.setItem('mcom_google_claim_email', effectiveEmail);
         }
-        if (claimGrant) {
-          setGoogleClaimGrant(claimGrant);
+        if (effectiveGrant) {
+          setGoogleClaimGrant(effectiveGrant);
+          sessionStorage.setItem('mcom_google_claim_grant', effectiveGrant);
+          localStorage.setItem('mcom_google_claim_grant', effectiveGrant);
+        }
+        if (effectivePlaceIdFromQuery) {
+          sessionStorage.setItem('mcom_google_claim_place_id', effectivePlaceIdFromQuery);
+          localStorage.setItem('mcom_google_claim_place_id', effectivePlaceIdFromQuery);
         }
 
         let biz: any = null;
@@ -1412,8 +1509,9 @@ function BusinessOnboardingInner() {
           }
         }
 
-        const effectivePlaceId = biz?.googlePlaceId || biz?.place_id || claimPlaceId || '';
+        const effectivePlaceId = biz?.googlePlaceId || biz?.place_id || effectivePlaceIdFromQuery || '';
         const restoredBusiness = {
+          ...(biz || {}),
           googlePlaceId: effectivePlaceId,
           businessName: biz?.businessName || biz?.name || 'Verified Google Business',
           address: biz?.address || biz?.formatted_address || '',
@@ -1426,9 +1524,9 @@ function BusinessOnboardingInner() {
           type: biz?.type || '',
         };
 
-        setSelectedPreviewBusiness(biz || restoredBusiness);
-        setSelectedGoogleBranch(biz || restoredBusiness);
-        setGoogleBranches([biz || restoredBusiness]);
+        setSelectedPreviewBusiness(restoredBusiness);
+        setSelectedGoogleBranch(restoredBusiness);
+        setGoogleBranches([restoredBusiness]);
         setShowInitialPrompt(false);
         setShowGoogleCategoryPage(false);
         setShowFindClaimPage(false);
@@ -1452,7 +1550,7 @@ function BusinessOnboardingInner() {
         setShowBoroughBrowser(false);
         setIsGoogleOnboarding(true);
 
-        handleGoogleSelectBranch(biz || restoredBusiness);
+        handleGoogleSelectBranch(restoredBusiness);
       } else {
         setSubmitError(
           'We could not verify your ownership of this business on Google. ' +
@@ -1463,9 +1561,13 @@ function BusinessOnboardingInner() {
       // Clean query params from the URL cleanly so refresh doesn't re-trigger
       const cleanParams = new URLSearchParams(searchParams);
       cleanParams.delete('claim');
+      cleanParams.delete('amp;claim');
       cleanParams.delete('placeId');
+      cleanParams.delete('amp;placeId');
       cleanParams.delete('email');
+      cleanParams.delete('amp;email');
       cleanParams.delete('grant');
+      cleanParams.delete('amp;grant');
       const cleanSearch = cleanParams.toString() ? `?${cleanParams.toString()}` : '';
       window.history.replaceState(null, '', `${window.location.pathname}${cleanSearch}`);
     }
@@ -3946,13 +4048,22 @@ function BusinessOnboardingInner() {
         const categoryName = categories?.find((c: any) => c.id === formData.categoryId)?.name || '';
         const subcategoryName = subcategories?.find((s: any) => s.id === formData.subCategoryId)?.name || '';
 
+        const effectiveGrant =
+          googleClaimGrant ||
+          (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_grant') || localStorage.getItem('mcom_google_claim_grant') || '') : '') ||
+          undefined;
+        const effectiveEmail =
+          googleEmail ||
+          (typeof window !== 'undefined' ? (sessionStorage.getItem('mcom_google_claim_email') || localStorage.getItem('mcom_google_claim_email') || '') : '') ||
+          formData.email;
+
         const onboardingPayload = {
-          email: googleEmail || formData.email,
-          grant: googleClaimGrant,
+          email: effectiveEmail,
+          grant: effectiveGrant,
           firstName: ownerFirstName || formData.firstName,
           lastName: ownerLastName || formData.lastName,
           businessType: formData.businessType || 'products',
-          googlePlaceId: selectedPreviewBusiness?.googlePlaceId,
+          googlePlaceId: selectedPreviewBusiness?.googlePlaceId || selectedPreviewBusiness?.place_id,
           businessName: selectedPreviewBusiness?.businessName || formData.businessName,
           businessPhone: selectedPreviewBusiness?.businessPhone || formData.businessPhone || formData.phoneNumber || '',
           address: selectedPreviewBusiness?.address || formData.address,

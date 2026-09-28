@@ -516,7 +516,7 @@ describe('BusinessService', () => {
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state');
       expect(result).toContain('success: true');
-      expect(result).toContain('placeId: \'mock-place-001\'');
+      expect(result).toContain('placeId: "mock-place-001"');
       expect(mockGoogleOAuth.signEmailGrant).toHaveBeenCalledWith(
         'business-owner@test.com',
         'mock-place-001',
