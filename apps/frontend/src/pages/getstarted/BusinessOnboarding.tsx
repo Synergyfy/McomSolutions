@@ -779,10 +779,14 @@ function BusinessOnboardingInner() {
   const { data: subcategories, isLoading: subcategoriesLoading } = useGetSubCategoriesByCategory(formData.categoryId);
 
   // --- Google Onboarding State ---
-  const [isGoogleOnboarding, setIsGoogleOnboarding] = useState(false);
+  const initialSearchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const isClaimReturn = Boolean(initialSearchParams?.get('claim'));
+  const isClaimSuccess = initialSearchParams?.get('claim') === 'success';
+
+  const [isGoogleOnboarding, setIsGoogleOnboarding] = useState(isClaimSuccess);
   const [googleStep, setGoogleStep] = useState<'branch_select' | 'fail_safe_form' | 'review_claim' | null>(null);
-  const [googleEmail, setGoogleEmail] = useState('');
-  const [googleClaimGrant, setGoogleClaimGrant] = useState('');
+  const [googleEmail, setGoogleEmail] = useState(() => initialSearchParams?.get('email') || '');
+  const [googleClaimGrant, setGoogleClaimGrant] = useState(() => initialSearchParams?.get('grant') || '');
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
@@ -958,6 +962,20 @@ function BusinessOnboardingInner() {
       const isMobileDevice = typeof window !== 'undefined' && (window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
       if (isMobileDevice) {
         localStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
+        sessionStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
+        try {
+          const draftRaw = localStorage.getItem('business_onboarding_draft');
+          if (draftRaw) {
+            const parsedDraft = JSON.parse(draftRaw);
+            parsedDraft.showBusinessPreviewPage = false;
+            parsedDraft.showVerifyOwnershipPage = false;
+            parsedDraft.showConnectGooglePage = false;
+            parsedDraft.showInitialPrompt = false;
+            parsedDraft.showFindClaimPage = false;
+            parsedDraft.isGoogleOnboarding = true;
+            localStorage.setItem('business_onboarding_draft', JSON.stringify(parsedDraft));
+          }
+        } catch { /* ignore */ }
         window.location.href = authUrl;
         return;
       }
@@ -970,6 +988,20 @@ function BusinessOnboardingInner() {
 
       if (!popup) {
         localStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
+        sessionStorage.setItem('pending_google_claim', JSON.stringify(selectedPreviewBusiness));
+        try {
+          const draftRaw = localStorage.getItem('business_onboarding_draft');
+          if (draftRaw) {
+            const parsedDraft = JSON.parse(draftRaw);
+            parsedDraft.showBusinessPreviewPage = false;
+            parsedDraft.showVerifyOwnershipPage = false;
+            parsedDraft.showConnectGooglePage = false;
+            parsedDraft.showInitialPrompt = false;
+            parsedDraft.showFindClaimPage = false;
+            parsedDraft.isGoogleOnboarding = true;
+            localStorage.setItem('business_onboarding_draft', JSON.stringify(parsedDraft));
+          }
+        } catch { /* ignore */ }
         window.location.href = authUrl;
         return;
       }
@@ -1057,29 +1089,38 @@ function BusinessOnboardingInner() {
   };
 
   const handleGoogleSelectBranch = async (branch: any) => {
-    setSelectedGoogleBranch(branch);
+    const safeBranch = branch || selectedPreviewBusiness || {};
+    setSelectedGoogleBranch(safeBranch);
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const res = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(branch.googleCategoryId)}`);
-      const mapping = res.data;
+      const catId = safeBranch.googleCategoryId || '';
+      let mapping: any = null;
+      if (catId) {
+        try {
+          const res = await api.get(`google-business/map-category?googleCategoryId=${encodeURIComponent(catId)}`);
+          mapping = res.data;
+        } catch (e) {
+          console.warn('Could not map google category:', e);
+        }
+      }
       setGoogleMapping(mapping);
 
-      if (mapping && mapping.sectorId && mapping.categoryId && mapping.subCategoryId && branch.businessPhone) {
+      if (mapping && mapping.sectorId && mapping.categoryId && mapping.subCategoryId && safeBranch.businessPhone) {
         setGoogleSectorId(mapping.sectorId);
         setGoogleCategoryId(mapping.categoryId);
         setGoogleSubCategoryId(mapping.subCategoryId);
-        setGooglePhoneInput(branch.businessPhone);
+        setGooglePhoneInput(safeBranch.businessPhone);
         setGoogleStep('review_claim');
       } else {
-        setGooglePhoneInput(branch.businessPhone || '');
+        setGooglePhoneInput(safeBranch.businessPhone || '');
         setGoogleSectorId(mapping?.sectorId || '');
         setGoogleCategoryId(mapping?.categoryId || '');
         setGoogleSubCategoryId(mapping?.subCategoryId || '');
         setGoogleStep('fail_safe_form');
       }
     } catch (err) {
-      setGooglePhoneInput(branch.businessPhone || '');
+      setGooglePhoneInput(safeBranch.businessPhone || '');
       setGoogleSectorId('');
       setGoogleCategoryId('');
       setGoogleSubCategoryId('');
@@ -1287,7 +1328,7 @@ function BusinessOnboardingInner() {
   } | null>(null);
   const [showProximityModal, setShowProximityModal] = useState(false);
   const [showLearnMoreModal, setShowLearnMoreModal] = useState(false);
-  const [showInitialPrompt, setShowInitialPrompt] = useState(true);
+  const [showInitialPrompt, setShowInitialPrompt] = useState(!isClaimReturn);
   const [showGoogleCategoryPage, setShowGoogleCategoryPage] = useState(false);
   const [googleCatDrillSector, setGoogleCatDrillSector] = useState<string | null>(null);
   const [googleCatDrillGroup, setGoogleCatDrillGroup] = useState<string | null>(null);
@@ -1362,35 +1403,56 @@ function BusinessOnboardingInner() {
         }
 
         let biz: any = null;
-        const saved = localStorage.getItem('pending_google_claim');
+        const saved = localStorage.getItem('pending_google_claim') || sessionStorage.getItem('pending_google_claim');
         if (saved) {
           try {
             biz = JSON.parse(saved);
-            localStorage.removeItem('pending_google_claim');
           } catch (e) {
             console.error('Failed to restore mobile claim business', e);
           }
         }
 
-        const effectivePlaceId = biz?.googlePlaceId || claimPlaceId || '';
+        const effectivePlaceId = biz?.googlePlaceId || biz?.place_id || claimPlaceId || '';
         const restoredBusiness = {
           googlePlaceId: effectivePlaceId,
-          businessName: biz?.businessName || 'Verified Google Business',
-          address: biz?.address || '',
+          businessName: biz?.businessName || biz?.name || 'Verified Google Business',
+          address: biz?.address || biz?.formatted_address || '',
           postcode: biz?.postcode || '',
-          businessPhone: biz?.businessPhone || '',
+          businessPhone: biz?.businessPhone || biz?.formatted_phone_number || '',
           googleCategoryId: biz?.googleCategoryId || '',
+          heroImg: biz?.heroImg || '',
+          rating: biz?.rating || '',
+          reviews: biz?.reviews || '',
+          type: biz?.type || '',
         };
 
         setSelectedPreviewBusiness(biz || restoredBusiness);
+        setSelectedGoogleBranch(biz || restoredBusiness);
+        setGoogleBranches([biz || restoredBusiness]);
         setShowInitialPrompt(false);
+        setShowGoogleCategoryPage(false);
         setShowFindClaimPage(false);
         setShowBusinessPreviewPage(false);
         setShowVerifyOwnershipPage(false);
         setShowConnectGooglePage(false);
+        setShowBusinessTypePage(false);
+        setShowBusinessCategoryPage(false);
+        setShowLocalNetworkPage(false);
+        setShowQuickSetupPage(false);
+        setShowMembershipRoutingPage(false);
+        setShowLinkAccountPage(false);
+        setShowMembershipSelectionPage(false);
+        setShowReviewStorefrontPage(false);
+        setShowBuildingStorefrontPage(false);
+        setShowWelcomeChecklistPage(false);
+        setShowProgrammeIntro(false);
+        setShowChoosePlan(false);
+        setShowInitialAssessment(false);
+        setShowComplete(false);
+        setShowBoroughBrowser(false);
         setIsGoogleOnboarding(true);
 
-        handleGoogleSelectBranch(restoredBusiness);
+        handleGoogleSelectBranch(biz || restoredBusiness);
       } else {
         setSubmitError(
           'We could not verify your ownership of this business on Google. ' +
@@ -1489,6 +1551,23 @@ function BusinessOnboardingInner() {
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         sessionStorage.setItem('onboarding_intent_token', currentIntentToken);
+      }
+
+      const isClaimCallback = Boolean(urlParams.get('claim') || searchParams.get('claim') || isGoogleOnboarding);
+      if (isClaimCallback) {
+        // Do NOT restore pre-claim screen flags (like showBusinessPreviewPage or showInitialPrompt)
+        // when returning from Google verification!
+        const draft = localStorage.getItem('business_onboarding_draft');
+        if (draft) {
+          try {
+            const parsed = JSON.parse(draft);
+            if (parsed.formData) {
+              const { password: _p, confirmPassword: _cp, ...restoredFormData } = parsed.formData;
+              setFormData((prev: any) => ({ ...prev, ...restoredFormData }));
+            }
+          } catch { /* ignore parse error */ }
+        }
+        return;
       }
 
       const draft = localStorage.getItem('business_onboarding_draft');
@@ -1658,17 +1737,21 @@ function BusinessOnboardingInner() {
         formData: sanitizedFormData,
         completedWizardSteps: [...completedSteps],
         // Screen state
-        showInitialPrompt,
-        showGoogleCategoryPage,
-        showFindClaimPage,
-        showBusinessPreviewPage,
-        showConnectGooglePage,
-        showBusinessTypePage,
+        showInitialPrompt: isGoogleOnboarding ? false : showInitialPrompt,
+        showGoogleCategoryPage: isGoogleOnboarding ? false : showGoogleCategoryPage,
+        showFindClaimPage: isGoogleOnboarding ? false : showFindClaimPage,
+        showBusinessPreviewPage: isGoogleOnboarding ? false : showBusinessPreviewPage,
+        showConnectGooglePage: isGoogleOnboarding ? false : showConnectGooglePage,
+        showBusinessTypePage: isGoogleOnboarding ? false : showBusinessTypePage,
         showProgrammeIntro,
         showChoosePlan,
         showInitialAssessment,
         // Google import state
+        isGoogleOnboarding,
         selectedPreviewBusiness,
+        selectedGoogleBranch,
+        googleEmail,
+        googleClaimGrant,
         googleSectorId,
         googleCategoryId,
         googleSubCategoryId,
@@ -1678,7 +1761,7 @@ function BusinessOnboardingInner() {
         searchRadius,
       }));
     } catch { /* ignore */ }
-  }, [formData, currentStep, isClient, completedSteps]);
+  }, [formData, currentStep, isClient, completedSteps, isGoogleOnboarding, googleStep, selectedGoogleBranch, googleEmail, googleClaimGrant]);
 
   // ─── Storefront Progress Simulation ───────────────────
   // Replaced by standalone BuildingStorefrontPage component
@@ -5994,6 +6077,15 @@ function BusinessOnboardingInner() {
                   </div>
                 </div>
 
+                {/* --- Google Onboarding Loading State --- */}
+                {isGoogleOnboarding && (!googleStep || (isSubmitting && !googleStep)) && (
+                  <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                    <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-4" />
+                    <h3 className="font-bold text-gray-900 text-base sm:text-lg">Preparing Verified Storefront</h3>
+                    <p className="text-gray-500 text-xs sm:text-sm mt-1 max-w-sm">Connecting your Google Business Profile details to your storefront setup…</p>
+                  </div>
+                )}
+
                 {/* --- Google Onboarding Step: Branch Select --- */}
                 {isGoogleOnboarding && googleStep === 'branch_select' && (
                   <div className="space-y-4">
@@ -7374,7 +7466,7 @@ function BusinessOnboardingInner() {
                 : handleNext}
               disabled={
                 isSubmitting ||
-                (isGoogleOnboarding && googleStep === 'branch_select') ||
+                (isGoogleOnboarding && (googleStep === 'branch_select' || !googleStep)) ||
                 (!isGoogleOnboarding && currentQuest.id === 'business_type' && !formData.businessOperation)
               }
               className="flex items-center gap-2 px-8 py-3.5 rounded-xl text-white font-bold text-base transition-all outline-none disabled:opacity-75 disabled:cursor-not-allowed cursor-pointer"
