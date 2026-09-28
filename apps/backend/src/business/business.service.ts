@@ -491,32 +491,75 @@ export class BusinessService {
     if (payload.type === 'claim') {
       const { placeId, returnUrl } = payload;
       if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl || !/^https?:\/\//.test(returnUrl)) {
-        return this.claimFailureScript(targetOrigin);
+        return this.claimFailureScript(targetOrigin, returnUrl);
       }
 
       // Bind the verified email to a short-lived grant the onboarding endpoint
       // will require — the frontend can never fabricate this server-side proof.
       const grant = this.googleOAuth.signEmailGrant(email, placeId);
 
+      let mobileRedirectUrl = '';
+      try {
+        const u = new URL(returnUrl);
+        u.searchParams.set('claim', 'success');
+        u.searchParams.set('placeId', placeId);
+        u.searchParams.set('email', email);
+        u.searchParams.set('grant', grant);
+        mobileRedirectUrl = u.toString();
+      } catch {
+        const sep = returnUrl.includes('?') ? '&' : '?';
+        mobileRedirectUrl = `${returnUrl}${sep}claim=success&placeId=${encodeURIComponent(placeId)}&email=${encodeURIComponent(email)}&grant=${encodeURIComponent(grant)}`;
+      }
+
       return `
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({
-              type: 'GOOGLE_CLAIM_RESULT',
-              success: true,
-              placeId: '${placeId}',
-              email: '${this.escapeHtml(email)}',
-              grant: '${this.escapeHtml(grant)}'
-            }, '${targetOrigin}');
-            window.close();
-          } else {
-            document.write("Claim successful! You can close this window now.");
-          }
-        </script>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Google Verification</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+            .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #ea580c; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Claim Verified!</h2>
+            <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">Returning you to your business setup...</p>
+            <a id="redirectBtn" href="${this.escapeHtml(mobileRedirectUrl)}" class="btn" style="display:none;">Continue</a>
+          </div>
+          <script>
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                window.opener.postMessage({
+                  type: 'GOOGLE_CLAIM_RESULT',
+                  success: true,
+                  placeId: '${placeId}',
+                  email: '${this.escapeHtml(email)}',
+                  grant: '${this.escapeHtml(grant)}'
+                }, '${targetOrigin}');
+                window.close();
+              }
+            } catch(e) {
+              hasOpener = false;
+            }
+            if (!hasOpener) {
+              var targetUrl = '${this.escapeHtml(mobileRedirectUrl)}';
+              var btn = document.getElementById('redirectBtn');
+              if (btn) btn.style.display = 'inline-block';
+              window.location.replace(targetUrl);
+            }
+          </script>
+        </body>
+        </html>
       `;
     }
 
-    return this.claimFailureScript(targetOrigin);
+    return this.claimFailureScript(targetOrigin, payload?.returnUrl);
   }
 
   private getTargetOrigin(returnUrl?: string): string {
@@ -530,14 +573,47 @@ export class BusinessService {
     return this.configService.get<string>('FRONTEND_URL') || 'https://mcomsolutions.com';
   }
 
-  private claimFailureScript(targetOrigin = 'https://mcomsolutions.com') {
+  private claimFailureScript(targetOrigin = 'https://mcomsolutions.com', returnUrl?: string) {
+    let mobileRedirectUrl = '';
+    if (returnUrl) {
+      try {
+        const u = new URL(returnUrl);
+        u.searchParams.set('claim', 'failed');
+        mobileRedirectUrl = u.toString();
+      } catch {
+        const sep = returnUrl.includes('?') ? '&' : '?';
+        mobileRedirectUrl = `${returnUrl}${sep}claim=failed`;
+      }
+    } else {
+      mobileRedirectUrl = `${targetOrigin}/getstarted/business?claim=failed`;
+    }
+
     return `
-      <script>
-        if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '${targetOrigin}');
-        }
-        window.close();
-      </script>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Google Verification</title>
+      </head>
+      <body>
+        <script>
+          var hasOpener = false;
+          try {
+            if (window.opener && !window.opener.closed) {
+              hasOpener = true;
+              window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '${targetOrigin}');
+              window.close();
+            }
+          } catch(e) {
+            hasOpener = false;
+          }
+          if (!hasOpener) {
+            window.location.replace('${this.escapeHtml(mobileRedirectUrl)}');
+          }
+        </script>
+      </body>
+      </html>
     `;
   }
 

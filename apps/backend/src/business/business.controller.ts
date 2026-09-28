@@ -180,11 +180,16 @@ export class BusinessController {
 
   // ─── Google OAuth Consent Simulator (development-only) ──
   @Get('business/google-claim-simulator')
-  getGoogleClaimSimulator(@Query('placeId') placeId: string, @Response() res: any) {
+  getGoogleClaimSimulator(
+    @Query('placeId') placeId: string,
+    @Query('returnUrl') returnUrl: string,
+    @Response() res: any,
+  ) {
     if (!this.googleOAuth.isSimulatorEnabled()) {
       throw new ForbiddenException('Google claim simulator is disabled');
     }
     const safePlaceId = JSON.stringify(placeId || '');
+    const safeReturnUrl = JSON.stringify(returnUrl || '');
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
@@ -223,11 +228,11 @@ export class BusinessController {
           <input id="simEmail" type="email" placeholder="owner@example.com"
                  class="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-semibold mb-4" />
 
-          <button onclick="confirmClaim()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-500/10 mb-4">
+          <button id="confirmBtn" onclick="confirmClaim()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-500/10 mb-4 cursor-pointer">
             Verify & Grant Access
           </button>
           
-          <button onclick="window.close()" class="text-sm font-semibold text-gray-500 hover:text-gray-800 transition">
+          <button onclick="handleCancel()" class="text-sm font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer">
             Cancel
           </button>
         </div>
@@ -237,11 +242,26 @@ export class BusinessController {
         </footer>
 
         <script>
+          function handleCancel() {
+            if (window.opener && !window.opener.closed) {
+              window.close();
+            } else if (${safeReturnUrl}) {
+              window.location.replace(${safeReturnUrl});
+            } else {
+              window.location.replace('/getstarted/business');
+            }
+          }
+
           async function confirmClaim() {
             const email = document.getElementById('simEmail').value.trim();
             if (!email) {
               alert('Please enter the verified email.');
               return;
+            }
+            const btn = document.getElementById('confirmBtn');
+            if (btn) {
+              btn.disabled = true;
+              btn.innerText = 'Verifying...';
             }
             let grant = '';
             try {
@@ -251,17 +271,28 @@ export class BusinessController {
             } catch (err) {
               console.error('Failed to obtain simulator grant:', err);
             }
-            if (window.opener) {
-              window.opener.postMessage({
-                type: 'GOOGLE_CLAIM_RESULT',
-                success: true,
-                placeId: ${safePlaceId},
-                email: email,
-                grant: grant
-              }, '*');
-              window.close();
-            } else {
-              alert('Claim successful! You can close this window now.');
+
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                window.opener.postMessage({
+                  type: 'GOOGLE_CLAIM_RESULT',
+                  success: true,
+                  placeId: ${safePlaceId},
+                  email: email,
+                  grant: grant
+                }, '*');
+                window.close();
+              }
+            } catch(e) {
+              hasOpener = false;
+            }
+
+            if (!hasOpener) {
+              var ret = ${safeReturnUrl} || '/getstarted/business';
+              var sep = ret.indexOf('?') !== -1 ? '&' : '?';
+              window.location.replace(ret + sep + 'claim=success&placeId=' + encodeURIComponent(${safePlaceId}) + '&email=' + encodeURIComponent(email) + '&grant=' + encodeURIComponent(grant));
             }
           }
         </script>

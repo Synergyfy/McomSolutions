@@ -35,7 +35,7 @@ const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLI
     return (
       <input
         type={type}
-        className={`flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
+        className={`flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-base md:text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
         ref={ref}
         {...props}
       />
@@ -749,55 +749,7 @@ function BusinessOnboardingInner() {
     };
   }, []);
 
-  // ── Handle OAuth popup callback ──────────────────────────────────────────
-  // When Google redirects back, the popup reloads this page with ?claim=...
-  // We detect that, notify the parent window, then close the popup.
-  useEffect(() => {
-    const claimStatus = searchParams.get('claim');
-    const claimPlaceId = searchParams.get('placeId');
-    if (!claimStatus) return;
 
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage(
-        {
-          type: 'GOOGLE_CLAIM_RESULT',
-          success: claimStatus === 'success',
-          placeId: claimPlaceId,
-        },
-        window.location.origin
-      );
-      window.close();
-    } else {
-      // Mobile full-page redirect fallback (no window.opener)
-      if (claimStatus === 'success') {
-        const saved = localStorage.getItem('pending_google_claim');
-        if (saved) {
-          try {
-            const biz = JSON.parse(saved);
-            localStorage.removeItem('pending_google_claim');
-            setIsGoogleOnboarding(true);
-            setShowConnectGooglePage(false);
-            handleGoogleSelectBranch({
-              googlePlaceId: biz.googlePlaceId || claimPlaceId,
-              businessName: biz.businessName,
-              address: biz.address,
-              postcode: biz.postcode,
-              businessPhone: biz.businessPhone,
-              googleCategoryId: biz.googleCategoryId,
-            });
-          } catch (e) {
-            console.error('Failed to restore mobile claim business', e);
-          }
-        }
-      } else {
-        setSubmitError(
-          'We could not verify your ownership of this business on Google. ' +
-          'Please try again or enter your details manually.'
-        );
-      }
-    }
-  }, []);
-  // ─────────────────────────────────────────────────────────────────────────
 
   const activeQuests = QUESTS;
 
@@ -1378,6 +1330,84 @@ function BusinessOnboardingInner() {
   const [selectedPreviewBusiness, setSelectedPreviewBusiness] = useState<any>(null);
   const [mapViewToggle, setMapViewToggle] = useState<'list' | 'map'>('list');
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+
+  // ── Handle OAuth popup callback & mobile redirect fallback ────────────────
+  useEffect(() => {
+    const claimStatus = searchParams.get('claim');
+    const claimPlaceId = searchParams.get('placeId');
+    const claimEmail = searchParams.get('email');
+    const claimGrant = searchParams.get('grant');
+    if (!claimStatus) return;
+
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        {
+          type: 'GOOGLE_CLAIM_RESULT',
+          success: claimStatus === 'success',
+          placeId: claimPlaceId,
+          email: claimEmail || undefined,
+          grant: claimGrant || undefined,
+        },
+        window.location.origin
+      );
+      window.close();
+    } else {
+      // Mobile full-page redirect flow (no window.opener)
+      if (claimStatus === 'success') {
+        if (claimEmail) {
+          setGoogleEmail(claimEmail);
+        }
+        if (claimGrant) {
+          setGoogleClaimGrant(claimGrant);
+        }
+
+        let biz: any = null;
+        const saved = localStorage.getItem('pending_google_claim');
+        if (saved) {
+          try {
+            biz = JSON.parse(saved);
+            localStorage.removeItem('pending_google_claim');
+          } catch (e) {
+            console.error('Failed to restore mobile claim business', e);
+          }
+        }
+
+        const effectivePlaceId = biz?.googlePlaceId || claimPlaceId || '';
+        const restoredBusiness = {
+          googlePlaceId: effectivePlaceId,
+          businessName: biz?.businessName || 'Verified Google Business',
+          address: biz?.address || '',
+          postcode: biz?.postcode || '',
+          businessPhone: biz?.businessPhone || '',
+          googleCategoryId: biz?.googleCategoryId || '',
+        };
+
+        setSelectedPreviewBusiness(biz || restoredBusiness);
+        setShowInitialPrompt(false);
+        setShowFindClaimPage(false);
+        setShowBusinessPreviewPage(false);
+        setShowVerifyOwnershipPage(false);
+        setShowConnectGooglePage(false);
+        setIsGoogleOnboarding(true);
+
+        handleGoogleSelectBranch(restoredBusiness);
+      } else {
+        setSubmitError(
+          'We could not verify your ownership of this business on Google. ' +
+          'Please try again or enter your details manually.'
+        );
+      }
+
+      // Clean query params from the URL cleanly so refresh doesn't re-trigger
+      const cleanParams = new URLSearchParams(searchParams);
+      cleanParams.delete('claim');
+      cleanParams.delete('placeId');
+      cleanParams.delete('email');
+      cleanParams.delete('grant');
+      const cleanSearch = cleanParams.toString() ? `?${cleanParams.toString()}` : '';
+      window.history.replaceState(null, '', `${window.location.pathname}${cleanSearch}`);
+    }
+  }, []);
 
   // ─── Manual Onboarding States ────────────────────────
   const [showBoroughBrowser, setShowBoroughBrowser] = useState(false);
@@ -2123,11 +2153,11 @@ function BusinessOnboardingInner() {
             </div>
 
             {/* Content Group */}
-            <div className="text-center space-y-3">
-              <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight leading-tight">
+            <div className="text-center space-y-2 sm:space-y-3">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 tracking-tight leading-snug">
                 Is your business on Google?
               </h1>
-              <p className="text-base text-gray-500 max-w-sm mx-auto font-medium">
+              <p className="text-sm sm:text-base text-gray-500 max-w-sm mx-auto font-normal">
                 Importing your business from Google saves time and ensures your profile is accurate.
               </p>
             </div>
@@ -2151,7 +2181,7 @@ function BusinessOnboardingInner() {
                   setShowFindClaimPage(false);
                   setShowGoogleCategoryPage(true);
                 }}
-                className="w-full h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold text-base flex items-center justify-center shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 active:scale-[0.98] transition-all"
+                className="w-full h-12 sm:h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 active:scale-[0.98] transition-all cursor-pointer"
               >
                 YES, IMPORT FROM GOOGLE
               </button>
@@ -2172,7 +2202,7 @@ function BusinessOnboardingInner() {
                   setShowReviewStorefrontPage(false);
                   setShowInitialPrompt(false);
                 }}
-                className="w-full h-14 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold text-base flex items-center justify-center hover:bg-gray-50 hover:border-gray-300 active:scale-[0.98] transition-all"
+                className="w-full h-12 sm:h-14 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center hover:bg-gray-50 hover:border-gray-300 active:scale-[0.98] transition-all cursor-pointer"
               >
                 NO, ENTER MANUALLY
               </button>
@@ -2395,10 +2425,10 @@ function BusinessOnboardingInner() {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
               )}
-              <h1 className="text-3xl font-black text-gray-900">{pageTitle}</h1>
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">{pageTitle}</h1>
             </div>
             {!activeSector && (
-              <p className="text-sm text-gray-500 mb-4">Select your industry to find your business</p>
+              <p className="text-xs sm:text-sm text-gray-500 mb-4">Select your industry to find your business</p>
             )}
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -2417,7 +2447,7 @@ function BusinessOnboardingInner() {
                     setShowFindClaimPage(true);
                   }
                 }}
-                className="block w-full pl-11 pr-4 py-4 bg-white border border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-black shadow-sm text-lg"
+                className="block w-full pl-11 pr-4 py-3 sm:py-3.5 bg-white border border-gray-200 rounded-2xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-black shadow-sm text-base font-normal"
                 placeholder="Find a category..."
               />
             </div>
@@ -2866,7 +2896,7 @@ function BusinessOnboardingInner() {
         <div className="mt-10 px-6 flex flex-col gap-6 max-w-3xl mx-auto w-full">
           {/* Business Identity */}
           <section className="flex flex-col gap-1">
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">{selectedPreviewBusiness.businessName}</h1>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 tracking-tight">{selectedPreviewBusiness.businessName}</h1>
             <div className="flex items-center gap-2">
               <div className="flex items-center text-orange-600">
                 <Star className="w-4 h-4 fill-current" />
@@ -2998,25 +3028,25 @@ function BusinessOnboardingInner() {
             </button>
           </div>
           {/* Headline Section */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-black text-gray-900 mb-2">Verify Ownership</h1>
-            <p className="text-gray-500 font-medium">Choose how you'd like to verify you are the owner of this business.</p>
+          <div className="mb-6 sm:mb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1.5 sm:mb-2">Verify Ownership</h1>
+            <p className="text-gray-500 font-normal text-sm sm:text-base">Choose how you'd like to verify you are the owner of this business.</p>
           </div>
 
           {/* Verification Options List */}
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {/* Option 1: Google (Recommended) */}
-            <label className={`relative flex items-center p-4 bg-white border ${verifyMethod === 'google' ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200'} rounded-2xl cursor-pointer hover:border-orange-300 transition-all active:scale-[0.98]`}>
+            <label className={`relative flex items-center p-3.5 sm:p-4 bg-white border ${verifyMethod === 'google' ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200'} rounded-2xl cursor-pointer hover:border-orange-300 transition-all active:scale-[0.98]`}>
               <input checked={verifyMethod === 'google'} onChange={() => setVerifyMethod('google')} className="hidden" name="verify_method" type="radio" value="google" />
-              <div className="flex-shrink-0 w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center mr-4">
-                <ShieldCheck className="text-orange-600 w-7 h-7" />
+              <div className="flex-shrink-0 w-11 h-11 sm:w-12 sm:h-12 bg-gray-50 rounded-xl flex items-center justify-center mr-3.5 sm:mr-4">
+                <ShieldCheck className="text-orange-600 w-6 h-6 sm:w-7 sm:h-7" />
               </div>
               <div className="flex-grow">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-gray-900 text-sm">Google Verification</span>
-                  <span className="bg-orange-100 text-orange-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter border border-orange-200">Recommended</span>
+                  <span className="font-semibold text-gray-900 text-sm sm:text-base">Google Verification</span>
+                  <span className="bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tight border border-orange-200">Recommended</span>
                 </div>
-                <p className="text-xs text-gray-500 font-medium mt-0.5">Instant verification via linked account</p>
+                <p className="text-xs text-gray-500 font-normal mt-0.5">Instant verification via linked account</p>
               </div>
               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ml-2 ${verifyMethod === 'google' ? 'border-orange-600 bg-orange-600' : 'border-gray-300'}`}>
                 {verifyMethod === 'google' && <div className="w-2 h-2 bg-white rounded-full"></div>}
@@ -3024,14 +3054,14 @@ function BusinessOnboardingInner() {
             </label>
 
             {/* Option 2: Email */}
-            <label className={`relative flex items-center p-4 bg-white border ${verifyMethod === 'email' ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200'} rounded-2xl cursor-pointer hover:border-orange-300 transition-all active:scale-[0.98]`}>
+            <label className={`relative flex items-center p-3.5 sm:p-4 bg-white border ${verifyMethod === 'email' ? 'border-orange-500 bg-orange-50/50' : 'border-gray-200'} rounded-2xl cursor-pointer hover:border-orange-300 transition-all active:scale-[0.98]`}>
               <input checked={verifyMethod === 'email'} onChange={() => setVerifyMethod('email')} className="hidden" name="verify_method" type="radio" value="email" />
-              <div className="flex-shrink-0 w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center mr-4">
-                <Mail className="text-orange-600 w-7 h-7" />
+              <div className="flex-shrink-0 w-11 h-11 sm:w-12 sm:h-12 bg-gray-50 rounded-xl flex items-center justify-center mr-3.5 sm:mr-4">
+                <Mail className="text-orange-600 w-6 h-6 sm:w-7 sm:h-7" />
               </div>
               <div className="flex-grow">
-                <span className="font-bold text-gray-900 text-sm">Email Verification</span>
-                <p className="text-xs text-gray-500 font-medium mt-0.5">
+                <span className="font-semibold text-gray-900 text-sm sm:text-base">Email Verification</span>
+                <p className="text-xs text-gray-500 font-normal mt-0.5">
                   {selectedPreviewBusiness.website
                     ? `to owner@${(() => {
                       try {
@@ -3170,18 +3200,18 @@ function BusinessOnboardingInner() {
             </button>
           </div>
           {/* Header Text */}
-          <div className="mb-10 text-center">
-            <h1 className="text-3xl font-black text-gray-900 mb-2">Connect your Google Business</h1>
-            <p className="text-gray-500 font-medium">Import your business information automatically to speed up your setup process.</p>
+          <div className="mb-6 sm:mb-10 text-center">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1.5 sm:mb-2">Connect your Google Business</h1>
+            <p className="text-gray-500 font-normal text-sm sm:text-base">Import your business information automatically to speed up your setup process.</p>
           </div>
 
           {/* Central Visualization */}
-          <div className="flex-1 flex items-center justify-center py-8">
+          <div className="flex-1 flex items-center justify-center py-6 sm:py-8">
             <div className="relative group">
               <div className="absolute inset-0 bg-orange-500 opacity-5 blur-3xl rounded-full transform group-hover:scale-110 transition-transform duration-1000"></div>
 
-              <div className="relative w-32 h-32 md:w-40 md:h-40 bg-white rounded-3xl shadow-sm border border-gray-100 flex items-center justify-center transform hover:rotate-3 transition-transform duration-300">
-                <div className="grid grid-cols-2 gap-2 p-6">
+              <div className="relative w-28 h-28 sm:w-36 sm:h-36 md:w-40 md:h-40 bg-white rounded-3xl shadow-sm border border-gray-100 flex items-center justify-center transform hover:rotate-3 transition-transform duration-300">
+                <div className="grid grid-cols-2 gap-2 p-5 sm:p-6">
                   <div className="w-6 h-6 md:w-8 md:h-8 bg-[#4285F4] rounded-sm"></div>
                   <div className="w-6 h-6 md:w-8 md:h-8 bg-[#EA4335] rounded-sm"></div>
                   <div className="w-6 h-6 md:w-8 md:h-8 bg-[#FBBC05] rounded-sm"></div>
@@ -3189,14 +3219,14 @@ function BusinessOnboardingInner() {
                 </div>
               </div>
 
-              <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center shadow-md animate-bounce border border-orange-200">
-                <RefreshCw className="w-5 h-5 text-orange-600" />
+              <div className="absolute -bottom-2 -right-2 w-10 h-10 sm:w-12 sm:h-12 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center shadow-md animate-bounce border border-orange-200">
+                <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
               </div>
             </div>
           </div>
 
           {/* Action Section */}
-          <div className="mt-auto space-y-4">
+          <div className="mt-auto space-y-3 sm:space-y-4">
             {/* Error message */}
             {submitError && (
               <div className="flex flex-col gap-3 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
@@ -3236,12 +3266,12 @@ function BusinessOnboardingInner() {
             <button
               onClick={handleGoogleStart}
               disabled={isSubmitting}
-              className="w-full bg-white border border-gray-200 text-gray-900 h-14 rounded-xl flex items-center justify-center gap-3 px-6 shadow-sm active:scale-[0.98] transition-all hover:bg-gray-50 group disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-white border border-gray-200 text-gray-900 h-12 sm:h-14 rounded-xl flex items-center justify-center gap-3 px-6 shadow-sm active:scale-[0.98] transition-all hover:bg-gray-50 group disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-4 h-4 text-gray-500 animate-spin" />
-                  <span className="font-bold text-sm tracking-tight text-gray-600">Connecting to Google…</span>
+                  <span className="font-semibold text-sm sm:text-base text-gray-600">Connecting to Google…</span>
                 </>
               ) : (
                 <>
@@ -3251,7 +3281,7 @@ function BusinessOnboardingInner() {
                     <path d="M4.38188 11.8727C4.18188 11.2727 4.06824 10.6409 4.06824 9.99995C4.06824 9.35905 4.18188 8.72723 4.38188 8.12723V5.54087H1.04553C0.377353 6.88178 0 8.39541 0 9.99995C0 11.6045 0.377353 13.1181 1.04553 14.459L4.38188 11.8727Z" fill="#FBBC05" />
                     <path d="M10.0001 3.97727C11.4683 3.97727 12.7864 4.48182 13.8228 5.47273L16.691 2.60455C14.9592 0.990909 12.6955 0 10.0001 0C6.08188 0 2.69553 2.26364 1.04553 5.54091L4.38188 8.12727C5.17279 5.74545 7.38642 3.97727 10.0001 3.97727Z" fill="#EA4335" />
                   </svg>
-                  <span className="font-bold text-sm tracking-tight text-gray-700 group-hover:text-gray-900 transition-colors">SIGN IN WITH GOOGLE</span>
+                  <span className="font-semibold text-sm sm:text-base tracking-normal text-gray-700 group-hover:text-gray-900 transition-colors">Sign in with Google</span>
                 </>
               )}
             </button>
@@ -5947,7 +5977,7 @@ function BusinessOnboardingInner() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight leading-tight">
+                    <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-900 tracking-tight leading-snug">
                       {isGoogleOnboarding ? (
                         googleStep === 'branch_select' ? 'Select Your Branch' :
                           googleStep === 'fail_safe_form' ? 'Complete Profile Gaps' :

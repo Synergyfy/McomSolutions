@@ -81,9 +81,23 @@
   --spacing-container-padding-md: 2rem;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   @apply bg-white text-gray-900;
   font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Prevent mobile Safari and Chrome from auto-zooming when focusing inputs */
+@media screen and (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 .text-gradient {
