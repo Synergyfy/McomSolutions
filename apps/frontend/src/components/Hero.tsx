@@ -5,17 +5,17 @@ import { Link } from 'react-router-dom';
 
 const slides = [
   {
-    image: '/mcomall.png',
+    image: '/mcomall.webp',
     name: 'Mcom Mall',
     type: 'Mcom',
   },
   {
-    image: '/mcom-reward.png',
+    image: '/mcom-reward.webp',
     name: 'Mcom Rewards',
     type: 'Mcom',
   },
   {
-    image: '/mcom-spin.png',
+    image: '/mcom-spin.webp',
     name: 'Mcom Spin',
     type: 'Mcom',
   },
@@ -34,9 +34,9 @@ export default function Hero() {
   return (
     <section className="relative pt-24 sm:pt-32 pb-16 md:pb-20 overflow-hidden bg-white">
       {/* Background Glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-orange-100/50 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[10%] right-[-5%] w-[40%] h-[40%] bg-orange-200/40 blur-[100px] rounded-full" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 pointer-events-none overflow-hidden [contain:paint] [isolation:isolate]">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-orange-100/50 blur-[60px] md:blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[10%] right-[-5%] w-[40%] h-[40%] bg-orange-200/40 blur-[50px] md:blur-[100px] rounded-full" />
       </div>
 
       <div className="max-w-7xl mx-auto px-6 text-center">
@@ -75,10 +75,12 @@ export default function Hero() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.7 }}
                     className="absolute inset-0"
+                    style={{ willChange: 'opacity', transform: 'translateZ(0)' }}
                   >
                     <img
                       src={slides[currentSlide].image}
                       alt={slides[currentSlide].name}
+                      decoding="async"
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />

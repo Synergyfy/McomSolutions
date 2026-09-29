@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 
 export default function ProductSuite() {
   return (
-    <section id="platforms" className="py-16 md:py-24 bg-white">
+    <section id="platforms" className="py-16 md:py-24 bg-white overflow-hidden section-visibility-auto">
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16">
           <div className="max-w-2xl">
