@@ -59,10 +59,10 @@ export class PricingService {
     const plan = await this.getPlan(level);
     const canonicalTier = normalizeTier(tier);
 
-    // If explicit tier pricing is configured on this membership plan, use it directly
-    if (plan.tierPrices && typeof plan.tierPrices === 'object') {
+    // If explicit tier pricing is configured for sub-tiers (Pro or Pro+), use it
+    if (canonicalTier !== 'Standard' && plan.tierPrices && typeof plan.tierPrices === 'object') {
       const tp = plan.tierPrices as Record<string, any>;
-      const directPrice = tp[canonicalTier] ?? (canonicalTier === 'Standard' ? tp['Normal'] : undefined) ?? tp[tier];
+      const directPrice = tp[canonicalTier] ?? tp[tier];
       if (directPrice != null && typeof directPrice === 'number' && directPrice >= 0) {
         return directPrice;
       }
@@ -76,14 +76,24 @@ export class PricingService {
       }
       return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
     }
+
     if (billing === 'quarterly') {
       if (plan.quarterlyPrice != null) {
         return Number(plan.quarterlyPrice);
       }
       return Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
     }
+
     if (canonicalTier === 'Pro') {
       return Math.floor(baseMonthly * 6 * 0.85); // 6-month Pro pricing
+    }
+
+    if (plan.tierPrices && typeof plan.tierPrices === 'object') {
+      const tp = plan.tierPrices as Record<string, any>;
+      const directPrice = tp[canonicalTier] ?? tp['Normal'] ?? tp[tier];
+      if (directPrice != null && typeof directPrice === 'number' && directPrice >= 0) {
+        return directPrice;
+      }
     }
 
     return Math.round(baseMonthly);

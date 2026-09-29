@@ -16,6 +16,7 @@ import { usePricing, ICON_MAP, SubTier, PricingPlan } from '../../context/Pricin
 import { pricingApi } from '../../services/pricing';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
+import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/payment/MembershipPaymentModal';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
@@ -1396,6 +1397,8 @@ function BusinessOnboardingInner() {
   const [selectedPlatformPlan, setSelectedPlatformPlan] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [showPlatformPaymentModal, setShowPlatformPaymentModal] = useState(false);
+  const [selectedMembershipForPayment, setSelectedMembershipForPayment] = useState<MembershipPaymentPlan | null>(null);
+  const [showMembershipPaymentModal, setShowMembershipPaymentModal] = useState(false);
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -5292,49 +5295,24 @@ function BusinessOnboardingInner() {
 
                   {/* Action Button */}
                   <button
-                    disabled={isSubscribingThis}
-                    onClick={async () => {
-                      setSubscribingPlanId(plan.id);
-                      try {
-                        await pricingApi.subscribeMembership(
-                          plan.name || plan.id,
-                          'Normal',
-                          planBillingCycle,
-                          false
-                        );
-                      } catch (err) {
-                        console.warn('Backend subscribeMembership call deferred/offline:', err);
-                      } finally {
-                        setSubscribingPlanId(null);
-                        localStorage.setItem(
-                          'selectedMembership',
-                          JSON.stringify({
-                            tier: plan.id,
-                            name: plan.name,
-                            billing: planBillingCycle,
-                            price: totalPerCycle,
-                            includedApps: plan.includedApps,
-                          })
-                        );
-                        localStorage.setItem('businessOnboardingState', 'plan_selected');
-                        setShowChoosePlan(false);
-                        setShowInitialAssessment(true);
-                      }
+                    onClick={() => {
+                      setSelectedMembershipForPayment({
+                        id: plan.id,
+                        name: plan.name,
+                        price: Number(plan.price),
+                        billingCycle: planBillingCycle,
+                        totalPerCycle: totalPerCycle,
+                        description: plan.description,
+                        includedApps: plan.includedApps,
+                      });
+                      setShowMembershipPaymentModal(true);
                     }}
                     className={cn(
                       "w-full py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm md:text-base transition-all active:scale-98 shadow-md flex items-center justify-center gap-1.5 cursor-pointer",
-                      isGold ? "bg-white text-orange-600 hover:bg-orange-50 shadow-orange-950/20" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20",
-                      isSubscribingThis ? "opacity-75 cursor-not-allowed" : ""
+                      isGold ? "bg-white text-orange-600 hover:bg-orange-50 shadow-orange-950/20" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20"
                     )}
                   >
-                    {isSubscribingThis ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Subscribing...
-                      </>
-                    ) : (
-                      `Select ${plan.name} Membership`
-                    )}
+                    Select {plan.name} Membership
                   </button>
                 </motion.div>
               );
@@ -5342,6 +5320,45 @@ function BusinessOnboardingInner() {
           </div>
 
           <p className="text-center text-[11px] sm:text-xs text-gray-500 font-medium">All tiers include the 90-Day Business Success Programme and digital business storefront</p>
+
+          <div className="text-center mt-3">
+            <button
+              onClick={() => {
+                localStorage.setItem('businessOnboardingState', 'assessment');
+                setShowChoosePlan(false);
+                setShowInitialAssessment(true);
+              }}
+              className="text-xs text-gray-400 hover:text-gray-600 underline font-medium cursor-pointer"
+            >
+              Skip to assessment questions for now
+            </button>
+          </div>
+
+          {/* Membership Payment Modal */}
+          <MembershipPaymentModal
+            isOpen={showMembershipPaymentModal}
+            plan={selectedMembershipForPayment}
+            onClose={() => setShowMembershipPaymentModal(false)}
+            onSuccess={() => {
+              setShowMembershipPaymentModal(false);
+              if (selectedMembershipForPayment) {
+                localStorage.setItem(
+                  'selectedMembership',
+                  JSON.stringify({
+                    tier: selectedMembershipForPayment.id,
+                    name: selectedMembershipForPayment.name,
+                    billing: selectedMembershipForPayment.billingCycle,
+                    price: selectedMembershipForPayment.totalPerCycle,
+                    includedApps: selectedMembershipForPayment.includedApps,
+                  })
+                );
+              }
+              localStorage.setItem('onboardingPaymentSuccess', 'true');
+              localStorage.setItem('businessOnboardingState', 'assessment');
+              setShowChoosePlan(false);
+              setShowInitialAssessment(true);
+            }}
+          />
         </div>
       </div>
     );

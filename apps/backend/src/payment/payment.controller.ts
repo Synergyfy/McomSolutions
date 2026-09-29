@@ -17,6 +17,15 @@ import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
 export class PaymentController {
   constructor(private paymentService: PaymentService) {}
 
+  private async getBusinessId(req: any): Promise<string> {
+    if (req.user?.businessId) return req.user.businessId;
+    if (req.user?.userId) {
+      const profile = await this.paymentService.getBusinessProfileByUserId(req.user.userId);
+      if (profile?.id) return profile.id;
+    }
+    throw new BadRequestException('No active business profile found for this user.');
+  }
+
   // ─── STRIPE (Membership) ─────────────────────────────────────────────────────
 
   /**
@@ -31,14 +40,12 @@ export class PaymentController {
     @Request() req: any,
     @Body('level') level: string,
     @Body('tier') tier: string,
-    @Body('billing') billing: 'monthly' | 'yearly',
+    @Body('billing') billing: 'monthly' | 'quarterly' | 'yearly',
     @Body('isTrial') isTrial: boolean,
   ) {
-    if (!req.user.businessId) {
-      throw new BadRequestException('No active business profile found for this user.');
-    }
+    const businessId = await this.getBusinessId(req);
     return this.paymentService.stripeInitiate(
-      req.user.businessId,
+      businessId,
       level,
       tier,
       billing || 'monthly',
@@ -56,15 +63,13 @@ export class PaymentController {
     @Request() req: any,
     @Body('level') level: string,
     @Body('tier') tier: string,
-    @Body('billing') billing: 'monthly' | 'yearly',
+    @Body('billing') billing: 'monthly' | 'quarterly' | 'yearly',
     @Body('paymentIntentId') paymentIntentId: string,
     @Body('isTrial') isTrial: boolean,
   ) {
-    if (!req.user.businessId) {
-      throw new BadRequestException('No active business profile found for this user.');
-    }
+    const businessId = await this.getBusinessId(req);
     return this.paymentService.stripeConfirm(
-      req.user.businessId,
+      businessId,
       level,
       tier,
       billing || 'monthly',
@@ -85,16 +90,14 @@ export class PaymentController {
     @Request() req: any,
     @Body('level') level: string,
     @Body('tier') tier: string,
-    @Body('billing') billing: 'monthly' | 'yearly',
+    @Body('billing') billing: 'monthly' | 'quarterly' | 'yearly',
     @Body('returnUrl') returnUrl: string,
     @Body('cancelUrl') cancelUrl: string,
     @Body('isTrial') isTrial: boolean,
   ) {
-    if (!req.user.businessId) {
-      throw new BadRequestException('No active business profile found for this user.');
-    }
+    const businessId = await this.getBusinessId(req);
     return this.paymentService.paypalInitiate(
-      req.user.businessId,
+      businessId,
       level,
       tier,
       billing || 'monthly',

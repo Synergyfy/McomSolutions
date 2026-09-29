@@ -101,10 +101,16 @@ export class PaymentService {
     return accessToken;
   }
 
+  async getBusinessProfileByUserId(userId: string) {
+    return this.prisma.businessProfile.findFirst({
+      where: { userId },
+    });
+  }
+
   private async resolvePlanPrice(
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly',
+    billing: 'monthly' | 'quarterly' | 'yearly',
   ): Promise<number> {
     return this.pricingService.resolveMembershipPrice(level, tier, billing);
   }
@@ -115,7 +121,7 @@ export class PaymentService {
     businessId: string,
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly',
+    billing: 'monthly' | 'quarterly' | 'yearly',
     isTrial: boolean,
   ) {
     if (!this.stripe) {
@@ -150,7 +156,7 @@ export class PaymentService {
     businessId: string,
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly',
+    billing: 'monthly' | 'quarterly' | 'yearly',
     paymentIntentId: string,
     isTrial: boolean,
   ) {
@@ -176,7 +182,7 @@ export class PaymentService {
     businessId: string,
     level: string,
     tier: string,
-    billing: 'monthly' | 'yearly',
+    billing: 'monthly' | 'quarterly' | 'yearly',
     returnUrl: string,
     cancelUrl: string,
     isTrial: boolean,
@@ -256,7 +262,7 @@ export class PaymentService {
       businessId,
       level,
       tier,
-      (billing as 'monthly' | 'yearly') || 'monthly',
+      (billing as 'monthly' | 'quarterly' | 'yearly') || 'monthly',
       isTrial,
     );
 
