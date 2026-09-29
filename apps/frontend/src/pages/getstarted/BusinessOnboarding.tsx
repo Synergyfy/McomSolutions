@@ -4667,22 +4667,22 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showProgrammeIntro) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 180, damping: 14 }} className="mb-8">
-          <div className="w-28 h-28 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-2xl shadow-amber-400/40">
-            <Sparkles className="w-14 h-14 text-white" />
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
+        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 180, damping: 14 }} className="mb-5 sm:mb-8">
+          <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-xl sm:shadow-2xl shadow-amber-400/40">
+            <Sparkles className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
           </div>
         </motion.div>
 
-        <motion.h1 initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="text-3xl md:text-4xl font-black text-gray-900 mb-4 text-center tracking-tight">
+        <motion.h1 initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900 mb-3 sm:mb-4 text-center tracking-tight leading-snug">
           Welcome to Your<br />Business Success Programme
         </motion.h1>
 
-        <motion.p initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="text-base text-gray-500 mb-6 text-center max-w-lg">
+        <motion.p initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="text-xs sm:text-sm md:text-base text-gray-500 mb-4 sm:mb-6 text-center max-w-lg">
           Over the next 90 days, MCOM will help you:
         </motion.p>
 
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }} className="max-w-lg w-full space-y-3 mb-8">
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }} className="max-w-lg w-full space-y-2 sm:space-y-3 mb-6 sm:mb-8">
           {[
             'Build your digital business profile',
             'Strengthen your brand',
@@ -4692,24 +4692,24 @@ function BusinessOnboardingInner() {
             'Prepare for a professional Business Audit',
             'Receive personalised recommendations for growth',
           ].map((item, i) => (
-            <div key={i} className="flex items-center gap-3 bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
-              <CheckCircle2 className="w-5 h-5 text-orange-500 shrink-0" />
-              <span className="text-sm font-medium text-gray-700">{item}</span>
+            <div key={i} className="flex items-center gap-2.5 sm:gap-3 bg-orange-50 rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 border border-orange-100/80">
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 shrink-0" />
+              <span className="text-xs sm:text-sm font-medium text-gray-700">{item}</span>
             </div>
           ))}
         </motion.div>
 
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.7 }} className="bg-amber-50 rounded-2xl p-5 max-w-lg w-full mb-8 border border-amber-200">
-          <p className="text-sm text-amber-800 font-medium text-center leading-relaxed">
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.7 }} className="bg-amber-50 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 max-w-lg w-full mb-6 sm:mb-8 border border-amber-200">
+          <p className="text-xs sm:text-sm text-amber-800 font-medium text-center leading-relaxed">
             Most businesses complete the programme within 90 days. Some complete it in as little as 2 weeks. You can progress at your own pace. Your dashboard will guide you every step of the way.
           </p>
         </motion.div>
 
         <motion.button initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.9 }} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
           onClick={() => { setShowProgrammeIntro(false); setShowChoosePlan(true); }}
-          className="px-10 py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-lg font-bold rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2"
+          className="px-8 sm:px-10 py-3.5 sm:py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-base sm:text-lg font-bold rounded-xl sm:rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2 cursor-pointer"
         >
-          Continue <ArrowRight className="w-5 h-5" />
+          Choose Membership Tier <ArrowRight className="w-5 h-5" />
         </motion.button>
       </div>
     );
@@ -4784,63 +4784,63 @@ function BusinessOnboardingInner() {
 
       return (
         <>
-          <div className="min-h-screen bg-gray-50 py-12">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <div className="min-h-screen bg-gray-50/70 py-4 sm:py-8 md:py-12">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6">
+              <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
                 <div>
                   {currentUser?.businessProfile?.id && (
                     <button
                       onClick={() => performSSORedirect()}
-                      className="text-xs sm:text-sm font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 px-3 sm:px-4 py-2 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                      className="text-[11px] sm:text-xs md:text-sm font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
                     >
-                      <ChevronLeft className="w-4 h-4" /> Back to {platformName}
+                      <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Back to {platformName}
                     </button>
                   )}
                 </div>
-                <div className="flex items-center flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
                     onClick={handleRestartOnboarding}
-                    className="text-xs sm:text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                    className="text-[11px] sm:text-xs md:text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Restart Onboarding
+                    <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Restart
                   </button>
                   <button
                     onClick={handleLogout}
-                    className="text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+                    className="text-[11px] sm:text-xs md:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-red-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
                   >
-                    <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Log Out
+                    <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Log Out
                   </button>
                 </div>
               </div>
-              <div className="text-center max-w-3xl mx-auto mb-12">
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
-                    <Crown className="w-4 h-4" />
-                    {platformName} Plans
+              <div className="text-center max-w-3xl mx-auto mb-6 sm:mb-10">
+                <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-orange-100/80 text-orange-700 text-xs sm:text-sm font-bold mb-2 sm:mb-3 border border-orange-200/60 shadow-2xs">
+                    <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-600" />
+                    {platformName} Platform Plans
                   </div>
-                  <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
+                  <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-gray-900 mb-2 sm:mb-3 tracking-tight leading-snug">
                     Select Your <span className="text-orange-600">{platformName}</span> Plan
                   </h1>
-                  <p className="text-base sm:text-lg text-gray-600 font-medium">
+                  <p className="text-xs sm:text-sm md:text-base text-gray-600 font-medium max-w-xl mx-auto leading-relaxed px-2">
                     Choose a plan to activate your {platformName} platform access.
                   </p>
                 </motion.div>
 
                 {/* Billing Cycle Toggle */}
-                <div className="mt-8 flex justify-center">
-                  <div className="flex p-1 bg-gray-100 rounded-full">
+                <div className="mt-5 sm:mt-8 flex justify-center w-full">
+                  <div className="grid grid-cols-2 p-1 bg-gray-200/70 rounded-xl sm:rounded-full w-full max-w-xs gap-1 shadow-inner">
                     {(['quarterly', 'yearly'] as const).map((cycle) => (
                       <button
                         key={cycle}
                         onClick={() => setPlanBillingCycle(cycle)}
                         className={cn(
-                          "px-6 md:px-8 py-3 rounded-full text-sm font-semibold transition-all",
-                          planBillingCycle === cycle ? "bg-white text-orange-600 shadow-lg" : "text-gray-500 hover:text-gray-700"
+                          "py-2 sm:py-2.5 px-2 sm:px-4 rounded-lg sm:rounded-full text-[11px] sm:text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5",
+                          planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
                         )}
                       >
-                        {cycle.charAt(0).toUpperCase() + cycle.slice(1)}
-                        {cycle === 'quarterly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 10%</span>}
-                        {cycle === 'yearly' && <span className="ml-2 text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full uppercase">Save 20%</span>}
+                        <span>{cycle.charAt(0).toUpperCase() + cycle.slice(1)}</span>
+                        {cycle === 'quarterly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold">Save 10%</span>}
+                        {cycle === 'yearly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold">Save 20%</span>}
                       </button>
                     ))}
                   </div>
@@ -5103,54 +5103,60 @@ function BusinessOnboardingInner() {
 
     // ─── Default MCOM Solutions Membership Plans ────────────────────────────
     return (
-      <div className="min-h-screen bg-gray-50 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <div className="min-h-screen bg-gray-50/70 py-4 sm:py-8 md:py-12">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6">
+          {/* Top Bar Navigation */}
+          <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
             <button
               onClick={handleRestartOnboarding}
-              className="text-xs sm:text-sm font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              className="text-[11px] sm:text-xs md:text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
             >
-              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Restart Onboarding
+              <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Restart
             </button>
             <button
               onClick={handleLogout}
-              className="text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 sm:px-4 py-2 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100"
+              className="text-[11px] sm:text-xs md:text-sm font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-red-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
             >
-              <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Log Out
+              <LogOut className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Log Out
             </button>
           </div>
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
-                <Crown className="w-4 h-4" />
-                Choose Your {platformName ? platformName : 'Membership'} Plan
+
+          {/* Heading & Subtitle */}
+          <div className="text-center max-w-3xl mx-auto mb-6 sm:mb-10">
+            <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-orange-100/80 text-orange-700 text-xs sm:text-sm font-bold mb-2 sm:mb-3 border border-orange-200/60 shadow-2xs">
+                <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-600" />
+                MCOM Solutions Membership
               </div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
-                Select Your <span className="text-orange-600">Growth Plan</span>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-gray-900 mb-2 sm:mb-3 tracking-tight leading-snug">
+                Select Your <span className="text-orange-600">Membership Tier</span>
               </h1>
-              <p className="text-base sm:text-lg text-gray-600 font-medium">
-                {platformName
-                  ? `Choose a ${platformName} plan to get started with your platform access.`
-                  : 'Your membership includes access to the Business Success Programme and all included platform tools.'
-                }
+              <p className="text-xs sm:text-sm md:text-base text-gray-600 font-medium max-w-xl mx-auto leading-relaxed px-2">
+                Your MCOM Membership provides full ecosystem access, entry into the 90-Day Business Success Programme, and bundled plans across our platform apps.
               </p>
+
+              {/* Informational Callout Badge */}
+              <div className="mt-2.5 sm:mt-3 inline-flex items-center gap-1.5 text-[11px] sm:text-xs text-orange-800 bg-orange-50/90 border border-orange-200/80 px-3 py-1 rounded-full font-semibold">
+                <Sparkles className="w-3.5 h-3.5 text-orange-600 shrink-0" />
+                <span>All-in-One: Membership Tier + Success Programme + Bundled Platform Apps</span>
+              </div>
             </motion.div>
 
-            {/* Billing Toggle */}
-            <div className="mt-8 flex flex-col items-center gap-4 w-full">
-              <div className="flex p-1 bg-gray-100 rounded-2xl sm:rounded-full flex-col sm:flex-row w-full max-w-lg gap-1 sm:gap-0">
+            {/* Billing Toggle (Mobile Friendly Horizontal Segmented Control) */}
+            <div className="mt-5 sm:mt-8 flex justify-center w-full">
+              <div className="grid grid-cols-3 p-1 bg-gray-200/70 rounded-xl sm:rounded-full w-full max-w-md gap-1 shadow-inner">
                 {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
                   <button
                     key={cycle}
                     onClick={() => setPlanBillingCycle(cycle)}
                     className={cn(
-                      "flex-1 px-4 sm:px-6 md:px-8 py-2.5 sm:py-3 rounded-xl sm:rounded-full text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5",
-                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md sm:shadow-lg" : "text-gray-500 hover:text-gray-700"
+                      "py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-full text-[11px] sm:text-xs md:text-sm font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5",
+                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
                     )}
                   >
                     <span>{cycle.charAt(0).toUpperCase() + cycle.slice(1)}</span>
-                    {cycle === 'quarterly' && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded-full uppercase font-bold">Save 10%</span>}
-                    {cycle === 'yearly' && <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded-full uppercase font-bold">Save 20%</span>}
+                    {cycle === 'quarterly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 10%</span>}
+                    {cycle === 'yearly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 20%</span>}
                   </button>
                 ))}
               </div>
@@ -5158,7 +5164,7 @@ function BusinessOnboardingInner() {
           </div>
 
           {/* Membership Cards */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
             {plans.map((plan, index) => {
               const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
               const monthlyPrice = plan.monthlyPrice ?? (typeof plan.price === 'number' ? plan.price : 49);
@@ -5181,70 +5187,86 @@ function BusinessOnboardingInner() {
               return (
                 <motion.div
                   key={plan.id}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.08 }}
+                  transition={{ delay: index * 0.06 }}
                   className={cn(
-                    "relative p-6 md:p-8 rounded-4xl md:rounded-[3rem] flex flex-col transition-all duration-500",
+                    "relative p-4 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl flex flex-col transition-all duration-300",
                     isGold
-                      ? "bg-orange-500 text-white shadow-2xl shadow-orange-500/40 scale-[1.02] md:scale-105 z-10"
-                      : "bg-white border border-gray-100 hover:border-orange-200 hover:shadow-2xl"
+                      ? "bg-orange-500 text-white shadow-xl shadow-orange-500/25 ring-2 ring-orange-400 sm:ring-4 sm:ring-orange-300/40 z-10"
+                      : "bg-white border border-gray-200/80 hover:border-orange-300 hover:shadow-xl shadow-xs"
                   )}
                 >
                   {plan.badge ? (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 md:px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-950 font-extrabold px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs flex items-center gap-1 shadow-md whitespace-nowrap tracking-wide">
                       <Star className="w-3 h-3 fill-current" /> {plan.badge}
                     </div>
                   ) : isGold ? (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-900 font-bold px-3 md:px-4 py-1 rounded-full text-xs flex items-center gap-1 shadow-lg whitespace-nowrap">
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-950 font-extrabold px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs flex items-center gap-1 shadow-md whitespace-nowrap tracking-wide">
                       <Star className="w-3 h-3 fill-current" /> MOST POPULAR
                     </div>
                   ) : null}
 
-                  <div className="flex items-center justify-between mb-6 md:mb-8">
-                    <div className={cn("w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center p-2.5 md:p-3 shadow-sm",
-                      isGold ? "bg-white/20" : plan.color
-                    )}>
-                      <PlanIcon className="w-full h-full" />
-                    </div>
-                    <div className={cn("text-xs font-semibold uppercase tracking-widest",
-                      isGold ? "text-orange-100" : "text-gray-400"
-                    )}>
-                      {plan.name}
+                  {/* Header: Icon, Name & Who It's For */}
+                  <div className="flex items-start justify-between gap-3 mb-3 sm:mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div className={cn("w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center p-2 sm:p-2.5 shadow-2xs shrink-0",
+                        isGold ? "bg-white/20 text-white" : plan.color
+                      )}>
+                        <PlanIcon className="w-full h-full" />
+                      </div>
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black tracking-tight leading-tight">
+                          {plan.name} <span className={cn(isGold ? "text-orange-100" : "text-gray-500 font-semibold text-xs sm:text-sm")}>Membership</span>
+                        </h3>
+                        <p className={cn("text-[10px] sm:text-xs font-semibold uppercase tracking-wider mt-0.5",
+                          isGold ? "text-orange-100/90" : "text-gray-500"
+                        )}>
+                          For {plan.whoItIsFor || 'Businesses'}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="mb-4">
+                  {/* Price */}
+                  <div className="mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-dashed border-gray-200/80">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl md:text-4xl font-bold">£{displayPrice}</span>
-                      <span className={cn("text-sm", isGold ? "text-orange-200" : "text-gray-400")}>/mo</span>
+                      <span className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight">£{displayPrice}</span>
+                      <span className={cn("text-xs sm:text-sm font-semibold", isGold ? "text-orange-100" : "text-gray-500")}>/mo</span>
                     </div>
                     {planBillingCycle !== 'monthly' && (
-                      <div className={cn("text-xs font-bold mt-1", isGold ? "text-green-300" : "text-green-500")}>
-                        £{totalPerCycle}/{planBillingCycle === 'yearly' ? 'yr' : 'qtr'}
+                      <div className={cn("text-[11px] sm:text-xs font-bold mt-1 flex items-center gap-1", isGold ? "text-green-200" : "text-green-600")}>
+                        <span>£{totalPerCycle} billed {planBillingCycle === 'yearly' ? 'annually' : 'quarterly'}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-green-100 text-green-800 font-extrabold uppercase">
+                          {planBillingCycle === 'yearly' ? 'Save 20%' : 'Save 10%'}
+                        </span>
                       </div>
                     )}
                   </div>
 
-                  <p className={cn("mb-6 md:mb-8 text-sm font-medium leading-relaxed",
-                    isGold ? "text-orange-50" : "text-gray-500"
+                  {/* Description */}
+                  <p className={cn("text-xs sm:text-sm font-medium leading-relaxed mb-3 sm:mb-4",
+                    isGold ? "text-orange-50" : "text-gray-600"
                   )}>
                     {plan.description}
                   </p>
 
                   {/* Bundled Platform Plans */}
                   {plan.includedApps && plan.includedApps.length > 0 && (
-                    <div className={cn("p-3 rounded-2xl mb-6", isGold ? "bg-white/15" : "bg-orange-50/70 border border-orange-100")}>
-                      <div className={cn("text-[10px] font-bold uppercase tracking-wider mb-2 flex items-center gap-1", isGold ? "text-orange-100" : "text-orange-800")}>
-                        <Layers className="w-3 h-3" /> Bundled Platform Plans ({plan.includedApps.length})
+                    <div className={cn("p-2.5 sm:p-3 rounded-xl mb-3 sm:mb-4", isGold ? "bg-white/15" : "bg-orange-50/80 border border-orange-100")}>
+                      <div className={cn("text-[10px] sm:text-[11px] font-bold uppercase tracking-wider mb-2 flex items-center justify-between", isGold ? "text-orange-100" : "text-orange-900")}>
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3 h-3 text-orange-500" /> Bundled Platform Plans
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.2 bg-white/30 rounded-md font-bold">{plan.includedApps.length} Apps Included</span>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1 sm:space-y-1.5">
                         {plan.includedApps.map((item, idx) => (
-                          <div key={idx} className={cn("flex items-center justify-between text-xs font-semibold px-2.5 py-1.5 rounded-lg", isGold ? "bg-white/10 text-white" : "bg-white text-gray-800 shadow-2xs")}>
+                          <div key={idx} className={cn("flex items-center justify-between text-[11px] sm:text-xs font-semibold px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg", isGold ? "bg-white/10 text-white" : "bg-white text-gray-800 shadow-2xs border border-gray-100")}>
                             <span className="truncate">{item.platform}: <span className="font-bold">{item.planName}</span></span>
                             {item.standalonePrice ? (
                               <span className={cn("text-[10px] shrink-0 ml-1 font-normal", isGold ? "text-orange-200" : "text-gray-400")}>
-                                (£{item.standalonePrice}/mo)
+                                (£{item.standalonePrice}/mo val)
                               </span>
                             ) : null}
                           </div>
@@ -5253,20 +5275,22 @@ function BusinessOnboardingInner() {
                     </div>
                   )}
 
-                  <div className={cn("h-px w-full mb-6 md:mb-8", isGold ? "bg-white/20" : "bg-gray-100")} />
-
-                  <div className="space-y-3 md:space-y-4 mb-8 md:mb-10 flex-1">
-                    <div className={cn("text-xs font-bold uppercase tracking-widest",
-                      isGold ? "text-orange-200/60" : "text-gray-400"
-                    )}>Included Features</div>
+                  {/* Included Membership Features */}
+                  <div className="space-y-2 sm:space-y-2.5 mb-5 sm:mb-6 flex-1">
+                    <div className={cn("text-[10px] sm:text-[11px] font-bold uppercase tracking-wider",
+                      isGold ? "text-orange-100/80" : "text-gray-500"
+                    )}>
+                      Membership Inclusions:
+                    </div>
                     {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <Check className={cn("w-4 h-4 shrink-0", isGold ? "text-orange-300" : "text-orange-500")} />
-                        <span className={cn("text-sm font-semibold", isGold ? "text-white" : "text-gray-700")}>{f}</span>
+                      <div key={i} className="flex items-start gap-2">
+                        <Check className={cn("w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 mt-0.5", isGold ? "text-orange-200" : "text-orange-600")} />
+                        <span className={cn("text-xs sm:text-sm font-medium leading-snug", isGold ? "text-white" : "text-gray-700")}>{f}</span>
                       </div>
                     ))}
                   </div>
 
+                  {/* Action Button */}
                   <button
                     disabled={isSubscribingThis}
                     onClick={async () => {
@@ -5298,32 +5322,26 @@ function BusinessOnboardingInner() {
                       }
                     }}
                     className={cn(
-                      "w-full py-3 md:py-4 rounded-2xl font-black text-base md:text-lg transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2",
-                      isGold ? "bg-white text-orange-600 hover:bg-orange-50" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20",
+                      "w-full py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm md:text-base transition-all active:scale-98 shadow-md flex items-center justify-center gap-1.5 cursor-pointer",
+                      isGold ? "bg-white text-orange-600 hover:bg-orange-50 shadow-orange-950/20" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20",
                       isSubscribingThis ? "opacity-75 cursor-not-allowed" : ""
                     )}
                   >
                     {isSubscribingThis ? (
                       <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
+                        <RefreshCw className="w-4 h-4 animate-spin" />
                         Subscribing...
                       </>
                     ) : (
-                      'Select Membership'
+                      `Select ${plan.name} Membership`
                     )}
                   </button>
-
-                  <div className={cn("mt-4 md:mt-6 text-center text-xs font-semibold uppercase tracking-wider",
-                    isGold ? "text-orange-100" : "text-gray-400"
-                  )}>
-                    FOR {plan.whoItIsFor}
-                  </div>
                 </motion.div>
               );
             })}
           </div>
 
-          <p className="text-center text-xs text-gray-400 font-medium">Annual billing · Includes 90-Day Business Success Programme</p>
+          <p className="text-center text-[11px] sm:text-xs text-gray-500 font-medium">All tiers include the 90-Day Business Success Programme and digital business storefront</p>
         </div>
       </div>
     );
