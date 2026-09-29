@@ -1004,4 +1004,44 @@ export class BusinessService {
     });
     return { success: true };
   }
+
+  async getSupportTickets(businessId: string) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+    });
+    if (!business) {
+      throw new NotFoundException('Business profile not found');
+    }
+    return this.prisma.supportTicket.findMany({
+      where: {
+        OR: [
+          { fromName: business.businessName },
+          { fromName: businessId },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createSupportTicket(
+    businessId: string,
+    data: { subject: string; message: string; priority?: string },
+  ) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+    });
+    if (!business) {
+      throw new NotFoundException('Business profile not found');
+    }
+    return this.prisma.supportTicket.create({
+      data: {
+        subject: data.subject,
+        message: data.message,
+        fromName: business.businessName,
+        fromType: 'Business',
+        priority: data.priority || 'Medium',
+        status: 'Open',
+      },
+    });
+  }
 }

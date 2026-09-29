@@ -49,6 +49,12 @@ export class PricingController {
     return this.pricingService.purchasePackage(req.user.businessId, dto.platform, dto.packageName);
   }
 
+  @Get('packages')
+  @ApiOperation({ summary: 'Get all active package templates' })
+  async getPackages() {
+    return this.pricingService.getPackageTemplates();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('transactions')
   async getTransactions(@Request() req: any) {
@@ -56,5 +62,16 @@ export class PricingController {
       throw new NotFoundException('User does not have an active business profile');
     }
     return this.pricingService.getTransactions(req.user.businessId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('subscriptions')
+  @ApiOperation({ summary: 'Get active subscriptions and packages for current business' })
+  async getSubscriptions(@Request() req: any) {
+    if (!req.user.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.pricingService.getSubscriptions(req.user.businessId);
   }
 }

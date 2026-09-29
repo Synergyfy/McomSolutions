@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Gift, Dices, Store, FileSearch, UsersRound,
@@ -6,7 +6,7 @@ import {
   TrendingUp, ArrowUpRight, ChevronRight, PackageOpen
 } from 'lucide-react';
 import { useProfile } from '../services/business/hooks';
-import { usePurchasePackage } from '../services/pricing/hooks';
+import { usePurchasePackage, usePackageTemplates } from '../services/pricing/hooks';
 
 type PkgStatus = 'active' | 'expired' | 'pending';
 
@@ -46,23 +46,52 @@ export default function DashboardPackages() {
   const [activePackages, setActivePackages] = useState<any[]>([]);
   const { data: profile, isLoading: loading } = useProfile();
   const { mutateAsync: purchasePackage } = usePurchasePackage();
+  const { data: dbTemplates = [] } = usePackageTemplates();
   const [buying, setBuying] = useState(false);
+
+  const availablePlans = useMemo(() => {
+    if (!Array.isArray(dbTemplates) || dbTemplates.length === 0) {
+      return AVAILABLE_PLANS;
+    }
+    const platformIcons: Record<string, any> = {
+      'mcom rewards': { icon: Gift, color: 'bg-orange-500' },
+      'mcom spin': { icon: Dices, color: 'bg-amber-500' },
+      'mcom mall': { icon: Store, color: 'bg-sky-500' },
+      '247gbs audit': { icon: FileSearch, color: 'bg-indigo-500' },
+      '247gbs expo': { icon: UsersRound, color: 'bg-cyan-500' },
+      'mcom solutions': { icon: PackageOpen, color: 'bg-blue-600' },
+    };
+    return dbTemplates.map((t: any) => {
+      const meta = platformIcons[(t.platform || '').toLowerCase()] || { icon: PackageOpen, color: 'bg-orange-500' };
+      const price = Math.round(Number(t.monthlyPrice ?? t.price ?? 0));
+      return {
+        platform: t.platform || 'MCOM Platform',
+        icon: meta.icon,
+        color: meta.color,
+        tier: t.name,
+        price: `£${price}/mo`,
+        features: Array.isArray(t.features) && t.features.length > 0 ? t.features : ['Platform access'],
+      };
+    });
+  }, [dbTemplates]);
 
   useEffect(() => {
     if (profile) {
       const list = (profile.packages || []).map((pkg: any) => {
-        const matchingPlan = AVAILABLE_PLANS.find(p => p.platform.toLowerCase() === pkg.platformName.toLowerCase());
-        const renewDateStr = new Date();
-        renewDateStr.setMonth(renewDateStr.getMonth() + 1);
+        const matchingPlan = availablePlans.find((p: any) =>
+          p.platform.toLowerCase() === (pkg.platformName || pkg.platform || '').toLowerCase() ||
+          p.tier.toLowerCase() === (pkg.packageName || '').toLowerCase()
+        );
+        const renewDateStr = pkg.expiresAt ? new Date(pkg.expiresAt) : new Date(Date.now() + 30 * 86400000);
 
         return {
           id: pkg.id,
-          platform: pkg.platformName,
+          platform: pkg.platformName || pkg.platform,
           icon: matchingPlan?.icon || Gift,
           iconColor: matchingPlan?.color || 'bg-orange-500',
           tier: pkg.packageName,
-          price: matchingPlan?.price || '£49/mo',
-          status: 'active' as PkgStatus,
+          price: matchingPlan?.price || (pkg.amount ? `£${pkg.amount}/mo` : '£49/mo'),
+          status: (pkg.status?.toLowerCase() === 'active' ? 'active' : pkg.status?.toLowerCase() === 'expired' ? 'expired' : 'active') as PkgStatus,
           renewDate: renewDateStr.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
           features: matchingPlan?.features || ['Central ecosystem access'],
         };
@@ -71,7 +100,7 @@ export default function DashboardPackages() {
     } else {
       setActivePackages([]);
     }
-  }, [profile]);
+  }, [profile, availablePlans]);
 
   const handlePurchase = async (platformName: string, packageName: string) => {
     setBuying(true);
@@ -233,7 +262,7 @@ export default function DashboardPackages() {
               </div>
 
               <div className="space-y-4">
-                {AVAILABLE_PLANS.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).map((plan, idx) => {
+                {availablePlans.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).map((plan, idx) => {
                   const Icon = plan.icon;
                   return (
                     <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-6 bg-gray-50 border border-gray-200 rounded-2xl gap-4 hover:border-orange-200 transition">
@@ -261,7 +290,7 @@ export default function DashboardPackages() {
                     </div>
                   );
                 })}
-                {AVAILABLE_PLANS.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).length === 0 && (
+                {availablePlans.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).length === 0 && (
                   <p className="text-center py-6 text-gray-500 font-bold">You have purchased all available platform add-ons!</p>
                 )}
               </div>

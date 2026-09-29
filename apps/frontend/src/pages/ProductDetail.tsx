@@ -44,13 +44,19 @@ export default function ProductDetail() {
             </p>
 
             <div className="flex flex-wrap gap-6">
-              <button className="bg-brand-blue text-white px-10 py-5 rounded-full font-bold text-lg hover:bg-blue-600 transition-all shadow-glow-lg flex items-center gap-3 active:scale-95">
+              <Link 
+                to="/dashboard?tab=all-products" 
+                className="bg-brand-blue text-white px-10 py-5 rounded-full font-bold text-lg hover:bg-blue-600 transition-all shadow-glow-lg flex items-center gap-3 active:scale-95"
+              >
                 Launch {product.name.split(' ').pop()}
                 <ExternalLink className="w-5 h-5" />
-              </button>
-              <button className="bg-white text-gray-900 px-10 py-5 rounded-full font-bold text-lg border border-gray-200 hover:bg-gray-50 transition-all active:scale-95">
-                Request Demo
-              </button>
+              </Link>
+              <Link 
+                to="/getstarted" 
+                className="bg-white text-gray-900 px-10 py-5 rounded-full font-bold text-lg border border-gray-200 hover:bg-gray-50 transition-all active:scale-95"
+              >
+                Get Started
+              </Link>
             </div>
           </motion.div>
 

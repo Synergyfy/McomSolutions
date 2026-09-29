@@ -453,4 +453,28 @@ export class PricingService {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  async getPackageTemplates() {
+    return this.prisma.packageTemplate.findMany({
+      where: { archived: false },
+      orderBy: { price: 'asc' },
+    });
+  }
+
+  async getSubscriptions(businessId: string) {
+    const [ecosystemSubs, platformPackages] = await Promise.all([
+      this.prisma.ecosystemSubscription.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.platformPackage.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return {
+      subscriptions: ecosystemSubs,
+      packages: platformPackages,
+    };
+  }
 }

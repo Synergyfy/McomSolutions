@@ -365,4 +365,28 @@ export class BusinessController {
   async deleteBusiness(@Param('id') id: string) {
     return this.businessService.deleteBusiness(id);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('business/support-tickets')
+  async getSupportTickets(@Request() req: any) {
+    if (!req.user.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.businessService.getSupportTickets(req.user.businessId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('business/support-tickets')
+  async createSupportTicket(
+    @Request() req: any,
+    @Body() body: { subject: string; message: string; priority?: string },
+  ) {
+    if (!req.user.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    if (!body?.subject || !body?.message) {
+      throw new BadRequestException('subject and message are required');
+    }
+    return this.businessService.createSupportTicket(req.user.businessId, body);
+  }
 }

@@ -45,7 +45,7 @@ export default function PricingManager() {
         if (!id) continue;
         await adminApi.updatePlan(id, {
           description: plan.description,
-          price: plan.price.Normal,
+          price: typeof plan.price === 'number' ? plan.price : ((plan.price as any)?.Normal ?? plan.monthlyPrice ?? 0),
           permissions: plan.features,
         });
       }

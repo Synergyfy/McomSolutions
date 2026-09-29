@@ -432,8 +432,8 @@ export default function BoroughsPanel() {
                     <div className="absolute bottom-1/3 right-1/4 w-8 h-8 bg-blue-500 rounded-full blur-lg opacity-60" />
                     
                     <div className="absolute bottom-3 left-3 right-3 p-3 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-150 shadow-lg text-left">
-                      <p className="text-xs font-bold text-gray-900 leading-none">Angel High Street</p>
-                      <p className="text-[9px] font-semibold text-gray-500 mt-1">342 Active Merchants • High Density</p>
+                      <p className="text-xs font-bold text-gray-900 leading-none">{selectedBorough.name} District</p>
+                      <p className="text-[9px] font-semibold text-gray-500 mt-1">{selectedBorough.businessCount || 0} Active Merchants • {selectedBorough.populationActivity || 'Active'} Density</p>
                     </div>
                   </div>
                 </div>

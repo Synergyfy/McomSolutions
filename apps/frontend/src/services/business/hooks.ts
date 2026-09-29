@@ -180,5 +180,27 @@ export const useEcosystemApps = () => {
   });
 };
 
+export const useSupportTickets = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['my-support-tickets'],
+    queryFn: () => businessApi.getSupportTickets(),
+    enabled: !!token,
+    staleTime: 1000 * 30, // 30 seconds
+  });
+};
+
+export const useCreateSupportTicket = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { subject: string; message: string; priority?: string }) =>
+      businessApi.createSupportTicket(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] });
+    },
+  });
+};
+
+
 
 

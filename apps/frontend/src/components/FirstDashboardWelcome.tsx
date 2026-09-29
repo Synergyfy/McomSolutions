@@ -5,33 +5,45 @@ import {
   User, ChevronRight, HeadphonesIcon, Calendar, Target
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay, getTotalMissions } from '../lib/programmeData';
+import { useProfile } from '../services/business/hooks';
 
 export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => void }) {
-  const userRaw = localStorage.getItem('business_user');
-  let businessName = 'Your Business';
-  let sector = '';
-  let category = '';
-  let membership = 'Bronze';
-  let membershipSub = 'Standard';
+  const { data: profile } = useProfile();
 
-  if (userRaw) {
-    try {
-      const user = JSON.parse(userRaw);
-      businessName = user.businessName || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Your Business');
-      sector = user.sector || '';
-      category = user.category || '';
-    } catch {}
+  let businessName = profile?.businessName || '';
+  let sector = profile?.sector || '';
+  let category = profile?.category || '';
+  let membership = profile?.membershipLevel || '';
+  let membershipSub = profile?.membershipTier || '';
+  let membershipStatus = profile?.membershipStatus || 'Active';
+
+  if (!businessName) {
+    const userRaw = localStorage.getItem('business_user');
+    if (userRaw) {
+      try {
+        const user = JSON.parse(userRaw);
+        businessName = user.businessName || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '');
+        if (!sector) sector = user.sector || '';
+        if (!category) category = user.category || '';
+        if (!membership) membership = user.membershipLevel || '';
+        if (!membershipSub) membershipSub = user.membershipTier || '';
+      } catch {}
+    }
   }
 
   const onboardingData = localStorage.getItem('businessOnboarding');
   if (onboardingData) {
     try {
       const data = JSON.parse(onboardingData);
-      if (data.businessName) businessName = data.businessName;
-      if (data.sector) sector = data.sector;
-      if (data.category) category = data.category;
+      if (!businessName && data.businessName) businessName = data.businessName;
+      if (!sector && data.sector) sector = data.sector;
+      if (!category && data.category) category = data.category;
     } catch {}
   }
+
+  if (!businessName) businessName = 'Your Business';
+  if (!membership) membership = 'Bronze';
+  if (!membershipSub) membershipSub = 'Standard';
 
   const currentDay = getProgrammeDay();
   const progress = getProgressForDay(currentDay);
@@ -79,7 +91,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
             <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">
               <p className="text-orange-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest leading-none">Status</p>
               <p className="font-bold text-xs sm:text-sm mt-1 flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-400 rounded-full shrink-0" /> Active
+                <span className="w-2 h-2 bg-green-400 rounded-full shrink-0" /> {membershipStatus.charAt(0).toUpperCase() + membershipStatus.slice(1).toLowerCase()}
               </p>
             </div>
             <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">

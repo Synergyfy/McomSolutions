@@ -151,4 +151,15 @@ export const businessApi = {
     const res = await apiClient.get('/apps');
     return res.data;
   },
+
+  getSupportTickets: async () => {
+    const res = await apiClient.get('/business/support-tickets');
+    return res.data;
+  },
+
+  createSupportTicket: async (data: { subject: string; message: string; priority?: string }) => {
+    const res = await apiClient.post('/business/support-tickets', data);
+    return res.data;
+  },
 };
+

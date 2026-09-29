@@ -25,4 +25,15 @@ export const pricingApi = {
     const res = await apiClient.get('/pricing/transactions');
     return res.data;
   },
+
+  getPackageTemplates: async () => {
+    const res = await apiClient.get('/pricing/packages');
+    return res.data;
+  },
+
+  getSubscriptions: async () => {
+    const res = await apiClient.get('/pricing/subscriptions');
+    return res.data;
+  },
 };
+

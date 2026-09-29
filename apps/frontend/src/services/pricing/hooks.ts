@@ -39,3 +39,20 @@ export const useTransactions = () => {
     staleTime: 1000 * 60 * 2, // 2 minutes
   });
 };
+
+export const usePackageTemplates = () => {
+  return useQuery({
+    queryKey: ['packageTemplates'],
+    queryFn: () => pricingApi.getPackageTemplates(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+};
+
+export const useSubscriptions = () => {
+  return useQuery({
+    queryKey: ['subscriptions'],
+    queryFn: () => pricingApi.getSubscriptions(),
+    staleTime: 1000 * 60 * 2, // 2 minutes
+  });
+};
+
