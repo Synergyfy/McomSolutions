@@ -70,11 +70,11 @@ export class AuthService {
     const fromAddress =
       this.config.get<string>('SMTP_FROM') ||
       process.env.SMTP_FROM ||
-      'CentralHub Solution <no-reply@centralhubsolution.com>';
+      'Central Hub Solution <no-reply@centralhubsolution.com>';
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
-        <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">MCOM Solutions</h2>
+        <h2 style="color: #ea580c; text-align: center; margin-bottom: 20px;">Central Hub Solution</h2>
         <p>Hello,</p>
         <p>${intro}</p>
         <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; border: 1px solid #e5e7eb;">
@@ -82,7 +82,7 @@ export class AuthService {
         </div>
         <p style="color: #6b7280; font-size: 14px;">This code is valid for 10 minutes. If you did not make this request, you can safely ignore this email.</p>
         <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
-        <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 MCOM Solutions. All rights reserved.</p>
+        <p style="color: #9ca3af; font-size: 12px; text-align: center;">© 2026 Central Hub Solution. All rights reserved.</p>
       </div>
     `;
 
@@ -168,7 +168,7 @@ export class AuthService {
       await this.sendCodeEmail(
         normalizedEmail,
         code,
-        'MCOM Solutions - Your Verification Code',
+        'Central Hub Solution - Your Verification Code',
         'We received a request to verify your email address. Please use the following verification code to continue your setup:',
       );
     }
@@ -248,7 +248,7 @@ export class AuthService {
       await this.sendCodeEmail(
         normalizedEmail,
         code,
-        'MCOM Solutions - Reset Your Password',
+        'Central Hub Solution - Reset Your Password',
         'We received a request to reset your password. Please use the following code to continue:',
       );
     }

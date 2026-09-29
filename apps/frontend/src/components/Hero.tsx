@@ -45,24 +45,21 @@ export default function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-sm border border-orange-100 text-orange-600 text-sm font-semibold mb-8">
-            <Star className="w-4 h-4 fill-orange-500" />
-            <span className="text-gray-900">Rated #1 Enterprise Suite 2026</span>
-          </div>
-          
+
+
           <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight text-gray-900 mb-6 md:mb-8 leading-[1.05]">
-            One Login. <br />
+
             One Membership. <br />
             <span className="text-gradient">One Ecosystem.</span>
           </h1>
-          
+
           <p className="text-lg sm:text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-8 md:mb-12 leading-relaxed font-medium">
-            MCOM Mall, MCOM Rewards, MCOM Spin, MCOMQ Link — plus 24/7 GBS Loyalty, 
-            24/7 GBS Audit, 24/7 GBS Expo — and future MCOM &amp; 24/7 GBS platforms, 
+            MCOM Mall, MCOM Rewards, MCOM Spin, MCOMQ Link — plus 24/7 GBS Loyalty,
+            24/7 GBS Audit, 24/7 GBS Expo — and future MCOM &amp; 24/7 GBS platforms,
             all from one central account.
           </p>
 
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
@@ -79,13 +76,13 @@ export default function Hero() {
                     transition={{ duration: 0.7 }}
                     className="absolute inset-0"
                   >
-                    <img 
-                      src={slides[currentSlide].image} 
+                    <img
+                      src={slides[currentSlide].image}
                       alt={slides[currentSlide].name}
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-                    
+
                     <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 flex items-center gap-2 sm:gap-3">
                       <span className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-white/20 backdrop-blur-md rounded-full text-white text-xs sm:text-sm font-bold border border-white/30">
                         {slides[currentSlide].type}
@@ -103,18 +100,17 @@ export default function Hero() {
                   <button
                     key={i}
                     onClick={() => setCurrentSlide(i)}
-                    className={`h-2 rounded-full transition-all duration-300 ${
-                      i === currentSlide 
-                        ? 'bg-brand-blue w-5 md:w-6' 
+                    className={`h-2 rounded-full transition-all duration-300 ${i === currentSlide
+                        ? 'bg-brand-blue w-5 md:w-6'
                         : 'bg-gray-300 hover:bg-gray-400 w-2'
-                    }`}
+                      }`}
                   />
                 ))}
               </div>
             </div>
 
             {/* Floating Stats */}
-            <motion.div 
+            <motion.div
               animate={{ y: [0, -10, 0] }}
               transition={{ duration: 4, repeat: Infinity }}
               className="absolute -top-10 -right-10 glass p-6 rounded-3xl shadow-2xl hidden lg:block"
@@ -133,7 +129,7 @@ export default function Hero() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
             <Link to="/register">
-              <motion.button 
+              <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-full font-semibold transition-colors flex items-center justify-center w-full sm:w-auto shadow-[0_0_20px_rgba(255,105,0,0.3)] hover:shadow-[0_0_30px_rgba(255,105,0,0.5)]"

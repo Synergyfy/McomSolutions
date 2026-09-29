@@ -59,7 +59,7 @@ process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
 process.env.SMTP_HOST = '';
 process.env.SMTP_USER = '';
 process.env.SMTP_PASS = '';
-process.env.SMTP_FROM = 'no-reply@mcomsolutions.com';
+process.env.SMTP_FROM = 'Central Hub Solution <no-reply@centralhubsolution.com>';
 
 // ─── App URLs ────────────────────────────────────────────────────────────────
 process.env.APP_URL = 'http://localhost:3010';

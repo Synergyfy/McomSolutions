@@ -78,7 +78,7 @@ export class BusinessService {
     private configService: ConfigService,
     private googleOAuth: GoogleOAuthService,
     @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
-  ) {}
+  ) { }
 
   private async emitTaskEvent(
     userId: string,
@@ -132,7 +132,7 @@ export class BusinessService {
 
     try {
       const url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(cleanPostcode)}&country=United%20Kingdom&format=json&addressdetails=1`;
-      
+
       const response = await axios.get(url, {
         headers: {
           'User-Agent': 'McomSolutions/1.0 (contact@mcomsolutions.co.uk)',
@@ -148,7 +148,7 @@ export class BusinessService {
         const street = addr.road || addr.suburb || addr.neighbourhood || '';
         const building = addr.house_number || addr.building || '';
         const city = addr.city || addr.town || addr.suburb || 'London';
-        
+
         let primaryLine = building ? `${building} ${street}` : street;
         if (!primaryLine) {
           primaryLine = item.display_name.split(',')[0];
