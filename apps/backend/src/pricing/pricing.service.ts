@@ -58,19 +58,30 @@ export class PricingService {
   ): Promise<number> {
     const plan = await this.getPlan(level);
     const canonicalTier = normalizeTier(tier);
-
-    // If explicit tier pricing is configured for sub-tiers (Pro or Pro+), use it
-    if (canonicalTier !== 'Standard' && plan.tierPrices && typeof plan.tierPrices === 'object') {
-      const tp = plan.tierPrices as Record<string, any>;
-      const directPrice = tp[canonicalTier] ?? tp[tier];
-      if (directPrice != null && typeof directPrice === 'number' && directPrice >= 0) {
-        return directPrice;
-      }
-    }
-
     const baseMonthly = plan.monthlyPrice != null ? Number(plan.monthlyPrice) : Number(plan.price);
 
-    if (billing === 'yearly' || canonicalTier === 'Pro+') {
+    // 1. Explicit sub-tier pricing (Pro+ annual package or Pro 6-month package)
+    if (canonicalTier === 'Pro+') {
+      const proPlusPrice = (plan.tierPrices as any)?.['Pro+'] ?? (plan.tierPrices as any)?.['ProPlus'];
+      if (proPlusPrice != null && typeof proPlusPrice === 'number' && proPlusPrice >= 0) {
+        return proPlusPrice;
+      }
+      if (plan.annualPrice != null) {
+        return Number(plan.annualPrice);
+      }
+      return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
+    }
+
+    if (canonicalTier === 'Pro') {
+      const proPrice = (plan.tierPrices as any)?.['Pro'];
+      if (proPrice != null && typeof proPrice === 'number' && proPrice >= 0 && billing === 'monthly') {
+        return proPrice;
+      }
+      return Math.floor(baseMonthly * 6 * 0.85); // 6-month Pro pricing
+    }
+
+    // 2. Standard tier billing cycles (Yearly, Quarterly, Monthly)
+    if (billing === 'yearly') {
       if (plan.annualPrice != null) {
         return Number(plan.annualPrice);
       }
@@ -84,10 +95,7 @@ export class PricingService {
       return Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
     }
 
-    if (canonicalTier === 'Pro') {
-      return Math.floor(baseMonthly * 6 * 0.85); // 6-month Pro pricing
-    }
-
+    // Monthly billing: check explicit tierPrices override, fallback to base monthly
     if (plan.tierPrices && typeof plan.tierPrices === 'object') {
       const tp = plan.tierPrices as Record<string, any>;
       const directPrice = tp[canonicalTier] ?? tp['Normal'] ?? tp[tier];
