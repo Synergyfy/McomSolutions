@@ -97,10 +97,18 @@ body {
   position: relative;
 }
 
-#root, main {
+#root {
   overflow-x: clip;
   width: 100%;
   max-width: 100%;
+}
+
+/* NOTE: keep width/max-width off `main` — an unlayered max-width here beats
+   Tailwind's layered max-w-* utilities and silently un-centers every
+   <main class="mx-auto max-w-..."> column (e.g. Verify Ownership). Block-level
+   <main> already fills its parent width by default. */
+main {
+  overflow-x: clip;
 }
 
 .section-visibility-auto {

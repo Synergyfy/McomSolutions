@@ -1264,6 +1264,13 @@ function BusinessOnboardingInner() {
       });
 
       const { auth, user, listing } = res.data;
+      // Persist auth token to localStorage so Dashboard auth guard finds it
+      // (mirrors the manual onboarding flow — without this the dashboard
+      // bounces straight back to /login on a Google-claim signup).
+      if (auth?.accessToken) {
+        localStorage.setItem('auth_token', auth.accessToken);
+        localStorage.setItem('business_user', JSON.stringify(user));
+      }
       api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
       setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
       dispatch(setAuthTokens({ accessToken: auth.accessToken, refreshToken: auth.refreshToken }));
