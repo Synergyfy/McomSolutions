@@ -187,7 +187,7 @@ describe('ConsoleService', () => {
   describe('getApp / listApps', () => {
     it('should return masked secrets in detail', async () => {
       mockPrisma.ssoClient.findUnique.mockResolvedValue(
-        clientRecord({ apiKey: 'ak_1234567890abcdef', hmacSecret: 'encrypted', webhookSecret: 'encrypted' }),
+        clientRecord({ apiKey: 'ak_test_fixture_dummy_key', hmacSecret: 'encrypted', webhookSecret: 'encrypted' }),
       );
       const app = await service.getApp('mcom-vcard');
       expect(app.clientSecret).toContain('•');
