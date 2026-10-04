@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff } from 'lucide-react';
@@ -33,6 +33,16 @@ export default function LoginPage() {
   const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(shouldCheckSession);
 
   const hasActiveSession = !!currentUser && !sessionLoading;
+
+  // Surfaced when the OAuth popup loses window.opener and falls back to a
+  // full-page redirect (?googleError=...) instead of postMessage.
+  useEffect(() => {
+    const googleError = searchParams.get('googleError');
+    if (googleError) {
+      setError(googleError);
+      setLoading(false);
+    }
+  }, [searchParams]);
 
   const performRedirect = async (clientIdParam?: string | null) => {
     const clientId = clientIdParam || searchParams.get('client_id');
@@ -150,6 +160,7 @@ export default function LoginPage() {
       return;
     }
 
+    let completed = false;
     const handleMessage = async (event: MessageEvent) => {
       const getOrigin = (urlStr?: string) => {
         if (!urlStr) return '';
@@ -165,11 +176,19 @@ export default function LoginPage() {
         'http://localhost:3000',
         'http://localhost:5173'
       ].filter(Boolean);
-      if (!allowedOrigins.includes(event.origin)) return;
+      if (!allowedOrigins.includes(event.origin)) {
+        if (import.meta.env.DEV) {
+          console.debug('[Google OAuth] ignored message from unexpected origin:', event.origin, event.data?.type);
+        }
+        return;
+      }
 
       if (event.data?.type === 'GOOGLE_LOGIN_FAILURE') {
+        completed = true;
         window.removeEventListener('message', handleMessage);
         clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
+        try { if (!popup.closed) popup.close(); } catch { /* noop */ }
         setError(event.data?.error || 'Google authentication failed. Please try again.');
         setLoading(false);
         return;
@@ -177,8 +196,11 @@ export default function LoginPage() {
 
       if (event.data?.type !== 'GOOGLE_LOGIN_SUCCESS') return;
 
+      completed = true;
       window.removeEventListener('message', handleMessage);
       clearInterval(pollTimer);
+      clearTimeout(timeoutTimer);
+      try { if (!popup.closed) popup.close(); } catch { /* noop */ }
 
       const { auth, user } = event.data;
 
@@ -207,10 +229,26 @@ export default function LoginPage() {
     const pollTimer = setInterval(() => {
       if (popup.closed) {
         clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
         window.removeEventListener('message', handleMessage);
+        if (!completed) {
+          setError('Google sign-in was closed before completing. Please try again.');
+        }
         setLoading(false);
       }
     }, 600);
+
+    // Google account chooser can take a while, but never leave the parent
+    // spinner running forever if the handoff (postMessage) never arrives —
+    // e.g. opener severed, popup redirected to /login?googleError=....
+    const timeoutTimer = setTimeout(() => {
+      if (completed) return;
+      window.removeEventListener('message', handleMessage);
+      clearInterval(pollTimer);
+      try { if (!popup.closed) popup.close(); } catch { /* noop */ }
+      setLoading(false);
+      setError((prev) => prev || 'Google sign-in timed out. Please try again.');
+    }, 180000);
   };
 
   const getClientName = (id?: string | null) => {

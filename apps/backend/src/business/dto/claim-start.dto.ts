@@ -11,6 +11,6 @@ export class ClaimStartDto {
 
   @ApiPropertyOptional({ example: 'https://app.example.com/getstarted/business', description: 'Return URL after claim' })
   @IsOptional()
-  @IsUrl({}, { message: 'returnUrl must be a valid URL' })
+  @IsUrl({ require_tld: false }, { message: 'returnUrl must be a valid URL' })
   returnUrl?: string;
 }

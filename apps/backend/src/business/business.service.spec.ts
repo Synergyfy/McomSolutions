@@ -69,6 +69,7 @@ describe('BusinessService', () => {
     signEmailGrant: jest.fn((email: string, placeId?: string) => `grant.${Buffer.from(JSON.stringify({ email, placeId })).toString('base64url')}`),
     verifyEmailGrant: jest.fn(() => null),
     exchangeCodeForEmail: jest.fn(),
+    exchangeCodeForProfile: jest.fn(),
     getRedirectUri: jest.fn(() => 'http://localhost:3010/api/v1/business/google/callback'),
   };
 
@@ -574,7 +575,7 @@ describe('BusinessService', () => {
         placeId: 'mock-place-001',
         returnUrl: 'http://localhost:3000',
       });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('business-owner@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'business-owner@test.com' });
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state');
       expect(result).toContain('success: true');
@@ -584,7 +585,7 @@ describe('BusinessService', () => {
         'mock-place-001',
       );
       expect(result).toContain('grant');
-      expect(mockGoogleOAuth.exchangeCodeForEmail).toHaveBeenCalledWith(
+      expect(mockGoogleOAuth.exchangeCodeForProfile).toHaveBeenCalledWith(
         'real-code',
         'http://localhost:3010/api/v1/business/google/callback',
       );
@@ -594,22 +595,24 @@ describe('BusinessService', () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
       const result = await service.handleGoogleCallback('mock-google-code', 'signed-state');
       expect(result).toContain('GOOGLE_LOGIN_FAILURE');
-      expect(mockGoogleOAuth.exchangeCodeForEmail).not.toHaveBeenCalled();
+      expect(mockGoogleOAuth.exchangeCodeForProfile).not.toHaveBeenCalled();
     });
 
-    it('should not auto-create an account when the Google email has no MCOM user', async () => {
+    it('should auto-provision an account when the Google email has no MCOM user', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('new-user@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'new-user@test.com', firstName: 'New' });
       mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.create.mockResolvedValue({ id: 'user-new', email: 'new-user@test.com' });
 
-      const result = await service.handleGoogleCallback('real-code', 'signed-state');
-      expect(result).toContain('GOOGLE_LOGIN_FAILURE');
-      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
+      expect(result).toContain('GOOGLE_LOGIN_SUCCESS');
+      expect(mockPrisma.user.create).toHaveBeenCalled();
+      expect(authService.login).toHaveBeenCalled();
     });
 
     it('should login an existing user and emit GOOGLE_LOGIN_SUCCESS', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('existing@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'existing@test.com' });
       mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'existing@test.com' });
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
@@ -619,14 +622,15 @@ describe('BusinessService', () => {
 
     it('should guard postMessage origin mismatch so the popup can never strand blank', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('existing@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'existing@test.com' });
       mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'existing@test.com' });
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
-      // Guarded target + www-alt fallback, close always attempted, fallback message.
+      // Guarded target + www-alt fallback, close always attempted, full doc with Continue fallback.
       expect(result).toContain('delivered');
       expect(result).toContain('window.close()');
-      expect(result).toContain('you can close this window');
+      expect(result).toContain('continueBtn');
+      expect(result).toContain('<!DOCTYPE html>');
       expect(result).not.toMatch(/window\.opener\.postMessage\(msg, target\);\s*\n\s*if/);
     });
 
@@ -636,7 +640,7 @@ describe('BusinessService', () => {
       const result = await service.handleGoogleCallback('mock-google-code', 'signed-state');
       expect(result).toContain('GOOGLE_LOGIN_FAILURE');
       expect(result).toContain('window.close()');
-      expect(result).toContain('you can close this window');
+      expect(result).toContain('retryBtn');
     });
   });
 

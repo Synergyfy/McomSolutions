@@ -481,6 +481,8 @@ export class BusinessService {
 
     const redirectUri = this.googleOAuth.getRedirectUri();
     let email = '';
+    let googleFirstName: string | undefined;
+    let googleLastName: string | undefined;
 
     if (payload.type === 'sim-login') {
       // Development-only path — never reachable in production
@@ -496,7 +498,13 @@ export class BusinessService {
         return this.loginFailureScript('Google login is not available');
       }
       try {
-        email = await this.googleOAuth.exchangeCodeForEmail(code, redirectUri);
+        const profile = await this.googleOAuth.exchangeCodeForProfile(code, redirectUri);
+        if (!profile?.email) {
+          throw new Error('Google profile did not return an email');
+        }
+        email = profile.email;
+        googleFirstName = profile.firstName;
+        googleLastName = profile.lastName;
       } catch (err: any) {
         this.logger.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
         const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
@@ -509,13 +517,46 @@ export class BusinessService {
     const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
 
     if (payload.type === 'login' || payload.type === 'sim-login') {
-      const user = await this.prisma.user.findUnique({
+      let user = await this.prisma.user.findUnique({
         where: { email },
         include: { businessProfile: true },
       });
 
+      // New Google users are auto-provisioned so both old and new Gmail
+      // accounts can sign in. They land un-onboarded and the frontend routes
+      // them to /getstarted/business (same as email registration).
+      let isNewUser = false;
       if (!user) {
-        return this.loginFailureScript('No account found for this email. Please register first.', targetOrigin);
+        isNewUser = true;
+        try {
+          const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+          user = await this.prisma.user.create({
+            data: {
+              email,
+              password: passwordHash,
+              role: Role.BUSINESS,
+              firstName: googleFirstName || null,
+              lastName: googleLastName || null,
+              registrationSource: 'google',
+              wallet: { create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' } },
+            },
+            include: { businessProfile: true },
+          });
+        } catch (e) {
+          // Race: another callback created the row first — reuse it.
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            isNewUser = false;
+            user = await this.prisma.user.findUnique({
+              where: { email },
+              include: { businessProfile: true },
+            });
+          } else {
+            throw e;
+          }
+        }
+        if (!user) {
+          return this.loginFailureScript('Google authentication failed', targetOrigin);
+        }
       }
 
       const auth = await this.authService.login(user);
@@ -531,37 +572,73 @@ export class BusinessService {
 
       const safeAuth = JSON.stringify(auth).replace(/</g, '\\u003c');
       const safeUser = JSON.stringify(auth.user).replace(/</g, '\\u003c');
+      const safeTarget = JSON.stringify(targetOrigin);
+      const dashboardUrl = JSON.stringify(`${targetOrigin}/dashboard`);
 
-      // postMessage throws when `target` is not the opener's exact origin
-      // (e.g. apex vs www) — guard both attempts so a mismatch can never
-      // strand the popup on a blank page, and always attempt to close.
+      // Full HTML doc (a bare <script> leaves document.body null) with a
+      // hasOpener check: cross-origin navigation via Google can drop
+      // window.opener, in which case postMessage is impossible and the popup
+      // must navigate itself (cookie was already set above, so /dashboard
+      // resolves authenticated) instead of stranding on FRONTEND_URL root.
       return `
-        <script>
-          if (window.opener) {
-            var msg = {
-              type: 'GOOGLE_LOGIN_SUCCESS',
-              auth: ${safeAuth},
-              user: ${safeUser}
-            };
-            var target = '${this.escapeHtml(targetOrigin)}';
-            var alt = target.indexOf('www.') !== -1
-              ? target.replace('www.', '')
-              : target.replace('://', '://www.');
-            var delivered = false;
-            try { window.opener.postMessage(msg, target); delivered = true; } catch (e) {}
-            if (!delivered && target.indexOf('centralhubsolution.com') !== -1) {
-              try { window.opener.postMessage(msg, alt); delivered = true; } catch (e2) {}
-            }
-            try { window.close(); } catch (e3) {}
-            setTimeout(function () {
-              if (!window.closed) {
-                document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;margin-top:2rem;">Login complete — you can close this window.</p>';
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Signing you in…</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+            .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #1d4ed8; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Login complete</h2>
+            <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">Returning you to MCOM Solutions…</p>
+            <a id="continueBtn" href=${dashboardUrl} class="btn" style="display:none;">Continue</a>
+          </div>
+          <script>
+            (function () {
+              var msg = {
+                type: 'GOOGLE_LOGIN_SUCCESS',
+                auth: ${safeAuth},
+                user: ${safeUser},
+                isNewUser: ${isNewUser ? 'true' : 'false'}
+              };
+              var target = ${safeTarget};
+              var alt = target.indexOf('www.') !== -1
+                ? target.replace('www.', '')
+                : target.replace('://', '://www.');
+              var hasOpener = false;
+              try {
+                if (window.opener && !window.opener.closed) {
+                  hasOpener = true;
+                  var delivered = false;
+                  try { window.opener.postMessage(msg, target); delivered = true; } catch (e) {}
+                  if (!delivered && target.indexOf('centralhubsolution.com') !== -1) {
+                    try { window.opener.postMessage(msg, alt); delivered = true; } catch (e2) {}
+                  }
+                  try { window.close(); } catch (e3) {}
+                }
+              } catch (e) { hasOpener = false; }
+              if (!hasOpener) {
+                var btn = document.getElementById('continueBtn');
+                if (btn) btn.style.display = 'inline-block';
+                window.location.replace(${dashboardUrl});
+              } else {
+                setTimeout(function () {
+                  if (!window.closed) {
+                    var btn = document.getElementById('continueBtn');
+                    if (btn) btn.style.display = 'inline-block';
+                  }
+                }, 800);
               }
-            }, 600);
-          } else {
-            window.location.href = '${this.escapeHtml(targetOrigin)}/dashboard';
-          }
-        </script>
+            })();
+          </script>
+        </body>
+        </html>
       `;
     }
 
@@ -695,28 +772,70 @@ export class BusinessService {
   }
 
   private loginFailureScript(error: string, targetOrigin = 'https://mcomsolutions.com') {
+    const safeError = JSON.stringify(error);
+    const safeTarget = JSON.stringify(targetOrigin);
+    let fallbackUrl: string;
+    try {
+      const u = new URL(`${targetOrigin}/login`);
+      u.searchParams.set('googleError', error);
+      fallbackUrl = u.toString();
+    } catch {
+      fallbackUrl = `${targetOrigin}/login?googleError=${encodeURIComponent(error)}`;
+    }
+    const safeFallback = JSON.stringify(fallbackUrl);
     return `
-      <script>
-        if (window.opener) {
-          var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${JSON.stringify(error)} };
-          var target = '${targetOrigin}';
-          var alt = target.indexOf('www.') !== -1
-            ? target.replace('www.', '')
-            : target.replace('://', '://www.');
-          try { window.opener.postMessage(msg, target); } catch (e) {}
-          if (target.indexOf('centralhubsolution.com') !== -1) {
-            try { window.opener.postMessage(msg, alt); } catch (e2) {}
-          }
-          try { window.close(); } catch (e3) {}
-          setTimeout(function () {
-            if (!window.closed) {
-              document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;margin-top:2rem;">Login failed — you can close this window and try again.</p>';
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Google sign-in failed</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+          .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+          .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #1d4ed8; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Sign-in failed</h2>
+          <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">${this.escapeHtml(error)}</p>
+          <a id="retryBtn" href=${safeFallback} class="btn" style="display:none;">Back to login</a>
+        </div>
+        <script>
+          (function () {
+            var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${safeError} };
+            var target = ${safeTarget};
+            var alt = target.indexOf('www.') !== -1
+              ? target.replace('www.', '')
+              : target.replace('://', '://www.');
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                try { window.opener.postMessage(msg, target); } catch (e) {}
+                if (target.indexOf('centralhubsolution.com') !== -1) {
+                  try { window.opener.postMessage(msg, alt); } catch (e2) {}
+                }
+                try { window.close(); } catch (e3) {}
+              }
+            } catch (e) { hasOpener = false; }
+            if (!hasOpener) {
+              var btn = document.getElementById('retryBtn');
+              if (btn) btn.style.display = 'inline-block';
+              window.location.replace(${safeFallback});
+            } else {
+              setTimeout(function () {
+                if (!window.closed) {
+                  var btn = document.getElementById('retryBtn');
+                  if (btn) btn.style.display = 'inline-block';
+                }
+              }, 800);
             }
-          }, 600);
-        } else {
-          window.location.href = '${targetOrigin}';
-        }
-      </script>
+          })();
+        </script>
+      </body>
+      </html>
     `;
   }
 

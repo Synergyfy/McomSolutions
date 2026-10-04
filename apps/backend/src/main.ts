@@ -62,6 +62,11 @@ async function bootstrap() {
   const googleHtmlRoutes = new Set([
     '/api/v1/business/google/callback',
     '/api/v1/business/google-claim-simulator',
+    // Popup entry points: these navigate the popup cross-origin to Google and
+    // back. Any COOP/OAC document here severs window.opener, stranding the
+    // popup on FRONTEND_URL with no postMessage to the parent.
+    '/api/v1/auth/google',
+    '/api/v1/auth/google/simulator',
   ]);
   const helmetDefault = helmet();
   const helmetGoogleHtml = helmet({

@@ -37,12 +37,12 @@ export class StripeConfirmDto extends MembershipInitiateDto {
 /** Phase 4: shared body for POST /payment/paypal/initiate. */
 export class PaypalInitiateDto extends MembershipInitiateDto {
   @ApiProperty({ example: 'https://app.example.com/payment/success', description: 'Return URL after PayPal approval' })
-  @IsUrl({}, { message: 'returnUrl must be a valid URL' })
+  @IsUrl({ require_tld: false }, { message: 'returnUrl must be a valid URL' })
   @IsNotEmpty({ message: 'returnUrl is required' })
   returnUrl: string;
 
   @ApiProperty({ example: 'https://app.example.com/payment/cancel', description: 'Cancel URL for PayPal payment' })
-  @IsUrl({}, { message: 'cancelUrl must be a valid URL' })
+  @IsUrl({ require_tld: false }, { message: 'cancelUrl must be a valid URL' })
   @IsNotEmpty({ message: 'cancelUrl is required' })
   cancelUrl: string;
 }

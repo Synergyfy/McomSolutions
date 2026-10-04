@@ -122,6 +122,14 @@ export class GoogleOAuthService {
   }
 
   async exchangeCodeForEmail(code: string, redirectUri: string): Promise<string> {
+    const profile = await this.exchangeCodeForProfile(code, redirectUri);
+    return profile.email;
+  }
+
+  async exchangeCodeForProfile(
+    code: string,
+    redirectUri: string,
+  ): Promise<{ email: string; firstName?: string; lastName?: string; picture?: string }> {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.configService.get<string>('GOOGLE_CLIENT_SECRET');
 
@@ -150,8 +158,17 @@ export class GoogleOAuthService {
 
     if (id_token) {
       const claims = this.decodeJwtClaims(id_token);
-      if (claims?.email && claims?.email_verified === true) {
-        return String(claims.email).toLowerCase().trim();
+      if (claims?.email && claims?.email_verified !== false) {
+        // id_token carries verified email + names; prefer it and only fall
+        // back to userinfo when email is missing/unverified.
+        if (claims.email_verified === true) {
+          return {
+            email: String(claims.email).toLowerCase().trim(),
+            firstName: claims.given_name ? String(claims.given_name) : undefined,
+            lastName: claims.family_name ? String(claims.family_name) : undefined,
+            picture: claims.picture ? String(claims.picture) : undefined,
+          };
+        }
       }
     }
 
@@ -173,7 +190,12 @@ export class GoogleOAuthService {
     if (userinfo.data?.verified_email === false) {
       throw new UnauthorizedException('Google email is not verified');
     }
-    return String(email).toLowerCase().trim();
+    return {
+      email: String(email).toLowerCase().trim(),
+      firstName: userinfo.data?.given_name ? String(userinfo.data.given_name) : undefined,
+      lastName: userinfo.data?.family_name ? String(userinfo.data.family_name) : undefined,
+      picture: userinfo.data?.picture ? String(userinfo.data.picture) : undefined,
+    };
   }
 
   private get stateSecret(): string {
