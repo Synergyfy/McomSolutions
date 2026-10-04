@@ -53,18 +53,25 @@ async function bootstrap() {
   // Exception: the Google OAuth HTML handoffs (callback + claim simulator)
   // render server-generated inline <script> postMessage pages. No bundler and
   // no nonce channel exists for them, so a script-src CSP blocks the popup
-  // handoff and strands users on a blank page (seen live 2026-10-04: backend
-  // returned 200 GOOGLE_LOGIN_SUCCESS but the inline script never ran).
-  // Those two routes keep every other helmet header; only CSP is lifted.
+  // handoff and strands users on a blank page (seen live 2026-10-04).
+  // Additionally those responses must NOT carry Cross-Origin-Opener-Policy
+  // or Origin-Agent-Cluster: either header drops window.opener when the popup
+  // returns from Google, silently converting the token handoff into an
+  // unauthenticated redirect (seen live 2026-10-04: popup landed on
+  // {returnUrl}/dashboard signed out). All other helmet headers still apply.
   const googleHtmlRoutes = new Set([
     '/api/v1/business/google/callback',
     '/api/v1/business/google-claim-simulator',
   ]);
   const helmetDefault = helmet();
-  const helmetWithoutCsp = helmet({ contentSecurityPolicy: false });
+  const helmetGoogleHtml = helmet({
+    contentSecurityPolicy: false,
+    crossOriginOpenerPolicy: false,
+    originAgentCluster: false,
+  });
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (googleHtmlRoutes.has(req.path)) {
-      return helmetWithoutCsp(req, res, next);
+      return helmetGoogleHtml(req, res, next);
     }
     return helmetDefault(req, res, next);
   });
