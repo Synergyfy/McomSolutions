@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException } from '@nestjs/common';
 
 // Force external lookups (Nominatim, postcodes.io) to fail so the service
 // exercise its error paths deterministically without network access.
@@ -27,6 +27,7 @@ describe('BusinessService', () => {
     },
     businessProfile: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
       count: jest.fn().mockResolvedValue(1),
@@ -42,6 +43,10 @@ describe('BusinessService', () => {
     },
     googleCategoryMapping: {
       findUnique: jest.fn(),
+    },
+    supportTicket: {
+      findMany: jest.fn(),
+      create: jest.fn(),
     },
     category: {
       findFirst: jest.fn(),
@@ -64,6 +69,7 @@ describe('BusinessService', () => {
     signEmailGrant: jest.fn((email: string, placeId?: string) => `grant.${Buffer.from(JSON.stringify({ email, placeId })).toString('base64url')}`),
     verifyEmailGrant: jest.fn(() => null),
     exchangeCodeForEmail: jest.fn(),
+    exchangeCodeForProfile: jest.fn(),
     getRedirectUri: jest.fn(() => 'http://localhost:3010/api/v1/business/google/callback'),
   };
 
@@ -358,13 +364,19 @@ describe('BusinessService', () => {
   describe('getProfile', () => {
     it('should return profile if found', async () => {
       const profile = { id: 'b1', businessName: 'Test Biz', user: {}, packages: [] };
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(profile);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(profile);
       const result = await service.getProfile('b1');
       expect(result).toEqual(profile);
     });
 
+    it('should never request the password hash', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
+      await service.getProfile('b1');
+      expect(JSON.stringify(mockPrisma.businessProfile.findFirst.mock.calls[0][0])).not.toContain('password');
+    });
+
     it('should throw NotFoundException if not found', async () => {
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
       await expect(service.getProfile('b-nonexistent')).rejects.toThrow(NotFoundException);
     });
   });
@@ -373,12 +385,19 @@ describe('BusinessService', () => {
   describe('updateProfile', () => {
     it('should update and return profile with standard inputs', async () => {
       const updated = { id: 'b1', businessName: 'Updated' };
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
       mockPrisma.businessProfile.update.mockResolvedValue(updated);
       const result = await service.updateProfile('b1', { businessName: 'Updated' });
       expect(result.businessName).toBe('Updated');
     });
 
+    it('should throw NotFoundException for soft-deleted profiles', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+      await expect(service.updateProfile('b-deleted', { businessName: 'X' })).rejects.toThrow(NotFoundException);
+    });
+
     it('should correctly map nested manual onboarding inputs', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
       mockPrisma.businessProfile.update.mockImplementation((args: any) => {
         return Promise.resolve({
           id: args.where.id,
@@ -420,6 +439,7 @@ describe('BusinessService', () => {
   // ─── generateApiKey ────────────────────────────
   describe('generateApiKey', () => {
     it('should generate a new API key', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
       mockPrisma.businessProfile.update.mockResolvedValue({ apiKey: 'mcom_central_abc123' });
       const result = await service.generateApiKey('b1');
       expect(result.apiKey).toContain('mcom_central_');
@@ -431,7 +451,7 @@ describe('BusinessService', () => {
     it('should return all profiles with pagination', async () => {
       mockPrisma.businessProfile.findMany.mockResolvedValue([{ id: 'b1' }]);
       mockPrisma.businessProfile.count.mockResolvedValue(1);
-      const result = await service.findAll();
+      const result = await service.findAll(undefined, 1, 20, { userId: 'admin-1', role: 'ADMIN' as any });
       expect(result.data).toHaveLength(1);
       expect(result.total).toBe(1);
       expect(result.page).toBe(1);
@@ -446,6 +466,7 @@ describe('BusinessService', () => {
       expect(mockPrisma.businessProfile.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
+            deletedAt: null,
             OR: expect.arrayContaining([
               expect.objectContaining({ businessName: expect.anything() }),
             ]),
@@ -453,36 +474,78 @@ describe('BusinessService', () => {
         }),
       );
     });
+
+    it('should not search email for non-admin callers', async () => {
+      mockPrisma.businessProfile.findMany.mockResolvedValue([]);
+      mockPrisma.businessProfile.count.mockResolvedValue(0);
+      await service.findAll('Test', 1, 20, { userId: 'u1', role: 'CUSTOMER' as any });
+      const where = mockPrisma.businessProfile.findMany.mock.calls[0][0].where;
+      expect(JSON.stringify(where)).not.toContain('email');
+    });
+
+    it('should allow email search for admins', async () => {
+      mockPrisma.businessProfile.findMany.mockResolvedValue([]);
+      mockPrisma.businessProfile.count.mockResolvedValue(0);
+      await service.findAll('Test', 1, 20, { userId: 'a1', role: 'ADMIN' as any });
+      const where = mockPrisma.businessProfile.findMany.mock.calls[0][0].where;
+      expect(JSON.stringify(where)).toContain('email');
+    });
   });
 
   // ─── findOne ───────────────────────────────────
   describe('findOne', () => {
     it('should return profile with relations if found', async () => {
-      const profile = { id: 'b1', user: {}, packages: [], transactions: [] };
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(profile);
-      const result = await service.findOne('b1');
+      const profile = { id: 'b1', userId: 'user-1', user: { id: 'user-1' }, packages: [], transactions: [] };
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(profile);
+      const result = await service.findOne('b1', { userId: 'user-1', businessId: 'b1' });
       expect(result).toEqual(profile);
     });
 
+    it('should never request the password hash', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', userId: 'user-1' });
+      await service.findOne('b1', { userId: 'user-1', businessId: 'b1' });
+      const select = mockPrisma.businessProfile.findFirst.mock.calls[0][0].select;
+      expect(select.user.select).not.toHaveProperty('password');
+      expect(JSON.stringify(select)).not.toContain('password');
+    });
+
     it('should throw NotFoundException if not found', async () => {
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
-      await expect(service.findOne('b-nonexistent')).rejects.toThrow(NotFoundException);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+      await expect(service.findOne('b-nonexistent', { userId: 'u1' })).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw ForbiddenException for non-owner non-admin', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', userId: 'owner-1' });
+      await expect(
+        service.findOne('b1', { userId: 'intruder', businessId: 'other', role: 'CUSTOMER' as any }),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
   // ─── deleteBusiness ────────────────────────────
   describe('deleteBusiness', () => {
-    it('should delete user and return success', async () => {
-      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'b1', userId: 'user-1' });
-      mockPrisma.user.delete.mockResolvedValue({});
-      const result = await service.deleteBusiness('b1');
+    it('should soft-delete the profile and never delete the user', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', userId: 'user-1' });
+      mockPrisma.businessProfile.update.mockResolvedValue({ id: 'b1' });
+      const result = await service.deleteBusiness('b1', { userId: 'user-1', businessId: 'b1' });
       expect(result.success).toBe(true);
-      expect(mockPrisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-1' } });
+      expect(mockPrisma.businessProfile.update).toHaveBeenCalledWith({
+        where: { id: 'b1' },
+        data: { deletedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('should throw ForbiddenException for non-owner non-admin', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', userId: 'owner-1' });
+      await expect(
+        service.deleteBusiness('b1', { userId: 'intruder', businessId: 'other', role: 'CUSTOMER' as any }),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw NotFoundException if profile not found', async () => {
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
-      await expect(service.deleteBusiness('b-nonexistent')).rejects.toThrow(NotFoundException);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+      await expect(service.deleteBusiness('b-nonexistent', { userId: 'u1' })).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -512,17 +575,17 @@ describe('BusinessService', () => {
         placeId: 'mock-place-001',
         returnUrl: 'http://localhost:3000',
       });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('business-owner@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'business-owner@test.com' });
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state');
       expect(result).toContain('success: true');
-      expect(result).toContain('placeId: \'mock-place-001\'');
+      expect(result).toContain('placeId: "mock-place-001"');
       expect(mockGoogleOAuth.signEmailGrant).toHaveBeenCalledWith(
         'business-owner@test.com',
         'mock-place-001',
       );
       expect(result).toContain('grant');
-      expect(mockGoogleOAuth.exchangeCodeForEmail).toHaveBeenCalledWith(
+      expect(mockGoogleOAuth.exchangeCodeForProfile).toHaveBeenCalledWith(
         'real-code',
         'http://localhost:3010/api/v1/business/google/callback',
       );
@@ -532,27 +595,95 @@ describe('BusinessService', () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
       const result = await service.handleGoogleCallback('mock-google-code', 'signed-state');
       expect(result).toContain('GOOGLE_LOGIN_FAILURE');
-      expect(mockGoogleOAuth.exchangeCodeForEmail).not.toHaveBeenCalled();
+      expect(mockGoogleOAuth.exchangeCodeForProfile).not.toHaveBeenCalled();
     });
 
     it('should not auto-create an account when the Google email has no MCOM user', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('new-user@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'new-user@test.com', firstName: 'New' });
       mockPrisma.user.findUnique.mockResolvedValue(null);
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state');
       expect(result).toContain('GOOGLE_LOGIN_FAILURE');
+      expect(result).toContain('NO_ACCOUNT');
+      expect(result).toContain('new-user@test.com');
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(authService.login).not.toHaveBeenCalled();
     });
 
     it('should login an existing user and emit GOOGLE_LOGIN_SUCCESS', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
-      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('existing@test.com');
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'existing@test.com' });
       mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'existing@test.com' });
 
       const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
       expect(result).toContain('GOOGLE_LOGIN_SUCCESS');
       expect(authService.login).toHaveBeenCalled();
+    });
+
+    it('should guard postMessage origin mismatch so the popup can never strand blank', async () => {
+      mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'existing@test.com' });
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'existing@test.com' });
+
+      const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
+      // Guarded target + www-alt fallback, close always attempted, full doc with Continue fallback.
+      expect(result).toContain('delivered');
+      expect(result).toContain('window.close()');
+      expect(result).toContain('continueBtn');
+      expect(result).toContain('<!DOCTYPE html>');
+      expect(result).not.toMatch(/window\.opener\.postMessage\(msg, target\);\s*\n\s*if/);
+    });
+
+    it('should guard the login-failure handoff the same way', async () => {
+      mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
+
+      const result = await service.handleGoogleCallback('mock-google-code', 'signed-state');
+      expect(result).toContain('GOOGLE_LOGIN_FAILURE');
+      expect(result).toContain('window.close()');
+      expect(result).toContain('retryBtn');
+    });
+  });
+
+  // ─── Phase 4: FK-scoped support tickets ──────
+  describe('support tickets', () => {
+    it('should query by businessId FK with legacy name fallback for unbackfilled rows', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', businessName: 'Acme' });
+      mockPrisma.supportTicket.findMany.mockResolvedValue([{ id: 't1' }]);
+
+      const result = await service.getSupportTickets('b1');
+
+      expect(result).toEqual([{ id: 't1' }]);
+      expect(mockPrisma.supportTicket.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            OR: [
+              { businessId: 'b1' },
+              { businessId: null, fromName: 'Acme' },
+              { businessId: null, fromName: 'b1' },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('should throw when the business profile is missing', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+      await expect(service.getSupportTickets('nope')).rejects.toThrow(NotFoundException);
+    });
+
+    it('should stamp businessId on created tickets', async () => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1', businessName: 'Acme' });
+      mockPrisma.supportTicket.create.mockResolvedValue({ id: 't-new' });
+
+      const result = await service.createSupportTicket('b1', { subject: 'S', message: 'M' });
+
+      expect(result).toEqual({ id: 't-new' });
+      expect(mockPrisma.supportTicket.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ businessId: 'b1', fromName: 'Acme', status: 'Open' }),
+        }),
+      );
     });
   });
 });

@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -33,8 +35,8 @@ export class TaskService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @InjectQueue(TASK_REWARD_QUEUE)
-    private readonly rewardQueue: Queue<TaskRewardJobData>,
+    @Optional() @InjectQueue(TASK_REWARD_QUEUE)
+    private readonly rewardQueue?: Queue<TaskRewardJobData>,
   ) {}
 
   // ─── Audit Logger ──────────────────────────────────────
@@ -446,7 +448,7 @@ export class TaskService {
     });
 
     // If marked completed and grantReward requested, dispatch reward if not yet granted
-    if (isNowCompleted && dto.grantReward && !assignment.rewardGranted && assignment.rewardPoints > 0) {
+    if (isNowCompleted && dto.grantReward && !assignment.rewardGranted && assignment.rewardPoints > 0 && this.rewardQueue) {
       await this.rewardQueue.add(
         'grant-task-reward',
         {
@@ -578,6 +580,118 @@ export class TaskService {
     }
 
     return { success: true, data: assignment };
+  }
+
+  // ─── User-Facing: Complete & Claim Reward ────────────
+  async completeMyTask(
+    assignmentId: string,
+    userId: string,
+    submission?: { submissionData?: unknown; notes?: string },
+  ) {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+    const assignment = await this.prisma.userTaskAssignment.findUnique({
+      where: { id: assignmentId },
+      include: { task: true, user: { include: { businessProfile: true } } },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Task assignment not found');
+    }
+
+    if (assignment.userId !== userId) {
+      throw new ForbiddenException('You do not own this task assignment');
+    }
+
+    if (assignment.status === TaskAssignmentStatus.COMPLETED) {
+      return { success: true, message: 'Task already completed', data: assignment };
+    }
+
+    const now = new Date();
+    if (assignment.deadlineAt < now) {
+      await this.prisma.userTaskAssignment.update({
+        where: { id: assignmentId },
+        data: { status: TaskAssignmentStatus.EXPIRED },
+      });
+      throw new BadRequestException('Task deadline has expired');
+    }
+
+    // 1. Mark assignment completed (persist proof when the column exists)
+    let updated;
+    const completionData: Record<string, unknown> = {
+      status: TaskAssignmentStatus.COMPLETED,
+      completedAt: now,
+    };
+    if (submission?.submissionData !== undefined) {
+      completionData.submissionData = submission.submissionData;
+    }
+    try {
+      updated = await this.prisma.userTaskAssignment.update({
+        where: { id: assignmentId },
+        data: completionData as never,
+      });
+    } catch (err) {
+      // Fallback for DBs where the submission_data migration hasn't run yet
+      this.logger.warn(
+        `completeMyTask: submissionData column unavailable, completing without proof: ${(err as Error).message}`,
+      );
+      updated = await this.prisma.userTaskAssignment.update({
+        where: { id: assignmentId },
+        data: { status: TaskAssignmentStatus.COMPLETED, completedAt: now },
+      });
+    }
+
+    // 2. Queue reward if points exist and not yet granted
+    if (assignment.rewardPoints > 0 && !assignment.rewardGranted && this.rewardQueue) {
+      await this.rewardQueue.add(
+        'grant-task-reward',
+        {
+          assignmentId: assignment.id,
+          userId: assignment.userId,
+          rewardPoints: assignment.rewardPoints,
+          taskTitle: assignment.task.title,
+        },
+        {
+          jobId: `task-reward-${assignment.id}`,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 2000 },
+        },
+      );
+    }
+
+    // 3. Cross-sync: if user is BUSINESS, sync to BusinessProgramme.completedMissions
+    const businessId = assignment.user?.businessProfile?.id;
+    if (businessId) {
+      await this.syncToBusinessProgramme(businessId, assignment.task.featureKey || assignment.taskId);
+    }
+
+    return {
+      success: true,
+      message: 'Task completed successfully! Reward queued.',
+      data: updated,
+    };
+  }
+
+  private async syncToBusinessProgramme(businessId: string, missionIdentifier: string) {
+    try {
+      const prog = await this.prisma.businessProgramme.findFirst({
+        where: { businessId },
+      });
+      if (!prog) return;
+
+      if (!prog.completedMissions.includes(missionIdentifier)) {
+        await this.prisma.businessProgramme.update({
+          where: { id: prog.id },
+          data: {
+            completedMissions: { push: missionIdentifier },
+          },
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to sync task completion to BusinessProgramme: ${msg}`);
+    }
   }
 
   // ─── Nightly Cron: Expiry Check ────────────────────────

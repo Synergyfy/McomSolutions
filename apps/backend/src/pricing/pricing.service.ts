@@ -1,15 +1,24 @@
-import { Injectable, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { MembershipLevel, MembershipTier, MembershipStatus } from '@prisma/client';
+import { MembershipLevel, MembershipTier, MembershipStatus, Prisma } from '@prisma/client';
 import {
   calculateTierExpiry,
   normalizeTier,
   getTierDurationDays,
   TierType,
 } from './tier-duration.util';
+
+/**
+ * Phase 2: provider linkage for payment idempotency. Trials were removed —
+ * every activation must be backed by a real payment (or an admin manual grant).
+ */
+export interface MembershipActivationOpts {
+  provider?: string;
+  providerPaymentId?: string;
+}
 
 /**
  * Tier price multipliers applied over the DB-stored base monthly price as fallback.
@@ -58,32 +67,50 @@ export class PricingService {
   ): Promise<number> {
     const plan = await this.getPlan(level);
     const canonicalTier = normalizeTier(tier);
-
-    // If explicit tier pricing is configured on this membership plan, use it directly
-    if (plan.tierPrices && typeof plan.tierPrices === 'object') {
-      const tp = plan.tierPrices as Record<string, any>;
-      const directPrice = tp[canonicalTier] ?? (canonicalTier === 'Standard' ? tp['Normal'] : undefined) ?? tp[tier];
-      if (directPrice != null && typeof directPrice === 'number' && directPrice >= 0) {
-        return directPrice;
-      }
-    }
-
     const baseMonthly = plan.monthlyPrice != null ? Number(plan.monthlyPrice) : Number(plan.price);
 
-    if (billing === 'yearly' || canonicalTier === 'Pro+') {
+    // 1. Explicit sub-tier pricing (Pro+ annual package or Pro 6-month package)
+    if (canonicalTier === 'Pro+') {
+      const proPlusPrice = (plan.tierPrices as any)?.['Pro+'] ?? (plan.tierPrices as any)?.['ProPlus'];
+      if (proPlusPrice != null && typeof proPlusPrice === 'number' && proPlusPrice >= 0) {
+        return proPlusPrice;
+      }
       if (plan.annualPrice != null) {
         return Number(plan.annualPrice);
       }
       return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
     }
+
+    if (canonicalTier === 'Pro') {
+      const proPrice = (plan.tierPrices as any)?.['Pro'];
+      if (proPrice != null && typeof proPrice === 'number' && proPrice >= 0 && billing === 'monthly') {
+        return proPrice;
+      }
+      return Math.floor(baseMonthly * 6 * 0.85); // 6-month Pro pricing
+    }
+
+    // 2. Standard tier billing cycles (Yearly, Quarterly, Monthly)
+    if (billing === 'yearly') {
+      if (plan.annualPrice != null) {
+        return Number(plan.annualPrice);
+      }
+      return Math.floor(baseMonthly * (1 - YEARLY_DISCOUNT)) * 12;
+    }
+
     if (billing === 'quarterly') {
       if (plan.quarterlyPrice != null) {
         return Number(plan.quarterlyPrice);
       }
       return Math.floor(baseMonthly * (1 - QUARTERLY_DISCOUNT)) * 3;
     }
-    if (canonicalTier === 'Pro') {
-      return Math.floor(baseMonthly * 6 * 0.85); // 6-month Pro pricing
+
+    // Monthly billing: check explicit tierPrices override, fallback to base monthly
+    if (plan.tierPrices && typeof plan.tierPrices === 'object') {
+      const tp = plan.tierPrices as Record<string, any>;
+      const directPrice = tp[canonicalTier] ?? tp['Normal'] ?? tp[tier];
+      if (directPrice != null && typeof directPrice === 'number' && directPrice >= 0) {
+        return directPrice;
+      }
     }
 
     return Math.round(baseMonthly);
@@ -130,15 +157,21 @@ export class PricingService {
     });
   }
 
+  /**
+   * Phase 2: idempotent, ledger-backed activation. `providerPaymentId` is the
+   * idempotency key (Stripe payment intent ID / PayPal order ID / manual grant ID).
+   * Replays return the current state (200); mismatched business/amount → 409.
+   * Trials no longer exist — every call path must be backed by a real payment.
+   */
   async subscribeMembership(
     businessId: string,
     level: string,
     tier: string = 'Standard',
     billing: 'monthly' | 'quarterly' | 'yearly' = 'monthly',
-    isTrial = false,
+    opts: MembershipActivationOpts = {},
   ) {
-    const business = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
     });
 
     if (!business) {
@@ -147,7 +180,7 @@ export class PricingService {
 
     const plan = await this.getPlan(level);
     const canonicalTier = normalizeTier(tier);
-    const price = isTrial ? 0 : await this.resolveMembershipPrice(level, canonicalTier, billing);
+    const price = await this.resolveMembershipPrice(level, canonicalTier, billing);
 
     const enumLevels = Object.values(MembershipLevel);
     const validLevel = enumLevels.includes(plan.name as MembershipLevel)
@@ -162,25 +195,94 @@ export class PricingService {
     // Calculate leap-year aware expiry date
     const expiresAt = calculateTierExpiry(canonicalTier);
 
-    const updated = await this.prisma.businessProfile.update({
-      where: { id: businessId },
-      data: {
-        membershipLevel: validLevel,
-        membershipPlanName: plan.name,
-        membershipTier: validTier,
-        membershipStatus: (isTrial ? 'trial' : 'active') as MembershipStatus,
-        membershipExpiresAt: expiresAt,
-      },
-    });
+    // Idempotent replay: same payment reference seen before.
+    if (opts.providerPaymentId) {
+      const existing = await this.prisma.billingTransaction.findUnique({
+        where: { providerPaymentId: opts.providerPaymentId },
+      });
+      if (existing) {
+        return this.resolveMembershipReplay(existing, businessId, price);
+      }
+    }
+
+    let updated;
+    try {
+      const [profileUpdate] = await this.prisma.$transaction([
+        this.prisma.businessProfile.update({
+          where: { id: businessId },
+          data: {
+            membershipLevel: validLevel,
+            membershipPlanName: plan.name,
+            membershipTier: validTier,
+            membershipStatus: 'active' as MembershipStatus,
+            membershipExpiresAt: expiresAt,
+          },
+        }),
+        // Record EcosystemSubscription entry
+        this.prisma.ecosystemSubscription.create({
+          data: {
+            businessId,
+            businessName: business.businessName,
+            type: 'Membership',
+            itemName: `${plan.name} (${canonicalTier})`,
+            status: 'Active',
+            startDate: new Date(),
+            endDate: expiresAt,
+            amount: price,
+            billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
+          },
+        }),
+        // Record billing transaction (idempotency key when backed by a provider payment)
+        this.prisma.billingTransaction.create({
+          data: {
+            businessId,
+            amount: price,
+            description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, valid until ${expiresAt.toISOString().split('T')[0]})`,
+            status: 'paid',
+            provider: opts.provider ?? null,
+            providerPaymentId: opts.providerPaymentId ?? null,
+          },
+        }),
+      ]);
+      updated = profileUpdate;
+    } catch (err) {
+      // Lost the race with a concurrent activation using the same payment reference.
+      if (
+        opts.providerPaymentId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const existing = await this.prisma.billingTransaction.findUnique({
+          where: { providerPaymentId: opts.providerPaymentId },
+        });
+        if (existing) {
+          return this.resolveMembershipReplay(existing, businessId, price);
+        }
+      }
+      throw err;
+    }
 
     if (this.taskEventQueue && updated?.userId) {
       this.taskEventQueue
-        .add('emit-task-event', {
-          userId: updated.userId,
-          userType: 'BUSINESS',
-          featureKey: 'business.membership_purchased',
-          meta: { timestamp: new Date().toISOString() },
-        })
+        .add(
+          'evaluate-task',
+          {
+            userId: updated.userId,
+            userType: 'BUSINESS',
+            featureKey: 'business.membership_purchased',
+            meta: {
+              level: validLevel,
+              tier: canonicalTier,
+              billing,
+              timestamp: new Date().toISOString(),
+            },
+          },
+          {
+            jobId: `task-event-membership-${updated.userId}-${Date.now()}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+          },
+        )
         .catch((err) => this.logger.warn('Failed to emit task event for membership:', err));
     }
 
@@ -257,36 +359,8 @@ export class PricingService {
       });
     }
 
-    // Record EcosystemSubscription entry
-    await this.prisma.ecosystemSubscription.create({
-      data: {
-        businessId,
-        businessName: business.businessName,
-        type: 'Membership',
-        itemName: `${plan.name} (${canonicalTier})`,
-        status: 'Active',
-        startDate: new Date(),
-        endDate: expiresAt,
-        amount: price,
-        billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
-      },
-    });
-
-    // Record billing transaction
-    await this.prisma.billingTransaction.create({
-      data: {
-        businessId,
-        amount: price,
-        description: isTrial
-          ? `[TRIAL] ${plan.name} (${canonicalTier}) — free trial started`
-          : `Ecosystem Membership: ${plan.name} (${canonicalTier}, valid until ${expiresAt.toISOString().split('T')[0]})`,
-        status: isTrial ? 'trial' : 'paid',
-      },
-    });
-
     return {
       ...updated,
-      isTrial,
       billing,
       price,
       planName: plan.name,
@@ -297,9 +371,37 @@ export class PricingService {
     };
   }
 
+  /**
+   * Shared replay/conflict resolution for an already-processed payment reference.
+   * Same business + same amount → current state (idempotent 200).
+   * Anything else → 409 Conflict + security log (possible order hijacking).
+   */
+  private async resolveMembershipReplay(
+    existing: { businessId: string; amount: number },
+    businessId: string,
+    price: number,
+  ) {
+    if (existing.businessId !== businessId) {
+      this.logger.warn(
+        `Payment replay conflict: reference already processed for business ${existing.businessId}, replay attempted by ${businessId}`,
+      );
+      throw new ConflictException('This payment has already been processed for a different business.');
+    }
+    if (Math.abs(existing.amount - price) > 0.005) {
+      this.logger.warn(
+        `Payment replay conflict: reference amount ${existing.amount} does not match expected ${price} for business ${businessId}`,
+      );
+      throw new ConflictException('This payment has already been processed for a different amount.');
+    }
+    const current = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+    });
+    return { ...(current ?? { id: businessId }), replayed: true, price: existing.amount };
+  }
+
   async purchasePackage(businessId: string, platform: string, packageName: string, tier: string = 'Standard') {
-    const business = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
     });
 
     if (!business) {
@@ -394,6 +496,25 @@ export class PricingService {
       },
     });
 
+    if (this.taskEventQueue && business?.userId) {
+      this.taskEventQueue
+        .add(
+          'evaluate-task',
+          {
+            userId: business.userId,
+            userType: 'BUSINESS',
+            featureKey: 'business.package_purchased',
+            meta: { platform, packageName, timestamp: new Date().toISOString() },
+          },
+          {
+            jobId: `task-event-package-${business.userId}-${platform}-${Date.now()}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 },
+          },
+        )
+        .catch((err) => this.logger.warn('Failed to emit task event for package:', err));
+    }
+
     return platformPackage;
   }
 
@@ -402,5 +523,29 @@ export class PricingService {
       where: { businessId },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async getPackageTemplates() {
+    return this.prisma.packageTemplate.findMany({
+      where: { archived: false },
+      orderBy: { price: 'asc' },
+    });
+  }
+
+  async getSubscriptions(businessId: string) {
+    const [ecosystemSubs, platformPackages] = await Promise.all([
+      this.prisma.ecosystemSubscription.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.platformPackage.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    return {
+      subscriptions: ecosystemSubs,
+      packages: platformPackages,
+    };
   }
 }

@@ -178,4 +178,16 @@ export class TaskController {
     const userId = req.user?.userId || req.user?.id;
     return this.taskService.startMyTask(assignmentId, userId);
   }
+
+  @Post('programme/my-tasks/:assignmentId/complete')
+  @ApiOperation({ summary: 'Submit and complete an assigned task, claiming its reward' })
+  @ApiOkResponse({ description: 'Task completed and reward queued' })
+  completeMyTask(
+    @Param('assignmentId') assignmentId: string,
+    @Body() body: { submissionData?: unknown; notes?: string },
+    @Req() req: any,
+  ) {
+    const userId = req.user?.userId || req.user?.id;
+    return this.taskService.completeMyTask(assignmentId, userId, body ?? {});
+  }
 }

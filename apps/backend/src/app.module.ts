@@ -1,6 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { BusinessModule } from './business/business.module';
@@ -19,8 +20,10 @@ import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher
 import { QueueModule } from './queue/queue.module';
 import { TaskModule } from './task/task.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
+import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
 import { RedisModule } from './redis/redis.module';
+import { RedisService } from './redis/redis.service';
 
 /**
  * Fail-fast environment validation. Runs before the app bootstraps so a
@@ -36,7 +39,8 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
   }
 
   if (isProduction) {
-    const prodRequired = ['SSO_API_SECRET', 'CONSOLE_ENCRYPTION_KEY'];
+    // Phase 3: SSO audience uses its own secret — production fails closed.
+    const prodRequired = ['SSO_API_SECRET', 'CONSOLE_ENCRYPTION_KEY', 'SSO_JWT_SECRET', 'OTP_PEPPER'];
     const prodMissing = prodRequired.filter((key) => !config[key]);
     if (prodMissing.length > 0) {
       throw new Error(
@@ -56,7 +60,16 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     }),
     // Global rate limiter — registered ONCE here. Per-route @Throttle()
     // overrides live in the controllers (Console, Wallet partner/admin).
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 30 }]),
+    // Phase 3 (G4): Redis-backed storage so budgets hold across instances
+    // (in-memory fallback inside the storage when Redis is down).
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => ({
+        throttlers: [{ ttl: 60000, limit: 30 }],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     RedisModule,
     PrismaModule,
     AuthModule,
@@ -77,7 +90,10 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     TaskModule,
   ],
   controllers: [],
-  providers: [],
+  // Phase 3: bind ThrottlerGuard globally so per-route @Throttle() metadata
+  // (auth login/register/OTP, admin login, console, wallet) is actually
+  // enforced with 429s on a shared Redis budget (G4).
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

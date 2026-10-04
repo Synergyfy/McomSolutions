@@ -1,4 +1,5 @@
 import { apiClient } from '../api';
+import type { PlatformConfirm, PlatformPurchase } from '../../types/contracts';
 
 export const paymentApi = {
   stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean) => {
@@ -22,17 +23,17 @@ export const paymentApi = {
   },
 
   // ─── Platform Plan Purchases ──────────────────────────────────────────
-  platformStripeInitiate: async (data: { platform: string; externalPlanId: string; billingCycle: string; returnUrl?: string; cancelUrl?: string }) => {
+  platformStripeInitiate: async (data: PlatformPurchase) => {
     const res = await apiClient.post('/payment/platform/stripe/initiate', data);
     return res.data;
   },
 
-  platformStripeConfirm: async (data: { platform: string; externalPlanId: string; billingCycle: string; paymentIntentId: string }) => {
+  platformStripeConfirm: async (data: PlatformConfirm) => {
     const res = await apiClient.post('/payment/platform/stripe/confirm', data);
     return res.data;
   },
 
-  platformPaypalInitiate: async (data: { platform: string; externalPlanId: string; billingCycle: string; returnUrl?: string; cancelUrl?: string }) => {
+  platformPaypalInitiate: async (data: PlatformPurchase) => {
     const res = await apiClient.post('/payment/platform/paypal/initiate', data);
     return res.data;
   },

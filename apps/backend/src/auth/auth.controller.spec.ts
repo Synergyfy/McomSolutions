@@ -12,6 +12,7 @@ describe('AuthController', () => {
   let authService: any;
 
   const mockAuthService = {
+    getAccessCookieMaxAgeMs: jest.fn().mockReturnValue(3600000),
     registerBusiness: jest.fn().mockResolvedValue({
       accessToken: 'token-123',
       user: { id: 'u1', email: 'test@biz.com', role: 'BUSINESS' },
@@ -63,6 +64,7 @@ describe('AuthController', () => {
             confirm_password: 'DifferentPassword!',
           },
           mockRes,
+          {} as any,
         ),
       ).rejects.toThrow(BadRequestException);
     });
@@ -76,6 +78,7 @@ describe('AuthController', () => {
             confirmPassword: 'DifferentPassword!',
           },
           mockRes,
+          {} as any,
         ),
       ).rejects.toThrow(BadRequestException);
     });
@@ -89,6 +92,7 @@ describe('AuthController', () => {
           role: 'BUSINESS',
         },
         mockRes,
+        {} as any,
       );
 
       expect(authService.registerBusiness).toHaveBeenCalled();
@@ -108,6 +112,7 @@ describe('AuthController', () => {
           role: 'BUSINESS',
         },
         mockRes,
+        {} as any,
       );
 
       expect(authService.registerBusiness).toHaveBeenCalled();

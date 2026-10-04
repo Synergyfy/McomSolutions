@@ -12,7 +12,7 @@ import { usePricing } from '../context/PricingContext';
 export default function LandingPage() {
   const { plans } = usePricing();
   return (
-    <main>
+    <main className="w-full max-w-full overflow-x-hidden">
       <Hero />
 
       <ProductSuite />
@@ -26,7 +26,7 @@ export default function LandingPage() {
       <GlobalNetwork />
 
       {/* Membership Section */}
-      <section className="py-20 md:py-32 bg-gray-50">
+      <section className="py-20 md:py-32 bg-gray-50 overflow-hidden section-visibility-auto">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 text-brand-blue text-sm font-semibold mb-6">
@@ -106,7 +106,7 @@ export default function LandingPage() {
       </section>
 
       {/* Trust Section */}
-      <section className="py-16 md:py-24 bg-white border-t border-gray-100">
+      <section className="py-16 md:py-24 bg-white border-t border-gray-100 overflow-hidden section-visibility-auto">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h3 className="text-sm font-bold text-gray-400 uppercase tracking-[0.3em] mb-16">
             Powering the world's most ambitious brands
@@ -120,7 +120,7 @@ export default function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden">
+      <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden section-visibility-auto">
         <div className="absolute top-0 left-0 w-full h-full bg-mesh opacity-20" />
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10">
           <h2 className="text-3xl sm:text-4xl md:text-6xl font-bold text-white mb-6 md:mb-8">Ready to build the future?</h2>

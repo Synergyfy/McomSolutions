@@ -17,7 +17,7 @@ export class CatalogController {
   @ApiOkResponse({ description: 'List of sectors' })
   async getSectors() {
     const sectors = await this.prisma.sector.findMany({ orderBy: { sortOrder: 'asc' } });
-    return sectors.map((s) => ({ id: s.id, name: s.name, slug: s.slug }));
+    return sectors.map((s) => ({ id: s.id, name: s.name, slug: s.slug, imageUrl: s.imageUrl }));
   }
 
   @Get('categories')
@@ -29,7 +29,7 @@ export class CatalogController {
       where: sectorId ? { sectorId } : {},
       orderBy: { sortOrder: 'asc' },
     });
-    return categories.map((c) => ({ id: c.id, name: c.name, sectorId: c.sectorId, slug: c.slug }));
+    return categories.map((c) => ({ id: c.id, name: c.name, sectorId: c.sectorId, slug: c.slug, imageUrl: c.imageUrl }));
   }
 
   @Get('subcategories')
@@ -41,7 +41,7 @@ export class CatalogController {
       where: categoryId ? { categoryId } : {},
       orderBy: { sortOrder: 'asc' },
     });
-    return subcategories.map((s) => ({ id: s.id, name: s.name, categoryId: s.categoryId, slug: s.slug }));
+    return subcategories.map((s) => ({ id: s.id, name: s.name, categoryId: s.categoryId, slug: s.slug, imageUrl: s.imageUrl }));
   }
 
   @Get('apps')

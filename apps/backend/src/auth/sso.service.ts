@@ -5,6 +5,7 @@ import { Prisma, SsoClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
+import { ssoEntitlementClientSelect, ssoUserInfoSelect } from './profile-selects';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -120,13 +121,14 @@ export class SsoService {
   ) {}
 
   private getSsoJwtSecret(): string {
-    const secret =
-      this.configService.get<string>('SSO_JWT_SECRET') ||
-      this.configService.get<string>('JWT_SECRET');
-    if (!secret) {
-      throw new Error('SSO_JWT_SECRET or JWT_SECRET must be configured (no hardcoded fallback).');
+    // Phase 3 (strict): SSO audience is SSO_JWT_SECRET only, in every
+    // environment. No JWT_SECRET fallback — fail closed when missing so a
+    // regular API token can never be mistaken for an SSO token and vice versa.
+    const ssoSecret = this.configService.get<string>('SSO_JWT_SECRET');
+    if (!ssoSecret) {
+      throw new Error('SSO_JWT_SECRET must be configured (no JWT_SECRET fallback).');
     }
-    return secret;
+    return ssoSecret;
   }
 
   generateToken(payload: Record<string, unknown>): string {
@@ -211,7 +213,40 @@ export class SsoService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: authCode.userId },
-      include: { businessProfile: { include: { packages: true } } },
+      // G6: minimal select — never whole-row include. Only the identity,
+      // membership, and entitlement-package fields used below.
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        businessProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            membershipLevel: true,
+            membershipStatus: true,
+            membershipTier: true,
+            membershipPlanName: true,
+            packages: {
+              select: {
+                id: true,
+                platform: true,
+                packageName: true,
+                externalPlanId: true,
+                planName: true,
+                planType: true,
+                status: true,
+                limits: true,
+                expiresAt: true,
+                billingCycle: true,
+                amount: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!user) {
@@ -340,7 +375,24 @@ export class SsoService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      include: { businessProfile: true },
+      // G6: minimal select — only the fields used for the refreshed payload.
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        businessProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            membershipLevel: true,
+            membershipStatus: true,
+            membershipTier: true,
+            membershipPlanName: true,
+          },
+        },
+      },
     });
 
     if (!user) {
@@ -457,6 +509,8 @@ export class SsoService {
             name: { equals: planName, mode: 'insensitive' },
             archived: false,
           },
+          // G6: only the fields resolveEntitlements reads.
+          select: { name: true, includedApps: true },
         });
       }
     }
@@ -666,18 +720,19 @@ export class SsoService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { businessProfile: { include: { packages: true } } },
+      select: ssoUserInfoSelect,
     });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    // Try to find client from SSO session or requested clientId
+    // Try to find client from SSO session or requested clientId.
+    // Phase 6: secrets never leave SQL — select the safe fields only.
     let client: EntitlementClient | null = null;
     const session = await this.prisma.ssoSession.findUnique({
       where: { accessToken },
-      include: { client: true },
+      select: { client: { select: ssoEntitlementClientSelect } },
     });
     if (session?.client) {
       client = session.client;
@@ -780,7 +835,7 @@ export class SsoService {
   }
 
   async registerClient(data: RegisterClientInput) {
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const clientSecret = await bcrypt.hash(data.clientSecret, salt);
 
     const created = await this.prisma.ssoClient.create({

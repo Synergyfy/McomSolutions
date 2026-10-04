@@ -895,4 +895,13 @@ export const adminApi = {
     const res = await apiClient.delete(`/admin/catalog/subcategories/${id}`)
     return res.data as ApiResponse<any>
   },
+
+  uploadCatalogImage: async (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await apiClient.post('/admin/catalog/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data as { success: boolean; url: string; width?: number; height?: number }
+  },
 }

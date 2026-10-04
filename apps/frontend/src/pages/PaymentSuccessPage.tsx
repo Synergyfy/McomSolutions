@@ -70,9 +70,37 @@ export default function PaymentSuccessPage() {
     }
 
     if (paymentIntentId && !platform) {
-      // Membership purchase — confirmation is performed in CheckoutPage itself.
-      setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 2000);
+      const plan = searchParams.get('plan') || 'Bronze';
+      const billing = searchParams.get('billing') || 'monthly';
+      const onboarding = searchParams.get('onboarding') === 'true';
+
+      apiClient.post('/payment/stripe/confirm', {
+        level: plan,
+        tier: 'Standard',
+        billing,
+        paymentIntentId,
+        isTrial: false,
+      }).then(() => {
+        setStatus('success');
+        if (onboarding) {
+          localStorage.setItem('onboardingPaymentSuccess', 'true');
+          localStorage.setItem('businessOnboardingState', 'assessment');
+          setTimeout(() => navigate('/getstarted/business'), 2000);
+        } else {
+          setTimeout(() => navigate('/dashboard'), 2000);
+        }
+      }).catch((err) => {
+        // If it was already confirmed on client before redirect
+        console.warn('Stripe membership confirm notice:', err);
+        setStatus('success');
+        if (onboarding) {
+          localStorage.setItem('onboardingPaymentSuccess', 'true');
+          localStorage.setItem('businessOnboardingState', 'assessment');
+          setTimeout(() => navigate('/getstarted/business'), 2000);
+        } else {
+          setTimeout(() => navigate('/dashboard'), 2000);
+        }
+      });
       return;
     }
 

@@ -1,8 +1,9 @@
 import { motion } from 'motion/react';
-import { Check, PackageOpen, ArrowRight, Gift, Dices, Store, FileSearch, UsersRound, Sparkles, X } from 'lucide-react';
+import { Check, PackageOpen, ArrowRight, Gift, Dices, Store, FileSearch, UsersRound, Sparkles, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { usePackageTemplates } from '../services/pricing/hooks';
 
 interface PackageTier {
   name: string;
@@ -105,6 +106,53 @@ function getPrice(tier: PackageTier, billingCycle: 'quarterly' | 'yearly') {
 export default function PackagesPage() {
   const [expandedPlatform, setExpandedPlatform] = useState<string | null>(null);
   const [billingCycle, setBillingCycle] = useState<'quarterly' | 'yearly'>('quarterly');
+  const { data: dbTemplates = [], isLoading } = usePackageTemplates();
+
+  const platformPackages = useMemo(() => {
+    if (!Array.isArray(dbTemplates) || dbTemplates.length === 0) {
+      return PLATFORM_PACKAGES;
+    }
+    const grouped: Record<string, PlatformPackages> = {};
+    const platformIcons: Record<string, any> = {
+      'mcom rewards': { icon: Gift, color: 'bg-orange-500', tagline: 'Incentivise every interaction with a powerful loyalty engine.' },
+      'mcom spin': { icon: Dices, color: 'bg-amber-500', tagline: 'Gamified spin-to-win campaigns that capture leads at scale.' },
+      'mcom mall': { icon: Store, color: 'bg-sky-500', tagline: 'A unified multi-vendor marketplace for modern commerce.' },
+      '247gbs audit': { icon: FileSearch, color: 'bg-indigo-600', tagline: 'Real-time compliance, financial oversight, and anomaly detection.' },
+      '247gbs expo': { icon: UsersRound, color: 'bg-cyan-500', tagline: 'End-to-end virtual and physical event management at scale.' },
+      'mcom solutions': { icon: Sparkles, color: 'bg-blue-600', tagline: 'Central business growth and management suite.' },
+    };
+
+    for (const t of dbTemplates) {
+      const pName = t.platform || 'MCOM Solutions';
+      const key = pName.toLowerCase();
+      if (!grouped[key]) {
+        const meta = platformIcons[key] || {
+          icon: PackageOpen,
+          color: 'bg-slate-600',
+          tagline: t.description || 'Ecosystem platform package.'
+        };
+        grouped[key] = {
+          id: key.replace(/[^a-z0-9]+/g, '-'),
+          name: pName,
+          icon: meta.icon,
+          color: meta.color,
+          tagline: meta.tagline,
+          tiers: [],
+        };
+      }
+      grouped[key].tiers.push({
+        name: t.name,
+        monthlyPrice: Math.round(Number(t.monthlyPrice ?? t.price ?? 0)),
+        popular: t.name.toLowerCase().includes('standard') || t.name.toLowerCase().includes('pro') || t.name.toLowerCase().includes('growth'),
+        features: Array.isArray(t.features) && t.features.length > 0 ? t.features : ['Platform access'],
+        limits: t.usageLimits && typeof t.usageLimits === 'object' ? Object.entries(t.usageLimits).map(([k, v]) => `${k}: ${v}`).join(', ') : 'Standard limits',
+      });
+    }
+
+    const result = Object.values(grouped);
+    return result.length > 0 ? result : PLATFORM_PACKAGES;
+  }, [dbTemplates]);
+
 
   return (
     <div className="pt-32 pb-24 bg-white min-h-screen">
@@ -144,7 +192,7 @@ export default function PackagesPage() {
         </div>
 
         <div className="space-y-8 md:space-y-12">
-          {PLATFORM_PACKAGES.map((platform, index) => {
+          {platformPackages.map((platform, index) => {
             const Icon = platform.icon;
             const isExpanded = expandedPlatform === platform.id;
 

@@ -1,12 +1,97 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param, UseGuards, UseFilters, Request, Response, NotFoundException, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { BusinessService, CompleteOnboardingInput, UpdateProfileInput } from './business.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MulterExceptionFilter } from '../common/filters/multer-exception.filter';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiOperation, ApiBody } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import { v2 as cloudinary } from 'cloudinary';
+import { ClaimStartDto } from './dto/claim-start.dto';
+import { CreateSupportTicketDto } from './dto/support-ticket.dto';
+import { BusinessQueryDto } from './dto/business-query.dto';
+
+// ─── Phase 1C upload hardening ──────────────────────
+// .svg is rejected outright (stored-XSS vector); only raster images allowed.
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+export const ALLOWED_UPLOAD_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+export const ALLOWED_UPLOAD_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+
+export type SniffedImage = 'png' | 'jpg' | 'gif' | 'webp';
+
+/** Magic-byte sniff — extension/mimetype alone are client-controlled. */
+export function sniffImageKind(header: Buffer): SniffedImage | null {
+  if (
+    header.length >= 8 &&
+    header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e &&
+    header[3] === 0x47 && header[4] === 0x0d && header[5] === 0x0a &&
+    header[6] === 0x1a && header[7] === 0x0a
+  ) {
+    return 'png';
+  }
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return 'jpg';
+  }
+  if (
+    header.length >= 6 &&
+    header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46 &&
+    header[3] === 0x38 && (header[4] === 0x37 || header[4] === 0x39) && header[5] === 0x61
+  ) {
+    return 'gif';
+  }
+  if (
+    header.length >= 12 &&
+    header.toString('ascii', 0, 4) === 'RIFF' &&
+    header.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'webp';
+  }
+  return null;
+}
+
+export function extToKind(ext: string): SniffedImage | null {
+  switch (ext) {
+    case '.png': return 'png';
+    case '.jpg':
+    case '.jpeg': return 'jpg';
+    case '.gif': return 'gif';
+    case '.webp': return 'webp';
+    default: return null;
+  }
+}
+
+/** Throws BadRequestException (and deletes the temp file) when bytes don't match the extension. */
+function assertMagicBytesMatch(filePath: string, ext: string): void {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    fs.readSync(fd, header, 0, 12, 0);
+    const kind = sniffImageKind(header);
+    if (!kind || kind !== extToKind(ext)) {
+      throw new BadRequestException('File content does not match its extension');
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function removeTempFile(filePath: string): void {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch {
+    // best-effort cleanup
+  }
+}
 
 @Controller()
 export class BusinessController {
@@ -23,8 +108,10 @@ export class BusinessController {
     return this.businessService.searchAddresses(postcode || '');
   }
 
-  // ─── File Uploads ─────────────────────────────────────
+  // ─── File Uploads (authenticated, raster images only) ──
   @Post(['upload', 'business/upload'])
+  @UseGuards(JwtAuthGuard)
+  @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -36,16 +123,18 @@ export class BusinessController {
           cb(null, uploadPath);
         },
         filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
           const cleanExt = extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '').toLowerCase();
-          cb(null, `${uniqueSuffix}${cleanExt}`);
+          cb(null, `${randomUUID()}${cleanExt}`);
         },
       }),
+      limits: { fileSize: MAX_UPLOAD_BYTES },
       fileFilter: (req, file, cb) => {
         const ext = extname(file.originalname).toLowerCase();
-        const allowedExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
-        if (!allowedExts.includes(ext)) {
-          return cb(new BadRequestException('Only image files are allowed'), false);
+        if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
+          return cb(new BadRequestException('Only PNG, JPG, GIF, and WEBP images are allowed'), false);
+        }
+        if (!ALLOWED_UPLOAD_MIMES.has(file.mimetype?.toLowerCase())) {
+          return cb(new BadRequestException('Invalid image mimetype'), false);
         }
         cb(null, true);
       },
@@ -54,6 +143,15 @@ export class BusinessController {
   async uploadFile(@UploadedFile() file: any, @Request() req: any) {
     if (!file) {
       throw new NotFoundException('No file uploaded');
+    }
+    const cleanExt = extname(file.originalname).toLowerCase();
+
+    // Magic-byte verification — catches .html/.svg renamed to .png etc.
+    try {
+      assertMagicBytesMatch(file.path, cleanExt);
+    } catch (err) {
+      removeTempFile(file.path);
+      throw err;
     }
 
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -121,11 +219,10 @@ export class BusinessController {
 
   // ─── Claim Start ──────────────────────────────────────
   @Post('claim/start')
-  async claimStart(
-    @Body('placeId') placeId: string,
-    @Body('returnUrl') returnUrl: string,
-  ) {
-    return this.businessService.claimStart(placeId, returnUrl);
+  @ApiOperation({ summary: 'Start a Google business profile claim' })
+  @ApiBody({ type: ClaimStartDto })
+  async claimStart(@Body() dto: ClaimStartDto) {
+    return this.businessService.claimStart(dto.placeId, dto.returnUrl || '');
   }
 
   // ─── Google Category Mapping ──────────────────────────
@@ -180,11 +277,16 @@ export class BusinessController {
 
   // ─── Google OAuth Consent Simulator (development-only) ──
   @Get('business/google-claim-simulator')
-  getGoogleClaimSimulator(@Query('placeId') placeId: string, @Response() res: any) {
+  getGoogleClaimSimulator(
+    @Query('placeId') placeId: string,
+    @Query('returnUrl') returnUrl: string,
+    @Response() res: any,
+  ) {
     if (!this.googleOAuth.isSimulatorEnabled()) {
       throw new ForbiddenException('Google claim simulator is disabled');
     }
     const safePlaceId = JSON.stringify(placeId || '');
+    const safeReturnUrl = JSON.stringify(returnUrl || '');
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
@@ -223,11 +325,11 @@ export class BusinessController {
           <input id="simEmail" type="email" placeholder="owner@example.com"
                  class="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-semibold mb-4" />
 
-          <button onclick="confirmClaim()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-500/10 mb-4">
+          <button id="confirmBtn" onclick="confirmClaim()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-blue-500/10 mb-4 cursor-pointer">
             Verify & Grant Access
           </button>
           
-          <button onclick="window.close()" class="text-sm font-semibold text-gray-500 hover:text-gray-800 transition">
+          <button onclick="handleCancel()" class="text-sm font-semibold text-gray-500 hover:text-gray-800 transition cursor-pointer">
             Cancel
           </button>
         </div>
@@ -237,11 +339,26 @@ export class BusinessController {
         </footer>
 
         <script>
+          function handleCancel() {
+            if (window.opener && !window.opener.closed) {
+              window.close();
+            } else if (${safeReturnUrl}) {
+              window.location.replace(${safeReturnUrl});
+            } else {
+              window.location.replace('/getstarted/business');
+            }
+          }
+
           async function confirmClaim() {
             const email = document.getElementById('simEmail').value.trim();
             if (!email) {
               alert('Please enter the verified email.');
               return;
+            }
+            const btn = document.getElementById('confirmBtn');
+            if (btn) {
+              btn.disabled = true;
+              btn.innerText = 'Verifying...';
             }
             let grant = '';
             try {
@@ -251,17 +368,28 @@ export class BusinessController {
             } catch (err) {
               console.error('Failed to obtain simulator grant:', err);
             }
-            if (window.opener) {
-              window.opener.postMessage({
-                type: 'GOOGLE_CLAIM_RESULT',
-                success: true,
-                placeId: ${safePlaceId},
-                email: email,
-                grant: grant
-              }, '*');
-              window.close();
-            } else {
-              alert('Claim successful! You can close this window now.');
+
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                window.opener.postMessage({
+                  type: 'GOOGLE_CLAIM_RESULT',
+                  success: true,
+                  placeId: ${safePlaceId},
+                  email: email,
+                  grant: grant
+                }, '*');
+                window.close();
+              }
+            } catch(e) {
+              hasOpener = false;
+            }
+
+            if (!hasOpener) {
+              var ret = ${safeReturnUrl} || '/getstarted/business';
+              var sep = ret.indexOf('?') !== -1 ? '&' : '?';
+              window.location.replace(ret + sep + 'claim=success&placeId=' + encodeURIComponent(${safePlaceId}) + '&email=' + encodeURIComponent(email) + '&grant=' + encodeURIComponent(grant));
             }
           }
         </script>
@@ -313,25 +441,46 @@ export class BusinessController {
   }
 
   // ─── Directory Management (Secured) ───────────────────
+  // Phase 1B: ownership-scoped reads. findOne/delete require owner or ADMIN;
+  // findAll returns PII-minimized rows to non-admins (see BusinessService).
   @UseGuards(JwtAuthGuard)
   @Get('business')
-  async getAllBusinesses(
-    @Query('search') search?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
-  ) {
-    return this.businessService.findAll(search, page, limit);
+  @ApiOperation({ summary: 'List businesses (paginated, PII-minimized for non-admins)' })
+  async getAllBusinesses(@Request() req: any, @Query() query: BusinessQueryDto) {
+    return this.businessService.findAll(query.search, query.page ?? 1, query.limit ?? 20, req.user);
+  }
+
+  // Phase 4: static routes are declared BEFORE `business/:id` — Nest matches in
+  // declaration order, so `:id` would otherwise swallow `support-tickets`.
+  @UseGuards(JwtAuthGuard)
+  @Get('business/support-tickets')
+  async getSupportTickets(@Request() req: any) {
+    if (!req.user.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.businessService.getSupportTickets(req.user.businessId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('business/support-tickets')
+  @ApiOperation({ summary: 'Create a support ticket for the caller’s business' })
+  @ApiBody({ type: CreateSupportTicketDto })
+  async createSupportTicket(@Request() req: any, @Body() body: CreateSupportTicketDto) {
+    if (!req.user.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.businessService.createSupportTicket(req.user.businessId, body);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('business/:id')
-  async getBusinessById(@Param('id') id: string) {
-    return this.businessService.findOne(id);
+  async getBusinessById(@Request() req: any, @Param('id') id: string) {
+    return this.businessService.findOne(id, req.user);
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete('business/:id')
-  async deleteBusiness(@Param('id') id: string) {
-    return this.businessService.deleteBusiness(id);
+  async deleteBusiness(@Request() req: any, @Param('id') id: string) {
+    return this.businessService.deleteBusiness(id, req.user);
   }
 }

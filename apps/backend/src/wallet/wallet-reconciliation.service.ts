@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { WalletService } from './wallet.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 /**
@@ -17,7 +16,6 @@ export class WalletReconciliationService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly walletService: WalletService,
     private readonly redis: RedisService,
   ) {}
 
@@ -31,19 +29,69 @@ export class WalletReconciliationService {
     }
 
     try {
-      const expired = await this.prisma.walletHold.findMany({
-        where: { status: 'ACTIVE', expiresAt: { lt: new Date() } },
-        take: 100,
-      });
+      const BATCH = 100;
+      let cursor: string | undefined;
+      let totalExpired = 0;
+      let batches = 0;
+      for (;;) {
+        const page = await this.prisma.walletHold.findMany({
+          where: { status: 'ACTIVE', expiresAt: { lt: new Date() } },
+          orderBy: { expiresAt: 'asc' },
+          take: BATCH,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+        if (page.length === 0) break;
 
-      for (const hold of expired) {
-        try {
-          await this.walletService.releaseHoldInternal(hold.id, 'EXPIRED');
-          this.logger.log(`Hold ${hold.id} expired and released`);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(`Failed to release expired hold ${hold.id}: ${msg}`);
+        const now = new Date();
+        // Batch flip with the ACTIVE guard in the predicate, so a hold that
+        // was CAPTURED between read and write is never touched (same guarantee
+        // as the old per-hold path). One shared releasedAt per batch.
+        const flipped = await this.prisma.walletHold.updateMany({
+          where: {
+            id: { in: page.map((h) => h.id) },
+            status: 'ACTIVE',
+            expiresAt: { lt: now },
+          },
+          data: { status: 'EXPIRED', releasedAt: now },
+        });
+        if (flipped.count < page.length) {
+          this.logger.debug(
+            `${page.length - flipped.count} hold(s) changed state concurrently — left untouched`,
+          );
         }
+
+        // Batched cache invalidation for affected wallets.
+        const walletIds = [...new Set(page.map((h) => h.walletId))];
+        const wallets = await this.prisma.wallet.findMany({
+          where: { id: { in: walletIds } },
+          select: { userId: true },
+        });
+        await Promise.all(
+          [...new Set(wallets.map((w) => w.userId))].map((userId) =>
+            this.redis.del(`wallet:balance:${userId}`).catch(() => {}),
+          ),
+        );
+
+        totalExpired += flipped.count;
+        batches += 1;
+        this.logger.log(`Expired ${flipped.count} stale hold(s) (batch of ${page.length})`);
+        if (page.length < BATCH) break;
+        cursor = page[page.length - 1].id;
+      }
+
+      // G6: single audit row per tick (not per hold, not per batch) so the
+      // expiry trail is queryable without spamming the audit table.
+      if (totalExpired > 0) {
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'WALLET_HOLD_EXPIRE',
+            adminName: 'system',
+            targetType: 'WalletHold',
+            targetName: `${totalExpired} hold(s) in ${batches} batch(es)`,
+            details: `Cron released ${totalExpired} stale hold(s) across ${batches} batch(es)`,
+            category: 'wallet',
+          },
+        });
       }
     } finally {
       await this.redis.del(lockKey).catch(() => {});

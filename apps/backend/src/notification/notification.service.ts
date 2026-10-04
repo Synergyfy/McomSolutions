@@ -1,37 +1,46 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+/** Phase 4: caller identity for notification scoping (userId first, businessId fallback). */
+export interface NotificationIdentity {
+  userId?: string | null;
+  businessId?: string | null;
+}
+
 @Injectable()
 export class NotificationService {
   constructor(private prisma: PrismaService) {}
 
-  async getNotifications(businessId: string) {
+  async getNotifications(identity: NotificationIdentity) {
+    const ors: Array<Record<string, unknown>> = [];
+    if (identity.userId) ors.push({ userId: identity.userId });
+    if (identity.businessId) ors.push({ businessId: identity.businessId });
+    // Global broadcasts (no keys) stay visible to everyone.
+    ors.push({ userId: null, businessId: null });
     return this.prisma.notification.findMany({
-      where: {
-        OR: [
-          { businessId },
-          { businessId: null },
-        ],
-      },
+      where: { OR: ors as never },
       orderBy: {
         createdAt: 'desc',
       },
     });
   }
 
-  async markAllAsRead(businessId: string) {
+  async markAllAsRead(identity: NotificationIdentity) {
+    // Scoped to the caller's own rows only — global broadcasts are never
+    // mass-marked by a single non-admin user.
+    const ors: Array<Record<string, unknown>> = [];
+    if (identity.userId) ors.push({ userId: identity.userId, read: false });
+    if (identity.businessId) ors.push({ businessId: identity.businessId, read: false });
+    if (ors.length === 0) return { count: 0 };
     return this.prisma.notification.updateMany({
-      where: {
-        businessId,
-        read: false,
-      },
+      where: { OR: ors as never },
       data: {
         read: true,
       },
     });
   }
 
-  async deleteNotification(businessId: string, id: string) {
+  async deleteNotification(identity: NotificationIdentity, id: string) {
     const notif = await this.prisma.notification.findUnique({
       where: { id },
     });
@@ -40,7 +49,11 @@ export class NotificationService {
       throw new NotFoundException('Notification not found');
     }
 
-    if (notif.businessId && notif.businessId !== businessId) {
+    const owned =
+      (identity.userId && notif.userId === identity.userId) ||
+      (identity.businessId && notif.businessId === identity.businessId);
+    // Global broadcasts (no keys) can only be removed by admins (separate endpoint).
+    if (!owned) {
       throw new NotFoundException('Notification not found');
     }
 
@@ -49,7 +62,7 @@ export class NotificationService {
     });
   }
 
-  async createNotification(data: { businessId?: string; type: string; title: string; message: string }) {
+  async createNotification(data: { businessId?: string; userId?: string; type: string; title: string; message: string }) {
     return this.prisma.notification.create({
       data,
     });

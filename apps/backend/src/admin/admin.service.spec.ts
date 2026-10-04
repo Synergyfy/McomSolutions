@@ -130,4 +130,75 @@ describe('AdminService', () => {
       expect(result.data.sources).toBeInstanceOf(Array);
     });
   });
+
+  describe('updateUserRole (G3)', () => {
+    beforeEach(() => {
+      const p: any = mockPrisma;
+      p.user.findFirst = jest.fn();
+      p.user.update = jest.fn();
+      p.refreshSession = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
+      p.$transaction = jest.fn(async (fn: any) => {
+        if (typeof fn === 'function') {
+          return fn({ ...p, auditLog: { create: jest.fn().mockResolvedValue({ id: 'a' }) } });
+        }
+        return Promise.all(fn);
+      });
+    });
+
+    it('bumps tokenVersion and revokes refresh sessions on role change', async () => {
+      const p: any = mockPrisma;
+      p.user.findFirst.mockResolvedValue({ id: 'u1', email: 'a@b.c', role: Role.CUSTOMER });
+      p.user.update.mockResolvedValue({ id: 'u1', email: 'a@b.c', role: Role.AGENT });
+
+      const result = await service.updateUserRole('u1', Role.AGENT, 'admin');
+
+      expect(result.success).toBe(true);
+      expect(p.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u1' },
+          data: expect.objectContaining({ role: Role.AGENT }),
+        }),
+      );
+      expect(p.refreshSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ userId: 'u1' }) }),
+      );
+    });
+
+    it('returns 404 for unknown users', async () => {
+      const p: any = mockPrisma;
+      p.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.updateUserRole('missing', Role.AGENT)).rejects.toThrow(
+        'User not found',
+      );
+    });
+  });
+
+  describe('deletePlan (G5)', () => {
+    it('soft-deletes instead of hard-deleting', async () => {
+      const p: any = mockPrisma;
+      p.membershipPlan = {
+        findUnique: jest.fn().mockResolvedValue({ id: 'plan-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'plan-1' }),
+        delete: jest.fn(),
+      };
+      p.$transaction = jest.fn(async (fn: any) => {
+        if (typeof fn === 'function') {
+          return fn({ ...p, auditLog: { create: jest.fn().mockResolvedValue({ id: 'a' }) } });
+        }
+        return Promise.all(fn);
+      });
+
+      const result = await service.deletePlan('plan-1', 'admin');
+
+      expect(result.success).toBe(true);
+      expect(p.membershipPlan.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'plan-1' },
+          data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        }),
+      );
+      expect(p.membershipPlan.delete).not.toHaveBeenCalled();
+    });
+  });
 });

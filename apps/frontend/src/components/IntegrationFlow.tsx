@@ -4,7 +4,7 @@ import { cn } from '../lib/utils';
 
 export default function IntegrationFlow() {
   return (
-    <section className="py-20 md:py-32 bg-white overflow-hidden">
+    <section className="py-20 md:py-32 bg-white overflow-hidden section-visibility-auto">
       <div className="max-w-7xl mx-auto px-6">
         <div className="text-center mb-20">
           <h2 className="text-sm font-bold text-brand-blue uppercase tracking-[0.3em] mb-4">Seamless Connectivity</h2>
@@ -18,8 +18,10 @@ export default function IntegrationFlow() {
         <div className="relative group p-2 sm:p-4 glass rounded-[2rem] sm:rounded-[3rem] overflow-hidden shadow-2xl">
           <div className="relative rounded-[1.75rem] sm:rounded-[2.5rem] overflow-hidden min-h-[580px] md:min-h-0 md:aspect-[21/9] flex items-center justify-center">
             <img 
-              src="/global_connectivity_mockup.png" 
+              src="/global_connectivity_mockup.webp" 
               alt="Global Data Ecosystem Connectivity" 
+              loading="lazy"
+              decoding="async"
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-[10s] group-hover:scale-110"
             />
             {/* Glossy Overlay with Content */}

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthSidebar from "../components/affiliate-auth/AuthSidebar";
 import AuthInput from "../components/affiliate-auth/AuthInput";
 import { useAffiliateAuth } from "../hooks/useAffiliateAuth";
+import { validateSignup } from "../lib/validation";
 import { UserRole } from "../types/affiliate-auth";
 
 export default function AffiliateSignup() {
@@ -33,16 +34,9 @@ export default function AffiliateSignup() {
         const email = (formData.get('email') as string || '').trim().toLowerCase();
         const password = (formData.get('password') as string || '');
 
-        if (!firstName || !lastName) {
-            setError("Please provide your first and last name.");
-            return;
-        }
-        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-            setError("Please enter a valid email address.");
-            return;
-        }
-        if (password.length < 8) {
-            setError("Password must be at least 8 characters long.");
+        const validationError = validateSignup({ firstName, lastName, email, password });
+        if (validationError) {
+            setError(validationError);
             return;
         }
 
@@ -58,8 +52,10 @@ export default function AffiliateSignup() {
             // Send real OTP via backend
             const otpRes = await sendOtp(email);
 
-            // Navigate to verification screen with state
-            navigate("/register/affiliate/verify-email", {
+            // Navigate to verification screen with state (keep SSO/redirect
+            // query params so verify-email can send the user back afterwards)
+            const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+            navigate(`/register/affiliate/verify-email${searchStr}`, {
                 state: { firstName, lastName, email, password, role, devCode: otpRes?.code, mode: otpRes?.mode },
             });
         } catch (err: any) {

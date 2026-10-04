@@ -41,6 +41,7 @@ describe('IntegrationService', () => {
     it('should return business data with packages for valid key', async () => {
       const mockBusiness = {
         id: 'b1',
+        apiKey: 'valid-api-key',
         businessName: 'Test Biz',
         businessType: 'retail',
         email: 'test@test.com',
@@ -68,6 +69,20 @@ describe('IntegrationService', () => {
       expect(result.businessName).toBe('Test Biz');
       expect(result.packages).toHaveLength(1);
       expect(result.packages[0].platform).toBe('mall');
+    });
+
+    it('should reject a wrong key without revealing key existence (same 401)', async () => {
+      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
+      await expect(service.getBusinessByApiKey('wrong-key')).rejects.toThrow(
+        new UnauthorizedException('Invalid API Key'),
+      );
+    });
+
+    it('should reject non-string keys', async () => {
+      await expect(service.getBusinessByApiKey(undefined as any)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.businessProfile.findUnique).not.toHaveBeenCalled();
     });
   });
 });

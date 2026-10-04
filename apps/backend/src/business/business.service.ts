@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
@@ -32,6 +32,74 @@ export interface CompleteOnboardingInput {
   photos?: any[];
   [key: string]: unknown;
 }
+
+export interface BusinessCaller {
+  userId: string;
+  businessId?: string;
+  role?: Role;
+}
+
+/** Non-admin directory view: no contact PII, no user relation, no secrets. */
+const businessDirectorySelect = {
+  id: true,
+  businessName: true,
+  businessType: true,
+  country: true,
+  industry: true,
+  category: true,
+  subCategory: true,
+  logoUrl: true,
+  membershipLevel: true,
+  membershipTier: true,
+  membershipStatus: true,
+  createdAt: true,
+} as const;
+
+/** Owner/admin detail view: full profile, but the linked user never exposes `password`. */
+const businessDetailSelect = {
+  id: true,
+  userId: true,
+  businessName: true,
+  businessType: true,
+  country: true,
+  phone: true,
+  email: true,
+  isOnGoogle: true,
+  googlePlaceId: true,
+  address: true,
+  postcode: true,
+  industry: true,
+  category: true,
+  subCategory: true,
+  description: true,
+  website: true,
+  logoUrl: true,
+  openingHours: true,
+  socialMedia: true,
+  membershipLevel: true,
+  membershipTier: true,
+  membershipStatus: true,
+  membershipPlanName: true,
+  membershipExpiresAt: true,
+  apiKey: true,
+  localMallName: true,
+  localMallId: true,
+  proximityTier: true,
+  createdAt: true,
+  updatedAt: true,
+  user: {
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      createdAt: true,
+    },
+  },
+  packages: true,
+  transactions: true,
+} as const;
 
 export interface BusinessHoursItem {
   dayOfWeek: number;
@@ -78,7 +146,7 @@ export class BusinessService {
     private configService: ConfigService,
     private googleOAuth: GoogleOAuthService,
     @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
-  ) {}
+  ) { }
 
   private async emitTaskEvent(
     userId: string,
@@ -100,6 +168,31 @@ export class BusinessService {
     }
   }
 
+  private async ensureBusinessProgramme(businessId: string, businessName: string, sector?: string | null) {
+    try {
+      const existing = await this.prisma.businessProgramme.findFirst({ where: { businessId } });
+      if (!existing) {
+        await this.prisma.businessProgramme.create({
+          data: {
+            businessId,
+            businessName,
+            sector: sector || '',
+            currentDay: 1,
+            status: 'active',
+            agentName: 'MCOM Onboarding Specialist',
+            accountManagerName: 'Dedicated Manager',
+            consultantName: 'Business Growth Advisor',
+            completedMissions: [],
+          },
+        });
+        this.logger.log(`Auto-enrolled business ${businessName} (${businessId}) into 90-Day Programme`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Failed to auto-enroll business in programme: ${msg}`);
+    }
+  }
+
   // ─── Postcode Address Search ──────────────────────────
   async searchAddresses(postcode: string) {
     const cleanPostcode = postcode.toUpperCase().trim();
@@ -107,7 +200,7 @@ export class BusinessService {
 
     try {
       const url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(cleanPostcode)}&country=United%20Kingdom&format=json&addressdetails=1`;
-      
+
       const response = await axios.get(url, {
         headers: {
           'User-Agent': 'McomSolutions/1.0 (contact@mcomsolutions.co.uk)',
@@ -123,7 +216,7 @@ export class BusinessService {
         const street = addr.road || addr.suburb || addr.neighbourhood || '';
         const building = addr.house_number || addr.building || '';
         const city = addr.city || addr.town || addr.suburb || 'London';
-        
+
         let primaryLine = building ? `${building} ${street}` : street;
         if (!primaryLine) {
           primaryLine = item.display_name.split(',')[0];
@@ -403,7 +496,11 @@ export class BusinessService {
         return this.loginFailureScript('Google login is not available');
       }
       try {
-        email = await this.googleOAuth.exchangeCodeForEmail(code, redirectUri);
+        const profile = await this.googleOAuth.exchangeCodeForProfile(code, redirectUri);
+        if (!profile?.email) {
+          throw new Error('Google profile did not return an email');
+        }
+        email = profile.email;
       } catch (err: any) {
         this.logger.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
         const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
@@ -421,10 +518,18 @@ export class BusinessService {
         include: { businessProfile: true },
       });
 
+      // Unknown Google email → no auto-provision. The frontend shows the
+      // "No account found" modal (code NO_ACCOUNT carries the email so the
+      // register handoff can prefill it) instead of a dead-end error.
       if (!user) {
-        return this.loginFailureScript('No account found for this email. Please register first.', targetOrigin);
+        return this.loginFailureScript(
+          'No account found for this email. Please register first.',
+          targetOrigin,
+          { code: 'NO_ACCOUNT', email },
+        );
       }
 
+      const isNewUser = false;
       const auth = await this.authService.login(user);
 
       if (res) {
@@ -438,52 +543,148 @@ export class BusinessService {
 
       const safeAuth = JSON.stringify(auth).replace(/</g, '\\u003c');
       const safeUser = JSON.stringify(auth.user).replace(/</g, '\\u003c');
+      const safeTarget = JSON.stringify(targetOrigin);
+      const dashboardUrl = JSON.stringify(`${targetOrigin}/dashboard`);
 
+      // Full HTML doc (a bare <script> leaves document.body null) with a
+      // hasOpener check: cross-origin navigation via Google can drop
+      // window.opener, in which case postMessage is impossible and the popup
+      // must navigate itself (cookie was already set above, so /dashboard
+      // resolves authenticated) instead of stranding on FRONTEND_URL root.
       return `
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({
-              type: 'GOOGLE_LOGIN_SUCCESS',
-              auth: ${safeAuth},
-              user: ${safeUser}
-            }, '${this.escapeHtml(targetOrigin)}');
-            window.close();
-          } else {
-            document.write("Login successful! Redirecting...");
-          }
-        </script>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Signing you in…</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+            .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #1d4ed8; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Login complete</h2>
+            <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">Returning you to MCOM Solutions…</p>
+            <a id="continueBtn" href=${dashboardUrl} class="btn" style="display:none;">Continue</a>
+          </div>
+          <script>
+            (function () {
+              var msg = {
+                type: 'GOOGLE_LOGIN_SUCCESS',
+                auth: ${safeAuth},
+                user: ${safeUser},
+                isNewUser: ${isNewUser ? 'true' : 'false'}
+              };
+              var target = ${safeTarget};
+              var alt = target.indexOf('www.') !== -1
+                ? target.replace('www.', '')
+                : target.replace('://', '://www.');
+              var hasOpener = false;
+              try {
+                if (window.opener && !window.opener.closed) {
+                  hasOpener = true;
+                  var delivered = false;
+                  try { window.opener.postMessage(msg, target); delivered = true; } catch (e) {}
+                  if (!delivered && target.indexOf('centralhubsolution.com') !== -1) {
+                    try { window.opener.postMessage(msg, alt); delivered = true; } catch (e2) {}
+                  }
+                  try { window.close(); } catch (e3) {}
+                }
+              } catch (e) { hasOpener = false; }
+              if (!hasOpener) {
+                var btn = document.getElementById('continueBtn');
+                if (btn) btn.style.display = 'inline-block';
+                window.location.replace(${dashboardUrl});
+              } else {
+                setTimeout(function () {
+                  if (!window.closed) {
+                    var btn = document.getElementById('continueBtn');
+                    if (btn) btn.style.display = 'inline-block';
+                  }
+                }, 800);
+              }
+            })();
+          </script>
+        </body>
+        </html>
       `;
     }
 
     if (payload.type === 'claim') {
       const { placeId, returnUrl } = payload;
       if (!placeId || !/^[a-zA-Z0-9_\-]+$/.test(placeId) || !returnUrl || !/^https?:\/\//.test(returnUrl)) {
-        return this.claimFailureScript(targetOrigin);
+        return this.claimFailureScript(targetOrigin, returnUrl);
       }
 
       // Bind the verified email to a short-lived grant the onboarding endpoint
       // will require — the frontend can never fabricate this server-side proof.
       const grant = this.googleOAuth.signEmailGrant(email, placeId);
 
+      let mobileRedirectUrl = '';
+      try {
+        const u = new URL(returnUrl);
+        u.searchParams.set('claim', 'success');
+        u.searchParams.set('placeId', placeId);
+        u.searchParams.set('email', email);
+        u.searchParams.set('grant', grant);
+        mobileRedirectUrl = u.toString();
+      } catch {
+        const sep = returnUrl.includes('?') ? '&' : '?';
+        mobileRedirectUrl = `${returnUrl}${sep}claim=success&placeId=${encodeURIComponent(placeId)}&email=${encodeURIComponent(email)}&grant=${encodeURIComponent(grant)}`;
+      }
+
       return `
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({
-              type: 'GOOGLE_CLAIM_RESULT',
-              success: true,
-              placeId: '${placeId}',
-              email: '${this.escapeHtml(email)}',
-              grant: '${this.escapeHtml(grant)}'
-            }, '${targetOrigin}');
-            window.close();
-          } else {
-            document.write("Claim successful! You can close this window now.");
-          }
-        </script>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Google Verification</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+            .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #ea580c; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Claim Verified!</h2>
+            <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">Returning you to your business setup...</p>
+            <a id="redirectBtn" href="${this.escapeHtml(mobileRedirectUrl)}" class="btn" style="display:none;">Continue</a>
+          </div>
+          <script>
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                window.opener.postMessage({
+                  type: 'GOOGLE_CLAIM_RESULT',
+                  success: true,
+                  placeId: ${JSON.stringify(placeId)},
+                  email: ${JSON.stringify(email)},
+                  grant: ${JSON.stringify(grant)}
+                }, '${targetOrigin}');
+                window.close();
+              }
+            } catch(e) {
+              hasOpener = false;
+            }
+            if (!hasOpener) {
+              var targetUrl = ${JSON.stringify(mobileRedirectUrl)};
+              var btn = document.getElementById('redirectBtn');
+              if (btn) btn.style.display = 'inline-block';
+              window.location.replace(targetUrl);
+            }
+          </script>
+        </body>
+        </html>
       `;
     }
 
-    return this.claimFailureScript(targetOrigin);
+    return this.claimFailureScript(targetOrigin, payload?.returnUrl);
   }
 
   private getTargetOrigin(returnUrl?: string): string {
@@ -497,25 +698,123 @@ export class BusinessService {
     return this.configService.get<string>('FRONTEND_URL') || 'https://mcomsolutions.com';
   }
 
-  private claimFailureScript(targetOrigin = 'https://mcomsolutions.com') {
+  private claimFailureScript(targetOrigin = 'https://mcomsolutions.com', returnUrl?: string) {
+    let mobileRedirectUrl = '';
+    if (returnUrl) {
+      try {
+        const u = new URL(returnUrl);
+        u.searchParams.set('claim', 'failed');
+        mobileRedirectUrl = u.toString();
+      } catch {
+        const sep = returnUrl.includes('?') ? '&' : '?';
+        mobileRedirectUrl = `${returnUrl}${sep}claim=failed`;
+      }
+    } else {
+      mobileRedirectUrl = `${targetOrigin}/getstarted/business?claim=failed`;
+    }
+
     return `
-      <script>
-        if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '${targetOrigin}');
-        }
-        window.close();
-      </script>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Google Verification</title>
+      </head>
+      <body>
+        <script>
+          var hasOpener = false;
+          try {
+            if (window.opener && !window.opener.closed) {
+              hasOpener = true;
+              window.opener.postMessage({ type: 'GOOGLE_CLAIM_RESULT', success: false }, '${targetOrigin}');
+              window.close();
+            }
+          } catch(e) {
+            hasOpener = false;
+          }
+          if (!hasOpener) {
+            window.location.replace(${JSON.stringify(mobileRedirectUrl)});
+          }
+        </script>
+      </body>
+      </html>
     `;
   }
 
-  private loginFailureScript(error: string, targetOrigin = 'https://mcomsolutions.com') {
+  private loginFailureScript(
+    error: string,
+    targetOrigin = 'https://mcomsolutions.com',
+    extra?: { code?: string; email?: string },
+  ) {
+    const safeError = JSON.stringify(error);
+    const safeTarget = JSON.stringify(targetOrigin);
+    const safeCode = JSON.stringify(extra?.code || null);
+    const safeEmail = JSON.stringify(extra?.email || null);
+    let fallbackUrl: string;
+    try {
+      const u = new URL(`${targetOrigin}/login`);
+      u.searchParams.set('googleError', error);
+      if (extra?.code) u.searchParams.set('googleCode', extra.code);
+      if (extra?.email) u.searchParams.set('googleEmail', extra.email);
+      fallbackUrl = u.toString();
+    } catch {
+      fallbackUrl = `${targetOrigin}/login?googleError=${encodeURIComponent(error)}`;
+    }
+    const safeFallback = JSON.stringify(fallbackUrl);
     return `
-      <script>
-        if (window.opener) {
-          window.opener.postMessage({ type: 'GOOGLE_LOGIN_FAILURE', success: false, error: '${this.escapeHtml(error)}' }, '${targetOrigin}');
-        }
-        window.close();
-      </script>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Google sign-in failed</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #111827; }
+          .card { background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center; max-width: 90%; width: 400px; border: 1px solid #f3f4f6; }
+          .btn { display: inline-block; margin-top: 1.25rem; padding: 0.75rem 1.5rem; background: #1d4ed8; color: white; border-radius: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700;">Sign-in failed</h2>
+          <p style="margin: 0; color: #6b7280; font-size: 0.9rem;">${this.escapeHtml(error)}</p>
+          <a id="retryBtn" href=${safeFallback} class="btn" style="display:none;">Back to login</a>
+        </div>
+        <script>
+          (function () {
+            var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${safeError}, code: ${safeCode}, email: ${safeEmail} };
+            var target = ${safeTarget};
+            var alt = target.indexOf('www.') !== -1
+              ? target.replace('www.', '')
+              : target.replace('://', '://www.');
+            var hasOpener = false;
+            try {
+              if (window.opener && !window.opener.closed) {
+                hasOpener = true;
+                try { window.opener.postMessage(msg, target); } catch (e) {}
+                if (target.indexOf('centralhubsolution.com') !== -1) {
+                  try { window.opener.postMessage(msg, alt); } catch (e2) {}
+                }
+                try { window.close(); } catch (e3) {}
+              }
+            } catch (e) { hasOpener = false; }
+            if (!hasOpener) {
+              var btn = document.getElementById('retryBtn');
+              if (btn) btn.style.display = 'inline-block';
+              window.location.replace(${safeFallback});
+            } else {
+              setTimeout(function () {
+                if (!window.closed) {
+                  var btn = document.getElementById('retryBtn');
+                  if (btn) btn.style.display = 'inline-block';
+                }
+              }, 800);
+            }
+          })();
+        </script>
+      </body>
+      </html>
     `;
   }
 
@@ -649,6 +948,13 @@ export class BusinessService {
         },
         include: { businessProfile: true },
       });
+      if (updatedUser.businessProfile) {
+        await this.ensureBusinessProgramme(
+          updatedUser.businessProfile.id,
+          updatedUser.businessProfile.businessName,
+          updatedUser.businessProfile.category,
+        );
+      }
       const loginRes = await this.authService.login(updatedUser);
       return {
         ...loginRes,
@@ -664,7 +970,7 @@ export class BusinessService {
     }
 
     // Register new user & profile
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const password = data.password || crypto.randomBytes(24).toString('hex');
     const passwordHash = await bcrypt.hash(password, salt);
 
@@ -710,6 +1016,11 @@ export class BusinessService {
     }
 
     if (newUser.businessProfile) {
+      await this.ensureBusinessProgramme(
+        newUser.businessProfile.id,
+        newUser.businessProfile.businessName,
+        newUser.businessProfile.category,
+      );
       await this.prisma.notification.createMany({
         data: [
           {
@@ -731,9 +1042,10 @@ export class BusinessService {
 
   // ─── Profile CRUD ─────────────────────────────────────
   async getProfile(businessId: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
-      include: { user: true, packages: true },
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      // Never `include: { user: true }` — that leaks the password hash.
+      select: businessDetailSelect,
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
@@ -742,6 +1054,14 @@ export class BusinessService {
   }
 
   async updateProfile(businessId: string, updates: UpdateProfileInput) {
+    // Refuse to modify soft-deleted profiles (prevents resurrect-by-update).
+    const existing = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Business profile not found');
+    }
     const address = updates.location?.addressLine1 || updates.address;
     const postcode = updates.location?.postcode || updates.postcode;
     const phone = updates.businessPhone || updates.phone;
@@ -807,6 +1127,13 @@ export class BusinessService {
   }
 
   async generateApiKey(businessId: string) {
+    const existing = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Business profile not found');
+    }
     const apiKey = `mcom_central_${crypto.randomBytes(24).toString('hex')}`;
     return this.prisma.businessProfile.update({
       where: { id: businessId },
@@ -816,17 +1143,28 @@ export class BusinessService {
   }
 
   // ─── Directory & Administration CRUD ──────────────────
-  async findAll(searchQuery?: string, page: number = 1, limit: number = 20) {
+  // Phase 1B: ownership-scoped reads, PII-minimized list for non-admins,
+  // soft-delete instead of the user-cascade hard delete.
+  async findAll(searchQuery?: string, page: number = 1, limit: number = 20, caller?: BusinessCaller) {
     const pageNum = Math.max(1, Number(page) || 1);
     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = searchQuery ? {
-      OR: [
-        { businessName: { contains: searchQuery, mode: 'insensitive' as const } },
-        { email: { contains: searchQuery, mode: 'insensitive' as const } },
-      ],
-    } : {};
+    const isAdmin = caller?.role === Role.ADMIN;
+    const where = {
+      deletedAt: null,
+      ...(searchQuery
+        ? {
+            OR: [
+              { businessName: { contains: searchQuery, mode: 'insensitive' as const } },
+              // Email search is an admin-only capability — it leaks contact PII.
+              ...(isAdmin
+                ? [{ email: { contains: searchQuery, mode: 'insensitive' as const } }]
+                : []),
+            ],
+          }
+        : {}),
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.businessProfile.findMany({
@@ -834,6 +1172,8 @@ export class BusinessService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limitNum,
+        // Non-admin callers get the PII-free directory projection; admins keep full rows.
+        ...(isAdmin ? {} : { select: businessDirectorySelect }),
       }),
       this.prisma.businessProfile.count({ where }),
     ]);
@@ -848,31 +1188,85 @@ export class BusinessService {
     };
   }
 
-  async findOne(id: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id },
-      include: {
-        user: true,
-        packages: true,
-        transactions: true,
-      },
+  async findOne(id: string, caller?: BusinessCaller) {
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id, deletedAt: null },
+      select: businessDetailSelect,
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
+    }
+    const isOwner =
+      !!caller && (caller.businessId === id || profile.userId === caller.userId);
+    if (!isOwner && caller?.role !== Role.ADMIN) {
+      throw new ForbiddenException('You do not have access to this business profile');
     }
     return profile;
   }
 
-  async deleteBusiness(id: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id },
+  async deleteBusiness(id: string, caller?: BusinessCaller) {
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, userId: true },
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
     }
-    await this.prisma.user.delete({
-      where: { id: profile.userId },
+    const isOwner =
+      !!caller && (caller.businessId === id || profile.userId === caller.userId);
+    if (!isOwner && caller?.role !== Role.ADMIN) {
+      throw new ForbiddenException('You do not have access to this business profile');
+    }
+    // Soft-delete the profile. The linked User row is never cascade-deleted here —
+    // hard user removal (with audit) is an explicit admin console operation.
+    await this.prisma.businessProfile.update({
+      where: { id },
+      data: { deletedAt: new Date() },
     });
     return { success: true };
+  }
+
+  async getSupportTickets(businessId: string) {
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+    });
+    if (!business) {
+      throw new NotFoundException('Business profile not found');
+    }
+    // Phase 4: FK-scoped lookup. Legacy name-matched rows (business_id NULL)
+    // stay visible until the backfill + NOT NULL follow-up completes.
+    return this.prisma.supportTicket.findMany({
+      where: {
+        OR: [
+          { businessId },
+          { businessId: null, fromName: business.businessName },
+          { businessId: null, fromName: businessId },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createSupportTicket(
+    businessId: string,
+    data: { subject: string; message: string; priority?: string },
+  ) {
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+    });
+    if (!business) {
+      throw new NotFoundException('Business profile not found');
+    }
+    return this.prisma.supportTicket.create({
+      data: {
+        businessId,
+        subject: data.subject,
+        message: data.message,
+        fromName: business.businessName,
+        fromType: 'Business',
+        priority: data.priority || 'Medium',
+        status: 'Open',
+      },
+    });
   }
 }

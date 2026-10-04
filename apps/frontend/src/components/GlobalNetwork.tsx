@@ -4,7 +4,7 @@ import { Globe2, Zap, ShieldCheck } from 'lucide-react';
 
 export default function GlobalNetwork() {
   return (
-    <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden">
+    <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden section-visibility-auto">
       <div className="absolute inset-0 bg-mesh opacity-10" />
       
       <div className="max-w-7xl mx-auto px-6 relative z-10">
@@ -47,34 +47,26 @@ export default function GlobalNetwork() {
           <div className="relative">
             {/* Stylized Map Visualization */}
             <div className="aspect-square relative flex items-center justify-center">
-              <div className="absolute inset-0 bg-brand-blue/20 blur-[120px] rounded-full animate-pulse" />
+              <div className="absolute inset-0 bg-brand-blue/20 blur-[60px] md:blur-[100px] rounded-full pointer-events-none" />
               <div className="relative w-full h-full border border-white/10 rounded-full flex items-center justify-center">
                 <div className="w-3/4 h-3/4 border border-white/10 rounded-full flex items-center justify-center">
                   <div className="w-1/2 h-1/2 border border-white/10 rounded-full" />
                 </div>
                 
-                {/* Floating Nodes */}
+                {/* Floating Nodes - GPU-accelerated pure CSS animation */}
                 {[...Array(12)].map((_, i) => (
-                  <motion.div
+                  <div
                     key={i}
-                    animate={{ 
-                      scale: [1, 1.5, 1],
-                      opacity: [0.3, 0.6, 0.3]
-                    }}
-                    transition={{ 
-                      duration: 3 + Math.random() * 2, 
-                      repeat: Infinity,
-                      delay: Math.random() * 2
-                    }}
-                    className="absolute w-2 h-2 bg-brand-blue rounded-full shadow-glow"
+                    className="absolute w-2 h-2 bg-brand-blue rounded-full shadow-glow animate-pulse-node pointer-events-none"
                     style={{
                       top: `${50 + 40 * Math.sin(i * (Math.PI / 6))}%`,
                       left: `${50 + 40 * Math.cos(i * (Math.PI / 6))}%`,
+                      animationDelay: `${(i * 0.35) % 3}s`,
                     }}
                   />
                 ))}
                 
-                <Globe2 className="w-32 h-32 text-white/20 animate-pulse" />
+                <Globe2 className="w-32 h-32 text-white/20 animate-pulse pointer-events-none" />
               </div>
             </div>
           </div>

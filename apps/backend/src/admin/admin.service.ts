@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Prisma, Role } from '@prisma/client';
+import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
+import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import {
   CreateBusinessUserDto,
   CreateCustomerUserDto,
@@ -103,6 +105,19 @@ export class AdminService implements OnModuleInit {
     private jwtService: JwtService,
   ) {}
 
+  /**
+   * Phase 5: soft-deleted rows still occupy unique emails (hidden from the
+   * existence pre-check by the soft-delete extension). Translate the unique
+   * violation into a 409 instead of leaking a 500.
+   */
+  private async wrapUniqueEmail<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      rethrowAsConflictOnUniqueViolation(e);
+    }
+  }
+
   // ─── Admin Auth ─────────────────────────────────────────
   async loginAdmin(email: string, password: string) {
     const normalizedEmail = email.toLowerCase().trim();
@@ -124,14 +139,33 @@ export class AdminService implements OnModuleInit {
     }
 
     const payload = {
+      jti: crypto.randomUUID(),
       sub: user.id,
       email: user.email,
       role: user.role,
+      tv: (user as { tokenVersion?: number }).tokenVersion ?? 0,
       name: user.firstName || user.email.split('@')[0],
     };
 
-    const accessToken = this.jwtService.sign(payload);
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+    // Phase 3 (G4): spec access TTL (15m default) and a persisted, hashed
+    // refresh session with rotation (via /auth/refresh).
+    const accessTtl = accessTtlSeconds();
+    const refreshTtl = refreshTtlSeconds();
+    const refreshJti = crypto.randomUUID();
+    const accessToken = this.jwtService.sign(payload, { expiresIn: accessTtl });
+    const refreshToken = this.jwtService.sign(
+      { jti: refreshJti, type: 'refresh', sub: user.id, tv: payload.tv },
+      { expiresIn: refreshTtl },
+    );
+    await this.prisma.refreshSession.create({
+      data: {
+        userId: user.id,
+        jti: refreshJti,
+        hashedToken: hashRefreshToken(refreshToken),
+        accessJti: payload.jti,
+        expiresAt: new Date(Date.now() + refreshTtl * 1000),
+      },
+    });
 
     await this.logAudit('Admin Login', 'System', 'Admin Panel', `Admin login from ${email}`, payload.name);
 
@@ -445,10 +479,11 @@ export class AdminService implements OnModuleInit {
     if (existing) throw new ConflictException('Email already registered');
 
     const tempPassword = this.generateTempPassword();
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const user = await this.wrapUniqueEmail(() =>
+      this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -470,7 +505,8 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Business Created', 'Business', dto.name, `Created business account`, adminName);
       return createdUser;
-    });
+      }),
+    );
 
     return { success: true, data: { ...user.businessProfile, tempPassword } };
   }
@@ -497,13 +533,83 @@ export class AdminService implements OnModuleInit {
     return { success: true, data: updated };
   }
 
+  /**
+   * Phase 5: soft-delete a user and their profile. Rows are preserved for the
+   * audit trail; the soft-delete query extension hides them from all reads.
+   * The linked profile table varies by role, so it is passed per caller.
+   */
+  private async softDeleteUserTx(
+    tx: any,
+    userId: string,
+    profileModel: 'businessProfile' | 'customerProfile' | 'agentProfile' | 'consultantProfile' | 'accountManagerProfile',
+    profileId: string,
+    audit: { action: string; targetType: string; targetName: string; details: string },
+    adminName?: string,
+  ) {
+    await (tx[profileModel] as any).update({
+      where: { id: profileId },
+      data: { deletedAt: new Date() },
+    });
+    await tx.user.update({
+      where: { id: userId },
+      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+    });
+    // Outstanding access dies with the tokenVersion bump (JwtStrategy rejects
+    // tv mismatch); outstanding refresh dies here so /auth/refresh fails closed
+    // instead of relying on the deleted-user check at use time.
+    await tx.refreshSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await this.logAuditTx(tx, audit.action, audit.targetType, audit.targetName, audit.details, adminName);
+  }
+
+  /**
+   * Phase 3 (G3): admin-driven role change. The role update and the session
+   * revocation happen in one transaction so outstanding access/refresh tokens
+   * die atomically with the privilege change.
+   */
+  async updateUserRole(userId: string, role: Role, adminName?: string) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role === role) return { success: true, data: user };
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.user.update({
+        where: { id: userId },
+        data: { role, tokenVersion: { increment: 1 } },
+      });
+      await tx.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await this.logAuditTx(
+        tx,
+        'User Role Changed',
+        'User',
+        user.email,
+        `Role ${user.role} → ${role}`,
+        adminName,
+      );
+      return result;
+    });
+
+    return { success: true, data: { id: updated.id, email: updated.email, role: updated.role } };
+  }
+
   async deleteBusiness(id: string, adminName?: string) {
     const profile = await this.prisma.businessProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Business profile not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id: profile.userId } });
-      await this.logAuditTx(tx, 'Business Deleted', 'Business', id, `Deleted business permanently`, adminName);
+      await this.softDeleteUserTx(
+        tx,
+        profile.userId,
+        'businessProfile',
+        id,
+        { action: 'Business Deleted', targetType: 'Business', targetName: id, details: `Soft-deleted business profile and user` },
+        adminName,
+      );
     });
 
     return { success: true };
@@ -561,14 +667,15 @@ export class AdminService implements OnModuleInit {
     if (existing) throw new ConflictException('Email already registered');
 
     const tempPassword = this.generateTempPassword();
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
     const parts = dto.name.split(' ');
     const firstName = parts[0] || '';
     const lastName = parts.slice(1).join(' ') || '';
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const user = await this.wrapUniqueEmail(() =>
+      this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -590,7 +697,8 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Customer Created', 'Customer', dto.name, `Created customer profile`, adminName);
       return createdUser;
-    });
+      }),
+    );
 
     return { success: true, data: { ...user.customerProfile, tempPassword } };
   }
@@ -623,8 +731,14 @@ export class AdminService implements OnModuleInit {
     if (!profile) throw new NotFoundException('Customer profile not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id: profile.userId } });
-      await this.logAuditTx(tx, 'Customer Deleted', 'Customer', id, `Deleted customer profile`, adminName);
+      await this.softDeleteUserTx(
+        tx,
+        profile.userId,
+        'customerProfile',
+        id,
+        { action: 'Customer Deleted', targetType: 'Customer', targetName: id, details: `Soft-deleted customer profile and user` },
+        adminName,
+      );
     });
 
     return { success: true };
@@ -679,14 +793,15 @@ export class AdminService implements OnModuleInit {
     if (existing) throw new ConflictException('Email already registered');
 
     const tempPassword = this.generateTempPassword();
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
     const parts = dto.name.split(' ');
     const firstName = parts[0] || '';
     const lastName = parts.slice(1).join(' ') || '';
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const user = await this.wrapUniqueEmail(() =>
+      this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -706,7 +821,8 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Agent Created', 'Agent', dto.name, `Created agent account`, adminName);
       return createdUser;
-    });
+      }),
+    );
 
     return { success: true, data: { ...user.agentProfile, tempPassword } };
   }
@@ -737,8 +853,14 @@ export class AdminService implements OnModuleInit {
     if (!profile) throw new NotFoundException('Agent profile not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id: profile.userId } });
-      await this.logAuditTx(tx, 'Agent Deleted', 'Agent', id, `Deleted agent profile`, adminName);
+      await this.softDeleteUserTx(
+        tx,
+        profile.userId,
+        'agentProfile',
+        id,
+        { action: 'Agent Deleted', targetType: 'Agent', targetName: id, details: `Soft-deleted agent profile and user` },
+        adminName,
+      );
     });
 
     return { success: true };
@@ -793,14 +915,15 @@ export class AdminService implements OnModuleInit {
     if (existing) throw new ConflictException('Email already registered');
 
     const tempPassword = this.generateTempPassword();
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
     const parts = dto.name.split(' ');
     const firstName = parts[0] || '';
     const lastName = parts.slice(1).join(' ') || '';
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const user = await this.wrapUniqueEmail(() =>
+      this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -820,7 +943,8 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Consultant Created', 'Consultant', dto.name, `Created consultant profile`, adminName);
       return createdUser;
-    });
+      }),
+    );
 
     return { success: true, data: { ...user.consultantProfile, tempPassword } };
   }
@@ -851,8 +975,14 @@ export class AdminService implements OnModuleInit {
     if (!profile) throw new NotFoundException('Consultant profile not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id: profile.userId } });
-      await this.logAuditTx(tx, 'Consultant Deleted', 'Consultant', id, `Deleted consultant profile`, adminName);
+      await this.softDeleteUserTx(
+        tx,
+        profile.userId,
+        'consultantProfile',
+        id,
+        { action: 'Consultant Deleted', targetType: 'Consultant', targetName: id, details: `Soft-deleted consultant profile and user` },
+        adminName,
+      );
     });
 
     return { success: true };
@@ -907,14 +1037,15 @@ export class AdminService implements OnModuleInit {
     if (existing) throw new ConflictException('Email already registered');
 
     const tempPassword = this.generateTempPassword();
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(tempPassword, salt);
 
     const parts = dto.name.split(' ');
     const firstName = parts[0] || '';
     const lastName = parts.slice(1).join(' ') || '';
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const user = await this.wrapUniqueEmail(() =>
+      this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -934,7 +1065,8 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Account Manager Created', 'Account Manager', dto.name, `Created account manager`, adminName);
       return createdUser;
-    });
+      }),
+    );
 
     return { success: true, data: { ...user.accountManagerProfile, tempPassword } };
   }
@@ -965,8 +1097,14 @@ export class AdminService implements OnModuleInit {
     if (!profile) throw new NotFoundException('Account manager profile not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id: profile.userId } });
-      await this.logAuditTx(tx, 'Account Manager Deleted', 'Account Manager', id, `Deleted account manager profile`, adminName);
+      await this.softDeleteUserTx(
+        tx,
+        profile.userId,
+        'accountManagerProfile',
+        id,
+        { action: 'Account Manager Deleted', targetType: 'Account Manager', targetName: id, details: `Soft-deleted account manager profile and user` },
+        adminName,
+      );
     });
 
     return { success: true };
@@ -1053,8 +1191,10 @@ export class AdminService implements OnModuleInit {
     if (!planExists) throw new NotFoundException('Plan not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.membershipPlan.delete({ where: { id } });
-      await this.logAuditTx(tx, 'Membership Deleted', 'Membership', id, `Deleted membership plan`, adminName);
+      // G5: soft-delete — the row stays for the audit trail, hidden by the
+      // soft-delete extension. Repeat delete → 404 via the pre-check above.
+      await tx.membershipPlan.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.logAuditTx(tx, 'Membership Deleted', 'Membership', id, `Soft-deleted membership plan`, adminName);
     });
 
     return { success: true };
@@ -1125,8 +1265,9 @@ export class AdminService implements OnModuleInit {
     if (!pkgExists) throw new NotFoundException('Package not found');
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.packageTemplate.delete({ where: { id } });
-      await this.logAuditTx(tx, 'Package Deleted', 'Package', id, `Deleted package`, adminName);
+      // G5: soft-delete — preserved for audit, hidden from lists by extension.
+      await tx.packageTemplate.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.logAuditTx(tx, 'Package Deleted', 'Package', id, `Soft-deleted package`, adminName);
     });
 
     return { success: true };

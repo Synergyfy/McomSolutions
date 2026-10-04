@@ -104,7 +104,7 @@ describe('AdminCatalogService', () => {
 
       expect(mockPrisma.sector.findUnique).toHaveBeenCalledWith({ where: { slug: 'health-wellness' } });
       expect(mockPrisma.sector.create).toHaveBeenCalledWith({
-        data: { name: 'Health & Wellness', slug: 'health-wellness', sortOrder: 6 },
+        data: { name: 'Health & Wellness', slug: 'health-wellness', sortOrder: 6, imageUrl: null },
       });
       expect(mockPrisma.auditLog.create).toHaveBeenCalled();
       expect(result.success).toBe(true);

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessApi } from './index';
+import type { CreateSupportTicket } from '../../types/contracts';
 
 export const useProfile = () => {
   return useQuery({
@@ -124,6 +125,48 @@ export const useStartMyTask = () => {
   });
 };
 
+export const useCompleteMyTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assignmentId, submissionData }: { assignmentId: string; submissionData?: any }) =>
+      businessApi.completeMyTask(assignmentId, submissionData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['my-programme'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    },
+  });
+};
+
+export const useMyProgramme = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['my-programme'],
+    queryFn: () => businessApi.getMyProgramme(),
+    enabled: !!token,
+    staleTime: 1000 * 30,
+  });
+};
+
+export const useCompleteMission = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (missionId: string) => businessApi.completeMission(missionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-programme'] });
+      queryClient.invalidateQueries({ queryKey: ['programmeBusinesses'] });
+    },
+  });
+};
+
+export const useProgrammePhases = () => {
+  return useQuery({
+    queryKey: ['programme-phases'],
+    queryFn: () => businessApi.getProgrammePhases(),
+    staleTime: 1000 * 60 * 10,
+  });
+};
+
 export const useUploadBusinessFile = () => {
   return useMutation({
     mutationFn: (file: File) => businessApi.uploadFile(file),
@@ -137,6 +180,28 @@ export const useEcosystemApps = () => {
     staleTime: 1000 * 60, // 1 minute
   });
 };
+
+export const useSupportTickets = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['my-support-tickets'],
+    queryFn: () => businessApi.getSupportTickets(),
+    enabled: !!token,
+    staleTime: 1000 * 30, // 30 seconds
+  });
+};
+
+export const useCreateSupportTicket = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateSupportTicket) =>
+      businessApi.createSupportTicket(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] });
+    },
+  });
+};
+
 
 
 

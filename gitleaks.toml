@@ -1,0 +1,40 @@
+# Gitleaks config — Phase 1A follow-up (REMEDIATION-PLAN Appendix D2).
+# Extends the default rule set with MCOM-specific credential prefixes so a
+# hardcoded SSO/HMAC/webhook/API secret can never re-enter the repo.
+# Docs with redacted, illustrative examples are path-allowlisted below.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "mcom-sso-client-secret"
+description = "MCOM SSO client secret (cs_<hex>)"
+regex = '''cs_[0-9a-fA-F]{16,}'''
+tags = ["mcom", "sso", "client-secret"]
+
+[[rules]]
+id = "mcom-api-key"
+description = "MCOM API key (ak_<hex>)"
+regex = '''ak_[0-9a-fA-F]{16,}'''
+tags = ["mcom", "api-key"]
+
+[[rules]]
+id = "mcom-hmac-secret"
+description = "MCOM HMAC secret (hm_<hex>)"
+regex = '''hm_[0-9a-fA-F]{16,}'''
+tags = ["mcom", "hmac"]
+
+[[rules]]
+id = "mcom-webhook-secret"
+description = "MCOM webhook secret (wh_<hex>)"
+regex = '''wh_[0-9a-fA-F]{16,}'''
+tags = ["mcom", "webhook"]
+
+[[rules]]
+id = "mcom-gbs-secret"
+description = "GBS shared secret (gbs_secret_<value>)"
+regex = '''gbs_secret_[0-9A-Za-z_]{4,}'''
+tags = ["mcom", "gbs"]
+
+[allowlist]
+description = "Illustrative, non-functional examples kept in design docs"
+paths = ['''docs/mcom-console-plan.md''']

@@ -53,16 +53,24 @@ model User {
   adminRole          String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
+  deletedAt          DateTime?           @map("deleted_at")
+  // Phase 3: session version — bumped on password reset / role change / ban-deactivate.
+  // Outstanding access tokens carry `tv` and are rejected when it mismatches.
+  tokenVersion       Int                 @default(0) @map("token_version")
   businessProfile    BusinessProfile?
   customerProfile    CustomerProfile?
   agentProfile       AgentProfile?
   consultantProfile  ConsultantProfile?
   accountManagerProfile AccountManagerProfile?
   ssoSessions        SsoSession[]
+  refreshSessions    RefreshSession[]
   resetCodes         PasswordResetCode[]
   wallet             Wallet?
   walletTopUps       WalletTopUpRequest[]
   taskAssignments    UserTaskAssignment[]
+
+  @@index([deletedAt])
+  @@index([role])
 }
 
 model BusinessProfile {
@@ -99,20 +107,33 @@ model BusinessProfile {
   transactions     BillingTransaction[]
   notifications    Notification[]
   subscriptions    Subscription[]
+  supportTickets   SupportTicket[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?         @map("deleted_at")
+
+  @@index([deletedAt])
+  @@index([membershipExpiresAt])
+  @@index([localMallId])
+  @@index([membershipStatus])
 }
 
 model Notification {
   id          String          @id @default(uuid())
   businessId  String?
   business    BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  // Phase 4: user-scoped delivery. Plain (non-FK) string on purpose — deleting
+  // a user must not cascade-delete their notification history (audit trail).
+  userId      String?         @map("user_id")
   type        String          // membership, package, update, payment, announcement
   title       String
   message     String
   read        Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([businessId, read, createdAt])
 }
 
 model PlatformPackage {
@@ -149,10 +170,33 @@ model BillingTransaction {
   status              String          @default("paid") // paid, pending, failed, refunded
   platformPackageId   String?         // Link to platform package purchased
   provider            String?         // 'stripe' or 'paypal'
-  providerPaymentId   String?         // Stripe payment intent ID or PayPal order ID
+  providerPaymentId   String?         @unique // Stripe payment intent ID or PayPal order ID (idempotency key)
   createdAt           DateTime        @default(now())
 
   @@index([platformPackageId])
+  @@index([businessId, status])
+  @@index([createdAt])
+  @@index([businessId, status, createdAt])
+}
+
+// Phase 2 (G1): PayPal capture outbox. When the upstream capture succeeds but
+// the local activation write fails, the activation intent is parked here and
+// retried by cron — money is never silently dropped.
+model PaymentOutbox {
+  id                String   @id @default(uuid())
+  provider          String   @default("paypal")
+  providerPaymentId String   @unique
+  kind              String   // 'membership' | 'platform'
+  businessId        String
+  payload           Json     // level/tier/billing or platform/externalPlanId/billingCycle + expected amount
+  status            String   @default("PENDING") // PENDING | DONE | FAILED
+  attempts          Int      @default(0)
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("payment_outbox")
 }
 
 model SsoClient {
@@ -193,6 +237,9 @@ model SsoClient {
 
 model AppWebhookLog {
   id           String    @id @default(cuid())
+  // Phase 5: intentionally FK-free. Append-only delivery log keyed by the
+  // client's natural key (SsoClient.clientId string, not its cuid id) —
+  // logs must survive client deletion, and a restrictive FK would block it.
   clientId     String    @map("client_id")
   event        String    @map("event")
   payload      Json      @map("payload")
@@ -262,6 +309,32 @@ model SsoSession {
   @@map("sso_sessions")
 }
 
+// Phase 3: regular-auth refresh sessions. Refresh tokens are stored as SHA-256
+// hashes (never plaintext) and rotated on every use. A presented token that
+// matches a replaced (rotated) session is treated as reuse/theft and revokes
+// all sessions for the user.
+model RefreshSession {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jti          String    @unique @map("jti")
+  hashedToken  String    @unique @map("hashed_token")
+  // Access token this session was issued alongside. On logout the session is
+  // revoked and JwtStrategy rejects the matching access `jti` until it expires.
+  accessJti    String?   @map("access_jti")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  replacedById String?   @map("replaced_by_id")
+  userAgent    String?   @map("user_agent")
+  ip           String?   @map("ip")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([accessJti])
+  @@map("refresh_sessions")
+}
+
 model PasswordResetCode {
   id        String   @id @default(cuid())
   userId    String?  @map("user_id")
@@ -291,10 +364,12 @@ model CustomerProfile {
   platformUsage    String[] @map("platform_usage")
   membershipStatus String   @default("None") @map("membership_status")
   status           String   @default("Active") @map("status")
+  deletedAt        DateTime? @map("deleted_at")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([deletedAt])
   @@map("customer_profiles")
 }
 
@@ -305,10 +380,12 @@ model AgentProfile {
   phone       String?  @map("phone")
   permissions String[] @map("permissions")
   status      String   @default("Active") @map("status")
+  deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([deletedAt])
   @@map("agent_profiles")
 }
 
@@ -319,10 +396,12 @@ model ConsultantProfile {
   phone          String?  @map("phone")
   specialisation String   @map("specialisation")
   status         String   @default("Active") @map("status")
+  deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([deletedAt])
   @@map("consultant_profiles")
 }
 
@@ -333,10 +412,12 @@ model AccountManagerProfile {
   phone              String?  @map("phone")
   assignedBusinesses Int      @default(0) @map("assigned_businesses")
   status             String   @default("Active") @map("status")
+  deletedAt          DateTime? @map("deleted_at")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@index([userId])
+  @@index([deletedAt])
   @@map("account_manager_profiles")
 }
 
@@ -355,6 +436,7 @@ model MembershipPlan {
   usageLimits    Json     @map("usage_limits")
   permissions    String[] @map("permissions")
   archived       Boolean  @default(false) @map("archived")
+  deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -369,6 +451,8 @@ model MembershipPlan {
   color            String?  @map("color")
   features         String[] @default([]) @map("features")
 
+  @@index([archived])
+  @@index([deletedAt])
   @@map("membership_plans")
 }
 
@@ -393,9 +477,14 @@ model PackageTemplate {
   isDefault        Boolean  @default(false) @map("is_default")
   type             String?  @default("STANDARD") @map("type")
   trialDuration    Int?     @map("trial_duration")
+  deletedAt        DateTime? @map("deleted_at")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
+  @@index([archived])
+  @@index([platform])
+  @@index([platform, archived])
+  @@index([deletedAt])
   @@map("package_templates")
 }
 
@@ -437,6 +526,7 @@ model Sector {
   name       String     @map("name")
   slug       String     @unique @map("slug")
   sortOrder  Int        @default(0) @map("sort_order")
+  imageUrl   String?    @map("image_url")
   categories Category[]
   createdAt  DateTime   @default(now()) @map("created_at")
   updatedAt  DateTime   @updatedAt @map("updated_at")
@@ -452,6 +542,7 @@ model Category {
   name          String                @map("name")
   slug          String                @unique @map("slug")
   sortOrder     Int                   @default(0) @map("sort_order")
+  imageUrl      String?               @map("image_url")
   subCategories SubCategory[]
   googleMappings GoogleCategoryMapping[]
   createdAt     DateTime              @default(now()) @map("created_at")
@@ -480,6 +571,7 @@ model SubCategory {
   name       String   @map("name")
   slug       String   @unique @map("slug")
   sortOrder  Int      @default(0) @map("sort_order")
+  imageUrl   String?  @map("image_url")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -490,6 +582,9 @@ model SubCategory {
 
 model EcosystemSubscription {
   id           String   @id @default(cuid())
+  // Phase 5: intentionally FK-free. Legacy rows carry dashboard-scoped ids
+  // (e.g. 'global-retailers-id') that do not reference BusinessProfile —
+  // a hard FK would fail on existing data. Joined in code by id match only.
   businessId   String   @map("business_id")
   businessName String   @map("business_name")
   type         String   @map("type") // 'Membership' | 'Package'
@@ -503,6 +598,8 @@ model EcosystemSubscription {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([businessId])
+  @@index([status])
+  @@index([status, endDate])
   @@map("ecosystem_subscriptions")
 }
 
@@ -532,6 +629,8 @@ model PermissionRole {
 
 model AdminPayment {
   id           String   @id @default(cuid())
+  // Phase 5: intentionally FK-free (same rationale as EcosystemSubscription —
+  // finance reporting rows keyed by loose business id + snapshot businessName).
   businessId   String?  @map("business_id")
   businessName String   @map("business_name")
   amount       Float    @map("amount")
@@ -545,6 +644,9 @@ model AdminPayment {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([businessId])
+  @@index([status])
+  @@index([date])
+  @@index([status, date])
   @@map("admin_payments")
 }
 
@@ -556,14 +658,19 @@ model BroadcastNotification {
   scheduledDate DateTime? @map("scheduled_date")
   status        String    @default("Sent") @map("status") // Sent, Scheduled, Draft
   sentCount     Int       @default(0) @map("sent_count")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
+  @@index([status])
   @@map("broadcast_notifications")
 }
 
 model SupportTicket {
   id         String   @id @default(cuid())
+  // Phase 4: FK-scoped ownership. Nullable so pre-existing name-matched rows
+  // survive the migration; backfilled from fromName → BusinessProfile.
+  businessId String?  @map("business_id")
+  business   BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   subject    String   @map("subject")
   message    String   @map("message")
   fromName   String   @map("from_name")
@@ -574,6 +681,9 @@ model SupportTicket {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
+  @@index([businessId])
+  @@index([status])
+  @@index([status, createdAt])
   @@map("support_tickets")
 }
 
@@ -587,6 +697,8 @@ model AuditLog {
   timestamp  DateTime @default(now()) @map("timestamp")
   category   String   @map("category")
 
+  @@index([timestamp])
+  @@index([category])
   @@map("audit_logs")
 }
 
@@ -661,6 +773,7 @@ model RevenueRecord {
   source    String   @map("source")
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([date])
   @@map("revenue_records")
 }
 
@@ -850,6 +963,9 @@ model ReadinessGate {
 
 model BusinessProgramme {
   id                  String            @id @default(cuid())
+  // Phase 5: intentionally FK-free. Enrolments snapshot business/agent names
+  // and tolerate dangling ids when a business is soft-deleted (the programme
+  // history must outlive the profile). Resolved in code with null-tolerance.
   businessId          String?           @map("business_id")
   businessName        String            @map("business_name")
   sector              String            @map("sector")
@@ -867,6 +983,7 @@ model BusinessProgramme {
   phaseId             String?           @map("phase_id")
   phase               ProgrammePhase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   taskStatuses        ProgrammeTaskStatus[]
+  deletedAt           DateTime?         @map("deleted_at")
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
 
@@ -874,6 +991,7 @@ model BusinessProgramme {
   @@index([agentId])
   @@index([status])
   @@index([phaseId])
+  @@index([deletedAt])
   @@map("business_programmes")
 }
 
@@ -956,6 +1074,7 @@ model UserTaskAssignment {
   completedAt    DateTime?            @map("completed_at")
   rewardGranted  Boolean              @default(false) @map("reward_granted")
   rewardPoints   Int                  @default(0) @map("reward_points")
+  submissionData Json?                @map("submission_data")
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 
@@ -1247,6 +1366,7 @@ model WalletHold {
   @@index([platformClientId])
   @@index([expiresAt])
   @@index([status])
+  @@index([status, expiresAt])
   @@map("wallet_holds")
 }
 
@@ -1415,5 +1535,7 @@ model Subscription {
   @@index([planVariantId])
   @@index([priceId])
   @@index([status])
+  @@index([businessId, status])
+  @@index([status, endDate])
   @@map("subscriptions")
 }

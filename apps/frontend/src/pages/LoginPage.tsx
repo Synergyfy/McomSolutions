@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff, UserX, X } from 'lucide-react';
 import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../services/auth/hooks';
+import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 
@@ -15,6 +16,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showNotFoundModal, setShowNotFoundModal] = useState(false);
+  const [notFoundEmail, setNotFoundEmail] = useState('');
 
   const { mutateAsync: login } = useLogin();
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
@@ -33,6 +36,24 @@ export default function LoginPage() {
   const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(shouldCheckSession);
 
   const hasActiveSession = !!currentUser && !sessionLoading;
+
+  // Surfaced when the OAuth popup loses window.opener and falls back to a
+  // full-page redirect (?googleError=...) instead of postMessage.
+  // googleCode=NO_ACCOUNT means the Google email isn't registered → show
+  // the same "No account found" modal as the password flow.
+  useEffect(() => {
+    const googleError = searchParams.get('googleError');
+    if (googleError) {
+      if (searchParams.get('googleCode') === 'NO_ACCOUNT') {
+        setNotFoundEmail(searchParams.get('googleEmail') || '');
+        setShowNotFoundModal(true);
+        setError(null);
+      } else {
+        setError(googleError);
+      }
+      setLoading(false);
+    }
+  }, [searchParams]);
 
   const performRedirect = async (clientIdParam?: string | null) => {
     const clientId = clientIdParam || searchParams.get('client_id');
@@ -127,17 +148,55 @@ export default function LoginPage() {
 
       await performRedirect();
     } catch (err: any) {
+      const status = err.response?.status;
+      const attemptedEmail = email.trim();
+      // Unknown email → offer registration instead of a dead-end error.
+      // check-email is throttled server-side; failure falls back to the
+      // generic message so login never breaks if the lookup fails.
+      if (status === 401 && attemptedEmail.includes('@')) {
+        try {
+          const { exists } = await authApi.checkEmail(attemptedEmail);
+          if (!exists) {
+            setNotFoundEmail(attemptedEmail);
+            setShowNotFoundModal(true);
+            setError(null);
+            return;
+          }
+        } catch {
+          /* fall through to generic error below */
+        }
+      }
       setError(err.response?.data?.message || 'Invalid email or password. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Close the not-found modal with Escape for keyboard users.
+  useEffect(() => {
+    if (!showNotFoundModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowNotFoundModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showNotFoundModal]);
+
+  // /register keeps every SSO query param so the user lands back on the
+  // originating platform (e.g. MCOM Mall "login with MCOM Solutions")
+  // after completing registration. The typed email rides along as ?email=.
+  const handleRegisterFromModal = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (notFoundEmail && !params.get('email')) params.set('email', notFoundEmail);
+    setShowNotFoundModal(false);
+    navigate(`/register?${params.toString()}`);
+  };
+
   const handleGoogleLogin = () => {
     setLoading(true);
     setError(null);
     const backendUrl = import.meta.env.VITE_API_URL || '/api/v1';
-    const authUrl = `${backendUrl}/auth/google`;
+    const authUrl = `${backendUrl}/auth/google?returnUrl=${encodeURIComponent(window.location.origin)}`;
 
     const popup = window.open(
       authUrl,
@@ -150,6 +209,7 @@ export default function LoginPage() {
       return;
     }
 
+    let completed = false;
     const handleMessage = async (event: MessageEvent) => {
       const getOrigin = (urlStr?: string) => {
         if (!urlStr) return '';
@@ -159,15 +219,45 @@ export default function LoginPage() {
         window.location.origin,
         getOrigin(import.meta.env.VITE_BACKEND_URL),
         getOrigin(import.meta.env.VITE_API_URL),
+        'https://centralhubsolution.com',
+        'https://www.centralhubsolution.com',
         'http://localhost:3010',
         'http://localhost:3000',
         'http://localhost:5173'
       ].filter(Boolean);
-      if (!allowedOrigins.includes(event.origin)) return;
+      if (!allowedOrigins.includes(event.origin)) {
+        if (import.meta.env.DEV) {
+          console.debug('[Google OAuth] ignored message from unexpected origin:', event.origin, event.data?.type);
+        }
+        return;
+      }
+
+      if (event.data?.type === 'GOOGLE_LOGIN_FAILURE') {
+        completed = true;
+        window.removeEventListener('message', handleMessage);
+        clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
+        try { if (!popup.closed) popup.close(); } catch { /* noop */ }
+        // Unknown Google email → same "No account found" modal as password
+        // login, with the Gmail prefilled for the register handoff.
+        if (event.data?.code === 'NO_ACCOUNT') {
+          setNotFoundEmail(event.data?.email || '');
+          setShowNotFoundModal(true);
+          setError(null);
+        } else {
+          setError(event.data?.error || 'Google authentication failed. Please try again.');
+        }
+        setLoading(false);
+        return;
+      }
+
       if (event.data?.type !== 'GOOGLE_LOGIN_SUCCESS') return;
 
+      completed = true;
       window.removeEventListener('message', handleMessage);
       clearInterval(pollTimer);
+      clearTimeout(timeoutTimer);
+      try { if (!popup.closed) popup.close(); } catch { /* noop */ }
 
       const { auth, user } = event.data;
 
@@ -196,10 +286,26 @@ export default function LoginPage() {
     const pollTimer = setInterval(() => {
       if (popup.closed) {
         clearInterval(pollTimer);
+        clearTimeout(timeoutTimer);
         window.removeEventListener('message', handleMessage);
+        if (!completed) {
+          setError('Google sign-in was closed before completing. Please try again.');
+        }
         setLoading(false);
       }
     }, 600);
+
+    // Google account chooser can take a while, but never leave the parent
+    // spinner running forever if the handoff (postMessage) never arrives —
+    // e.g. opener severed, popup redirected to /login?googleError=....
+    const timeoutTimer = setTimeout(() => {
+      if (completed) return;
+      window.removeEventListener('message', handleMessage);
+      clearInterval(pollTimer);
+      try { if (!popup.closed) popup.close(); } catch { /* noop */ }
+      setLoading(false);
+      setError((prev) => prev || 'Google sign-in timed out. Please try again.');
+    }, 180000);
   };
 
   const getClientName = (id?: string | null) => {
@@ -456,6 +562,76 @@ export default function LoginPage() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Email-not-found modal: mobile-first, bottom-sheet on small screens */}
+      <AnimatePresence>
+        {showNotFoundModal && (
+          <motion.div
+            key="email-not-found"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6"
+            onClick={() => setShowNotFoundModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="email-not-found-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 48, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 32, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md rounded-t-3xl bg-white p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[2rem] sm:p-8"
+            >
+              <button
+                type="button"
+                onClick={() => setShowNotFoundModal(false)}
+                aria-label="Close"
+                className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+                <UserX className="h-7 w-7" />
+              </div>
+
+              <h2 id="email-not-found-title" className="mb-2 text-center text-xl font-bold text-gray-900 sm:text-2xl">
+                No account found
+              </h2>
+              <p className="mb-1 text-center text-sm text-gray-500 sm:text-base">
+                We couldn't find an account for
+              </p>
+              <p className="mb-5 break-all text-center text-sm font-bold text-gray-900 sm:text-base">
+                {notFoundEmail}
+              </p>
+              <p className="mb-6 text-center text-sm text-gray-500">
+                {hasSsoIntent
+                  ? 'Create an account and we’ll take you straight back to continue signing in.'
+                  : 'Create an account to get started — it only takes a minute.'}
+              </p>
+
+              <button
+                type="button"
+                onClick={handleRegisterFromModal}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-blue py-4 text-base font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-600 active:scale-[0.99]"
+              >
+                Create an account
+                <ArrowRight className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNotFoundModal(false)}
+                className="mt-3 w-full rounded-2xl py-3.5 text-sm font-bold text-gray-500 transition-all hover:bg-gray-100 hover:text-gray-800"
+              >
+                Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

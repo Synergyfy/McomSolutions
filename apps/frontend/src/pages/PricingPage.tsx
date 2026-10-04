@@ -18,8 +18,26 @@ import { Link, useNavigate } from 'react-router-dom';
 import { PRODUCTS } from '../constants';
 
 import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
+import { usePackageTemplates } from '../services/pricing/hooks';
 
 function ModularProductCard({ product }: any) {
+  const { data: packageTemplates = [] } = usePackageTemplates();
+  const matching = packageTemplates.filter(
+    (t: any) =>
+      t.platform?.toLowerCase() === product.id?.toLowerCase() ||
+      product.name?.toLowerCase().includes((t.name || '').toLowerCase())
+  );
+  const validPrices = matching
+    .map((t: any) => Number(t.monthlyPrice || t.price || 0))
+    .filter((p: number) => p > 0);
+  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+
+  const displayPrice = (minPrice !== null && isFinite(minPrice))
+    ? `£${minPrice}`
+    : (product.name.includes('Mall') ? '£40' : 
+       product.name.includes('Loyalty') ? '£25' : 
+       product.name.includes('Rewards') ? '£15' : '£20');
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -39,11 +57,9 @@ function ModularProductCard({ product }: any) {
       </div>
 
       <div className="flex items-end gap-1 mb-8">
-        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 text-gray-400 uppercase tracking-widest mb-1">Starting</div>
+        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Starting</div>
         <div className="text-2xl font-bold text-gray-900">
-          {product.name.includes('Mall') ? '£40' : 
-           product.name.includes('Loyalty') ? '£25' : 
-           product.name.includes('Rewards') ? '£15' : '£20'}
+          {displayPrice}
         </div>
         <div className="text-gray-400 font-bold mb-1 text-xs">/mo</div>
       </div>

@@ -9,8 +9,8 @@ export default function FeatureShowcase() {
         {/* Loyalty Showcase */}
         <div className="flex flex-col lg:flex-row items-center gap-10 md:gap-16 mb-20 md:mb-32">
           <motion.div 
-            initial={{ opacity: 0, x: -50 }}
-            whileInView={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="flex-1 lg:max-w-xl"
           >
@@ -53,22 +53,24 @@ export default function FeatureShowcase() {
             <div className="glass p-2 sm:p-3 rounded-[2rem] sm:rounded-[3rem] shadow-2xl relative z-10">
               <div className="rounded-[1.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
-                  src="/loyalty_app_mockup.png" 
+                  src="/loyalty_app_mockup.webp" 
                   alt="GBS Loyalty Interface" 
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               </div>
             </div>
-            <div className="absolute -top-10 -right-10 w-64 h-64 bg-brand-blue/10 rounded-full blur-3xl -z-10" />
-            <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-brand-accent/10 rounded-full blur-3xl -z-10" />
+            <div className="absolute -top-10 -right-10 w-64 h-64 bg-brand-blue/10 rounded-full blur-3xl -z-10 pointer-events-none" />
+            <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-brand-accent/10 rounded-full blur-3xl -z-10 pointer-events-none" />
           </motion.div>
         </div>
 
         {/* Mall Showcase (Reversed) */}
         <div className="flex flex-col lg:flex-row-reverse items-center gap-10 md:gap-16">
           <motion.div 
-            initial={{ opacity: 0, x: 50 }}
-            whileInView={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             className="flex-1 lg:max-w-xl"
           >
@@ -111,13 +113,15 @@ export default function FeatureShowcase() {
             <div className="glass p-2 sm:p-3 rounded-[2rem] sm:rounded-[3rem] shadow-2xl relative z-10">
               <div className="rounded-[1.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
-                  src="/mall_app_mockup.png" 
+                  src="/mall_app_mockup.webp" 
                   alt="Mcom Mall Interface" 
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover"
                 />
               </div>
             </div>
-            <div className="absolute -top-10 -left-10 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -z-10" />
+            <div className="absolute -top-10 -left-10 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl -z-10 pointer-events-none" />
           </motion.div>
         </div>
       </div>

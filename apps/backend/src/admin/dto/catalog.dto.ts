@@ -21,6 +21,11 @@ export class CreateSectorDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 export class UpdateSectorDto {
@@ -41,6 +46,11 @@ export class UpdateSectorDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 // ─── Category DTOs ────────────────────────────────────────
@@ -67,6 +77,11 @@ export class CreateCategoryDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 export class UpdateCategoryDto {
@@ -93,6 +108,11 @@ export class UpdateCategoryDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 // ─── SubCategory DTOs ─────────────────────────────────────
@@ -119,6 +139,11 @@ export class CreateSubCategoryDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }
 
 export class UpdateSubCategoryDto {
@@ -145,4 +170,9 @@ export class UpdateSubCategoryDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...', description: 'Image or icon URL' })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }

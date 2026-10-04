@@ -767,6 +767,7 @@ export interface AdminSubCategory {
   name: string
   slug: string
   sortOrder: number
+  imageUrl?: string | null
   createdAt?: string
   updatedAt?: string
   category?: {
@@ -783,6 +784,7 @@ export interface AdminCategory {
   name: string
   slug: string
   sortOrder: number
+  imageUrl?: string | null
   createdAt?: string
   updatedAt?: string
   subCategories?: AdminSubCategory[]
@@ -795,6 +797,7 @@ export interface AdminSector {
   name: string
   slug: string
   sortOrder: number
+  imageUrl?: string | null
   createdAt?: string
   updatedAt?: string
   categories?: AdminCategory[]
@@ -820,12 +823,14 @@ export interface CreateSectorInput {
   name: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }
 
 export interface UpdateSectorInput {
   name?: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }
 
 export interface CreateCategoryInput {
@@ -833,6 +838,7 @@ export interface CreateCategoryInput {
   name: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }
 
 export interface UpdateCategoryInput {
@@ -840,6 +846,7 @@ export interface UpdateCategoryInput {
   name?: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }
 
 export interface CreateSubCategoryInput {
@@ -847,6 +854,7 @@ export interface CreateSubCategoryInput {
   name: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }
 
 export interface UpdateSubCategoryInput {
@@ -854,4 +862,5 @@ export interface UpdateSubCategoryInput {
   name?: string
   slug?: string
   sortOrder?: number
+  imageUrl?: string | null
 }

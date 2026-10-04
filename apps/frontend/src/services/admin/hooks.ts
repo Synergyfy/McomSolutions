@@ -1381,3 +1381,9 @@ export const useDeleteSubCategory = () => {
     },
   })
 }
+
+export const useUploadCatalogImage = () => {
+  return useMutation({
+    mutationFn: (file: File) => adminApi.uploadCatalogImage(file),
+  })
+}

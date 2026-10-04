@@ -141,7 +141,13 @@ describe('MCOM Backend (e2e)', () => {
         .expect(200);
     });
 
-    it('GET /google/google-business should return mock results', () => {
+    // Phase 7: these need a real Google Places key. With the stub key from
+    // test/jest-setup.ts the endpoint correctly returns 503 — skip instead of
+    // failing. Staging (real key) runs the live assertions below.
+    const itWithRealGoogleKey =
+      process.env.GOOGLE_PLACES_API_KEY === 'test-google-places-key' ? it.skip : it;
+
+    itWithRealGoogleKey('GET /google/google-business should return mock results', () => {
       return request(app.getHttpServer())
         .get('/google/google-business?queryText=Coffee')
         .expect(200)
@@ -150,7 +156,7 @@ describe('MCOM Backend (e2e)', () => {
         });
     });
 
-    it('GET /google/google-business with lat and lng should return mock results', () => {
+    itWithRealGoogleKey('GET /google/google-business with lat and lng should return mock results', () => {
       return request(app.getHttpServer())
         .get('/google/google-business?queryText=Coffee&lat=51.5074&lng=-0.1278&radius=5')
         .expect(200)
@@ -222,25 +228,62 @@ describe('MCOM Backend (e2e)', () => {
   });
 
   describe('Security & Onboarding Flow Extensions', () => {
-    it('POST /upload should reject non-image file extensions to prevent path traversals / arbitrary writes', () => {
+    // Phase 1C: uploads require authentication — anonymous posts get 401.
+    it('POST /upload should reject anonymous uploads with 401', () => {
       return request(app.getHttpServer())
         .post('/upload')
         .attach('file', Buffer.from('malicious code'), 'exploit.exe')
+        .expect(401);
+    });
+
+    it('POST /upload should reject non-image file extensions to prevent path traversals / arbitrary writes', () => {
+      return request(app.getHttpServer())
+        .post('/upload')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('file', Buffer.from('malicious code'), 'exploit.exe')
         .expect(400)
         .expect((res) => {
-          expect(res.body.message).toContain('Only image files are allowed');
+          expect(res.body.message).toContain('Only PNG');
         });
     });
 
     it('POST /upload should accept valid image files and return secure_url', () => {
+      // Minimal PNG: real magic bytes + filler so the magic-byte check passes.
+      const pngBytes = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('dummy image data'),
+      ]);
       return request(app.getHttpServer())
         .post('/upload')
-        .attach('file', Buffer.from('dummy image data'), 'logo.png')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('file', pngBytes, 'logo.png')
         .expect(201)
         .expect((res) => {
           expect(res.body.secure_url).toBeDefined();
           expect(res.body.secure_url).toContain('/uploads/');
         });
+    });
+
+    it('POST /upload should reject .svg files with 400', () => {
+      const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+      return request(app.getHttpServer())
+        .post('/upload')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('file', svgBytes, 'logo.svg')
+        .expect(400);
+    });
+
+    it('POST /upload should reject oversize files with 413', () => {
+      // 6 MB PNG: real magic bytes + filler so the size limit (not the type check) trips.
+      const bigPng = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(6 * 1024 * 1024, 0),
+      ]);
+      return request(app.getHttpServer())
+        .post('/upload')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('file', bigPng, 'huge.png')
+        .expect(413);
     });
 
     it('GET /business/google/callback should render failure script if placeId has script injection', () => {

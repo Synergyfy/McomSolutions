@@ -1,13 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Crown, CheckCircle2, Star, Zap, Shield, ArrowUpRight,
-  CalendarDays, Clock, ChevronRight, AlertCircle, TrendingUp, X, RefreshCw
+  Crown, CheckCircle2, Star, Zap, Shield,
+  CalendarDays, Clock, ChevronRight, TrendingUp, RefreshCw
 } from 'lucide-react';
 import { useProfile } from '../services/business/hooks';
 import { useTransactions, useSubscribeMembership } from '../services/pricing/hooks';
+import { usePricing } from '../context/PricingContext';
 
-const TIERS = [
+const TIER_METAS: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; ring: string; highlight: string; bg: string }> = {
+  Bronze: {
+    icon: Star,
+    color: 'bg-orange-400',
+    ring: 'ring-orange-400',
+    highlight: 'text-orange-500',
+    bg: 'bg-orange-50',
+  },
+  Silver: {
+    icon: Zap,
+    color: 'bg-orange-500',
+    ring: 'ring-orange-500',
+    highlight: 'text-orange-600',
+    bg: 'bg-orange-100',
+  },
+  Gold: {
+    icon: Crown,
+    color: 'bg-amber-500',
+    ring: 'ring-amber-500',
+    highlight: 'text-amber-600',
+    bg: 'bg-amber-50',
+  },
+  Platinum: {
+    icon: Shield,
+    color: 'bg-gray-700',
+    ring: 'ring-gray-700',
+    highlight: 'text-gray-700',
+    bg: 'bg-gray-100',
+  },
+};
+
+const DEFAULT_TIERS = [
   {
     name: 'Bronze',
     icon: Star,
@@ -59,11 +91,40 @@ type ModalType = 'upgrade' | 'renew' | 'cancel' | null;
 export default function DashboardMemberships() {
   const { data: profile, isLoading: profileLoading } = useProfile();
   const { data: transactions = [], isLoading: txLoading } = useTransactions();
+  const { plans, loading: plansLoading } = usePricing();
   const { mutateAsync: subscribeMembership } = useSubscribeMembership();
-  const loading = profileLoading || txLoading;
+  const loading = profileLoading || txLoading || plansLoading;
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedUpgrade, setSelectedUpgrade] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+
+  const tiers = (plans && plans.length > 0)
+    ? plans.map(p => {
+        const meta = TIER_METAS[p.name] || {
+          icon: Star,
+          color: 'bg-orange-500',
+          ring: 'ring-orange-500',
+          highlight: 'text-orange-600',
+          bg: 'bg-orange-50',
+        };
+        return {
+          name: p.name,
+          icon: meta.icon,
+          price: `£${p.monthlyPrice ?? p.price ?? 0}`,
+          period: '/month',
+          color: meta.color,
+          ring: meta.ring,
+          highlight: meta.highlight,
+          bg: meta.bg,
+          features: p.features && p.features.length > 0 ? p.features : [
+            'Storefront Access',
+            'Ecosystem Tools',
+            'Business Profile',
+            'Analytics Dashboard'
+          ],
+        };
+      })
+    : DEFAULT_TIERS;
 
   const handleUpgrade = async (level: string) => {
     setUpgrading(true);
@@ -88,12 +149,15 @@ export default function DashboardMemberships() {
   }
 
   const currentLevelName = profile?.membershipLevel || 'Bronze';
-  const currentTier = TIERS.find(t => t.name.toLowerCase() === currentLevelName.toLowerCase()) || TIERS[0];
+  const currentTier = tiers.find(t => t.name.toLowerCase() === currentLevelName.toLowerCase()) || tiers[0];
   const CurrentIcon = currentTier.icon;
 
-  const nextRenewalDate = new Date();
-  nextRenewalDate.setMonth(nextRenewalDate.getMonth() + 1);
-  const renewalDateStr = nextRenewalDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const renewalDate = profile?.membershipExpiresAt
+    ? new Date(profile.membershipExpiresAt)
+    : (profile?.createdAt ? new Date(new Date(profile.createdAt).setMonth(new Date(profile.createdAt).getMonth() + 1)) : null);
+  const renewalDateStr = renewalDate
+    ? renewalDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Monthly Renewal';
 
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
@@ -167,7 +231,7 @@ export default function DashboardMemberships() {
           <span className="text-xs text-gray-400 font-semibold">Currently on {currentTier.name}</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {TIERS.filter(t => t.name.toLowerCase() !== currentTier.name.toLowerCase()).map((tier, i) => {
+          {tiers.filter(t => t.name.toLowerCase() !== currentTier.name.toLowerCase()).map((tier, i) => {
             const Icon = tier.icon;
             return (
               <motion.div

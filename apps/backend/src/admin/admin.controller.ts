@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Query,
@@ -48,6 +49,7 @@ import {
   UpdatePlatformLaunchRuleDto,
   UpdateBroadcastNotificationDto,
   ClearAuditLogsDto,
+  UpdateUserRoleDto,
 } from './dto/admin.dto';
 
 @ApiTags('Admin')
@@ -139,6 +141,16 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete customer user' })
   async deleteCustomer(@Req() req: any, @Param('id') id: string) {
     await this.adminService.deleteCustomer(id, this.getAdminName(req));
+  }
+
+  @Patch('users/:userId/role')
+  @ApiOperation({ summary: 'Change a user role (revokes outstanding sessions)' })
+  async updateUserRole(
+    @Req() req: any,
+    @Param('userId') userId: string,
+    @Body() dto: UpdateUserRoleDto,
+  ) {
+    return this.adminService.updateUserRole(userId, dto.role, this.getAdminName(req));
   }
 
   // ─── Agent Users Management ───────────────────────────

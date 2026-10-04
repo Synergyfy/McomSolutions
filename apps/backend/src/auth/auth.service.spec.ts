@@ -3,13 +3,27 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { RedisService } from '../redis/redis.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: any;
   let jwtService: any;
+  let redis: any;
+
+  // In-memory Redis stand-in with TTL support — mirrors RedisService memory fallback.
+  const redisStore = new Map<string, { value: any; expiresAt: number }>();
+  const readStore = (key: string) => {
+    const entry = redisStore.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      redisStore.delete(key);
+      return null;
+    }
+    return entry.value;
+  };
 
   const mockPrisma = {
     user: {
@@ -18,18 +32,19 @@ describe('AuthService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    refreshSession: {
+      create: jest.fn().mockResolvedValue({ id: 'rs-1' }),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     businessProfile: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
     },
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
-    },
-    passwordResetCode: {
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
     },
     $transaction: jest.fn((fnOrOps: any) => {
       // Interactive transactions run the callback against the mock itself.
@@ -41,6 +56,7 @@ describe('AuthService', () => {
 
   const mockJwtService = {
     sign: jest.fn().mockReturnValue('mock-token'),
+    verify: jest.fn(),
   };
 
   const mockConfigService = {
@@ -50,7 +66,31 @@ describe('AuthService', () => {
       if (key === 'SSO_SECRET' || key === 'SSO_JWT_SECRET' || key === 'JWT_SECRET') {
         return 'test-jwt-secret';
       }
+      if (key === 'OTP_PEPPER') {
+        return process.env.OTP_PEPPER ?? 'test-otp-pepper';
+      }
       return process.env[key];
+    }),
+  };
+
+  const mockRedis = {
+    isAvailable: jest.fn(() => true),
+    get: jest.fn(async (key: string) => readStore(key)),
+    set: jest.fn(async (key: string, value: any, ttlSeconds = 300) => {
+      redisStore.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+    }),
+    del: jest.fn(async (key: string) => {
+      redisStore.delete(key);
+    }),
+    ttl: jest.fn(async (key: string) => {
+      const entry = redisStore.get(key);
+      if (!entry) return null;
+      const remainingMs = entry.expiresAt - Date.now();
+      if (remainingMs <= 0) {
+        redisStore.delete(key);
+        return null;
+      }
+      return Math.ceil(remainingMs / 1000);
     }),
   };
 
@@ -61,49 +101,58 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
     prisma = module.get(PrismaService);
     jwtService = module.get(JwtService);
+    redis = module.get(RedisService);
 
+    redisStore.clear();
     jest.clearAllMocks();
   });
 
-  // ─── sendOtp ──────────────────────────────────────
+  // ─── sendOtp (pure Redis, hashed) ────────────
   describe('sendOtp', () => {
-    it('should generate and store OTP, return mock mode', async () => {
+    it('should generate and store hashed OTP, return mock mode', async () => {
       process.env.MOCK_OTP = 'true';
       const result = await service.sendOtp('test@example.com');
       expect(result.success).toBe(true);
       expect(result.mode).toBe('mock');
       expect(result.code).toBeDefined();
       expect(result.code).toHaveLength(6);
+      // Only the HMAC hash is stored — never plaintext.
+      const stored = await redis.get('otp:OTP:test@example.com');
+      expect(stored.h).toBeDefined();
+      expect(stored.h).not.toContain(result.code!);
+      expect(stored.attempts).toBe(0);
     });
 
-    it('should normalize email to lowercase', async () => {
+    it('should normalize email to lowercase and verify round-trip', async () => {
       process.env.MOCK_OTP = 'true';
       const result = await service.sendOtp('TEST@Example.COM');
       expect(result.success).toBe(true);
-      // The OTP record is persisted against the lowercased email.
-      expect(mockPrisma.passwordResetCode.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ email: 'test@example.com', purpose: 'OTP' }),
-        }),
-      );
-      // Next OTP verification should use lowercased email
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
+      const stored = await redis.get('otp:OTP:test@example.com');
+      expect(stored).toBeDefined();
       const verifyResult = await service.verifyOtp('test@example.com', result.code!);
       expect(verifyResult).toBe(true);
+    });
+
+    it('should throttle resends within the cooldown window', async () => {
+      process.env.MOCK_OTP = 'true';
+      await service.sendOtp('cool@example.com');
+      await expect(service.sendOtp('cool@example.com')).rejects.toThrow(HttpException);
     });
   });
 
   // ─── resendOtp ────────────────────────────────────
   describe('resendOtp', () => {
-    it('should delete old OTP and generate new one', async () => {
+    it('should issue a new OTP once the cooldown expires', async () => {
       process.env.MOCK_OTP = 'true';
       await service.sendOtp('test@example.com');
+      await redis.del('otp:cooldown:OTP:test@example.com');
       const resent = await service.resendOtp('test@example.com');
       expect(resent.success).toBe(true);
       expect(resent.code).toBeDefined();
@@ -113,24 +162,34 @@ describe('AuthService', () => {
   // ─── verifyOtp ────────────────────────────────────
   describe('verifyOtp', () => {
     it('should return true for valid OTP', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
-      const result = await service.verifyOtp('test@example.com', '123456');
+      process.env.MOCK_OTP = 'true';
+      const sent = await service.sendOtp('test@example.com');
+      const result = await service.verifyOtp('test@example.com', sent.code!);
       expect(result).toBe(true);
     });
 
     it('should return false for invalid OTP', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
+      process.env.MOCK_OTP = 'true';
+      await service.sendOtp('test@example.com');
       const result = await service.verifyOtp('test@example.com', '000000');
       expect(result).toBe(false);
     });
 
     it('should consume OTP after successful verification (one-time use)', async () => {
-      mockPrisma.passwordResetCode.findFirst
-        .mockResolvedValueOnce({ id: '1' })
-        .mockResolvedValueOnce(null);
-      await service.verifyOtp('test@example.com', '123456');
-      const secondTry = await service.verifyOtp('test@example.com', '123456');
+      process.env.MOCK_OTP = 'true';
+      const sent = await service.sendOtp('test@example.com');
+      await service.verifyOtp('test@example.com', sent.code!);
+      const secondTry = await service.verifyOtp('test@example.com', sent.code!);
       expect(secondTry).toBe(false);
+    });
+
+    it('should burn the code after 5 wrong attempts', async () => {
+      process.env.MOCK_OTP = 'true';
+      const sent = await service.sendOtp('locked@example.com');
+      for (let i = 0; i < 5; i++) {
+        expect(await service.verifyOtp('locked@example.com', '000000')).toBe(false);
+      }
+      expect(await service.verifyOtp('locked@example.com', sent.code!)).toBe(false);
     });
   });
 
@@ -150,26 +209,31 @@ describe('AuthService', () => {
       expect(result.success).toBe(true);
       expect(result.resetCode).toBeDefined();
       expect(result.mode).toBe('mock');
+      const stored = await redis.get('otp:PASSWORD_RESET:test@test.com');
+      expect(stored.h).toBeDefined();
     });
   });
 
   // ─── verifyResetCode ──────────────────────────────
   describe('verifyResetCode', () => {
     it('should return false for non-existent email', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       const result = await service.verifyResetCode('nobody@test.com', '123456');
       expect(result).toBe(false);
     });
 
     it('should return false for wrong code', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
+      process.env.MOCK_OTP = 'true';
+      await service.sendForgotPasswordCode('test@test.com');
       const result = await service.verifyResetCode('test@test.com', '000000');
       expect(result).toBe(false);
     });
 
     it('should return true for correct code', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
-      const result = await service.verifyResetCode('test@test.com', '123456');
+      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
+      process.env.MOCK_OTP = 'true';
+      const sent = await service.sendForgotPasswordCode('test@test.com');
+      const result = await service.verifyResetCode('test@test.com', sent.resetCode!);
       expect(result).toBe(true);
     });
   });
@@ -177,18 +241,19 @@ describe('AuthService', () => {
   // ─── resetPassword ────────────────────────────────
   describe('resetPassword', () => {
     it('should throw UnauthorizedException for invalid code', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue(null);
       await expect(
         service.resetPassword({ email: 'nobody@test.com', code: 'wrong', newPassword: 'NewPass1!' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should update password and return true for valid code', async () => {
-      mockPrisma.passwordResetCode.findFirst.mockResolvedValue({ id: '1' });
+      mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@test.com' });
+      process.env.MOCK_OTP = 'true';
+      const sent = await service.sendForgotPasswordCode('test@test.com');
       mockPrisma.user.update.mockResolvedValue({ id: '1', email: 'test@test.com' });
       const result = await service.resetPassword({
         email: 'test@test.com',
-        code: '123456',
+        code: sent.resetCode!,
         newPassword: 'NewPass1!',
       });
       expect(result).toBe(true);
@@ -206,7 +271,7 @@ describe('AuthService', () => {
         role: 'BUSINESS',
         businessProfile: { id: 'b1', businessName: 'Test Biz' },
       };
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
 
       // We can't easily mock bcrypt.compare, so we test the path without password
       const result = await service.validateUser('test@test.com');
@@ -214,17 +279,17 @@ describe('AuthService', () => {
     });
 
     it('should return null for non-existent user', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
       const result = await service.validateUser('nobody@test.com');
       expect(result).toBeNull();
     });
 
     it('should normalize email to lowercase', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
       await service.validateUser('UPPERCASE@TEST.COM');
-      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { email: 'uppercase@test.com' },
+          where: { email: 'uppercase@test.com', deletedAt: null },
         }),
       );
     });
@@ -256,7 +321,7 @@ describe('AuthService', () => {
         role: 'CUSTOMER',
         businessProfile: null,
       };
-      mockPrisma.businessProfile.findUnique.mockResolvedValue(null);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
 
       const result = await service.login(mockUser);
       expect(result.user.businessId).toBeNull();
@@ -270,10 +335,10 @@ describe('AuthService', () => {
         email: 'owner@test.com',
         role: 'BUSINESS',
       };
-      mockPrisma.businessProfile.findUnique.mockResolvedValue({ id: 'bp-99', businessName: 'Dynamic Store' });
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'bp-99', businessName: 'Dynamic Store' });
 
       const result = await service.login(mockUser);
-      expect(mockPrisma.businessProfile.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-biz-1' } });
+      expect(mockPrisma.businessProfile.findFirst).toHaveBeenCalledWith({ where: { userId: 'user-biz-1', deletedAt: null } });
       expect(result.user.businessId).toBe('bp-99');
       expect(result.user.isOnboarded).toBe(true);
       expect(result.user.name).toBe('Dynamic Store');
@@ -434,6 +499,145 @@ describe('AuthService', () => {
       expect(jwtService.sign).toHaveBeenCalledWith(
         expect.objectContaining({ aud: 'mcom-ecosystem' }),
         expect.any(Object),
+      );
+    });
+  });
+
+  // ─── Phase 3: refresh rotation ──────────────────
+  describe('refreshTokens', () => {
+    const liveSession = {
+      id: 'rs-live',
+      userId: '1',
+      revokedAt: null,
+      replacedById: null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    };
+    const liveUser = {
+      id: '1',
+      email: 'test@test.com',
+      role: 'BUSINESS',
+      firstName: '',
+      lastName: '',
+      tokenVersion: 0,
+      businessProfile: null,
+    };
+
+    it('should rotate a valid refresh token and revoke the old session', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'old-jti', sub: '1', tv: 0, type: 'refresh' });
+      mockPrisma.refreshSession.findUnique.mockResolvedValue(liveSession);
+      mockPrisma.user.findFirst.mockResolvedValue(liveUser);
+
+      const result = await service.refreshTokens('valid-refresh');
+
+      expect(result.accessToken).toBe('mock-token');
+      expect(result.refreshToken).toBe('mock-token');
+      expect(mockPrisma.refreshSession.create).toHaveBeenCalled();
+      expect(mockPrisma.refreshSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'rs-live' } }),
+      );
+    });
+
+    it('should reject a forged signature without side effects', async () => {
+      jwtService.verify.mockImplementation(() => { throw new Error('bad sig'); });
+
+      await expect(service.refreshTokens('forged')).rejects.toThrow(UnauthorizedException);
+      expect(mockPrisma.refreshSession.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should reject a non-refresh JWT (access token presented as refresh)', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'a', sub: '1', tv: 0 });
+
+      await expect(service.refreshTokens('access-as-refresh')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should revoke all user sessions on reuse of a rotated token', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'old-jti', sub: '1', tv: 0, type: 'refresh' });
+      mockPrisma.refreshSession.findUnique.mockResolvedValue({
+        ...liveSession,
+        revokedAt: new Date(),
+        replacedById: 'new-jti',
+      });
+
+      await expect(service.refreshTokens('reused-refresh')).rejects.toThrow(UnauthorizedException);
+      expect(mockPrisma.refreshSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: '1', revokedAt: null } }),
+      );
+    });
+
+    it('should reject an expired session and mark it revoked', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'old-jti', sub: '1', tv: 0, type: 'refresh' });
+      mockPrisma.refreshSession.findUnique.mockResolvedValue({
+        ...liveSession,
+        expiresAt: new Date(Date.now() - 1000),
+      });
+
+      await expect(service.refreshTokens('expired-refresh')).rejects.toThrow(UnauthorizedException);
+      expect(mockPrisma.refreshSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'rs-live' } }),
+      );
+    });
+
+    it('should reject when the user tokenVersion changed (password reset / role change)', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'old-jti', sub: '1', tv: 0, type: 'refresh' });
+      mockPrisma.refreshSession.findUnique.mockResolvedValue(liveSession);
+      mockPrisma.user.findFirst.mockResolvedValue({ ...liveUser, tokenVersion: 1 });
+
+      await expect(service.refreshTokens('stale-tv')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject a refresh for a deleted user', async () => {
+      jwtService.verify.mockReturnValue({ jti: 'old-jti', sub: '1', tv: 0, type: 'refresh' });
+      mockPrisma.refreshSession.findUnique.mockResolvedValue(liveSession);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.refreshTokens('deleted-user')).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // ─── Phase 3: logout / revocation ───────────────
+  describe('logout', () => {
+    it('should revoke a single session when a refresh token is given', async () => {
+      mockPrisma.refreshSession.findUnique.mockResolvedValue({ id: 'rs-1', userId: '1' });
+
+      const result = await service.logout('1', 'some-refresh');
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.refreshSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'rs-1' } }),
+      );
+      expect(mockPrisma.refreshSession.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should revoke all sessions when no refresh token is given', async () => {
+      const result = await service.logout('1');
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.refreshSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: '1', revokedAt: null } }),
+      );
+    });
+
+    it('should not revoke another user’s session', async () => {
+      mockPrisma.refreshSession.findUnique.mockResolvedValue({ id: 'rs-9', userId: 'other' });
+
+      await service.logout('1', 'foreign-refresh');
+
+      expect(mockPrisma.refreshSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeUserSessions', () => {
+    it('should bump tokenVersion and revoke refresh sessions', async () => {
+      await service.revokeUserSessions('1');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: '1' },
+          data: { tokenVersion: { increment: 1 } },
+        }),
+      );
+      expect(mockPrisma.refreshSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: '1', revokedAt: null } }),
       );
     });
   });

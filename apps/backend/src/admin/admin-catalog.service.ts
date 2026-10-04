@@ -137,6 +137,7 @@ export class AdminCatalogService {
         name: dto.name.trim(),
         slug,
         sortOrder,
+        imageUrl: dto.imageUrl?.trim() || null,
       },
     });
 
@@ -172,7 +173,8 @@ export class AdminCatalogService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         slug,
-        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ... (dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
       },
     });
 
@@ -283,6 +285,7 @@ export class AdminCatalogService {
         name: dto.name.trim(),
         slug,
         sortOrder,
+        imageUrl: dto.imageUrl?.trim() || null,
       },
       include: {
         sector: { select: { id: true, name: true, slug: true } },
@@ -329,7 +332,8 @@ export class AdminCatalogService {
         ...(dto.sectorId ? { sectorId: dto.sectorId } : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         slug,
-        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ... (dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
       },
       include: {
         sector: { select: { id: true, name: true, slug: true } },
@@ -437,6 +441,7 @@ export class AdminCatalogService {
         name: dto.name.trim(),
         slug,
         sortOrder,
+        imageUrl: dto.imageUrl?.trim() || null,
       },
       include: {
         category: { select: { id: true, name: true, slug: true } },
@@ -483,7 +488,8 @@ export class AdminCatalogService {
         ...(dto.categoryId ? { categoryId: dto.categoryId } : {}),
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         slug,
-        ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ... (dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl?.trim() || null } : {}),
       },
       include: {
         category: { select: { id: true, name: true, slug: true } },

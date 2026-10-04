@@ -55,7 +55,7 @@ const BENEFITS = [
 
 export default function BentoGrid() {
   return (
-    <section className="py-16 md:py-24 bg-white">
+    <section className="py-16 md:py-24 bg-white overflow-hidden">
       <div className="max-w-7xl mx-auto px-6">
         <div className="text-center mb-16">
           <h2 className="text-sm font-bold text-brand-blue uppercase tracking-[0.2em] mb-4">Why MCOM?</h2>
@@ -74,7 +74,7 @@ export default function BentoGrid() {
               viewport={{ once: true }}
               transition={{ delay: index * 0.07, duration: 0.5 }}
               whileHover={{ scale: 1.02, y: -4 }}
-              className={`${benefit.span} bento-card group cursor-default`}
+              className={`${benefit.span} relative overflow-hidden rounded-3xl p-6 sm:p-8 bg-gray-50 border border-gray-100 group cursor-default transition-all duration-300 hover:shadow-xl`}
             >
               <div className={`w-14 h-14 ${benefit.accent} rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500`}>
                 <benefit.icon className="w-7 h-7" />
@@ -83,7 +83,7 @@ export default function BentoGrid() {
               <p className="text-gray-500 leading-relaxed">{benefit.description}</p>
               
               {/* Subtle corner glow on hover */}
-              <div className={`absolute -top-20 -right-20 w-40 h-40 ${benefit.color} opacity-0 group-hover:opacity-10 blur-3xl rounded-full transition-opacity duration-700`} />
+              <div className={`absolute -top-20 -right-20 w-40 h-40 ${benefit.color} opacity-0 group-hover:opacity-10 blur-3xl rounded-full transition-opacity duration-700 pointer-events-none`} />
             </motion.div>
           ))}
         </div>

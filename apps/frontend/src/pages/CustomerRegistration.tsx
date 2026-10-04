@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
 
 import { apiClient } from '../services/api';
+import { validateEmailAddress } from '../lib/validation';
 
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
@@ -178,7 +179,7 @@ export default function CustomerRegistration() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    email: '',
+    email: searchParams.get('email') || '',
     phoneNumber: '+44',
     password: '',
     confirmPassword: '',
@@ -325,8 +326,7 @@ export default function CustomerRegistration() {
   };
 
   const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email) ? '' : 'Please enter a valid email address.';
+    return validateEmailAddress(email) ?? '';
   };
 
   const validatePhoneNumber = (phone: string) => {
