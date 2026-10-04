@@ -179,7 +179,7 @@ export default function CustomerRegistration() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
-    email: '',
+    email: searchParams.get('email') || '',
     phoneNumber: '+44',
     password: '',
     confirmPassword: '',

@@ -831,6 +831,18 @@ function BusinessOnboardingInner() {
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
 
+  // Prefill from login's "email not found" handoff (?email=). Skipped on a
+  // Google-claim return, where ?email= is the verified claim email owned by
+  // the claim flow above — never a self-asserted login hint.
+  useEffect(() => {
+    if (isClaimReturn) return;
+    const qEmail = getSafeParam(initialSearchParams, 'email');
+    if (qEmail) {
+      setFormData((prev) => (prev.email ? prev : { ...prev, email: qEmail }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   // Fail-Safe Edit Form state
   const [googlePhoneInput, setGooglePhoneInput] = useState('');

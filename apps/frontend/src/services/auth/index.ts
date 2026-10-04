@@ -42,6 +42,11 @@ export const authApi = {
     return res.data;
   },
 
+  checkEmail: async (email: string) => {
+    const res = await apiClient.get('/auth/check-email', { params: { email } });
+    return res.data as { exists: boolean };
+  },
+
   getSsoToken: async (targetClientId?: string) => {
     const params = targetClientId ? `?target_client_id=${encodeURIComponent(targetClientId)}` : '';
     const res = await apiClient.get(`/auth/sso/token${params}`);

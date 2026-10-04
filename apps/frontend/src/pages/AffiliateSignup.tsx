@@ -52,8 +52,10 @@ export default function AffiliateSignup() {
             // Send real OTP via backend
             const otpRes = await sendOtp(email);
 
-            // Navigate to verification screen with state
-            navigate("/register/affiliate/verify-email", {
+            // Navigate to verification screen with state (keep SSO/redirect
+            // query params so verify-email can send the user back afterwards)
+            const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+            navigate(`/register/affiliate/verify-email${searchStr}`, {
                 state: { firstName, lastName, email, password, role, devCode: otpRes?.code, mode: otpRes?.mode },
             });
         } catch (err: any) {

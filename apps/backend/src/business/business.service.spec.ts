@@ -598,16 +598,17 @@ describe('BusinessService', () => {
       expect(mockGoogleOAuth.exchangeCodeForProfile).not.toHaveBeenCalled();
     });
 
-    it('should auto-provision an account when the Google email has no MCOM user', async () => {
+    it('should not auto-create an account when the Google email has no MCOM user', async () => {
       mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
       mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({ email: 'new-user@test.com', firstName: 'New' });
       mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({ id: 'user-new', email: 'new-user@test.com' });
 
-      const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
-      expect(result).toContain('GOOGLE_LOGIN_SUCCESS');
-      expect(mockPrisma.user.create).toHaveBeenCalled();
-      expect(authService.login).toHaveBeenCalled();
+      const result = await service.handleGoogleCallback('real-code', 'signed-state');
+      expect(result).toContain('GOOGLE_LOGIN_FAILURE');
+      expect(result).toContain('NO_ACCOUNT');
+      expect(result).toContain('new-user@test.com');
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(authService.login).not.toHaveBeenCalled();
     });
 
     it('should login an existing user and emit GOOGLE_LOGIN_SUCCESS', async () => {

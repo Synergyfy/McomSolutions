@@ -481,8 +481,6 @@ export class BusinessService {
 
     const redirectUri = this.googleOAuth.getRedirectUri();
     let email = '';
-    let googleFirstName: string | undefined;
-    let googleLastName: string | undefined;
 
     if (payload.type === 'sim-login') {
       // Development-only path — never reachable in production
@@ -503,8 +501,6 @@ export class BusinessService {
           throw new Error('Google profile did not return an email');
         }
         email = profile.email;
-        googleFirstName = profile.firstName;
-        googleLastName = profile.lastName;
       } catch (err: any) {
         this.logger.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
         const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
@@ -517,48 +513,23 @@ export class BusinessService {
     const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
 
     if (payload.type === 'login' || payload.type === 'sim-login') {
-      let user = await this.prisma.user.findUnique({
+      const user = await this.prisma.user.findUnique({
         where: { email },
         include: { businessProfile: true },
       });
 
-      // New Google users are auto-provisioned so both old and new Gmail
-      // accounts can sign in. They land un-onboarded and the frontend routes
-      // them to /getstarted/business (same as email registration).
-      let isNewUser = false;
+      // Unknown Google email → no auto-provision. The frontend shows the
+      // "No account found" modal (code NO_ACCOUNT carries the email so the
+      // register handoff can prefill it) instead of a dead-end error.
       if (!user) {
-        isNewUser = true;
-        try {
-          const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
-          user = await this.prisma.user.create({
-            data: {
-              email,
-              password: passwordHash,
-              role: Role.BUSINESS,
-              firstName: googleFirstName || null,
-              lastName: googleLastName || null,
-              registrationSource: 'google',
-              wallet: { create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' } },
-            },
-            include: { businessProfile: true },
-          });
-        } catch (e) {
-          // Race: another callback created the row first — reuse it.
-          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-            isNewUser = false;
-            user = await this.prisma.user.findUnique({
-              where: { email },
-              include: { businessProfile: true },
-            });
-          } else {
-            throw e;
-          }
-        }
-        if (!user) {
-          return this.loginFailureScript('Google authentication failed', targetOrigin);
-        }
+        return this.loginFailureScript(
+          'No account found for this email. Please register first.',
+          targetOrigin,
+          { code: 'NO_ACCOUNT', email },
+        );
       }
 
+      const isNewUser = false;
       const auth = await this.authService.login(user);
 
       if (res) {
@@ -771,13 +742,21 @@ export class BusinessService {
     `;
   }
 
-  private loginFailureScript(error: string, targetOrigin = 'https://mcomsolutions.com') {
+  private loginFailureScript(
+    error: string,
+    targetOrigin = 'https://mcomsolutions.com',
+    extra?: { code?: string; email?: string },
+  ) {
     const safeError = JSON.stringify(error);
     const safeTarget = JSON.stringify(targetOrigin);
+    const safeCode = JSON.stringify(extra?.code || null);
+    const safeEmail = JSON.stringify(extra?.email || null);
     let fallbackUrl: string;
     try {
       const u = new URL(`${targetOrigin}/login`);
       u.searchParams.set('googleError', error);
+      if (extra?.code) u.searchParams.set('googleCode', extra.code);
+      if (extra?.email) u.searchParams.set('googleEmail', extra.email);
       fallbackUrl = u.toString();
     } catch {
       fallbackUrl = `${targetOrigin}/login?googleError=${encodeURIComponent(error)}`;
@@ -804,7 +783,7 @@ export class BusinessService {
         </div>
         <script>
           (function () {
-            var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${safeError} };
+            var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${safeError}, code: ${safeCode}, email: ${safeEmail} };
             var target = ${safeTarget};
             var alt = target.indexOf('www.') !== -1
               ? target.replace('www.', '')
