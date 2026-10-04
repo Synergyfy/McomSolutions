@@ -2,6 +2,9 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  HttpException,
+  HttpStatus,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +16,21 @@ import * as nodemailer from 'nodemailer';
 import axios from 'axios';
 import { Role } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
+import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
+import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import { RedisService } from '../redis/redis.service';
+import {
+  OTP_COOLDOWN_SECONDS,
+  OTP_MAX_ATTEMPTS,
+  OTP_TTL_SECONDS,
+  OtpPurpose,
+  OtpRecord,
+  hashOtp,
+  normalizeOtpEmail,
+  otpCooldownKey,
+  otpKey,
+  verifyOtpHash,
+} from './otp.util';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +41,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
+    private redis: RedisService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -59,6 +78,286 @@ export class AuthService {
 
   private generateNumericCode(): string {
     return crypto.randomInt(100000, 1000000).toString();
+  }
+
+  /**
+   * Server-side pepper for OTP HMAC hashing. Plain SHA-256 of a 6-digit code
+   * is brute-forceable (1M combos) — the pepper makes offline attacks infeasible.
+   * Production fails closed when OTP_PEPPER is missing (see AppModule.validateEnv);
+   * non-production falls back to JWT_SECRET, then a dev-only constant.
+   */
+  private getOtpPepper(): string {
+    const pepper = this.config.get<string>('OTP_PEPPER') ?? process.env.OTP_PEPPER;
+    if (pepper && pepper.trim() !== '') return pepper;
+    const isProduction =
+      this.config.get<string>('NODE_ENV') === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      throw new Error('OTP_PEPPER environment variable is required in production.');
+    }
+    return (
+      this.config.get<string>('JWT_SECRET') ?? process.env.JWT_SECRET ?? 'dev-otp-pepper'
+    );
+  }
+
+  /**
+   * Fail-closed in production when Redis is down — an in-memory fallback does
+   * not coordinate across instances and must not silently accept OTP traffic.
+   * Non-production (dev/test) uses RedisService's in-memory fallback.
+   */
+  private ensureOtpStoreAvailable(): void {
+    if (process.env.NODE_ENV === 'test') return;
+    const isProduction =
+      this.config.get<string>('NODE_ENV') === 'production' || process.env.NODE_ENV === 'production';
+    if (isProduction && !this.redis.isAvailable()) {
+      throw new ServiceUnavailableException('Verification service temporarily unavailable');
+    }
+  }
+
+  private async storeOtpCode(purpose: OtpPurpose, email: string, code: string): Promise<void> {
+    const normalizedEmail = normalizeOtpEmail(email);
+    const record: OtpRecord = { h: hashOtp(code, this.getOtpPepper()), attempts: 0 };
+    await this.redis.set(otpKey(purpose, normalizedEmail), record, OTP_TTL_SECONDS);
+    await this.redis.set(
+      otpCooldownKey(purpose, normalizedEmail),
+      { issuedAt: Date.now() },
+      OTP_COOLDOWN_SECONDS,
+    );
+  }
+
+  private async verifyOtpCode(purpose: OtpPurpose, email: string, code: string): Promise<boolean> {
+    const normalizedEmail = normalizeOtpEmail(email);
+    this.ensureOtpStoreAvailable();
+    const key = otpKey(purpose, normalizedEmail);
+    const record = await this.redis.get<OtpRecord>(key);
+    if (!record) return false;
+    if (record.attempts >= OTP_MAX_ATTEMPTS) {
+      await this.redis.del(key);
+      return false;
+    }
+    if (verifyOtpHash(code, record.h, this.getOtpPepper())) {
+      await this.redis.del(key);
+      return true;
+    }
+    const nextAttempts = record.attempts + 1;
+    if (nextAttempts >= OTP_MAX_ATTEMPTS) {
+      await this.redis.del(key);
+      return false;
+    }
+    const remainingTtl = await this.redis.ttl(key);
+    await this.redis.set(
+      key,
+      { h: record.h, attempts: nextAttempts } satisfies OtpRecord,
+      remainingTtl && remainingTtl > 0 ? remainingTtl : OTP_TTL_SECONDS,
+    );
+    return false;
+  }
+
+  private hashToken(token: string): string {
+    return hashRefreshToken(token);
+  }
+
+  /**
+   * Phase 3: parse a TTL env value into seconds (shared util).
+   * Falls back fail-safe on garbage input (never fail-open).
+   */
+  private parseTtlSeconds(raw: string | undefined, fallbackSeconds: number): number {
+    return parseTtlSeconds(raw, fallbackSeconds);
+  }
+
+  /**
+   * Phase 3 (G4): spec access TTL is 15m. JWT_ACCESS_TTL may override
+   * (accepts "15m", "1h", or seconds); default is 15m.
+   */
+  private accessTtlSeconds(): number {
+    return this.parseTtlSeconds(this.config.get<string>('JWT_ACCESS_TTL'), 900);
+  }
+
+  private refreshTtlSeconds(): number {
+    return this.parseTtlSeconds(this.config.get<string>('JWT_REFRESH_TTL'), 7 * 86400);
+  }
+
+  private accessCookieMaxAgeMs(): number {
+    return this.accessTtlSeconds() * 1000;
+  }
+
+  /**
+   * Phase 3: issue a bound access+refresh pair and persist the hashed refresh.
+   * Access carries `tv` (User.tokenVersion) so role-change / ban / password
+   * reset invalidates outstanding tokens via JwtStrategy.
+   */
+  private async issueTokenPair(
+    user: { id: string; email: string; role: string; tokenVersion?: number | null },
+    claims: { name: string; businessId: string | null },
+    meta?: { userAgent?: string; ip?: string },
+  ) {
+    const tokenVersion = user.tokenVersion ?? 0;
+    const accessJti = crypto.randomUUID();
+    const refreshJti = crypto.randomUUID();
+    const accessPayload = {
+      jti: accessJti,
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tv: tokenVersion,
+      name: claims.name,
+      businessId: claims.businessId,
+    };
+    const refreshPayload = {
+      jti: refreshJti,
+      type: 'refresh',
+      sub: user.id,
+      tv: tokenVersion,
+    };
+    const accessTtl = this.accessTtlSeconds();
+    const refreshTtl = this.refreshTtlSeconds();
+    const accessToken = this.jwtService.sign(accessPayload, { expiresIn: accessTtl });
+    const refreshToken = this.jwtService.sign(refreshPayload, { expiresIn: refreshTtl });
+    const expiresAt = new Date(Date.now() + refreshTtl * 1000);
+    await this.prisma.refreshSession.create({
+      data: {
+        userId: user.id,
+        jti: refreshJti,
+        hashedToken: this.hashToken(refreshToken),
+        accessJti,
+        expiresAt,
+        userAgent: meta?.userAgent ?? null,
+        ip: meta?.ip ?? null,
+      },
+    });
+    return { accessToken, refreshToken, accessJti, refreshJti, accessTtl, expiresAt };
+  }
+
+  /**
+   * Phase 3: rotate a refresh token. Reuse of an already-rotated token is
+   * treated as theft: all of the user's sessions are revoked.
+   */
+  async refreshTokens(
+    refreshToken: string,
+    meta?: { userAgent?: string; ip?: string },
+  ) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is required');
+    }
+    let payload: { jti?: string; sub?: string; tv?: number; type?: string };
+    try {
+      payload = this.jwtService.verify(refreshToken);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.type !== 'refresh' || !payload.sub || !payload.jti) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    const hashedToken = this.hashToken(refreshToken);
+    const session = await this.prisma.refreshSession.findUnique({
+      where: { hashedToken },
+    });
+    if (!session) {
+      // Unknown token — possibly a rotated-out session that was cleaned up.
+      // Fail closed without side effects.
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (session.revokedAt || session.replacedById) {
+      // Reuse detected: revoke everything for this user.
+      await this.prisma.refreshSession.updateMany({
+        where: { userId: session.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      this.logger.warn(`[Auth] Refresh token reuse detected for user ${session.userId} — all sessions revoked`);
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+    if (session.expiresAt < new Date()) {
+      await this.prisma.refreshSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Refresh token expired');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: session.userId, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        tokenVersion: true,
+        businessProfile: { select: { id: true, businessName: true } },
+      },
+    });
+    if (!user) {
+      await this.prisma.refreshSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('User not found');
+    }
+    if ((payload.tv ?? 0) !== user.tokenVersion) {
+      await this.prisma.refreshSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Session revoked. Please log in again.');
+    }
+    const businessId = user.businessProfile?.id || null;
+    const name =
+      user.businessProfile?.businessName ||
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+      user.email.split('@')[0];
+    const pair = await this.issueTokenPair(user, { name, businessId }, meta);
+    await this.prisma.refreshSession.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date(), replacedById: pair.refreshJti },
+    });
+    return {
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+      auth: { accessToken: pair.accessToken, refreshToken: pair.refreshToken },
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name,
+        businessId,
+        isOnboarded: !!businessId,
+      },
+    };
+  }
+
+  /**
+   * Phase 3: revoke sessions. With no `refreshToken`, revokes every session
+   * for the user (logout-everywhere). With one, revokes just that session —
+   * and its bound access `jti` is rejected by JwtStrategy until it expires.
+   */
+  async logout(userId: string, refreshToken?: string): Promise<{ success: boolean }> {
+    if (refreshToken) {
+      const session = await this.prisma.refreshSession.findUnique({
+        where: { hashedToken: this.hashToken(refreshToken) },
+      });
+      if (session && session.userId === userId) {
+        await this.prisma.refreshSession.update({
+          where: { id: session.id },
+          data: { revokedAt: new Date() },
+        });
+      }
+    } else {
+      await this.prisma.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    return { success: true };
+  }
+
+  /** Phase 3: bump User.tokenVersion to invalidate outstanding access tokens. */
+  async revokeUserSessions(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    await this.prisma.refreshSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
   }
 
   private async sendCodeEmail(
@@ -139,27 +438,20 @@ export class AuthService {
   }
 
   async sendOtp(email: string): Promise<{ success: boolean; code?: string; mode: 'mock' | 'email' }> {
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = normalizeOtpEmail(email);
+    this.ensureOtpStoreAvailable();
     const isMock = this.isMockOtp();
+
+    const cooldown = await this.redis.get(otpCooldownKey('OTP', normalizedEmail));
+    if (cooldown) {
+      throw new HttpException('Please wait before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const code = this.generateNumericCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes TTL
 
-    // OTP codes are persisted in the DB (survives restart / multi-instance).
-    // Invalidate any previously issued, still-open OTP for this email.
-    await this.prisma.passwordResetCode.updateMany({
-      where: { email: normalizedEmail, purpose: 'OTP', used: false },
-      data: { used: true },
-    });
-
-    await this.prisma.passwordResetCode.create({
-      data: {
-        email: normalizedEmail,
-        purpose: 'OTP',
-        code,
-        expiresAt,
-        used: false,
-      },
-    });
+    // Pure Redis: hashed code with 10-min TTL. Overwrite invalidates any
+    // previously issued, still-open OTP for this email.
+    await this.storeOtpCode('OTP', normalizedEmail, code);
 
     if (isMock) {
       // Dev-only convenience: log the code so it can be read in the terminal.
@@ -185,34 +477,12 @@ export class AuthService {
   }
 
   async verifyOtp(email: string, code: string): Promise<boolean> {
-    const normalizedEmail = email.toLowerCase().trim();
-    const now = new Date();
-
-    const record = await this.prisma.passwordResetCode.findFirst({
-      where: {
-        email: normalizedEmail,
-        purpose: 'OTP',
-        used: false,
-        code,
-        expiresAt: { gt: now },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!record) {
-      return false;
-    }
-
-    // One-time use — consume the code.
-    await this.prisma.passwordResetCode.update({
-      where: { id: record.id },
-      data: { used: true },
-    });
-    return true;
+    // Pure Redis: HMAC hash compare, single-use consume, 5-attempt burn.
+    return this.verifyOtpCode('OTP', email, code);
   }
 
   async sendForgotPasswordCode(email: string): Promise<{ success: boolean; resetCode?: string; mode: 'mock' | 'email' }> {
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = normalizeOtpEmail(email);
     const user = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
@@ -221,26 +491,18 @@ export class AuthService {
       throw new ConflictException('User with this email does not exist');
     }
 
+    this.ensureOtpStoreAvailable();
+    const cooldown = await this.redis.get(otpCooldownKey('PASSWORD_RESET', normalizedEmail));
+    if (cooldown) {
+      throw new HttpException('Please wait before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const isMock = this.isMockOtp();
     const code = this.generateNumericCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes TTL
 
-    // Invalidate any previously issued, still-open reset code for this user.
-    await this.prisma.passwordResetCode.updateMany({
-      where: { email: normalizedEmail, purpose: 'PASSWORD_RESET', used: false },
-      data: { used: true },
-    });
-
-    await this.prisma.passwordResetCode.create({
-      data: {
-        userId: user.id,
-        email: normalizedEmail,
-        purpose: 'PASSWORD_RESET',
-        code,
-        expiresAt,
-        used: false,
-      },
-    });
+    // Pure Redis: hashed code with 10-min TTL. Overwrite invalidates any
+    // previously issued, still-open reset code for this user.
+    await this.storeOtpCode('PASSWORD_RESET', normalizedEmail, code);
 
     if (isMock) {
       this.logger.debug(`[Reset Password] Reset code for ${normalizedEmail}: ${code}`);
@@ -261,30 +523,8 @@ export class AuthService {
   }
 
   async verifyResetCode(email: string, code: string): Promise<boolean> {
-    const normalizedEmail = email.toLowerCase().trim();
-    const now = new Date();
-
-    const record = await this.prisma.passwordResetCode.findFirst({
-      where: {
-        email: normalizedEmail,
-        purpose: 'PASSWORD_RESET',
-        used: false,
-        code,
-        expiresAt: { gt: now },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!record) {
-      return false;
-    }
-
-    // One-time use — consume the code.
-    await this.prisma.passwordResetCode.update({
-      where: { id: record.id },
-      data: { used: true },
-    });
-    return true;
+    // Pure Redis: HMAC hash compare, single-use consume, 5-attempt burn.
+    return this.verifyOtpCode('PASSWORD_RESET', email, code);
   }
 
   async resetPassword(data: any): Promise<boolean> {
@@ -297,22 +537,51 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired reset code');
     }
 
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(newPassword, salt);
 
     await this.prisma.user.update({
       where: { email },
-      data: { password: passwordHash },
+      // Phase 3: password change invalidates outstanding access (tv bump)
+      // and kills refresh sessions.
+      data: { password: passwordHash, tokenVersion: { increment: 1 } },
     });
+    const changed = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (changed) {
+      await this.prisma.refreshSession.updateMany({
+        where: { userId: changed.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
 
     return true;
   }
 
+  /** Phase 3: cookie lifetime for `mcom_session` (mirrors access TTL). */
+  getAccessCookieMaxAgeMs(): number {
+    return this.accessCookieMaxAgeMs();
+  }
+
   async validateUser(email: string, password?: string): Promise<any> {
     const normalizedEmail = email ? email.toLowerCase().trim() : '';
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-      include: { businessProfile: true },
+    // findFirst (not findUnique) so soft-deleted users stay locked out.
+    // Phase 6: minimal select — login() reuses the included profile, so the
+    // fallback query below only fires for callers passing a bare `{ id }`.
+    const user = await this.prisma.user.findFirst({
+      where: { email: normalizedEmail, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        password: true,
+        firstName: true,
+        lastName: true,
+        tokenVersion: true,
+        businessProfile: { select: { id: true, businessName: true } },
+      },
     });
 
     if (user && password) {
@@ -325,20 +594,25 @@ export class AuthService {
     return null;
   }
 
-  async login(user: any) {
+  async login(user: any, meta?: { userAgent?: string; ip?: string }) {
     let businessProfile = user.businessProfile;
+    if (businessProfile?.deletedAt) {
+      businessProfile = null;
+    }
     if (!businessProfile && user.id) {
-      businessProfile = await this.prisma.businessProfile.findUnique({
-        where: { userId: user.id },
+      businessProfile = await this.prisma.businessProfile.findFirst({
+        where: { userId: user.id, deletedAt: null },
       });
     }
 
     const businessId = businessProfile?.id || null;
     const name = businessProfile?.businessName || user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
-    // Fetch active platform packages for this business
-    let activePlans: any[] = [];
-    if (businessId) {
+    // G6: the packages read and the token-pair write are independent once
+    // businessId/name are resolved — run them concurrently instead of
+    // sequentially to cut one round-trip off the login hot path.
+    const packagesPromise = (async () => {
+      if (!businessId) return [];
       const now = new Date();
       const packages = await this.prisma.platformPackage.findMany({
         where: {
@@ -360,8 +634,7 @@ export class AuthService {
           currency: true,
         },
       });
-
-      activePlans = packages.map((p) => ({
+      return packages.map((p) => ({
         platform: p.platform,
         planId: p.externalPlanId,
         planName: p.planName,
@@ -371,18 +644,19 @@ export class AuthService {
         amount: p.amount,
         currency: p.currency,
       }));
-    }
+    })();
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      name,
-      businessId,
-    };
+    // Phase 3: bound access+refresh pair, refresh persisted hashed with rotation.
+    const pairPromise = this.issueTokenPair(
+      { id: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion ?? 0 },
+      { name, businessId },
+      meta,
+    );
 
-    const accessToken = this.jwtService.sign(payload);
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+    const [activePlans, { accessToken, refreshToken }] = await Promise.all([
+      packagesPromise,
+      pairPromise,
+    ]);
 
     return {
       accessToken,
@@ -413,11 +687,15 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
-    // Create user, business profile, and wallet atomically
-    const newUser = await this.prisma.$transaction(async (tx) => {
+    // Create user, business profile, and wallet atomically.
+    // Phase 5: a trashed row may still hold the email (hidden by the
+    // soft-delete extension) — translate the unique violation to a 409.
+    let newUser;
+    try {
+      newUser = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email,
@@ -451,7 +729,10 @@ export class AuthService {
         },
       });
       return user;
-    });
+      });
+    } catch (e) {
+      rethrowAsConflictOnUniqueViolation(e);
+    }
 
     return this.login(newUser);
   }
@@ -466,11 +747,13 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
-    // Create user + wallet atomically
-    const newUser = await this.prisma.$transaction(async (tx) => {
+    // Create user + wallet atomically (Phase 5: see registerBusiness for P2002 note)
+    let newUser;
+    try {
+      newUser = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email,
@@ -487,7 +770,10 @@ export class AuthService {
         },
       });
       return user;
-    });
+      });
+    } catch (e) {
+      rethrowAsConflictOnUniqueViolation(e);
+    }
 
     return this.login(newUser);
   }
@@ -502,7 +788,7 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
     const rawRole = (data.role || 'AGENT').toString().toUpperCase().replace('-', '_');
@@ -517,7 +803,10 @@ export class AuthService {
 
     const phone = data.phone || data.phoneNumber || null;
 
-    const newUser = await this.prisma.$transaction(async (tx) => {
+    // Phase 5: see registerBusiness for P2002 note.
+    let affiliateUser;
+    try {
+      affiliateUser = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email,
@@ -566,9 +855,12 @@ export class AuthService {
         },
       });
       return user;
-    });
+      });
+    } catch (e) {
+      rethrowAsConflictOnUniqueViolation(e);
+    }
 
-    return this.login(newUser);
+    return this.login(affiliateUser);
   }
 
   async updateSettings(userId: string, updates: any) {
@@ -652,12 +944,15 @@ export class AuthService {
       platforms,
     };
 
-    const secret =
-      this.config.get<string>('SSO_SECRET') ||
-      this.config.get<string>('SSO_JWT_SECRET') ||
-      this.config.get<string>('JWT_SECRET');
+    // Phase 3: SSO tokens are signed with the SSO-only secret. Production
+    // fails closed when it is missing; non-production falls back to
+    // JWT_SECRET as a dev convenience.
+    const ssoSecret = this.config.get<string>('SSO_JWT_SECRET') || this.config.get<string>('SSO_SECRET');
+    const secret = ssoSecret || (this.config.get<string>('NODE_ENV') === 'production'
+      ? undefined
+      : this.config.get<string>('JWT_SECRET'));
     if (!secret) {
-      throw new Error('SSO_SECRET (or SSO_JWT_SECRET / JWT_SECRET) must be configured.');
+      throw new Error('SSO_JWT_SECRET (or SSO_SECRET) must be configured in production.');
     }
 
     const ssoToken = this.jwtService.sign(payload, {

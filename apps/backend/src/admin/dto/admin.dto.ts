@@ -8,12 +8,22 @@ import {
   IsArray,
   IsDateString,
   IsObject,
+  IsEnum,
   Min,
   Max,
   IsInt,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Role } from '@prisma/client';
+
+// --- User role change (Phase 3 G3: validated DTO, revokes sessions) ---
+export class UpdateUserRoleDto {
+  @ApiProperty({ enum: ['ADMIN', 'BUSINESS', 'CUSTOMER', 'AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'], example: 'AGENT', description: 'New role for the user. Outstanding sessions are revoked.' })
+  @IsEnum(Role)
+  @IsNotEmpty()
+  role: Role;
+}
 
 // --- Generic Query DTO ---
 export class AdminQueryDto {

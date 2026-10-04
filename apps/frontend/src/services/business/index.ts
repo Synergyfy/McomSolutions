@@ -1,4 +1,5 @@
 import { apiClient, setSharedAuthCookies } from '../api';
+import type { CreateSupportTicket } from '../../types/contracts';
 
 export const businessApi = {
   searchAddress: async (postcode: string) => {
@@ -157,7 +158,7 @@ export const businessApi = {
     return res.data;
   },
 
-  createSupportTicket: async (data: { subject: string; message: string; priority?: string }) => {
+  createSupportTicket: async (data: CreateSupportTicket) => {
     const res = await apiClient.post('/business/support-tickets', data);
     return res.data;
   },

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SubscribeMembershipDto {
@@ -17,11 +17,6 @@ export class SubscribeMembershipDto {
   @IsOptional()
   @IsIn(['monthly', 'quarterly', 'yearly'])
   billing?: 'monthly' | 'quarterly' | 'yearly' = 'monthly';
-
-  @ApiPropertyOptional({ example: false, description: 'Whether to activate as free trial' })
-  @IsBoolean()
-  @IsOptional()
-  isTrial?: boolean = false;
 }
 
 export class PurchasePackageDto {

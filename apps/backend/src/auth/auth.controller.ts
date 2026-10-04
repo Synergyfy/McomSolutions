@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException, BadRequestException, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { ApiTags, ApiOperation, ApiBody, ApiOkResponse, ApiCreatedResponse, ApiBearerAuth, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -8,8 +9,16 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 
 import { RegisterDto } from './dto/register.dto';
+import { EmailDto } from './dto/email.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { CheckEmailQueryDto } from './dto/check-email-query.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { userProfileSelect } from './profile-selects';
 import type { Response } from 'express';
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -19,9 +28,41 @@ export class AuthController {
     private configService: ConfigService,
   ) { }
 
+  private getRequestMeta(req: any): { userAgent?: string; ip?: string } {
+    return {
+      userAgent: req?.headers?.['user-agent'] ?? null,
+      ip: req?.ip ?? req?.socket?.remoteAddress ?? null,
+    };
+  }
+
+  /**
+   * Phase 3: `mcom_session` lifetime mirrors the access TTL (15m spec).
+   * The refresh token is kept in the response body (existing frontend
+   * contract) plus a httpOnly cookie.
+   */
+  private setAuthCookies(res: Response, result: { accessToken: string; refreshToken: string }) {
+    const isProd = process.env.NODE_ENV === 'production';
+    res.cookie('mcom_session', result.accessToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      maxAge: this.authService.getAccessCookieMaxAgeMs(),
+    });
+    res.cookie('mcom_refresh', result.refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — mirrors JWT_REFRESH_TTL default
+    });
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('register')
-  async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiBody({ type: RegisterDto })
+  @ApiCreatedResponse({ description: 'User registered successfully' })
+  async register(@Body() registerDto: RegisterDto, @Res({ passthrough: true }) res: Response, @Req() req: any) {
     const confirmPassword = registerDto.confirm_password ?? registerDto.confirmPassword;
     if (confirmPassword !== undefined && confirmPassword !== registerDto.password) {
       throw new BadRequestException('Passwords do not match');
@@ -37,21 +78,19 @@ export class AuthController {
       result = await this.authService.registerBusiness(registerDto);
     }
 
-    res.cookie('mcom_session', result.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    this.setAuthCookies(res, result);
 
     return result;
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Get('check-email')
-  async checkEmail(@Query('email') email: string) {
-    if (!email) return { exists: false };
+  @ApiOperation({ summary: 'Check whether an email is already registered' })
+  @ApiOkResponse({ description: 'Email existence flag' })
+  async checkEmail(@Query() query: CheckEmailQueryDto) {
+    if (!query.email) return { exists: false };
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
+      where: { email: query.email.toLowerCase().trim() },
     });
     return { exists: !!user };
   }
@@ -59,67 +98,111 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseGuards(LocalAuthGuard)
   @Post('login')
+  @ApiOperation({ summary: 'Log in with email and password' })
+  @ApiBody({ schema: { type: 'object', properties: { email: { type: 'string' }, password: { type: 'string' } } } })
+  @ApiOkResponse({ description: 'Authenticated successfully' })
+  @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
   async login(@Request() req: any, @Res({ passthrough: true }) res: any) {
-    const result = await this.authService.login(req.user);
+    const result = await this.authService.login(req.user, this.getRequestMeta(req));
 
-    res.cookie('mcom_session', result.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    this.setAuthCookies(res, result);
 
     return result;
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('refresh')
+  @ApiOperation({ summary: 'Rotate refresh token (rotation + reuse detection)' })
+  @ApiBody({ type: RefreshTokenDto })
+  @ApiOkResponse({ description: 'New token pair issued' })
+  @ApiUnauthorizedResponse({ description: 'Invalid, expired, or reused refresh token' })
+  async refresh(@Body() dto: RefreshTokenDto, @Res({ passthrough: true }) res: Response, @Req() req: any) {
+    const result = await this.authService.refreshTokens(dto.refreshToken, this.getRequestMeta(req));
+    this.setAuthCookies(res, result);
+    return result;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Revoke refresh session(s) and clear auth cookies' })
+  @ApiBody({ type: RefreshTokenDto, required: false, description: 'Omit to revoke all sessions (logout everywhere)' })
+  @ApiOkResponse({ description: 'Logged out successfully' })
+  async logout(@Request() req: any, @Body() dto: RefreshTokenDto | Record<string, never>, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = (dto as RefreshTokenDto)?.refreshToken ?? req.cookies?.['mcom_refresh'];
+    await this.authService.logout(req.user.userId, refreshToken);
+    res.clearCookie('mcom_session');
+    res.clearCookie('mcom_refresh');
+    return { success: true };
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@Request() req: any) {
+    // Phase 6: minimal select — password/tokenVersion never leave SQL.
     const user = await this.prisma.user.findUnique({
       where: { id: req.user.userId },
-      include: { businessProfile: { include: { packages: true } } },
+      select: userProfileSelect,
     });
     if (!user) {
       throw new UnauthorizedException('Session expired. Please log in again.');
     }
-    const { password, ...result } = user;
-    return result;
+    return user;
   }
 
   @UseGuards(JwtAuthGuard)
   @Put('settings')
-  async updateSettings(@Request() req: any, @Body() body: any) {
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update current user settings' })
+  @ApiBody({ type: UpdateSettingsDto })
+  @ApiOkResponse({ description: 'Settings updated' })
+  async updateSettings(@Request() req: any, @Body() body: UpdateSettingsDto) {
     return this.authService.updateSettings(req.user.userId, body);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('send-otp')
-  async sendOtp(@Body('email') email: string) {
-    return this.authService.sendOtp(email);
+  @ApiOperation({ summary: 'Send email verification OTP' })
+  @ApiBody({ type: EmailDto })
+  @ApiOkResponse({ description: 'OTP sent' })
+  async sendOtp(@Body() dto: EmailDto) {
+    return this.authService.sendOtp(dto.email);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('resend-otp')
-  async resendOtp(@Body('email') email: string) {
-    return this.authService.resendOtp(email);
+  @ApiOperation({ summary: 'Resend email verification OTP' })
+  @ApiBody({ type: EmailDto })
+  @ApiOkResponse({ description: 'OTP resent' })
+  async resendOtp(@Body() dto: EmailDto) {
+    return this.authService.resendOtp(dto.email);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('verify-otp')
-  async verifyOtp(@Body('email') email: string, @Body('code') code: string) {
-    const isValid = await this.authService.verifyOtp(email, code);
+  @ApiOperation({ summary: 'Verify email OTP (single-use, 10 min expiry)' })
+  @ApiBody({ type: VerifyOtpDto })
+  @ApiOkResponse({ description: 'OTP validity flag' })
+  async verifyOtp(@Body() dto: VerifyOtpDto) {
+    const isValid = await this.authService.verifyOtp(dto.email, dto.code);
     return { valid: isValid };
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('forgot-password')
-  async forgotPassword(@Body('email') email: string) {
-    return this.authService.sendForgotPasswordCode(email);
+  @ApiOperation({ summary: 'Send password-reset code' })
+  @ApiBody({ type: EmailDto })
+  @ApiOkResponse({ description: 'Reset code sent' })
+  async forgotPassword(@Body() dto: EmailDto) {
+    return this.authService.sendForgotPasswordCode(dto.email);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('reset-password')
-  async resetPassword(@Body() body: any) {
+  @ApiOperation({ summary: 'Reset password with emailed code (invalidates sessions)' })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiOkResponse({ description: 'Password reset successfully' })
+  async resetPassword(@Body() body: ResetPasswordDto) {
     await this.authService.resetPassword(body);
     return { success: true };
   }

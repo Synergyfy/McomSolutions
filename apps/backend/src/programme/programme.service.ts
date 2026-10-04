@@ -241,8 +241,10 @@ export class ProgrammeService {
 
   async deleteBusiness(id: string) {
     const business = await this.ensureBusiness(id);
-    await this.prisma.businessProgramme.delete({ where: { id } });
-    await this.logAudit('Business Programme Deleted', 'BusinessProgramme', business.businessName, `Deleted business programme "${business.businessName}"`);
+    // G5: soft-delete — enrolment history outlives the row; the extension
+    // hides it from lists while the audit trail is preserved.
+    await this.prisma.businessProgramme.update({ where: { id }, data: { deletedAt: new Date() } });
+    await this.logAudit('Business Programme Deleted', 'BusinessProgramme', business.businessName, `Soft-deleted business programme "${business.businessName}"`);
     return { success: true };
   }
 

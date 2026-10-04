@@ -1,12 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 
 import express from 'express';
 import { join } from 'path';
 import { SsoService } from './auth/sso.service';
+import { UploadsAuthMiddleware } from './common/middleware/uploads-auth.middleware';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 // Static origins remain the hard fallback — never removed, only added to.
 const defaultOrigins = [
@@ -44,8 +48,16 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // Phase 6: secure HTTP headers (first, before CORS/static).
+  app.use(helmet());
+  // Phase 6: uniform error envelope for all unhandled exceptions.
+  // Route-level filters (e.g. MulterExceptionFilter) still run first.
+  app.useGlobalFilters(new AllExceptionsFilter());
   app.use(cookieParser());
-  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+  // Phase 1C: user uploads require a valid Bearer token and are served with
+  // sandboxing headers — never open express.static.
+  const uploadsGuard = new UploadsAuthMiddleware(app.get(ConfigService));
+  app.use('/uploads', uploadsGuard.use.bind(uploadsGuard), express.static(join(process.cwd(), 'uploads')));
 
   // ─── Dynamic CORS ──────────────────────────────────────────────────────────
   // Static + env origins are seeded at boot; DB-registered app origins are
@@ -74,16 +86,26 @@ async function bootstrap() {
   // Global prefix
   app.setGlobalPrefix('api/v1');
 
-  // Validation pipe
+  // Validation pipe (dto-validation.md: whitelist + forbid unknown +
+  // explicit @Type() conversions only — no implicit coercion).
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      transformOptions: {
+        enableImplicitConversion: false,
+      },
+      exceptionFactory: (errors) => {
+        const messages = errors.flatMap((e) =>
+          e.constraints ? Object.values(e.constraints) : [e.toString()],
+        );
+        return new BadRequestException(messages);
+      },
     }),
   );
 
-  // Swagger docs
+  // Swagger docs (swagger-docs.md: served at api/docs).
   const config = new DocumentBuilder()
     .setTitle('MCOM Central API')
     .setDescription('Central Hub Identity, Subscription and Platform management')
@@ -91,7 +113,7 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 3010;
   await app.listen(port);

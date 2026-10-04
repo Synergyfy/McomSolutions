@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessApi } from './index';
+import type { CreateSupportTicket } from '../../types/contracts';
 
 export const useProfile = () => {
   return useQuery({
@@ -193,7 +194,7 @@ export const useSupportTickets = () => {
 export const useCreateSupportTicket = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { subject: string; message: string; priority?: string }) =>
+    mutationFn: (data: CreateSupportTicket) =>
       businessApi.createSupportTicket(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['my-support-tickets'] });

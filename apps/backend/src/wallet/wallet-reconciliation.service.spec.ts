@@ -3,13 +3,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { WalletReconciliationService } from './wallet-reconciliation.service';
-import { WalletService } from './wallet.service';
 
 describe('WalletReconciliationService', () => {
   let service: WalletReconciliationService;
   let prisma: any;
-  let walletService: any;
-  let redis: any;
 
   const mockPrisma = {
     walletTransaction: {
@@ -17,16 +14,15 @@ describe('WalletReconciliationService', () => {
     },
     walletHold: {
       findMany: jest.fn(),
+      updateMany: jest.fn(),
       groupBy: jest.fn(),
     },
     wallet: {
       findMany: jest.fn(),
     },
-  };
-
-  const mockWalletService = {
-    releaseHold: jest.fn(),
-    releaseHoldInternal: jest.fn(),
+    auditLog: {
+      create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+    },
   };
 
   const mockRedis = {
@@ -39,14 +35,12 @@ describe('WalletReconciliationService', () => {
       providers: [
         WalletReconciliationService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: WalletService, useValue: mockWalletService },
         { provide: RedisService, useValue: mockRedis },
       ],
     }).compile();
 
     service = module.get<WalletReconciliationService>(WalletReconciliationService);
     prisma = module.get(PrismaService);
-    walletService = module.get(WalletService);
     jest.clearAllMocks();
   });
 
@@ -72,11 +66,11 @@ describe('WalletReconciliationService', () => {
 
     await service.runReconciliation();
 
-    // w1 drifted — log emitted (assert no throw, walletService.releaseHold untouched)
-    expect(mockWalletService.releaseHold).not.toHaveBeenCalled();
+    // w1 drifted — log emitted (assert no throw)
+    expect(mockPrisma.wallet.findMany).toHaveBeenCalled();
   });
 
-  it('releases holds past their expiresAt', async () => {
+  it('expires a single page of stale holds in one batch', async () => {
     const staleHold = {
       id: 'h1',
       walletId: 'w1',
@@ -87,10 +81,101 @@ describe('WalletReconciliationService', () => {
       status: 'ACTIVE',
       expiresAt: new Date(Date.now() - 1000),
     };
-    mockPrisma.walletHold.findMany.mockResolvedValue([staleHold]);
+    mockPrisma.walletHold.findMany.mockResolvedValueOnce([staleHold]);
+    mockPrisma.walletHold.updateMany.mockResolvedValueOnce({ count: 1 });
+    mockPrisma.wallet.findMany.mockResolvedValueOnce([{ userId: 'u1' }]);
 
     await service.expireStaleHolds();
 
-    expect(walletService.releaseHoldInternal).toHaveBeenCalledWith('h1', 'EXPIRED');
+    expect(mockPrisma.walletHold.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { expiresAt: 'asc' }, take: 100 }),
+    );
+    expect(mockPrisma.walletHold.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ['h1'] },
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(mockRedis.del).toHaveBeenCalledWith('wallet:balance:u1');
+  });
+
+  it('drains backlogs larger than one page via cursor', async () => {
+    const makePage = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `${prefix}-${i}`,
+        walletId: 'w1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() - 1000),
+      }));
+    const page1 = makePage('p1', 100);
+    const page2 = makePage('p2', 100);
+    const page3 = makePage('p3', 50);
+    mockPrisma.walletHold.findMany
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2)
+      .mockResolvedValueOnce(page3);
+    mockPrisma.walletHold.updateMany
+      .mockResolvedValueOnce({ count: 100 })
+      .mockResolvedValueOnce({ count: 100 })
+      .mockResolvedValueOnce({ count: 50 });
+    mockPrisma.wallet.findMany.mockResolvedValue([{ userId: 'u1' }]);
+
+    await service.expireStaleHolds();
+
+    expect(mockPrisma.walletHold.updateMany).toHaveBeenCalledTimes(3);
+    // Second page resumes after the last id of the first page.
+    expect(mockPrisma.walletHold.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: { id: 'p1-99' }, skip: 1 }),
+    );
+  });
+
+  it('skips the run when another instance holds the lock', async () => {
+    mockRedis.setNx.mockResolvedValueOnce(false);
+
+    await service.expireStaleHolds();
+
+    expect(mockPrisma.walletHold.findMany).not.toHaveBeenCalled();
+    expect(mockPrisma.walletHold.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('writes a single audit row per tick after a multi-batch drain', async () => {
+    const makePage = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `${prefix}-${i}`,
+        walletId: 'w1',
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() - 1000),
+      }));
+    mockPrisma.walletHold.findMany
+      .mockResolvedValueOnce(makePage('p1', 100))
+      .mockResolvedValueOnce(makePage('p2', 50));
+    mockPrisma.walletHold.updateMany
+      .mockResolvedValueOnce({ count: 100 })
+      .mockResolvedValueOnce({ count: 50 });
+    mockPrisma.wallet.findMany.mockResolvedValue([{ userId: 'u1' }]);
+
+    await service.expireStaleHolds();
+
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'WALLET_HOLD_EXPIRE',
+          adminName: 'system',
+          category: 'wallet',
+        }),
+      }),
+    );
+  });
+
+  it('writes no audit row when nothing expired', async () => {
+    mockPrisma.walletHold.findMany.mockResolvedValueOnce([]);
+
+    await service.expireStaleHolds();
+
+    expect(mockPrisma.auditLog.create).not.toHaveBeenCalled();
   });
 });

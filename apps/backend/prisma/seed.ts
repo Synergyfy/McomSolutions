@@ -10,10 +10,38 @@ import * as crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
+/**
+ * Phase 5: seed safety.
+ * - Refuses to run against production unless ALLOW_SEED_PROD=true (never wipe prod).
+ * - Reference data uses upserts (re-seed twice → same row counts).
+ * - Demo content uses skip-if-present (first run seeds, later runs preserve edits).
+ */
+function assertSeedAllowed() {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_SEED_PROD !== 'true') {
+    throw new Error(
+      'Refusing to seed in production. Set ALLOW_SEED_PROD=true to override (destructive sections are idempotent, but demo data is for non-prod).',
+    );
+  }
+}
+
+async function seedIfEmpty<T>(
+  model: { count: (args?: unknown) => Promise<number>; createMany: (args: { data: T[] }) => Promise<unknown> },
+  label: string,
+  data: T[],
+) {
+  const existing = await model.count();
+  if (existing > 0) {
+    console.log(`Skipping ${label} (table already has ${existing} rows)...`);
+    return;
+  }
+  await model.createMany({ data });
+}
+
 async function main() {
+  assertSeedAllowed();
   console.log('Starting seed...');
 
-  const salt = await bcrypt.genSalt();
+  const salt = await bcrypt.genSalt(12);
   const adminPasswordHash = await bcrypt.hash('admin123', salt);
   const userPasswordHash = await bcrypt.hash('password123', salt);
 
@@ -351,60 +379,48 @@ async function main() {
     });
   }
 
-  // 6. Seed Subscriptions
+  // 6. Seed Subscriptions (demo content — first run only, never duplicated)
   console.log('Seeding subscriptions...');
-  await prisma.ecosystemSubscription.createMany({
-    data: [
+  await seedIfEmpty(prisma.ecosystemSubscription, 'ecosystem subscriptions', [
       { businessId: 'global-retailers-id', businessName: 'Global Retailers Ltd', type: 'Membership', itemName: 'Gold Pro+', status: 'Active', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'), amount: 900, billingCycle: 'Monthly' },
       { businessId: 'eco-market-id', businessName: 'Eco Market', type: 'Membership', itemName: 'Silver Normal', status: 'Active', startDate: new Date('2026-02-01'), endDate: new Date('2026-07-31'), amount: 75, billingCycle: 'Monthly' },
-    ],
-  });
+  ]);
 
-  // 7. Seed Payments
+  // 7. Seed Payments (demo content — first run only)
   console.log('Seeding payments...');
-  await prisma.adminPayment.createMany({
-    data: [
+  await seedIfEmpty(prisma.adminPayment, 'admin payments', [
       { businessId: 'global-retailers-id', businessName: 'Global Retailers Ltd', amount: 900, currency: 'GBP', method: 'Stripe', status: 'Completed', date: new Date('2026-04-01'), invoice: 'INV-001', type: 'Membership' },
       { businessId: 'eco-market-id', businessName: 'Eco Market', amount: 75, currency: 'GBP', method: 'Stripe', status: 'Pending', date: new Date('2026-04-03'), invoice: 'INV-003', type: 'Membership' },
-    ],
-  });
+  ]);
 
-  // 8. Seed Revenue logs
+  // 8. Seed Revenue logs (demo content — first run only)
   console.log('Seeding revenue records...');
-  await prisma.revenueRecord.createMany({
-    data: [
+  await seedIfEmpty(prisma.revenueRecord, 'revenue records', [
       { date: '2026-04-01', amount: 12800, type: 'Membership', source: 'Monthly billing' },
       { date: '2026-04-02', amount: 4500, type: 'Package', source: 'Package subscriptions' },
       { date: '2026-04-03', amount: 3200, type: 'One-time', source: 'Setup fees' },
-    ],
-  });
+  ]);
 
-  // 9. Seed Notifications
+  // 9. Seed Notifications (demo content — first run only)
   console.log('Seeding notifications...');
-  await prisma.broadcastNotification.createMany({
-    data: [
+  await seedIfEmpty(prisma.broadcastNotification, 'broadcast notifications', [
       { title: 'Welcome to MCOM', message: 'Welcome to the MCOM ecosystem!', audience: ['Businesses'], status: 'Sent', sentCount: 150 },
       { title: 'Platform Maintenance', message: 'Scheduled maintenance on April 10th.', audience: ['Businesses', 'Customers'], status: 'Scheduled', sentCount: 0, scheduledDate: new Date('2026-04-10') },
-    ],
-  });
+  ]);
 
-  // 10. Seed Support Tickets
+  // 10. Seed Support Tickets (demo content — first run only)
   console.log('Seeding support tickets...');
-  await prisma.supportTicket.createMany({
-    data: [
+  await seedIfEmpty(prisma.supportTicket, 'support tickets', [
       { subject: 'Cannot access dashboard', message: 'Getting 403 error on login', fromName: 'John Doe', fromType: 'Business', status: 'Open', priority: 'High', assignedTo: 'Adam Smith' },
       { subject: 'Billing inquiry', message: 'Double charged for March subscription', fromName: 'Jane Smith', fromType: 'Business', status: 'Open', priority: 'Medium', assignedTo: 'Grace Anderson' },
-    ],
-  });
+  ]);
 
-  // 11. Seed Audit Logs
+  // 11. Seed Audit Logs (demo content — first run only; never wipe real audit history)
   console.log('Seeding audit logs...');
-  await prisma.auditLog.createMany({
-    data: [
+  await seedIfEmpty(prisma.auditLog, 'audit logs', [
       { action: 'Admin Login', adminName: 'Adam Smith', targetType: 'System', targetName: 'Admin Panel', details: 'Successful login from IP 192.168.1.1', timestamp: new Date(), category: 'Authentication' },
       { action: 'Business Created', adminName: 'Adam Smith', targetType: 'Business', targetName: 'NewCo Ltd', details: 'Created business with Gold membership', timestamp: new Date(), category: 'Business' },
-    ],
-  });
+  ]);
 
   // 12. Seed System Settings
   console.log('Seeding settings...');
@@ -451,71 +467,77 @@ async function main() {
     update: {},
   });
 
-  // 13. Seed Launch Rules
+  // 13. Seed Launch Rules (demo content — first run only)
   console.log('Seeding launch rules...');
-  await prisma.platformLaunchRule.createMany({
-    data: [
+  await seedIfEmpty(prisma.platformLaunchRule, 'platform launch rules', [
       { platformId: 'rewards', requiredMembership: 'Bronze', requiredPackage: 'Loyalty Starter', requiredPermissions: ['Launch Platform'], launchConditions: 'Business must be verified', redirectRule: '/platform/rewards', accessRule: 'Membership + Package required' },
       { platformId: 'mall', requiredMembership: 'Silver', requiredPackage: 'Mall Basic', requiredPermissions: ['Launch Platform'], launchConditions: 'Business must be verified + Google verified', redirectRule: '/platform/mall', accessRule: 'Membership + Package required' },
-    ],
-  });
+  ]);
 
-  // 14. Seed Integrations
+  // 14. Seed Integrations (demo content — first run only)
   console.log('Seeding integrations...');
-  await prisma.systemIntegration.createMany({
-    data: [
+  await seedIfEmpty(prisma.systemIntegration, 'system integrations', [
       { name: 'Google Business Profile', type: 'External', status: 'Connected', lastSync: new Date(), connectedDate: new Date('2025-12-01') },
       { name: 'Stripe Payments', type: 'Payment', status: 'Connected', lastSync: new Date(), connectedDate: new Date('2025-11-15') },
-    ],
-  });
+  ]);
 
-  // 15. Seed API Keys
+  // 15. Seed API Keys (reference data — upsert by key hash, never wiped)
   console.log('Seeding API keys...');
-  await prisma.systemApiKey.deleteMany();
   const seedKeys = [
     { name: 'Production API', rawKey: 'mcom_prod_a1b2c3d4e5f6', permissions: ['Read', 'Write'], status: 'Active' },
     { name: 'Development API', rawKey: 'mcom_dev_6f5e4d3c2b1a', permissions: ['Read', 'Write', 'Admin'], status: 'Active' },
   ];
-  await prisma.systemApiKey.createMany({
-    data: seedKeys.map((k) => ({
-      name: k.name,
-      key: k.rawKey.slice(-4),
-      keyHash: crypto.createHash('sha256').update(k.rawKey).digest('hex'),
-      permissions: k.permissions,
-      status: k.status,
-      lastUsed: new Date(),
-    })),
-  });
+  for (const k of seedKeys) {
+    const keyHash = crypto.createHash('sha256').update(k.rawKey).digest('hex');
+    await prisma.systemApiKey.upsert({
+      where: { keyHash },
+      update: { name: k.name, permissions: k.permissions, status: k.status },
+      create: {
+        name: k.name,
+        key: k.rawKey.slice(-4),
+        keyHash,
+        permissions: k.permissions,
+        status: k.status,
+        lastUsed: new Date(),
+      },
+    });
+  }
 
-  // 16. Seed Boroughs
+  // 16. Seed Boroughs (reference data — upsert by name, never wiped)
   console.log('Seeding boroughs...');
-  await prisma.borough.deleteMany();
-  await prisma.borough.createMany({
-    data: [
+  for (const b of [
       { name: 'Westminster', populationActivity: 'High', businessCount: 452, activeCampaigns: 12, rewardsParticipation: '88%', healthScore: 94, manager: 'James Wilson', area: 'Central London', region: 'West End', engagement: '94.2%', health: 'A+', activity: 'Active Operational' },
       { name: 'Camden', populationActivity: 'Medium', businessCount: 318, activeCampaigns: 8, rewardsParticipation: '76%', healthScore: 82, manager: 'Sarah Chen', area: 'North London', region: 'North-West', engagement: '88.5%', health: 'A', activity: 'Operational' },
       { name: 'Tower Hamlets', populationActivity: 'Very High', businessCount: 284, activeCampaigns: 15, rewardsParticipation: '92%', healthScore: 89, manager: 'David G.', area: 'East London', region: 'East', engagement: '92.1%', health: 'A+', activity: 'High Activity' },
       { name: 'Hackney', populationActivity: 'High', businessCount: 215, activeCampaigns: 6, rewardsParticipation: '81%', healthScore: 85, manager: 'Emma Thompson', area: 'East London', region: 'East End', engagement: '85.4%', health: 'B+', activity: 'Operational' },
-    ],
-  });
+  ]) {
+    await prisma.borough.upsert({
+      where: { name: b.name },
+      update: b,
+      create: b,
+    });
+  }
 
-  // 17. Seed High Streets
+  // 17. Seed High Streets (reference data — create-if-missing by name+borough, never wiped)
   console.log('Seeding high streets...');
-  await prisma.highStreet.deleteMany();
-  await prisma.highStreet.createMany({
-    data: [
+  for (const h of [
       { name: 'Rye Lane', borough: 'Southwark', status: 'Active', businessCount: 156 },
       { name: 'Peckham Road', borough: 'Southwark', status: 'Active', businessCount: 45 },
       { name: 'Bellenden Road', borough: 'Southwark', status: 'Active', businessCount: 44 },
       { name: 'Brixton Road', borough: 'Lambeth', status: 'Active', businessCount: 180 },
-    ],
-  });
+  ]) {
+    const existing = await prisma.highStreet.findFirst({ where: { name: h.name, borough: h.borough } });
+    if (!existing) {
+      await prisma.highStreet.create({ data: h });
+    }
+  }
 
-  // 18. Seed Local Malls
+  // 18. Seed Local Malls (reference data — upsert by slug, never wiped)
   console.log('Seeding local malls...');
-  await prisma.localMall.deleteMany();
-  await prisma.localMall.create({
-    data: {
+  await prisma.localMall.upsert({
+    where: { slug: 'peckham-localmall' },
+    update: {},
+    create: {
       name: 'Peckham LocalMall',
       postcodes: ['SE15', 'SE5', 'SE22'],
       borough: 'Southwark',

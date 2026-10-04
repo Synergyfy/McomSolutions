@@ -19,9 +19,12 @@ import { GoogleOAuthService } from './google-oauth.service';
         if (!secret) {
           throw new Error('JWT_SECRET environment variable is required (no hardcoded fallback).');
         }
+        // Phase 3 (G4): spec access TTL is 15m. JWT_ACCESS_TTL may override
+        // (accepts "15m", "1h", "900"); default is 15m with no code change.
+        const { accessTtlSeconds } = await import('./refresh-session.util');
         return {
           secret,
-          signOptions: { expiresIn: '1d' },
+          signOptions: { expiresIn: accessTtlSeconds() },
         };
       },
       inject: [ConfigService],

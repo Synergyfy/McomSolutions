@@ -21,6 +21,7 @@ import {
   Check,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import CatalogImagePicker from './CatalogImagePicker';
 import {
   useAdminCatalogTree,
   useCreateSector,
@@ -369,7 +370,19 @@ export default function SectorsCategoriesPanel() {
                       )}
                     >
                       <div className="flex-1 min-w-0 pr-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2.5">
+                          {sector.imageUrl ? (
+                            <img
+                              src={sector.imageUrl}
+                              alt=""
+                              className="w-6 h-6 rounded-md object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded-md bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                              <Layers className="w-3.5 h-3.5 text-brand-blue" />
+                            </div>
+                          )}
                           <span className="text-xs font-bold truncate">{sector.name}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
@@ -512,7 +525,19 @@ export default function SectorsCategoriesPanel() {
                       )}
                     >
                       <div className="flex-1 min-w-0 pr-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2.5">
+                          {cat.imageUrl ? (
+                            <img
+                              src={cat.imageUrl}
+                              alt=""
+                              className="w-6 h-6 rounded-md object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-6 h-6 rounded-md bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+                              <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                            </div>
+                          )}
                           <span className="text-xs font-bold truncate">{cat.name}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
@@ -640,9 +665,23 @@ export default function SectorsCategoriesPanel() {
                     key={sub.id}
                     className="p-3.5 hover:bg-purple-50/40 transition-colors flex items-center justify-between group"
                   >
-                    <div className="flex-1 min-w-0 pr-2">
-                      <p className="text-xs font-bold text-gray-800 truncate">{sub.name}</p>
-                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug}</p>
+                    <div className="flex-1 min-w-0 pr-2 flex items-center gap-2.5">
+                      {sub.imageUrl ? (
+                        <img
+                          src={sub.imageUrl}
+                          alt=""
+                          className="w-6 h-6 rounded-md object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-6 h-6 rounded-md bg-purple-50 border border-purple-100 flex items-center justify-center shrink-0">
+                          <FolderTree className="w-3.5 h-3.5 text-purple-600" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-gray-800 truncate">{sub.name}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug}</p>
+                      </div>
                     </div>
 
                     {/* Action buttons */}
@@ -923,9 +962,18 @@ function SectorTreeRow({
           <div className="p-1 rounded text-gray-400 hover:text-gray-600">
             {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </div>
-          <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center font-bold text-xs">
-            <Layers className="w-4 h-4" />
-          </div>
+          {sector.imageUrl ? (
+            <img
+              src={sector.imageUrl}
+              alt=""
+              className="w-8 h-8 rounded-lg object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center font-bold text-xs shrink-0">
+              <Layers className="w-4 h-4" />
+            </div>
+          )}
           <div>
             <span className="text-xs font-bold text-gray-900">{sector.name}</span>
             <div className="flex items-center gap-2 mt-0.5">
@@ -1014,9 +1062,18 @@ function CategoryTreeRow({
           <div className="p-1 rounded text-gray-400 hover:text-gray-600">
             {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </div>
-          <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs">
-            <Tag className="w-3.5 h-3.5" />
-          </div>
+          {category.imageUrl ? (
+            <img
+              src={category.imageUrl}
+              alt=""
+              className="w-6 h-6 rounded-md object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          ) : (
+            <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0">
+              <Tag className="w-3.5 h-3.5" />
+            </div>
+          )}
           <div>
             <span className="text-xs font-bold text-gray-800">{category.name}</span>
             <span className="text-[10px] text-gray-400 font-mono ml-2">#{category.slug}</span>
@@ -1050,7 +1107,16 @@ function CategoryTreeRow({
             category.subCategories!.map((sub) => (
               <div key={sub.id} className="py-2 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                  {sub.imageUrl ? (
+                    <img
+                      src={sub.imageUrl}
+                      alt=""
+                      className="w-5 h-5 rounded object-contain border border-gray-200 bg-white p-0.5 shrink-0"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
+                  )}
                   <span className="font-semibold text-gray-700">{sub.name}</span>
                   <span className="text-[10px] text-gray-400 font-mono">#{sub.slug}</span>
                 </div>
@@ -1087,12 +1153,13 @@ function SectorModalForm({
 }: {
   editing: AdminSector | null;
   onClose: () => void;
-  onSubmit: (data: { name: string; slug?: string; sortOrder?: number }) => Promise<void>;
+  onSubmit: (data: { name: string; slug?: string; sortOrder?: number; imageUrl?: string | null }) => Promise<void>;
   isLoading: boolean;
 }) {
   const [name, setName] = useState(editing?.name || '');
   const [slug, setSlug] = useState(editing?.slug || '');
   const [sortOrder, setSortOrder] = useState(editing?.sortOrder ?? 0);
+  const [imageUrl, setImageUrl] = useState<string | null>(editing?.imageUrl || null);
   const [manualSlug, setManualSlug] = useState(!!editing);
   const [error, setError] = useState<string | null>(null);
 
@@ -1112,6 +1179,7 @@ function SectorModalForm({
         name: name.trim(),
         slug: slug.trim() || undefined,
         sortOrder: Number(sortOrder),
+        imageUrl: imageUrl || null,
       });
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save sector');
@@ -1171,6 +1239,13 @@ function SectorModalForm({
             />
           </div>
 
+          <CatalogImagePicker
+            value={imageUrl}
+            onChange={setImageUrl}
+            label="Sector Image / Icon"
+            helperText="Select an image file to upload to Cloudinary or paste an image URL"
+          />
+
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Display Sort Order</label>
             <input
@@ -1217,13 +1292,14 @@ function CategoryModalForm({
   sectors: AdminSector[];
   defaultSectorId?: string;
   onClose: () => void;
-  onSubmit: (data: { sectorId: string; name: string; slug?: string; sortOrder?: number }) => Promise<void>;
+  onSubmit: (data: { sectorId: string; name: string; slug?: string; sortOrder?: number; imageUrl?: string | null }) => Promise<void>;
   isLoading: boolean;
 }) {
   const [sectorId, setSectorId] = useState(editing?.sectorId || defaultSectorId || sectors[0]?.id || '');
   const [name, setName] = useState(editing?.name || '');
   const [slug, setSlug] = useState(editing?.slug || '');
   const [sortOrder, setSortOrder] = useState(editing?.sortOrder ?? 0);
+  const [imageUrl, setImageUrl] = useState<string | null>(editing?.imageUrl || null);
   const [manualSlug, setManualSlug] = useState(!!editing);
   const [error, setError] = useState<string | null>(null);
 
@@ -1244,6 +1320,7 @@ function CategoryModalForm({
         name: name.trim(),
         slug: slug.trim() || undefined,
         sortOrder: Number(sortOrder),
+        imageUrl: imageUrl || null,
       });
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save category');
@@ -1325,6 +1402,13 @@ function CategoryModalForm({
             />
           </div>
 
+          <CatalogImagePicker
+            value={imageUrl}
+            onChange={setImageUrl}
+            label="Category Image / Icon"
+            helperText="Select an image file to upload to Cloudinary or paste an image URL"
+          />
+
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Display Sort Order</label>
             <input
@@ -1372,7 +1456,7 @@ function SubCategoryModalForm({
   sectors: AdminSector[];
   defaultCategoryId?: string;
   onClose: () => void;
-  onSubmit: (data: { categoryId: string; name: string; slug?: string; sortOrder?: number }) => Promise<void>;
+  onSubmit: (data: { categoryId: string; name: string; slug?: string; sortOrder?: number; imageUrl?: string | null }) => Promise<void>;
   isLoading: boolean;
 }) {
   const allCategories = useMemo(() => {
@@ -1391,6 +1475,7 @@ function SubCategoryModalForm({
   const [name, setName] = useState(editing?.name || '');
   const [slug, setSlug] = useState(editing?.slug || '');
   const [sortOrder, setSortOrder] = useState(editing?.sortOrder ?? 0);
+  const [imageUrl, setImageUrl] = useState<string | null>(editing?.imageUrl || null);
   const [manualSlug, setManualSlug] = useState(!!editing);
   const [error, setError] = useState<string | null>(null);
 
@@ -1411,6 +1496,7 @@ function SubCategoryModalForm({
         name: name.trim(),
         slug: slug.trim() || undefined,
         sortOrder: Number(sortOrder),
+        imageUrl: imageUrl || null,
       });
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Failed to save subcategory');
@@ -1491,6 +1577,13 @@ function SubCategoryModalForm({
               className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
             />
           </div>
+
+          <CatalogImagePicker
+            value={imageUrl}
+            onChange={setImageUrl}
+            label="Subcategory Image / Icon"
+            helperText="Select an image file to upload to Cloudinary or paste an image URL"
+          />
 
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Display Sort Order</label>

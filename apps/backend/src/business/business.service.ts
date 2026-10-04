@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
@@ -32,6 +32,74 @@ export interface CompleteOnboardingInput {
   photos?: any[];
   [key: string]: unknown;
 }
+
+export interface BusinessCaller {
+  userId: string;
+  businessId?: string;
+  role?: Role;
+}
+
+/** Non-admin directory view: no contact PII, no user relation, no secrets. */
+const businessDirectorySelect = {
+  id: true,
+  businessName: true,
+  businessType: true,
+  country: true,
+  industry: true,
+  category: true,
+  subCategory: true,
+  logoUrl: true,
+  membershipLevel: true,
+  membershipTier: true,
+  membershipStatus: true,
+  createdAt: true,
+} as const;
+
+/** Owner/admin detail view: full profile, but the linked user never exposes `password`. */
+const businessDetailSelect = {
+  id: true,
+  userId: true,
+  businessName: true,
+  businessType: true,
+  country: true,
+  phone: true,
+  email: true,
+  isOnGoogle: true,
+  googlePlaceId: true,
+  address: true,
+  postcode: true,
+  industry: true,
+  category: true,
+  subCategory: true,
+  description: true,
+  website: true,
+  logoUrl: true,
+  openingHours: true,
+  socialMedia: true,
+  membershipLevel: true,
+  membershipTier: true,
+  membershipStatus: true,
+  membershipPlanName: true,
+  membershipExpiresAt: true,
+  apiKey: true,
+  localMallName: true,
+  localMallId: true,
+  proximityTier: true,
+  createdAt: true,
+  updatedAt: true,
+  user: {
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      createdAt: true,
+    },
+  },
+  packages: true,
+  transactions: true,
+} as const;
 
 export interface BusinessHoursItem {
   dayOfWeek: number;
@@ -788,7 +856,7 @@ export class BusinessService {
     }
 
     // Register new user & profile
-    const salt = await bcrypt.genSalt();
+    const salt = await bcrypt.genSalt(12);
     const password = data.password || crypto.randomBytes(24).toString('hex');
     const passwordHash = await bcrypt.hash(password, salt);
 
@@ -860,9 +928,10 @@ export class BusinessService {
 
   // ─── Profile CRUD ─────────────────────────────────────
   async getProfile(businessId: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
-      include: { user: true, packages: true },
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      // Never `include: { user: true }` — that leaks the password hash.
+      select: businessDetailSelect,
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
@@ -871,6 +940,14 @@ export class BusinessService {
   }
 
   async updateProfile(businessId: string, updates: UpdateProfileInput) {
+    // Refuse to modify soft-deleted profiles (prevents resurrect-by-update).
+    const existing = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Business profile not found');
+    }
     const address = updates.location?.addressLine1 || updates.address;
     const postcode = updates.location?.postcode || updates.postcode;
     const phone = updates.businessPhone || updates.phone;
@@ -936,6 +1013,13 @@ export class BusinessService {
   }
 
   async generateApiKey(businessId: string) {
+    const existing = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Business profile not found');
+    }
     const apiKey = `mcom_central_${crypto.randomBytes(24).toString('hex')}`;
     return this.prisma.businessProfile.update({
       where: { id: businessId },
@@ -945,17 +1029,28 @@ export class BusinessService {
   }
 
   // ─── Directory & Administration CRUD ──────────────────
-  async findAll(searchQuery?: string, page: number = 1, limit: number = 20) {
+  // Phase 1B: ownership-scoped reads, PII-minimized list for non-admins,
+  // soft-delete instead of the user-cascade hard delete.
+  async findAll(searchQuery?: string, page: number = 1, limit: number = 20, caller?: BusinessCaller) {
     const pageNum = Math.max(1, Number(page) || 1);
     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = searchQuery ? {
-      OR: [
-        { businessName: { contains: searchQuery, mode: 'insensitive' as const } },
-        { email: { contains: searchQuery, mode: 'insensitive' as const } },
-      ],
-    } : {};
+    const isAdmin = caller?.role === Role.ADMIN;
+    const where = {
+      deletedAt: null,
+      ...(searchQuery
+        ? {
+            OR: [
+              { businessName: { contains: searchQuery, mode: 'insensitive' as const } },
+              // Email search is an admin-only capability — it leaks contact PII.
+              ...(isAdmin
+                ? [{ email: { contains: searchQuery, mode: 'insensitive' as const } }]
+                : []),
+            ],
+          }
+        : {}),
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.businessProfile.findMany({
@@ -963,6 +1058,8 @@ export class BusinessService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limitNum,
+        // Non-admin callers get the PII-free directory projection; admins keep full rows.
+        ...(isAdmin ? {} : { select: businessDirectorySelect }),
       }),
       this.prisma.businessProfile.count({ where }),
     ]);
@@ -977,46 +1074,59 @@ export class BusinessService {
     };
   }
 
-  async findOne(id: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id },
-      include: {
-        user: true,
-        packages: true,
-        transactions: true,
-      },
+  async findOne(id: string, caller?: BusinessCaller) {
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id, deletedAt: null },
+      select: businessDetailSelect,
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
+    }
+    const isOwner =
+      !!caller && (caller.businessId === id || profile.userId === caller.userId);
+    if (!isOwner && caller?.role !== Role.ADMIN) {
+      throw new ForbiddenException('You do not have access to this business profile');
     }
     return profile;
   }
 
-  async deleteBusiness(id: string) {
-    const profile = await this.prisma.businessProfile.findUnique({
-      where: { id },
+  async deleteBusiness(id: string, caller?: BusinessCaller) {
+    const profile = await this.prisma.businessProfile.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, userId: true },
     });
     if (!profile) {
       throw new NotFoundException('Business profile not found');
     }
-    await this.prisma.user.delete({
-      where: { id: profile.userId },
+    const isOwner =
+      !!caller && (caller.businessId === id || profile.userId === caller.userId);
+    if (!isOwner && caller?.role !== Role.ADMIN) {
+      throw new ForbiddenException('You do not have access to this business profile');
+    }
+    // Soft-delete the profile. The linked User row is never cascade-deleted here —
+    // hard user removal (with audit) is an explicit admin console operation.
+    await this.prisma.businessProfile.update({
+      where: { id },
+      data: { deletedAt: new Date() },
     });
     return { success: true };
   }
 
   async getSupportTickets(businessId: string) {
-    const business = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
     });
     if (!business) {
       throw new NotFoundException('Business profile not found');
     }
+    // Phase 4: FK-scoped lookup. Legacy name-matched rows (business_id NULL)
+    // stay visible until the backfill + NOT NULL follow-up completes.
     return this.prisma.supportTicket.findMany({
       where: {
         OR: [
-          { fromName: business.businessName },
-          { fromName: businessId },
+          { businessId },
+          { businessId: null, fromName: business.businessName },
+          { businessId: null, fromName: businessId },
         ],
       },
       orderBy: { createdAt: 'desc' },
@@ -1027,14 +1137,15 @@ export class BusinessService {
     businessId: string,
     data: { subject: string; message: string; priority?: string },
   ) {
-    const business = await this.prisma.businessProfile.findUnique({
-      where: { id: businessId },
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
     });
     if (!business) {
       throw new NotFoundException('Business profile not found');
     }
     return this.prisma.supportTicket.create({
       data: {
+        businessId,
         subject: data.subject,
         message: data.message,
         fromName: business.businessName,

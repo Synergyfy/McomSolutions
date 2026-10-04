@@ -166,7 +166,7 @@ export class LoggingMiddleware implements NestMiddleware {
     // Skip verbose payload logging for static assets or docs to reduce noise
     const isStaticAsset =
       originalUrl.startsWith('/uploads') ||
-      originalUrl.startsWith('/docs') ||
+      originalUrl.startsWith('/api/docs') ||
       originalUrl.includes('favicon.ico');
 
     const methodBadge = colors.getMethodBadge(method);

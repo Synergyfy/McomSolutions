@@ -185,6 +185,36 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** True when the real Redis connection is up. Used for fail-closed checks in prod. */
+  isAvailable(): boolean {
+    return this.isRedisAvailable && !!this.client;
+  }
+
+  /**
+   * Remaining TTL for a key in seconds, or null when the key does not exist.
+   * Falls back to the in-memory cache so OTP attempt-counters preserve expiry.
+   */
+  async ttl(key: string): Promise<number | null> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        const seconds = await this.client.ttl(key);
+        // -2 = no key, -1 = no expiry (should not happen — treat as missing).
+        if (seconds >= 0) return seconds;
+      } catch (e: any) {
+        this.logger.warn(`Redis ttl error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const cached = this.memoryCache.get(key);
+    if (!cached) return null;
+    const remainingMs = cached.expiresAt - Date.now();
+    if (remainingMs <= 0) {
+      this.memoryCache.delete(key);
+      return null;
+    }
+    return Math.ceil(remainingMs / 1000);
+  }
+
   async delPattern(pattern: string): Promise<void> {
     if (this.isRedisAvailable && this.client) {
       try {
