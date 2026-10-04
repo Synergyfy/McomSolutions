@@ -616,6 +616,28 @@ describe('BusinessService', () => {
       expect(result).toContain('GOOGLE_LOGIN_SUCCESS');
       expect(authService.login).toHaveBeenCalled();
     });
+
+    it('should guard postMessage origin mismatch so the popup can never strand blank', async () => {
+      mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
+      mockGoogleOAuth.exchangeCodeForEmail.mockResolvedValue('existing@test.com');
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'existing@test.com' });
+
+      const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
+      // Guarded target + www-alt fallback, close always attempted, fallback message.
+      expect(result).toContain('delivered');
+      expect(result).toContain('window.close()');
+      expect(result).toContain('you can close this window');
+      expect(result).not.toMatch(/window\.opener\.postMessage\(msg, target\);\s*\n\s*if/);
+    });
+
+    it('should guard the login-failure handoff the same way', async () => {
+      mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login' });
+
+      const result = await service.handleGoogleCallback('mock-google-code', 'signed-state');
+      expect(result).toContain('GOOGLE_LOGIN_FAILURE');
+      expect(result).toContain('window.close()');
+      expect(result).toContain('you can close this window');
+    });
   });
 
   // ─── Phase 4: FK-scoped support tickets ──────

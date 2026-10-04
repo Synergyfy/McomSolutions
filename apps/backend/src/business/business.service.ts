@@ -532,6 +532,9 @@ export class BusinessService {
       const safeAuth = JSON.stringify(auth).replace(/</g, '\\u003c');
       const safeUser = JSON.stringify(auth.user).replace(/</g, '\\u003c');
 
+      // postMessage throws when `target` is not the opener's exact origin
+      // (e.g. apex vs www) — guard both attempts so a mismatch can never
+      // strand the popup on a blank page, and always attempt to close.
       return `
         <script>
           if (window.opener) {
@@ -541,14 +544,20 @@ export class BusinessService {
               user: ${safeUser}
             };
             var target = '${this.escapeHtml(targetOrigin)}';
-            window.opener.postMessage(msg, target);
-            if (target.indexOf('centralhubsolution.com') !== -1) {
-              var alt = target.indexOf('www.') !== -1
-                ? target.replace('www.', '')
-                : target.replace('://', '://www.');
-              try { window.opener.postMessage(msg, alt); } catch(e) {}
+            var alt = target.indexOf('www.') !== -1
+              ? target.replace('www.', '')
+              : target.replace('://', '://www.');
+            var delivered = false;
+            try { window.opener.postMessage(msg, target); delivered = true; } catch (e) {}
+            if (!delivered && target.indexOf('centralhubsolution.com') !== -1) {
+              try { window.opener.postMessage(msg, alt); delivered = true; } catch (e2) {}
             }
-            window.close();
+            try { window.close(); } catch (e3) {}
+            setTimeout(function () {
+              if (!window.closed) {
+                document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;margin-top:2rem;">Login complete — you can close this window.</p>';
+              }
+            }, 600);
           } else {
             window.location.href = '${this.escapeHtml(targetOrigin)}/dashboard';
           }
@@ -691,15 +700,22 @@ export class BusinessService {
         if (window.opener) {
           var msg = { type: 'GOOGLE_LOGIN_FAILURE', success: false, error: ${JSON.stringify(error)} };
           var target = '${targetOrigin}';
-          window.opener.postMessage(msg, target);
+          var alt = target.indexOf('www.') !== -1
+            ? target.replace('www.', '')
+            : target.replace('://', '://www.');
+          try { window.opener.postMessage(msg, target); } catch (e) {}
           if (target.indexOf('centralhubsolution.com') !== -1) {
-            var alt = target.indexOf('www.') !== -1
-              ? target.replace('www.', '')
-              : target.replace('://', '://www.');
-            try { window.opener.postMessage(msg, alt); } catch(e) {}
+            try { window.opener.postMessage(msg, alt); } catch (e2) {}
           }
+          try { window.close(); } catch (e3) {}
+          setTimeout(function () {
+            if (!window.closed) {
+              document.body.innerHTML = '<p style="font-family:sans-serif;text-align:center;margin-top:2rem;">Login failed — you can close this window and try again.</p>';
+            }
+          }, 600);
+        } else {
+          window.location.href = '${targetOrigin}';
         }
-        window.close();
       </script>
     `;
   }

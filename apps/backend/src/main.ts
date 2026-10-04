@@ -8,6 +8,7 @@ import helmet from 'helmet';
 
 import express from 'express';
 import { join } from 'path';
+import type { NextFunction, Request, Response } from 'express';
 import { SsoService } from './auth/sso.service';
 import { UploadsAuthMiddleware } from './common/middleware/uploads-auth.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -49,7 +50,24 @@ async function bootstrap() {
   });
 
   // Phase 6: secure HTTP headers (first, before CORS/static).
-  app.use(helmet());
+  // Exception: the Google OAuth HTML handoffs (callback + claim simulator)
+  // render server-generated inline <script> postMessage pages. No bundler and
+  // no nonce channel exists for them, so a script-src CSP blocks the popup
+  // handoff and strands users on a blank page (seen live 2026-10-04: backend
+  // returned 200 GOOGLE_LOGIN_SUCCESS but the inline script never ran).
+  // Those two routes keep every other helmet header; only CSP is lifted.
+  const googleHtmlRoutes = new Set([
+    '/api/v1/business/google/callback',
+    '/api/v1/business/google-claim-simulator',
+  ]);
+  const helmetDefault = helmet();
+  const helmetWithoutCsp = helmet({ contentSecurityPolicy: false });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (googleHtmlRoutes.has(req.path)) {
+      return helmetWithoutCsp(req, res, next);
+    }
+    return helmetDefault(req, res, next);
+  });
   // Phase 6: uniform error envelope for all unhandled exceptions.
   // Route-level filters (e.g. MulterExceptionFilter) still run first.
   app.useGlobalFilters(new AllExceptionsFilter());
