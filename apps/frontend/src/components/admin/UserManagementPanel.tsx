@@ -158,7 +158,7 @@ function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
                   <div className="w-8 h-8 bg-blue-50 text-brand-blue rounded-lg flex items-center justify-center font-bold text-xs">{b.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{b.name}</div><div className="text-[10px] text-gray-400 font-bold">{b.email}</div></div>
                 </div></td>
-                <td className="px-6 py-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border bg-blue-50 text-blue-700 border-blue-200">{b.membership}</span></td>
+                <td className="px-6 py-4"><span className="inline-flex items-center whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border bg-blue-50 text-blue-700 border-blue-200">{b.membership}</span></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", b.status === 'Active' ? 'bg-green-500' : b.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500')} /><span className="text-xs font-bold">{b.status}</span></div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{b.revenue}</td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
