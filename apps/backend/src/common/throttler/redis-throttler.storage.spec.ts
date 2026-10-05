@@ -19,7 +19,7 @@ describe('RedisThrottlerStorage (G4)', () => {
   it('allows hits under the limit without blocking', async () => {
     const { storage } = makeStorage();
     for (let i = 1; i <= 5; i++) {
-      const res = await storage.increment('k1', 60, 5, 60, 'default');
+      const res = await storage.increment('k1', 60000, 5, 60000, 'default');
       expect(res.isBlocked).toBe(false);
       expect(res.totalHits).toBe(i);
     }
@@ -28,11 +28,22 @@ describe('RedisThrottlerStorage (G4)', () => {
   it('blocks after exceeding the limit', async () => {
     const { storage } = makeStorage();
     for (let i = 0; i < 5; i++) {
-      await storage.increment('k2', 60, 5, 60, 'default');
+      await storage.increment('k2', 60000, 5, 60000, 'default');
     }
-    const blocked = await storage.increment('k2', 60, 5, 60, 'default');
+    const blocked = await storage.increment('k2', 60000, 5, 60000, 'default');
     expect(blocked.isBlocked).toBe(true);
     expect(blocked.timeToBlockExpire).toBeGreaterThan(0);
+  });
+
+  it('unblocks after roughly the ttl (regression: v6 passes ms, not seconds)', async () => {
+    const { storage } = makeStorage();
+    for (let i = 0; i < 5; i++) {
+      await storage.increment('k3', 60000, 5, 60000, 'default');
+    }
+    const blocked = await storage.increment('k3', 60000, 5, 60000, 'default');
+    expect(blocked.isBlocked).toBe(true);
+    // 60s window → Retry-After style countdown must be seconds-scale, not ~60000.
+    expect(blocked.timeToBlockExpire).toBeLessThanOrEqual(60);
   });
 
   it('shares the budget across instances via Redis', async () => {
@@ -49,9 +60,9 @@ describe('RedisThrottlerStorage (G4)', () => {
     };
     const a = new RedisThrottlerStorage(shared as any);
     const b = new RedisThrottlerStorage(shared as any);
-    await a.increment('shared', 60, 2, 60, 'default');
-    await b.increment('shared', 60, 2, 60, 'default');
-    const third = await a.increment('shared', 60, 2, 60, 'default');
+    await a.increment('shared', 60000, 2, 60000, 'default');
+    await b.increment('shared', 60000, 2, 60000, 'default');
+    const third = await a.increment('shared', 60000, 2, 60000, 'default');
     expect(third.isBlocked).toBe(true);
   });
 
@@ -61,7 +72,7 @@ describe('RedisThrottlerStorage (G4)', () => {
       set: jest.fn().mockRejectedValue(new Error('down')),
     };
     const storage = new RedisThrottlerStorage(redis as any);
-    const first = await storage.increment('mem', 60, 5, 60, 'default');
+    const first = await storage.increment('mem', 60000, 5, 60000, 'default');
     expect(first.isBlocked).toBe(false);
     expect(first.totalHits).toBe(1);
   });
