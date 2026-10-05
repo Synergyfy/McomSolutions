@@ -35,7 +35,10 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     _throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
     const now = Date.now();
-    const ttlMs = ttl * 1000;
+    // NOTE: @nestjs/throttler v6 passes ttl/blockDuration in MILLISECONDS.
+    // Do not multiply by 1000 here — only the Redis key expiry (seconds)
+    // needs a ms→s conversion at save() time.
+    const ttlMs = ttl;
     const storageKey = `throttle:${key}`;
 
     let record = await this.load(storageKey);
@@ -50,11 +53,12 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
     record.hits.push({ expiresAt: now + ttlMs });
     if (record.hits.length > limit) {
-      record.blockedUntil = now + blockDuration * 1000;
-      this.logger.warn(`[Throttle] ${key} exceeded ${limit}/${ttl}s — blocked for ${blockDuration}s`);
+      record.blockedUntil = now + blockDuration;
+      this.logger.warn(`[Throttle] ${key} exceeded ${limit}/${ttl}ms — blocked for ${blockDuration}ms`);
     }
 
-    await this.save(storageKey, record, Math.max(ttl, blockDuration));
+    // Redis EX takes seconds — convert from ms (min 1s so the key expires).
+    await this.save(storageKey, record, Math.max(1, Math.ceil(Math.max(ttl, blockDuration) / 1000)));
     return this.toResult(record, now);
   }
 
