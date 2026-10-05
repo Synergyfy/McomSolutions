@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, UseGuards, Request, NotFoundException, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { PricingService } from './pricing.service';
@@ -14,6 +15,7 @@ export class PricingController {
   private readonly logger = new Logger(PricingController.name);
   constructor(private pricingService: PricingService) {}
 
+  @SkipThrottle()
   @Get('plans')
   @ApiOperation({ summary: 'Get all active membership plans with bundles and sub-tiers' })
   async getPlans() {
@@ -64,6 +66,7 @@ export class PricingController {
     return this.pricingService.purchasePackage(req.user.businessId, dto.platform, dto.packageName);
   }
 
+  @SkipThrottle()
   @Get('packages')
   @ApiOperation({ summary: 'Get all active package templates' })
   async getPackages() {
