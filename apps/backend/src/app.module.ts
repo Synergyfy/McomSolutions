@@ -66,7 +66,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
       imports: [RedisModule],
       inject: [RedisService],
       useFactory: (redis: RedisService) => ({
-        throttlers: [{ ttl: 60000, limit: 30 }],
+        throttlers: [{ ttl: 60000, limit: 30, blockDuration: 60000 }],
         storage: new RedisThrottlerStorage(redis),
       }),
     }),
