@@ -51,17 +51,15 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       return this.toResult(record, now);
     }
 
+    const effectiveBlockDuration = blockDuration > 0 ? blockDuration : ttlMs;
     record.hits.push({ expiresAt: now + ttlMs });
     if (record.hits.length > limit) {
-      // Guard against blockDuration=0 (the default when not explicitly configured):
-      // fall back to the TTL window so the client is actually blocked.
-      const effectiveBlockDuration = blockDuration > 0 ? blockDuration : ttlMs;
       record.blockedUntil = now + effectiveBlockDuration;
       this.logger.warn(`[Throttle] ${key} exceeded ${limit}/${ttl}ms — blocked for ${effectiveBlockDuration}ms`);
     }
 
     // Redis EX takes seconds — convert from ms (min 1s so the key expires).
-    await this.save(storageKey, record, Math.max(1, Math.ceil(Math.max(ttl, blockDuration) / 1000)));
+    await this.save(storageKey, record, Math.max(1, Math.ceil(Math.max(ttl, effectiveBlockDuration) / 1000)));
     return this.toResult(record, now);
   }
 
