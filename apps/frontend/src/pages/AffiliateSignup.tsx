@@ -5,6 +5,7 @@ import AuthInput from "../components/affiliate-auth/AuthInput";
 import { useAffiliateAuth } from "../hooks/useAffiliateAuth";
 import { validateSignup } from "../lib/validation";
 import { UserRole } from "../types/affiliate-auth";
+import CHSLogo from "../components/CHSLogo";
 
 export default function AffiliateSignup() {
     const navigate = useNavigate();
@@ -81,13 +82,8 @@ export default function AffiliateSignup() {
 
             <div className="w-full lg:w-1/2 flex flex-col items-center p-8 md:p-16 lg:p-24 bg-white overflow-y-auto">
                 <div className="w-full max-w-md">
-                    <div className="lg:hidden flex items-center gap-3 mb-10">
-                        <div className="text-primary size-8">
-                            <svg fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                                <path clipRule="evenodd" d="M24 4H42V17.3333V30.6667H24V44H6V30.6667V17.3333H24V4Z" fillRule="evenodd"></path>
-                            </svg>
-                        </div>
-                        <span className="text-2xl font-bold tracking-tight text-text-main font-display">247gbs affiliate</span>
+                    <div className="lg:hidden flex items-center mb-8">
+                        <CHSLogo variant="full" size="md" imageClassName="h-9" />
                     </div>
 
                     <div className="mb-8">
@@ -215,7 +211,7 @@ export default function AffiliateSignup() {
                     </div>
 
                     <p className="mt-12 text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest font-display">
-                        © {new Date().getFullYear()} 247gbs affiliate professional marketplace
+                        © {new Date().getFullYear()} Central Hub Solution (CHS). All rights reserved.
                     </p>
                 </div>
             </div>

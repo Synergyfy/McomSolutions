@@ -1,5 +1,6 @@
 
 import { Link } from "react-router-dom";
+import CHSLogo from "../components/CHSLogo";
 
 const roles = [
     {
@@ -29,13 +30,8 @@ const roles = [
 export default function AffiliateRoleSelection() {
     return (
         <div className="bg-white min-h-screen flex flex-col items-center justify-center p-6 text-text-main font-display">
-            <div className="mb-12 flex items-center gap-3">
-                <div className="text-primary size-8">
-                    <svg fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                        <path clipRule="evenodd" d="M24 4H42V17.3333V30.6667H24V44H6V30.6667V17.3333H24V4Z" fillRule="evenodd"></path>
-                    </svg>
-                </div>
-                <span className="text-3xl font-bold tracking-tight text-text-main font-display">247gbs affiliate</span>
+            <div className="mb-10 flex items-center">
+                <CHSLogo variant="full" size="lg" imageClassName="h-12" />
             </div>
 
             <div className="mb-4">
@@ -92,7 +88,7 @@ export default function AffiliateRoleSelection() {
                 </p>
                 <div className="mt-12 pt-10 border-t border-slate-50 w-full max-w-sm mx-auto">
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest font-display">
-                        ©  247gbs affiliate professional marketplace
+                        © {new Date().getFullYear()} Central Hub Solution (CHS). All rights reserved.
                     </p>
                 </div>
             </div>

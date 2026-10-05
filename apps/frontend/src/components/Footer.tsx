@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { PRODUCTS } from '../constants';
 import { Twitter, Linkedin, Github, Youtube, Mail, ArrowRight } from 'lucide-react';
+import CHSLogo from './CHSLogo';
 
 export default function Footer() {
   const gbsProducts = PRODUCTS.filter(p => p.type === 'GBS');
@@ -12,9 +13,8 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 md:gap-12 mb-12 md:mb-20">
           <div className="col-span-2 lg:col-span-2 text-center md:text-left">
-            <Link to="/" className="flex items-center gap-2 mb-8 justify-center md:justify-start">
-              <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-lg">24</div>
-              <span className="font-bold text-2xl tracking-tight">GBS</span>
+            <Link to="/" className="inline-block mb-8">
+              <CHSLogo variant="full" size="lg" imageClassName="h-10 md:h-11" />
             </Link>
             <p className="text-gray-500 mb-8 max-w-sm leading-relaxed text-lg">
               The unified operating system for global business. Powering 
@@ -83,7 +83,7 @@ export default function Footer() {
 
         <div className="pt-12 border-t border-gray-200 flex flex-col md:flex-row justify-between items-center gap-8 text-gray-400 text-sm font-medium">
           <div className="flex flex-wrap justify-center gap-8">
-            <p>© 2026 24/7 Global Business Solutions</p>
+            <p>© 2026 Central Hub Solution (CHS). All rights reserved.</p>
             <Link to="/privacy" className="hover:text-brand-blue transition-colors">Privacy Policy</Link>
             <Link to="/terms" className="hover:text-brand-blue transition-colors">Terms of Service</Link>
             <Link to="/cookies" className="hover:text-brand-blue transition-colors">Cookie Settings</Link>

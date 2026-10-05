@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import CHSLogo from '../components/CHSLogo';
 import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
@@ -84,13 +85,9 @@ export default function Dashboard() {
         "lg:translate-x-0"
       )}>
         <div className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">M</div>
-            <div>
-              <div className="font-black text-xl tracking-tighter text-gray-900">MCOM Central</div>
-              <div className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Ecosystem Hub</div>
-            </div>
-          </div>
+          <Link to="/" className="flex items-center">
+            <CHSLogo variant="full" size="md" imageClassName="h-9" />
+          </Link>
           <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"

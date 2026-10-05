@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useAffiliateAuthStore } from '../store/useAffiliateAuthStore';
 import { useAffiliateAuth } from '../hooks/useAffiliateAuth';
+import CHSLogo from '../components/CHSLogo';
 
 export default function AffiliateVerifyEmail() {
     const [code, setCode] = useState(['', '', '', '', '', '']);
@@ -195,13 +196,8 @@ export default function AffiliateVerifyEmail() {
             <div className="w-full lg:w-1/2 flex flex-col justify-between p-8 md:p-12 lg:p-20 relative z-10">
                 <div className="mb-12">
                     {/* Brand Logo */}
-                    <div className="flex items-center gap-3">
-                        <div className="text-primary size-8">
-                            <svg fill="currentColor" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                                <path clipRule="evenodd" d="M24 4H42V17.3333V30.6667H24V44H6V30.6667V17.3333H24V4Z" fillRule="evenodd"></path>
-                            </svg>
-                        </div>
-                        <span className="text-2xl font-bold tracking-tight text-text-main font-display">247gbs affiliate</span>
+                    <div className="flex items-center">
+                        <CHSLogo variant="full" size="md" imageClassName="h-9" />
                     </div>
                 </div>
 
@@ -298,7 +294,7 @@ export default function AffiliateVerifyEmail() {
 
                 <div className="mt-12 text-center lg:text-left">
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                        © 247gbs affiliate professional marketplace
+                        © {new Date().getFullYear()} Central Hub Solution (CHS). All rights reserved.
                     </p>
                 </div>
             </div>
@@ -314,7 +310,7 @@ export default function AffiliateVerifyEmail() {
                     </div>
                     <h2 className="text-4xl font-bold mb-6 leading-tight">Secure & Trusted Marketplace</h2>
                     <p className="text-lg text-slate-300 font-medium leading-relaxed">
-                        Join thousands of verified professionals. We ensure a safe environment for all transactions and collaborations within the 247gbs ecosystem.
+                        Join thousands of verified professionals. We ensure a safe environment for all transactions and collaborations within the Central Hub Solution (CHS) ecosystem.
                     </p>
                 </div>
             </div>

@@ -6,6 +6,7 @@ import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogou
 import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
+import CHSLogo from '../components/CHSLogo';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -29,9 +30,28 @@ export default function LoginPage() {
   const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl');
   const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
   const hasCookie = typeof document !== 'undefined' && (document.cookie.includes('access=') || document.cookie.includes('mcom_session=') || document.cookie.includes('userId='));
-  const hasSsoIntent = !!clientId || !!source || !!redirectParam;
+  const hasSsoIntent = !!clientId || !!source || !!redirectParam || !!searchParams.get('redirect_uri') || !!searchParams.get('state');
   // Only verify session if credentials actually exist in browser storage/cookies
   const shouldCheckSession = hasToken || hasCookie;
+
+  // Affiliate roles have no dashboard here — a direct login (no SSO params)
+  // sends them to the 247GBS affiliate portal instead of /dashboard.
+  const getAffiliateDashboardUrl = () =>
+    `${(import.meta.env.VITE_AFFILIATE_PORTAL_URL || 'https://247gbsaffiliates.centralhubsolution.com').replace(/\/$/, '')}/dashboard`;
+
+  const redirectAffiliateToPortal = async (role?: string | null) => {
+    if (!role || hasSsoIntent) return false;
+    if (role !== 'AGENT' && role !== 'CONSULTANT' && role !== 'ACCOUNT_MANAGER') return false;
+    const dashboardUrl = getAffiliateDashboardUrl();
+    try {
+      const ssoRes = await getSsoToken('247gbs-affiliate');
+      const token = ssoRes?.ssoToken || ssoRes?.sso_token || ssoRes?.token;
+      window.location.href = token ? `${dashboardUrl}?sso_token=${token}` : dashboardUrl;
+    } catch {
+      window.location.href = dashboardUrl;
+    }
+    return true;
+  };
 
   const { data: currentUser, isLoading: sessionLoading } = useCurrentUser(shouldCheckSession);
 
@@ -143,6 +163,12 @@ export default function LoginPage() {
       if (res?.user?.role === 'BUSINESS' && (!res?.user?.isOnboarded || !res?.user?.businessId)) {
         const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
         navigate(`/getstarted/business${searchStr}`);
+        return;
+      }
+
+      // Affiliate roles logging in directly (not via SSO) belong on the
+      // 247GBS affiliate portal, not the business dashboard.
+      if (await redirectAffiliateToPortal(res?.user?.role)) {
         return;
       }
 
@@ -273,6 +299,12 @@ export default function LoginPage() {
           return;
         }
 
+        // Affiliate roles logging in directly (not via SSO) belong on the
+        // 247GBS affiliate portal, not the business dashboard.
+        if (await redirectAffiliateToPortal(user?.role)) {
+          return;
+        }
+
         await performRedirect();
       } catch (err: any) {
         setError('Google authentication failed. Please try again.');
@@ -344,6 +376,11 @@ export default function LoginPage() {
         navigate(`/getstarted/business${searchStr}`);
         return;
       }
+      // Affiliate roles with an existing session and no SSO intent belong on
+      // the 247GBS affiliate portal, not the business dashboard.
+      if (await redirectAffiliateToPortal((currentUser as any)?.role)) {
+        return;
+      }
       await performRedirect();
     } catch (err: any) {
       setError('Something went wrong. Please try again.');
@@ -373,8 +410,8 @@ export default function LoginPage() {
               exit={{ opacity: 0, y: -10 }}
               className="text-center py-8"
             >
-              <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-6 shadow-xl shadow-blue-500/20">
-                24
+              <div className="flex justify-center mb-6">
+                <CHSLogo variant="full" size="xl" imageClassName="h-16" />
               </div>
               <div className="flex items-center justify-center gap-3 mb-2">
                 <Loader2 className="w-5 h-5 animate-spin text-brand-blue" />
@@ -392,11 +429,11 @@ export default function LoginPage() {
               exit={{ opacity: 0, y: -10 }}
             >
               <div className="text-center mb-10">
-                <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-6 shadow-xl shadow-blue-500/20">
-                  24
+                <div className="flex justify-center mb-6">
+                  <CHSLogo variant="full" size="xl" imageClassName="h-16" />
                 </div>
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-                <p className="text-gray-500">You're already signed in to MCOM Solutions</p>
+                <p className="text-gray-500">You're already signed in to Central Hub Solution (CHS)</p>
               </div>
 
               {clientId && (
@@ -460,11 +497,11 @@ export default function LoginPage() {
               exit={{ opacity: 0, y: -10 }}
             >
               <div className="text-center mb-10">
-                <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-6 shadow-xl shadow-blue-500/20">
-                  24
+                <div className="flex justify-center mb-6">
+                  <CHSLogo variant="full" size="xl" imageClassName="h-16" />
                 </div>
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-                <p className="text-gray-500">Sign in to your 24/7 GBS account</p>
+                <p className="text-gray-500">Sign in to your Central Hub Solution (CHS) account</p>
               </div>
 
               {clientId && (
@@ -556,7 +593,7 @@ export default function LoginPage() {
 
               <div className="mt-10 flex items-center justify-center gap-2 text-xs text-gray-400">
                 <Shield className="w-3 h-3" />
-                <span>Secure SSO by 24/7 GBS Auth</span>
+                <span>Secure SSO by Central Hub Solution (CHS)</span>
               </div>
             </motion.div>
           )}

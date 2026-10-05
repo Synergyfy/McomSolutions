@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { LogIn, Lock, Mail, Shield, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import CHSLogo from '../components/CHSLogo';
 
 export default function AdminLogin() {
   const { login, isAuthenticated } = useAdminAuth();
@@ -50,11 +51,11 @@ export default function AdminLogin() {
         className="w-full max-w-md relative"
       >
         <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-brand-blue rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-glow mx-auto mb-6">
-            AS
+          <div className="flex justify-center mb-6">
+            <CHSLogo variant="full" size="xl" imageClassName="h-16" />
           </div>
           <h1 className="text-3xl font-black tracking-tight text-gray-900 mb-2">Admin Access</h1>
-          <p className="text-gray-500 font-medium">MCOMSolutions Global Ecosystem</p>
+          <p className="text-gray-500 font-medium">Central Hub Solution (CHS) Ecosystem</p>
         </div>
 
         <div className="bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 p-8 md:p-10">
