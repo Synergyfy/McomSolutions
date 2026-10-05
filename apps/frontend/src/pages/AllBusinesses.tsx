@@ -31,6 +31,7 @@ import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { useBusinesses, Business } from '../context/BusinessContext';
 import { useBusinessById } from '../services/business/hooks';
+import CHSLogo from '../components/CHSLogo';
 
 const ITEMS_PER_PAGE = 8;
 
@@ -83,13 +84,9 @@ export default function AllBusinesses() {
         sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}>
         <div className="p-6 md:p-8 flex items-center justify-between lg:justify-start gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">24</div>
-            <div className="block md:hidden lg:block">
-              <div className="font-bold text-xl tracking-tighter text-gray-900 uppercase">Admin Hub</div>
-              <div className="text-[10px] font-bold text-brand-blue uppercase tracking-widest">Global Ecosystem</div>
-            </div>
-          </div>
+          <Link to="/" className="flex items-center">
+            <CHSLogo variant="full" size="md" imageClassName="h-9" subtitle="Admin Hub" />
+          </Link>
           <button 
             onClick={() => setSidebarOpen(false)}
             className="md:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"

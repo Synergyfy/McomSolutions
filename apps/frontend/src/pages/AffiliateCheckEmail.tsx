@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import AuthSidebar from "../components/affiliate-auth/AuthSidebar";
+import CHSLogo from "../components/CHSLogo";
 
 export default function AffiliateCheckEmail() {
     return (
@@ -12,11 +13,8 @@ export default function AffiliateCheckEmail() {
 
             <div className="flex flex-col flex-1 justify-center items-center px-8 py-12 lg:px-24">
                 <div className="w-full max-w-md flex flex-col items-center">
-                    <div className="lg:hidden flex items-center gap-3 mb-10 self-start">
-                        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white shadow-lg shadow-primary/20">
-                            <span className="material-symbols-outlined text-2xl">rocket_launch</span>
-                        </div>
-                        <h2 className="text-2xl font-bold text-text-main font-display">247gbs affiliate</h2>
+                    <div className="lg:hidden flex items-center mb-8 self-start">
+                        <CHSLogo variant="full" size="md" imageClassName="h-9" />
                     </div>
 
                     <div className="mb-10 w-full flex justify-center">
@@ -63,7 +61,7 @@ export default function AffiliateCheckEmail() {
                             <Link className="hover:text-primary transition-colors" to="/contact">Support</Link>
                         </div>
                         <p className="text-center text-[10px] text-slate-300 font-bold uppercase tracking-widest font-display">
-                            © 2026 247gbs affiliate professional marketplace.
+                            © {new Date().getFullYear()} Central Hub Solution (CHS). All rights reserved.
                         </p>
                     </footer>
                 </div>

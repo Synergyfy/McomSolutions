@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import CHSLogo from './CHSLogo';
 import {
   LayoutDashboard, Users, Building2, Gem, RefreshCw,
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
@@ -163,13 +164,9 @@ export default function AdminLayout({ activeTab, onTabChange, title, subtitle, c
         "lg:translate-x-0"
       )}>
         <div className="p-5 sm:p-6 flex items-center justify-between border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-lg sm:text-xl shadow-glow">AS</div>
-            <div>
-              <div className="font-black text-base sm:text-lg tracking-tighter text-gray-900">Admin Hub</div>
-              <div className="text-[9px] font-bold text-brand-blue uppercase tracking-widest">Global Ecosystem</div>
-            </div>
-          </div>
+          <Link to="/" className="flex items-center">
+            <CHSLogo variant="full" size="md" imageClassName="h-9" subtitle="Admin Hub" />
+          </Link>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors" aria-label="Close sidebar">
             <X className="w-5 h-5" />
           </button>

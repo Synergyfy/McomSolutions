@@ -5,6 +5,8 @@ import { Menu, X, ChevronDown, LayoutGrid, ExternalLink } from 'lucide-react';
 import { PRODUCTS } from '../constants';
 import { cn } from '../lib/utils';
 
+import CHSLogo from './CHSLogo';
+
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -33,11 +35,8 @@ export default function Navbar() {
       scrolled ? "bg-white/80 backdrop-blur-lg shadow-sm py-3" : "bg-transparent"
     )}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-8 h-8 bg-brand-blue rounded-lg flex items-center justify-center text-white font-bold text-xl group-hover:scale-110 transition-transform">
-            24
-          </div>
-          <span className="font-bold text-xl tracking-tight">GBS</span>
+        <Link to="/" className="flex items-center group">
+          <CHSLogo variant="full" size="md" imageClassName="h-9 group-hover:scale-105 transition-transform" />
         </Link>
 
         {/* Desktop Nav */}

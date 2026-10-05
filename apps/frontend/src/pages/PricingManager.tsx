@@ -28,6 +28,7 @@ import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { usePricing, ICON_MAP, Membership, PricingPlan, SubTier } from '../context/PricingContext';
 import { adminApi } from '../services/admin';
+import CHSLogo from '../components/CHSLogo';
 
 export default function PricingManager() {
   const { plans, updatePlan, resetToDefaults } = usePricing();
@@ -107,12 +108,10 @@ export default function PricingManager() {
     <div className="min-h-screen bg-[#F9FAFB] flex text-gray-900 overflow-x-hidden">
       {/* Admin Sidebar */}
       <aside className="w-20 lg:w-72 bg-white border-r border-gray-200 flex flex-col fixed h-full z-20">
-        <div className="p-8 flex items-center gap-4">
-          <div className="w-10 h-10 bg-brand-blue rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-glow">24</div>
-          <div className="hidden lg:block">
-            <div className="font-bold text-xl tracking-tighter text-gray-900 uppercase">Admin Hub</div>
-            <div className="text-[10px] font-bold text-brand-blue uppercase tracking-widest">Global Ecosystem</div>
-          </div>
+        <div className="p-6 lg:p-8 flex items-center gap-4">
+          <Link to="/" className="flex items-center">
+            <CHSLogo variant="full" size="md" imageClassName="h-9" subtitle="Admin Hub" />
+          </Link>
         </div>
         
         <nav className="flex-1 px-4 py-8 space-y-2">
