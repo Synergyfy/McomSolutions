@@ -19,10 +19,12 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 export class AppThrottlerGuard extends ThrottlerGuard {
   protected async getTracker(req: Record<string, any>): Promise<string> {
     const authHeader: string | undefined = req.headers?.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : (req.cookies?.['mcom_session'] || req.cookies?.['access']);
 
-    if (authHeader?.startsWith('Bearer ')) {
+    if (token && typeof token === 'string') {
       try {
-        const token = authHeader.slice(7);
         // Decode (no verification) — we only use this as a stable bucket key.
         // The cryptographic check still happens inside JwtAuthGuard.
         const payloadB64 = token.split('.')[1];
@@ -38,7 +40,19 @@ export class AppThrottlerGuard extends ThrottlerGuard {
       }
     }
 
-    // Public request: throttle by IP as a safety-net against scrapers/bots.
+    // Public request: extract real client IP behind Cloudflare or reverse proxies
+    const cfConnectingIp = req.headers?.['cf-connecting-ip'];
+    if (typeof cfConnectingIp === 'string' && cfConnectingIp.trim()) {
+      return cfConnectingIp.trim();
+    }
+
+    const xForwardedFor = req.headers?.['x-forwarded-for'];
+    if (typeof xForwardedFor === 'string' && xForwardedFor.trim()) {
+      const firstIp = xForwardedFor.split(',')[0].trim();
+      if (firstIp) return firstIp;
+    }
+
+    // Fallback: Express req.ip (populated when trust proxy is active) or socket
     return req.ip ?? req.socket?.remoteAddress ?? 'unknown';
   }
 }

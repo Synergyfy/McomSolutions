@@ -49,6 +49,11 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // Trust front-facing proxy (Cloudflare, AWS ALB, Nginx, Railway/Render)
+  // so Express resolves req.ip and req.ips correctly from X-Forwarded-For / CF-Connecting-IP.
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', true);
+
   // Phase 6: secure HTTP headers (first, before CORS/static).
   // Exception: the Google OAuth HTML handoffs (callback + claim simulator)
   // render server-generated inline <script> postMessage pages. No bundler and

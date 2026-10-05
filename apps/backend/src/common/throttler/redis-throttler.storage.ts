@@ -39,7 +39,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     // Do not multiply by 1000 here — only the Redis key expiry (seconds)
     // needs a ms→s conversion at save() time.
     const ttlMs = ttl;
-    const storageKey = `throttle:${key}`;
+    const storageKey = `throttle:v2:${key}`;
 
     let record = await this.load(storageKey);
     if (!record) record = { hits: [], blockedUntil: 0 };
@@ -47,11 +47,19 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     // Drop expired hits outside the window.
     record.hits = record.hits.filter((h) => h.expiresAt > now);
 
+    const effectiveBlockDuration = blockDuration > 0 ? blockDuration : ttlMs;
+
+    // Self-healing guard: if a record in Redis has a block timestamp far beyond
+    // the configured window (e.g. from an earlier ms*1000 multiplier bug), reset it.
+    if (record.blockedUntil > now + effectiveBlockDuration) {
+      this.logger.warn(`[Throttle] Corrupted block timestamp detected for ${key} (${record.blockedUntil}) — auto-healing to unblocked`);
+      record.blockedUntil = 0;
+    }
+
     if (record.blockedUntil > now) {
       return this.toResult(record, now);
     }
 
-    const effectiveBlockDuration = blockDuration > 0 ? blockDuration : ttlMs;
     record.hits.push({ expiresAt: now + ttlMs });
     if (record.hits.length > limit) {
       record.blockedUntil = now + effectiveBlockDuration;

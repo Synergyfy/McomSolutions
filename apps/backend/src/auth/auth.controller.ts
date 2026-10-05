@@ -57,7 +57,7 @@ export class AuthController {
     });
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterDto })
@@ -83,7 +83,7 @@ export class AuthController {
     return result;
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get('check-email')
   @ApiOperation({ summary: 'Check whether an email is already registered' })
   @ApiOkResponse({ description: 'Email existence flag' })
@@ -95,7 +95,7 @@ export class AuthController {
     return { exists: !!user };
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 15, ttl: 60000, blockDuration: 60000 } })
   @UseGuards(LocalAuthGuard)
   @Post('login')
   @ApiOperation({ summary: 'Log in with email and password' })
