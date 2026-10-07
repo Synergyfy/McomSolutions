@@ -30,6 +30,8 @@ import AffiliateSignup from './pages/AffiliateSignup';
 import { useAdminAuth } from './context/AdminAuthContext';
 import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
 import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
+import ProtectedBusinessRoute from './components/auth/ProtectedBusinessRoute';
+import ProtectedCustomerRoute from './components/auth/ProtectedCustomerRoute';
 
 const queryClient = new QueryClient();
 
@@ -110,9 +112,11 @@ function AnimatedRoutes() {
           <Route 
             path="/dashboard/*" 
             element={
-              <PageWrapper>
-                <Dashboard />
-              </PageWrapper>
+              <ProtectedBusinessRoute>
+                <PageWrapper>
+                  <Dashboard />
+                </PageWrapper>
+              </ProtectedBusinessRoute>
             } 
           />
           <Route 
@@ -194,9 +198,11 @@ function AnimatedRoutes() {
           <Route 
             path="/customer" 
             element={
-              <PageWrapper>
-                <CustomerLandingPage />
-              </PageWrapper>
+              <ProtectedCustomerRoute>
+                <PageWrapper>
+                  <CustomerLandingPage />
+                </PageWrapper>
+              </ProtectedCustomerRoute>
             } 
           />
           <Route 

@@ -55,6 +55,7 @@ describe('BusinessService', () => {
 
   const mockAuthService = {
     login: jest.fn().mockResolvedValue({ accessToken: 'mock-token', user: { id: 'user-1' } }),
+    registerCustomer: jest.fn().mockResolvedValue({ accessToken: 'mock-token', user: { id: 'new-cust-id' } }),
   };
 
   const mockGoogleOAuth = {
@@ -609,6 +610,29 @@ describe('BusinessService', () => {
       expect(result).toContain('new-user@test.com');
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
       expect(authService.login).not.toHaveBeenCalled();
+    });
+
+    it('should auto-create a CUSTOMER account when registering with Google', async () => {
+      mockGoogleOAuth.verifyState.mockReturnValue({ type: 'login', role: 'CUSTOMER', mode: 'register' });
+      mockGoogleOAuth.exchangeCodeForProfile.mockResolvedValue({
+        email: 'new-customer@test.com',
+        firstName: 'Jane',
+        lastName: 'Doe',
+      });
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce(null) // first check: user does not exist
+        .mockResolvedValueOnce({ id: 'new-cust-id', email: 'new-customer@test.com', role: 'CUSTOMER' }); // after register
+
+      const result = await service.handleGoogleCallback('real-code', 'signed-state', { cookie: jest.fn() });
+      expect(result).toContain('GOOGLE_LOGIN_SUCCESS');
+      expect(authService.registerCustomer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'new-customer@test.com',
+          firstName: 'Jane',
+          lastName: 'Doe',
+        }),
+      );
+      expect(authService.login).toHaveBeenCalled();
     });
 
     it('should login an existing user and emit GOOGLE_LOGIN_SUCCESS', async () => {

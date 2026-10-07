@@ -50,6 +50,18 @@ export default function Dashboard() {
     const token = localStorage.getItem('auth_token');
     if (!token) {
       navigate('/login');
+      return;
+    }
+    const storedUserRaw = localStorage.getItem('business_user');
+    if (storedUserRaw) {
+      try {
+        const u = JSON.parse(storedUserRaw);
+        if (u?.role === 'CUSTOMER') {
+          navigate('/customer', { replace: true });
+        }
+      } catch {
+        // ignore
+      }
     }
   }, [navigate]);
 
