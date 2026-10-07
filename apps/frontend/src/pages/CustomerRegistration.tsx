@@ -8,6 +8,7 @@ import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, us
 
 import { apiClient } from '../services/api';
 import { validateEmailAddress } from '../lib/validation';
+import { persistReferralCodeFromSearchParams } from '../lib/referral';
 
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
@@ -167,6 +168,11 @@ export default function CustomerRegistration() {
   const redirectUri = searchParams.get('redirect_uri');
   const state = searchParams.get('state');
   const scope = searchParams.get('scope');
+
+  // Persist ?ref= so referral attribution survives the OTP + form steps.
+  useEffect(() => {
+    persistReferralCodeFromSearchParams(searchParams);
+  }, [searchParams]);
 
   const [mode, setMode] = useState<Mode>('register');
   const [step, setStep] = useState<Step>('enter-email');

@@ -57,6 +57,10 @@ model User {
   // Phase 3: session version — bumped on password reset / role change / ban-deactivate.
   // Outstanding access tokens carry `tv` and are rejected when it mismatches.
   tokenVersion       Int                 @default(0) @map("token_version")
+  referralCode       String?             @unique @map("referral_code")
+  referredById      String?             @map("referred_by_id")
+  referredBy        User?               @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals        User[]              @relation("Referrals")
   businessProfile    BusinessProfile?
   customerProfile    CustomerProfile?
   agentProfile       AgentProfile?
@@ -71,6 +75,7 @@ model User {
 
   @@index([deletedAt])
   @@index([role])
+  @@index([referredById])
 }
 
 model BusinessProfile {

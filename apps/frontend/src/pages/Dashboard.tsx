@@ -6,7 +6,7 @@ import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   PackageOpen, Wallet, Building2, ShieldCheck,
-  User, ChevronDown, ExternalLink, MoreHorizontal
+  User, Users, ChevronDown, ExternalLink, MoreHorizontal
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
@@ -22,12 +22,13 @@ import DashboardNotifications from '../components/DashboardNotifications';
 import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
 import DashboardWallet from '../components/DashboardWallet';
+import DashboardReferrals from '../components/DashboardReferrals';
 import FirstDashboardWelcome from '../components/FirstDashboardWelcome';
 
 const DASHBOARD_TABS = [
   'overview', 'all-products', 'access', 'notifications',
   'memberships', 'packages', 'billing', 'business-profile',
-  'support', 'settings', 'wallet',
+  'referrals', 'support', 'settings', 'wallet',
 ] as const;
 
 export default function Dashboard() {
@@ -112,6 +113,7 @@ export default function Dashboard() {
           <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
           <NavItem icon={Wallet} label="Wallet" active={activeTab === 'wallet'} onClick={() => handleNav('wallet')} />
           <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+          <NavItem icon={Users} label="Referrals" active={activeTab === 'referrals'} onClick={() => handleNav('referrals')} />
           <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => handleNav('support')} />
           <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
         </nav>
@@ -237,6 +239,7 @@ export default function Dashboard() {
           {activeTab === 'billing' && <DashboardBilling />}
           {activeTab === 'wallet' && <DashboardWallet />}
           {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+          {activeTab === 'referrals' && <DashboardReferrals />}
           {activeTab === 'support' && <DashboardSupport />}
           {activeTab === 'settings' && <DashboardSettings />}
         </div>
@@ -319,6 +322,7 @@ export default function Dashboard() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Account</p>
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={Building2} label="Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+                    <SheetItem icon={Users} label="Referrals" active={activeTab === 'referrals'} onClick={() => handleNav('referrals')} />
                     <SheetItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
                     <SheetItem icon={LogOut} label="Sign Out" onClick={handleLogout} danger />
                   </div>

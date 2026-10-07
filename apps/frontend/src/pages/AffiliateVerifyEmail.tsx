@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useAffiliateAuthStore } from '../store/useAffiliateAuthStore';
 import { useAffiliateAuth } from '../hooks/useAffiliateAuth';
+import { persistReferralCodeFromSearchParams } from '../lib/referral';
 import CHSLogo from '../components/CHSLogo';
 
 export default function AffiliateVerifyEmail() {
@@ -38,6 +39,11 @@ export default function AffiliateVerifyEmail() {
             inputsRef.current[0].focus();
         }
     }, []);
+
+    // Persist ?ref= (forwarded from signup via searchStr) for the final register call.
+    useEffect(() => {
+        persistReferralCodeFromSearchParams(searchParams);
+    }, [searchParams]);
 
     // Cooldown countdown timer
     useEffect(() => {

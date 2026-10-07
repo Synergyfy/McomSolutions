@@ -20,6 +20,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
 import { QueueModule } from './queue/queue.module';
 import { TaskModule } from './task/task.module';
+import { ReferralsModule } from './referrals/referrals.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -91,6 +92,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     WebhookDispatcherModule,
     QueueModule,
     TaskModule,
+    ReferralsModule,
   ],
   controllers: [],
   // Global throttler: AppThrottlerGuard keys by userId for authenticated

@@ -4,6 +4,7 @@ import AuthSidebar from "../components/affiliate-auth/AuthSidebar";
 import AuthInput from "../components/affiliate-auth/AuthInput";
 import { useAffiliateAuth } from "../hooks/useAffiliateAuth";
 import { validateSignup } from "../lib/validation";
+import { persistReferralCodeFromSearchParams } from "../lib/referral";
 import { UserRole } from "../types/affiliate-auth";
 import CHSLogo from "../components/CHSLogo";
 
@@ -24,6 +25,8 @@ export default function AffiliateSignup() {
                 setRole(mappedRole as UserRole);
             }
         }
+        // Persist ?ref= (query params are forwarded to verify-email via searchStr).
+        persistReferralCodeFromSearchParams(searchParams);
     }, [searchParams]);
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

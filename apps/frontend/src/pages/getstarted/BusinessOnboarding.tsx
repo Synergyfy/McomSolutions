@@ -20,6 +20,7 @@ import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
+import { persistReferralCodeFromSearchParams } from '../../lib/referral';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -635,6 +636,8 @@ function BusinessOnboardingInner() {
     const scope = searchParams.get('scope');
     const source = searchParams.get('source');
     const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl');
+    // Persist ?ref= alongside the SSO intent (register funnel merges it).
+    persistReferralCodeFromSearchParams(searchParams);
 
     if (clientId || redirectUri || source || redirect) {
       const intent: any = {};
