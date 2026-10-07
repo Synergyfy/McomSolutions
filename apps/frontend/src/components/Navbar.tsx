@@ -117,15 +117,6 @@ export default function Navbar() {
                       <div className="text-xs text-gray-500">Plans & subscriptions</div>
                     </div>
                   </Link>
-                  <Link to="/packages" className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
-                    <div className="p-2 rounded-lg bg-amber-100 text-amber-600">
-                      <LayoutGrid className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">Packages</div>
-                      <div className="text-xs text-gray-500">Platform-specific add-ons</div>
-                    </div>
-                  </Link>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -220,17 +211,6 @@ export default function Navbar() {
                     <div>
                       <span className="text-gray-900 block">Membership</span>
                       <span className="text-xs text-gray-500 block">Plans & subscriptions</span>
-                    </div>
-                  </Link>
-                  <Link 
-                    to="/packages" 
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
-                  >
-                    <div className="p-2 rounded-lg bg-amber-100 text-amber-600 shrink-0"><LayoutGrid className="w-4 h-4" /></div>
-                    <div>
-                      <span className="text-gray-900 block">Packages</span>
-                      <span className="text-xs text-gray-500 block">Platform-specific add-ons</span>
                     </div>
                   </Link>
                 </div>

@@ -9,7 +9,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { TaskAudience, TaskAssignmentStatus } from '@prisma/client';
+import { TaskAudience, TaskAssignmentStatus, TaskSource } from '@prisma/client';
 
 export class CreateTaskDefinitionDto {
   @ApiProperty({ example: 'Upload Business Logo', description: 'Task title shown to the user' })
@@ -30,13 +30,32 @@ export class CreateTaskDefinitionDto {
   @IsEnum(TaskAudience)
   targetAudience: TaskAudience;
 
-  @ApiProperty({
-    example: 'business.logo_uploaded',
-    description: 'The feature key trigger that marks this task completed automatically',
+  @ApiPropertyOptional({
+    enum: TaskSource,
+    example: TaskSource.INTERNAL,
+    description: 'Task source: INTERNAL (auto-completed by MCOM Central event worker) or EXTERNAL (manual completion on a console-registered platform)',
   })
+  @IsOptional()
+  @IsEnum(TaskSource)
+  taskSource?: TaskSource;
+
+  @ApiPropertyOptional({
+    example: 'business.logo_uploaded',
+    description: 'The feature key trigger that marks this task completed automatically. Required for INTERNAL tasks; must be omitted for EXTERNAL tasks.',
+  })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  featureKey: string;
+  featureKey?: string;
+
+  @ApiPropertyOptional({
+    example: 'mcom-mall',
+    description: 'Console-registered app clientId (from /admin/console). Required for EXTERNAL tasks; must be omitted for INTERNAL tasks.',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  externalClientId?: string;
 
   @ApiProperty({ example: 7, description: 'Number of days from assignment to complete the task' })
   @IsInt()

@@ -24,8 +24,11 @@ import {
   RefreshCw,
   Gift,
   HelpCircle,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useConsoleApps } from './console/hooks/useConsoleApps';
 import {
   useTaskFeatures,
   useTaskOverviewStats,
@@ -42,7 +45,9 @@ interface TaskFormData {
   title: string;
   description: string;
   targetAudience: 'BUSINESS' | 'CUSTOMER' | 'BOTH';
+  taskSource: 'INTERNAL' | 'EXTERNAL';
   featureKey: string;
+  externalClientId: string;
   deadlineDays: number;
   rewardPoints: number;
   isActive: boolean;
@@ -53,7 +58,9 @@ const DEFAULT_FORM: TaskFormData = {
   title: '',
   description: '',
   targetAudience: 'BUSINESS',
+  taskSource: 'INTERNAL',
   featureKey: 'business.logo_uploaded',
+  externalClientId: '',
   deadlineDays: 7,
   rewardPoints: 50,
   isActive: true,
@@ -75,6 +82,10 @@ export default function TaskEngineSection() {
   const { data: featuresRes, isLoading: loadingFeatures } = useTaskFeatures();
   const { data: statsRes, refetch: refetchStats } = useTaskOverviewStats();
   const { data: tasksRes, isLoading: loadingTasks, refetch: refetchTasks } = useTaskDefinitions();
+  // Console-registered external apps (read-only reuse — no console changes here).
+  const { data: consoleApps = [], isLoading: loadingApps } = useConsoleApps();
+  const activeApps = (consoleApps || []).filter((a: any) => a.isActive);
+  const isExternalForm = formData.taskSource === 'EXTERNAL';
   const createTask = useCreateTaskDefinition();
   const updateTask = useUpdateTaskDefinition();
   const deleteTask = useDeleteTaskDefinition();
@@ -106,10 +117,13 @@ export default function TaskEngineSection() {
   const tasks = tasksRes?.data || [];
 
   const filteredTasks = tasks.filter((t: any) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.featureKey.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchQuery.toLowerCase());
+      t.title.toLowerCase().includes(q) ||
+      (t.featureKey || '').toLowerCase().includes(q) ||
+      (t.externalAppName || '').toLowerCase().includes(q) ||
+      (t.externalClientId || '').toLowerCase().includes(q) ||
+      t.description.toLowerCase().includes(q);
     const matchesAudience = audienceFilter === 'ALL' || t.targetAudience === audienceFilter;
     return matchesSearch && matchesAudience;
   });
@@ -122,11 +136,16 @@ export default function TaskEngineSection() {
 
   const handleOpenEditModal = (task: any) => {
     setEditingTaskId(task.id);
+    const taskSource = task.taskSource === 'EXTERNAL' || (!task.taskSource && task.externalClientId)
+      ? 'EXTERNAL'
+      : 'INTERNAL';
     setFormData({
       title: task.title,
       description: task.description,
       targetAudience: task.targetAudience,
-      featureKey: task.featureKey,
+      taskSource,
+      featureKey: task.featureKey || 'business.logo_uploaded',
+      externalClientId: task.externalClientId || '',
       deadlineDays: task.deadlineDays,
       rewardPoints: task.rewardPoints,
       isActive: task.isActive,
@@ -137,12 +156,30 @@ export default function TaskEngineSection() {
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.title || !formData.featureKey) return;
+    if (!formData.title.trim() || !formData.description.trim()) return;
+    if (formData.taskSource === 'INTERNAL' && !formData.featureKey) return;
+    if (formData.taskSource === 'EXTERNAL' && !formData.externalClientId) return;
+
+    // Platform is derived server-side (mcom_central | console platformSlug) — not sent.
+    const payload: Record<string, unknown> = {
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      targetAudience: formData.targetAudience,
+      taskSource: formData.taskSource,
+      deadlineDays: formData.deadlineDays,
+      rewardPoints: formData.rewardPoints,
+      isActive: formData.isActive,
+    };
+    if (formData.taskSource === 'INTERNAL') {
+      payload.featureKey = formData.featureKey;
+    } else {
+      payload.externalClientId = formData.externalClientId;
+    }
 
     if (editingTaskId) {
-      await updateTask.mutateAsync({ id: editingTaskId, data: formData });
+      await updateTask.mutateAsync({ id: editingTaskId, data: payload });
     } else {
-      await createTask.mutateAsync(formData);
+      await createTask.mutateAsync(payload);
     }
     setIsModalOpen(false);
   };
@@ -353,6 +390,7 @@ export default function TaskEngineSection() {
             {filteredTasks.map((task: any) => {
               const matchedFeature = features.find((f: any) => f.key === task.featureKey);
               const isSelected = selectedTaskForProgress?.id === task.id;
+              const isExternal = task.taskSource === 'EXTERNAL' || (!task.taskSource && !!task.externalClientId);
 
               return (
                 <div
@@ -401,24 +439,51 @@ export default function TaskEngineSection() {
                       )}
 
                       <span className="text-[11px] font-mono text-gray-400 bg-gray-50 px-2 py-0.5 rounded border border-gray-200">
-                        mcom_central
+                        {isExternal ? (task.externalPlatformSlug || task.platform) : 'mcom_central'}
                       </span>
+                      {isExternal && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 flex items-center gap-1">
+                          <Globe className="w-3 h-3" />
+                          {task.externalAppName || 'External'} · Manual
+                        </span>
+                      )}
                     </div>
 
                     <h4 className="text-base font-bold text-gray-900">{task.title}</h4>
                     <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 max-w-3xl">{task.description}</p>
 
                     <div className="mt-2.5 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-                      <div className="flex items-center gap-1.5 font-medium">
-                        <Zap className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Trigger:</span>
-                        <code className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">
-                          {task.featureKey}
-                        </code>
-                        {matchedFeature && (
-                          <span className="text-gray-400">({matchedFeature.label})</span>
-                        )}
-                      </div>
+                      {isExternal ? (
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <Globe className="w-3.5 h-3.5 text-violet-600" />
+                          <span>Platform:</span>
+                          <span className="text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded font-bold text-[11px]">
+                            {task.externalAppName || task.externalClientId || task.platform}
+                          </span>
+                          <span className="text-gray-400">(manual completion — no event worker)</span>
+                          {task.externalAppUrl && (
+                            <a
+                              href={task.externalAppUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline inline-flex items-center gap-0.5"
+                            >
+                              Open app <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <Zap className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Trigger:</span>
+                          <code className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">
+                            {task.featureKey}
+                          </code>
+                          {matchedFeature && (
+                            <span className="text-gray-400">({matchedFeature.label})</span>
+                          )}
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-3 pl-2 border-l border-gray-200">
                         <span>Assigned: <strong className="text-gray-900">{task.stats?.totalAssigned || 0}</strong></span>
@@ -497,7 +562,11 @@ export default function TaskEngineSection() {
                   Live Progress Tracking
                 </span>
                 <span className="text-xs text-gray-500">
-                  Trigger: <code className="font-mono text-blue-700 font-bold">{selectedTaskForProgress.featureKey}</code>
+                  {(selectedTaskForProgress.taskSource === 'EXTERNAL' || selectedTaskForProgress.externalClientId) ? (
+                    <>App: <strong className="text-violet-700">{selectedTaskForProgress.externalAppName || selectedTaskForProgress.externalClientId}</strong> (manual)</>
+                  ) : (
+                    <>Trigger: <code className="font-mono text-blue-700 font-bold">{selectedTaskForProgress.featureKey}</code></>
+                  )}
                 </span>
               </div>
               <h3 className="text-lg font-black text-gray-900 mt-1">
@@ -711,7 +780,7 @@ export default function TaskEngineSection() {
                       {editingTaskId ? 'Edit Programme Task' : 'Create Programme Task'}
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Define a task, assign a feature trigger, deadline & reward points
+                      Internal tasks auto-complete via event trigger; external tasks link a console app and complete manually
                     </p>
                   </div>
                 </div>
@@ -783,27 +852,94 @@ export default function TaskEngineSection() {
                   </div>
                 </div>
 
-                {/* Feature Key Trigger */}
+                {/* Task Source */}
                 <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Platform Trigger Feature (Event Worker) *
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Task Source
                   </label>
-                  <select
-                    value={formData.featureKey}
-                    onChange={(e) => setFormData({ ...formData, featureKey: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  >
-                    {features.map((feat: any) => (
-                      <option key={feat.key} value={feat.key}>
-                        {feat.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
-                    <Zap className="w-3 h-3 text-blue-600" />
-                    When a user performs this action in MCOM Central, the BullMQ worker automatically completes this task.
-                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, taskSource: 'INTERNAL' })}
+                      className={cn(
+                        'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                        !isExternalForm
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+                      )}
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      MCOM Central (auto)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, taskSource: 'EXTERNAL' })}
+                      className={cn(
+                        'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                        isExternalForm
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+                      )}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      External Platform (manual)
+                    </button>
+                  </div>
                 </div>
+
+                {/* Feature Key Trigger (internal only) */}
+                {!isExternalForm ? (
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      Platform Trigger Feature (Event Worker) *
+                    </label>
+                    <select
+                      value={formData.featureKey}
+                      onChange={(e) => setFormData({ ...formData, featureKey: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    >
+                      {features.map((feat: any) => (
+                        <option key={feat.key} value={feat.key}>
+                          {feat.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-blue-600" />
+                      When a user performs this action in MCOM Central, the BullMQ worker automatically completes this task.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                      External App (from Console) *
+                    </label>
+                    <select
+                      value={formData.externalClientId}
+                      onChange={(e) => setFormData({ ...formData, externalClientId: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+                    >
+                      <option value="">Select an app...</option>
+                      {activeApps.map((app: any) => (
+                        <option key={app.clientId} value={app.clientId}>
+                          {app.name}{app.platformSlug ? ` (${app.platformSlug})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingApps ? (
+                      <p className="text-[11px] text-gray-400 mt-1">Loading console apps...</p>
+                    ) : activeApps.length === 0 ? (
+                      <p className="text-[11px] text-amber-600 mt-1">
+                        No active apps registered yet — register one in /admin/console, then return here.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-violet-600" />
+                        No event worker — the user opens the app, completes the work there, then manually marks this task done.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Deadline & Points Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -896,7 +1032,11 @@ export default function TaskEngineSection() {
 
                 {/* Platform Tag */}
                 <div className="text-[11px] text-gray-400 bg-gray-50 p-2.5 rounded-xl border border-dashed border-gray-200">
-                  Scope: <strong className="text-gray-700 font-mono">MCOM Central</strong> (additional ecosystem platforms will be supported in upcoming phases).
+                  {isExternalForm ? (
+                    <>Scope: <strong className="text-gray-700 font-mono">external platform</strong> (manual completion — no event worker).</>
+                  ) : (
+                    <>Scope: <strong className="text-gray-700 font-mono">MCOM Central</strong> (auto-completed by event worker).</>
+                  )}
                 </div>
 
                 {/* Submit Buttons */}

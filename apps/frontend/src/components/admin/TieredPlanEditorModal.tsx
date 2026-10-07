@@ -20,29 +20,24 @@ import {
 import { cn } from '../../lib/utils';
 import {
   useSupportedPlatforms,
-  useAdminPackages,
   useExternalPlans,
 } from '../../services/admin/hooks';
 import type {
   CreatePlanInput,
-  CreatePackageInput,
   MembershipPlan,
-  PackageTemplate,
   PlatformInfo,
   ExternalPlan,
   IncludedAppPlan,
   TierEntitlementResource,
 } from '../../services/admin/types';
 
-export type PlanEditorMode = 'membership' | 'package';
+export type PlanEditorMode = 'membership';
 
 interface TieredPlanEditorModalProps {
-  mode: PlanEditorMode;
+  mode?: PlanEditorMode;
   initialPlan?: MembershipPlan;
-  initialPackage?: PackageTemplate;
   onClose: () => void;
   onSaveMembership?: (data: CreatePlanInput) => void;
-  onSavePackage?: (data: CreatePackageInput) => void;
 }
 
 const COLOR_PRESETS = [
@@ -57,33 +52,27 @@ const COLOR_PRESETS = [
 const DEFAULT_ENTITLEMENTS: TierEntitlementResource[] = [];
 
 export default function TieredPlanEditorModal({
-  mode,
   initialPlan,
-  initialPackage,
   onClose,
   onSaveMembership,
-  onSavePackage,
 }: TieredPlanEditorModalProps) {
   const [activeTab, setActiveTab] = useState<'pricing' | 'entitlements' | 'promotions' | 'upgrades' | 'settings'>('pricing');
 
   // Metadata & basic info
   const [name, setName] = useState(() => {
-    if (mode === 'membership') return initialPlan?.name || 'Bronze';
-    return initialPackage?.name || 'MCOM Solutions Suite';
+    return initialPlan?.name || 'Bronze';
   });
   const [description, setDescription] = useState(() => {
-    if (mode === 'membership') return initialPlan?.description || 'Essential ecosystem plan';
-    return initialPackage?.description || 'Full solutions toolkit for business';
+    return initialPlan?.description || 'Essential ecosystem plan';
   });
   const [whoItIsFor, setWhoItIsFor] = useState(() => initialPlan?.whoItIsFor || 'Small & Medium Businesses');
   const [badge, setBadge] = useState(() => initialPlan?.badge || (name.toLowerCase() === 'gold' ? 'POPULAR' : ''));
   const [colorPreset, setColorPreset] = useState(() => initialPlan?.color || COLOR_PRESETS[0].value);
-  const [platform, setPlatform] = useState(() => initialPackage?.platform || 'MCOM Solutions');
 
   // Tier pricing (Standard: 90 days, Pro: 180 days, Pro+: Annually leap-year aware)
   const [tierPrices, setTierPrices] = useState<{ Standard: number; Pro: number; 'Pro+': number }>(() => {
-    const raw = (mode === 'membership' ? initialPlan?.tierPrices : initialPackage?.tierPrices) as any;
-    const base = Number(mode === 'membership' ? (initialPlan?.monthlyPrice ?? initialPlan?.price ?? 49) : (initialPackage?.price ?? 49));
+    const raw = initialPlan?.tierPrices as any;
+    const base = Number(initialPlan?.monthlyPrice ?? initialPlan?.price ?? 49);
     return {
       Standard: raw?.Standard ?? (raw?.Normal != null ? Number(raw.Normal) : base),
       Pro: raw?.Pro != null ? Number(raw.Pro) : Math.round(base * 2.5),
@@ -93,18 +82,18 @@ export default function TieredPlanEditorModal({
 
   // Features per tier
   const [tierFeatures, setTierFeatures] = useState<{ Standard: string[]; Pro: string[]; 'Pro+': string[] }>(() => {
-    const raw = (mode === 'membership' ? initialPlan?.tierFeatures : initialPackage?.tierFeatures) as any;
-    const baseFeatures = (mode === 'membership' ? initialPlan?.features : initialPackage?.features) || [];
+    const raw = initialPlan?.tierFeatures as any;
+    const baseFeatures = initialPlan?.features || [];
     return {
       Standard: raw?.Standard || baseFeatures || [],
-      Pro: raw?.Pro || (initialPlan || initialPackage ? baseFeatures : []),
-      'Pro+': raw?.['Pro+'] || (initialPlan || initialPackage ? baseFeatures : []),
+      Pro: raw?.Pro || (initialPlan ? baseFeatures : []),
+      'Pro+': raw?.['Pro+'] || (initialPlan ? baseFeatures : []),
     };
   });
 
   // Entitlements matrix
   const [entitlements, setEntitlements] = useState<TierEntitlementResource[]>(() => {
-    const raw = (mode === 'membership' ? initialPlan?.tierEntitlements : initialPackage?.tierEntitlements);
+    const raw = initialPlan?.tierEntitlements;
     if (Array.isArray(raw) && raw.length > 0) {
       return raw;
     }
@@ -119,7 +108,7 @@ export default function TieredPlanEditorModal({
   // Promotions tab state
   const [promoDiscount, setPromoDiscount] = useState<number>(0);
   const [promoBadge, setPromoBadge] = useState<string>('');
-  const [trialDays, setTrialDays] = useState<number>(mode === 'package' ? (initialPackage?.trialDuration ?? 0) : 0);
+  const [trialDays, setTrialDays] = useState<number>(0);
 
   // Upgrades / Downgrades tab state
   const [instantProration, setInstantProration] = useState<boolean>(true);
@@ -141,26 +130,13 @@ export default function TieredPlanEditorModal({
     'Pro+': '',
   });
 
-  // External platforms and packages hooks
+  // External platforms (console-registered) provide every bundled plan.
   const { data: platformsRes } = useSupportedPlatforms();
-  const { data: packagesRes } = useAdminPackages();
   const platforms: PlatformInfo[] = platformsRes?.data ?? [];
-  const allPackages: PackageTemplate[] = packagesRes?.data ?? [];
 
-  const isExternalSelected = selectedBundlePlatform !== 'MCOM Solutions';
-  const { data: externalPlansRes } = useExternalPlans(isExternalSelected ? selectedBundlePlatform : '');
+  const { data: externalPlansRes } = useExternalPlans(selectedBundlePlatform);
 
   const availablePlansForPlatform = useMemo(() => {
-    if (selectedBundlePlatform === 'MCOM Solutions') {
-      return allPackages.map((pkg) => ({
-        id: pkg.id,
-        name: pkg.name,
-        price: pkg.monthlyPrice ?? pkg.price ?? 0,
-        tierPrices: pkg.tierPrices,
-        tierFeatures: pkg.tierFeatures,
-        quotas: pkg.usageLimits,
-      }));
-    }
     const extPlans: ExternalPlan[] = externalPlansRes?.data ?? [];
     return extPlans.map((ep: ExternalPlan) => ({
       id: ep.id,
@@ -172,7 +148,7 @@ export default function TieredPlanEditorModal({
       quotas: ep.configuration?.quotas,
       featureFlags: ep.configuration?.featureFlags,
     }));
-  }, [selectedBundlePlatform, allPackages, externalPlansRes]);
+  }, [externalPlansRes]);
 
   const handleUpdateEntitlementValue = (index: number, field: 'standard' | 'pro' | 'proPlus', value: string) => {
     const updated = [...entitlements];
@@ -267,58 +243,34 @@ export default function TieredPlanEditorModal({
       'Pro+': 365,
     };
 
-    if (mode === 'membership') {
-      const platformAccess = Array.from(
-        new Set(['MCOM Solutions', ...includedApps.map((a) => a.platform)]),
-      );
+    // Memberships bundle plans from console-registered external platforms only.
+    const platformAccess = Array.from(
+      new Set([...includedApps.map((a) => a.platform)]),
+    );
 
-      const payload: CreatePlanInput = {
-        name,
-        description,
-        whoItIsFor,
-        badge: badge || undefined,
-        color: colorPreset,
-        price: tierPrices.Standard,
-        monthlyPrice: tierPrices.Standard,
-        quarterlyPrice: tierPrices.Standard,
-        annualPrice: tierPrices['Pro+'],
-        billingCycle: 'Quarterly',
-        features: tierFeatures.Standard,
-        platformAccess,
-        permissions: ['Basic Dashboard', 'Standard Dashboard'],
-        usageLimits: {},
-        includedApps,
-        tierPrices,
-        tierFeatures,
-        tierEntitlements: entitlements,
-        tierDurations,
-      };
+    const payload: CreatePlanInput = {
+      name,
+      description,
+      whoItIsFor,
+      badge: badge || undefined,
+      color: colorPreset,
+      price: tierPrices.Standard,
+      monthlyPrice: tierPrices.Standard,
+      quarterlyPrice: tierPrices.Standard,
+      annualPrice: tierPrices['Pro+'],
+      billingCycle: 'Quarterly',
+      features: tierFeatures.Standard,
+      platformAccess,
+      permissions: ['Basic Dashboard', 'Standard Dashboard'],
+      usageLimits: {},
+      includedApps,
+      tierPrices,
+      tierFeatures,
+      tierEntitlements: entitlements,
+      tierDurations,
+    };
 
-      onSaveMembership?.(payload);
-    } else {
-      const payload: CreatePackageInput = {
-        name,
-        platform,
-        description,
-        price: tierPrices.Standard,
-        monthlyPrice: tierPrices.Standard,
-        quarterlyPrice: tierPrices.Standard,
-        annualPrice: tierPrices['Pro+'],
-        billingCycle: 'Quarterly',
-        features: tierFeatures.Standard,
-        tierPrices,
-        tierFeatures,
-        tierEntitlements: entitlements,
-        tierDurations,
-        isDefault: false,
-        type: 'TIERED',
-        trialDuration: trialDays || undefined,
-        usageLimits: {},
-        accessRights: ['standard_access'],
-      };
-
-      onSavePackage?.(payload);
-    }
+    onSaveMembership?.(payload);
   };
 
   return (
@@ -335,9 +287,9 @@ export default function TieredPlanEditorModal({
             <span className={cn("w-3 h-3 rounded-full shrink-0 shadow-sm", COLOR_PRESETS.find(c => c.value === colorPreset)?.dotColor || "bg-orange-500")} />
             <div>
               <h2 className="text-xl font-bold text-gray-900 capitalize tracking-tight flex items-center gap-2">
-                {name || (mode === 'membership' ? 'New Membership' : 'New Package')}
+                {name || 'New Membership'}
                 <span className="text-sm font-normal text-gray-400 lowercase">
-                  {mode === 'membership' ? 'plan' : 'package'}
+                  plan
                 </span>
               </h2>
               <p className="text-xs text-gray-400 font-medium">
@@ -860,8 +812,7 @@ export default function TieredPlanEditorModal({
                   </div>
                 </div>
 
-                {/* Membership Specific: Bundled Platform Plans */}
-                {mode === 'membership' && (
+                {/* Membership: bundle plans from console-registered platforms */}
                   <div className="border border-blue-100 bg-blue-50/40 rounded-2xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -884,7 +835,7 @@ export default function TieredPlanEditorModal({
                         }}
                         className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800"
                       >
-                        <option value="MCOM Solutions">MCOM Solutions (Local Packages)</option>
+                        <option value="">-- Choose Platform --</option>
                         {platforms.map((p) => (
                           <option key={p.name} value={p.name}>
                             {p.name}
@@ -933,28 +884,7 @@ export default function TieredPlanEditorModal({
                         ))}
                       </div>
                     )}
-                  </div>
-                )}
-
-                {/* Package Specific: Platform Selector */}
-                {mode === 'package' && (
-                  <div className="border border-gray-100 rounded-2xl p-5 bg-gray-50/50 space-y-3">
-                    <label className="text-xs font-bold text-gray-700 uppercase tracking-wider block">
-                      Target Platform
-                    </label>
-                    <select
-                      value={platform}
-                      onChange={(e) => setPlatform(e.target.value)}
-                      className="w-full max-w-md bg-white border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                    >
-                      {['MCOM Solutions', 'MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'].map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                </div>
               </div>
             )}
 

@@ -399,136 +399,14 @@ export class PricingService {
     return { ...(current ?? { id: businessId }), replayed: true, price: existing.amount };
   }
 
-  async purchasePackage(businessId: string, platform: string, packageName: string, tier: string = 'Standard') {
-    const business = await this.prisma.businessProfile.findFirst({
-      where: { id: businessId, deletedAt: null },
-    });
-
-    if (!business) {
-      throw new NotFoundException('Business profile not found');
-    }
-
-    const template = await this.prisma.packageTemplate.findFirst({
-      where: { platform, name: { equals: packageName, mode: 'insensitive' }, archived: false },
-    });
-
-    if (!template) {
-      throw new NotFoundException(`No package template found for "${packageName}" on platform "${platform}"`);
-    }
-
-    const canonicalTier = normalizeTier(tier);
-    const expiresAt = calculateTierExpiry(canonicalTier);
-
-    // Resolve tier price
-    let price = Number(template.price);
-    if (template.tierPrices && typeof template.tierPrices === 'object') {
-      const tp = template.tierPrices as Record<string, any>;
-      const directPrice = tp[canonicalTier] ?? (canonicalTier === 'Standard' ? tp['Normal'] : undefined) ?? tp[tier];
-      if (directPrice != null && typeof directPrice === 'number') {
-        price = directPrice;
-      }
-    }
-
-    // Resolve tier limits
-    let limits = (template?.usageLimits as any) ?? {};
-    if (Array.isArray(template.tierEntitlements)) {
-      for (const ent of template.tierEntitlements as any[]) {
-        const key = ent.resourceKey || ent.name;
-        if (!key) continue;
-        const val = canonicalTier === 'Pro+' ? (ent.proPlus ?? ent.pro ?? ent.standard) : canonicalTier === 'Pro' ? (ent.pro ?? ent.standard) : ent.standard;
-        limits[key] = val;
-      }
-    }
-
-    const billingCycle = canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days';
-
-    const platformPackage = await this.prisma.platformPackage.upsert({
-      where: {
-        businessId_platform: {
-          businessId,
-          platform,
-        },
-      },
-      update: {
-        packageName: template.name,
-        limits,
-        status: 'active',
-        amount: price,
-        currency: 'GBP',
-        billingCycle,
-        expiresAt,
-      },
-      create: {
-        businessId,
-        platform,
-        packageName: template.name,
-        limits,
-        status: 'active',
-        amount: price,
-        currency: 'GBP',
-        billingCycle,
-        expiresAt,
-      },
-    });
-
-    // Record in ecosystem subscriptions
-    await this.prisma.ecosystemSubscription.create({
-      data: {
-        businessId,
-        businessName: business.businessName,
-        type: 'Package',
-        itemName: `${platform} - ${packageName} (${canonicalTier})`,
-        status: 'Active',
-        startDate: new Date(),
-        endDate: expiresAt,
-        amount: price,
-        billingCycle,
-      },
-    });
-
-    // Create billing transaction
-    await this.prisma.billingTransaction.create({
-      data: {
-        businessId,
-        amount: price,
-        description: `Platform Package purchase: ${platform} - ${packageName} (${canonicalTier})`,
-        status: 'paid',
-      },
-    });
-
-    if (this.taskEventQueue && business?.userId) {
-      this.taskEventQueue
-        .add(
-          'evaluate-task',
-          {
-            userId: business.userId,
-            userType: 'BUSINESS',
-            featureKey: 'business.package_purchased',
-            meta: { platform, packageName, timestamp: new Date().toISOString() },
-          },
-          {
-            jobId: `task-event-package-${business.userId}-${platform}-${Date.now()}`,
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 1000 },
-          },
-        )
-        .catch((err) => this.logger.warn('Failed to emit task event for package:', err));
-    }
-
-    return platformPackage;
-  }
+  // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
+  // Standalone packages are bought on the console-registered external platforms
+  // themselves, not here. Membership purchase/activation below is unchanged.
 
   async getTransactions(businessId: string) {
     return this.prisma.billingTransaction.findMany({
       where: { businessId },
       orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async getPackageTemplates() {
-    return this.prisma.packageTemplate.findMany({
-      where: { archived: false },
-      orderBy: { price: 'asc' },
     });
   }
 

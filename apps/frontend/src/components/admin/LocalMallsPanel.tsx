@@ -4,11 +4,11 @@ import {
   BarChart3, ShoppingBag, Clock, CheckCircle2, AlertCircle, X, Save, Eye,
   Edit3, Download, UserPlus, GitMerge, Archive, Globe, Store, Award,
   Target, Music, Gift, Shield, Home, Image, Palette, MessageCircle,
-  Tag, Settings, ToggleLeft, ChevronLeft, ChevronRight, Sparkles, TrendingUp, Percent,
+  Tag, Settings, ToggleLeft, ChevronLeft, ChevronRight, Sparkles,
   Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers } from '../../services/admin/hooks';
+import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers, useAdminCampaigns } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
 
 // ─── Types & Helpers ─────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ function MultiSelectDropdown({
 
 // ─── Helper Components ────────────────────────────────────────────────────────
 
-function StatCard({ title, value, trend, icon: Icon, color = 'blue' }: { title: string; value: string; trend: string; icon: any; color?: string }) {
+function StatCard({ title, value, trend, icon: Icon, color = 'blue' }: { title: string; value: string; trend?: string; icon: any; color?: string }) {
   const colorMap: Record<string, string> = {
     blue: 'text-blue-600 bg-blue-50',
     green: 'text-emerald-600 bg-emerald-50',
@@ -214,12 +214,15 @@ function StatCard({ title, value, trend, icon: Icon, color = 'blue' }: { title: 
     orange: 'text-orange-600 bg-orange-50',
   };
   const c = colorMap[color] || colorMap.blue;
-  const isPositive = trend.startsWith('+');
+  const isPositive = (trend ?? '').startsWith('+');
+  const isNegative = (trend ?? '').startsWith('-');
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-3">
         <div className={cn("p-2.5 rounded-xl", c)}><Icon className="w-5 h-5" /></div>
-        <span className={cn("text-xs font-bold px-2 py-1 rounded-full", isPositive ? "text-emerald-600 bg-emerald-50" : trend === '0' ? "text-gray-400 bg-gray-100" : "text-red-600 bg-red-50")}>{trend}</span>
+        {trend ? (
+          <span className={cn("text-xs font-bold px-2 py-1 rounded-full", isPositive ? "text-emerald-600 bg-emerald-50" : isNegative ? "text-red-600 bg-red-50" : "text-gray-500 bg-gray-100")}>{trend}</span>
+        ) : null}
       </div>
       <div className="text-2xl font-bold text-gray-900 mb-1">{value}</div>
       <div className="text-xs font-semibold text-gray-500">{title}</div>
@@ -273,6 +276,10 @@ export default function LocalMallsPanel() {
   const { data: agentsRes } = useAdminAgents();
   const { data: consultantsRes } = useAdminConsultants();
   const { data: accountManagersRes } = useAdminAccountManagers();
+  // Real campaigns targeting local malls (powers real campaign counts — no estimates).
+  const { data: mallCampaignsRes } = useAdminCampaigns({ locationType: 'local_mall', page: 1, limit: 100 });
+  const mallCampaigns: any[] = mallCampaignsRes?.data ?? [];
+  const activeMallCampaigns = mallCampaigns.filter(c => c.status === 'active');
   const allMalls: LocalMallData[] = (mallsRes?.data ?? []) as LocalMallData[];
 
   const allAffiliates: AffiliateUser[] = [
@@ -299,6 +306,8 @@ export default function LocalMallsPanel() {
   const [selectedManagerForAssign, setSelectedManagerForAssign] = useState('');
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeName, setMergeName] = useState('');
+  const [listPage, setListPage] = useState(0);
+  const LIST_PAGE_SIZE = 10;
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -423,6 +432,25 @@ export default function LocalMallsPanel() {
     }
     setActiveActionsMenu(null);
   };
+
+  const handleBulkArchive = async () => {
+    if (selectedLocalMalls.length === 0) {
+      showToast('Select at least one LocalMall to archive', 'error');
+      return;
+    }
+    try {
+      await Promise.all(selectedLocalMalls.map(id => deleteMall.mutateAsync(id)));
+      setLocalMalls(prev => prev.filter(m => !selectedLocalMalls.includes(m.id)));
+      setSelectedLocalMalls([]);
+      showToast('Selected LocalMalls archived', 'success');
+    } catch {
+      showToast('Failed to archive selected LocalMalls', 'error');
+    }
+  };
+
+  const totalListPages = Math.max(1, Math.ceil(filteredMalls.length / LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, totalListPages - 1);
+  const pagedMalls = filteredMalls.slice(safeListPage * LIST_PAGE_SIZE, safeListPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE);
 
   const handleSelectMall = (id: string) => {
     setSelectedId(id);
@@ -568,19 +596,27 @@ export default function LocalMallsPanel() {
             >
               <GitMerge className="w-4 h-4" /> Merge {selectedLocalMalls.length > 1 && `(${selectedLocalMalls.length})`}
             </button>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm">
-              <Archive className="w-4 h-4" /> Archive
+            <button
+              onClick={handleBulkArchive}
+              disabled={selectedLocalMalls.length === 0}
+              title={selectedLocalMalls.length === 0 ? 'Select at least one mall' : `Archive ${selectedLocalMalls.length} selected`}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors text-xs font-bold shadow-sm",
+                selectedLocalMalls.length === 0 && "opacity-60 cursor-not-allowed"
+              )}
+            >
+              <Archive className="w-4 h-4" /> Archive{selectedLocalMalls.length > 0 && ` (${selectedLocalMalls.length})`}
             </button>
           </div>
         </div>
 
-        {/* Overview Stats */}
+        {/* Overview Stats (values from live API rows; campaign counts from the campaigns API) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard title="Total LocalMalls" value={String(localMalls.length)} trend={`+${localMalls.filter(m => m.status === 'Active').length}`} icon={ShoppingBag} color="blue" />
-          <StatCard title="Total Businesses" value={String(localMalls.reduce((a, m) => a + m.businesses, 0))} trend="+12.4%" icon={Store} color="green" />
-          <StatCard title="Total Customers" value={String(localMalls.reduce((a, m) => a + m.customers, 0))} trend="+8.1%" icon={Users} color="purple" />
-          <StatCard title="Active Campaigns" value={String(localMalls.reduce((a, m) => a + m.campaigns, 0))} trend="+15.3%" icon={Target} color="amber" />
-          <StatCard title="Upcoming Events" value={String(localMalls.reduce((a, m) => a + m.events, 0))} trend="+22%" icon={Music} color="rose" />
+          <StatCard title="Total LocalMalls" value={String(localMalls.length)} trend={`${localMalls.filter(m => m.status === 'Active').length} active`} icon={ShoppingBag} color="blue" />
+          <StatCard title="Total Businesses" value={String(localMalls.reduce((a, m) => a + (m.businesses ?? 0), 0))} trend={`across ${localMalls.length} malls`} icon={Store} color="green" />
+          <StatCard title="Total Customers" value={String(localMalls.reduce((a, m) => a + (m.customers ?? 0), 0))} trend={`across ${localMalls.length} malls`} icon={Users} color="purple" />
+          <StatCard title="Active Campaigns" value={String(activeMallCampaigns.length)} trend={`${mallCampaigns.length} total`} icon={Target} color="amber" />
+          <StatCard title="Upcoming Events" value={String(localMalls.reduce((a, m) => a + (m.events ?? 0), 0))} trend="tracked per mall" icon={Music} color="rose" />
           <StatCard title="Active Status" value={String(localMalls.filter(m => m.status === 'Active').length)} trend={String(localMalls.filter(m => m.status === 'Draft').length) + ' draft'} icon={CheckCircle2} color="cyan" />
         </div>
 
@@ -641,10 +677,10 @@ export default function LocalMallsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {filteredMalls.length === 0 ? (
+                {pagedMalls.length === 0 ? (
                   <tr><td colSpan={12} className="px-4 py-12 text-center"><div className="text-gray-400 text-sm font-medium">No LocalMalls found matching your filters.</div></td></tr>
                 ) : (
-                  filteredMalls.map((mall) => (
+                  pagedMalls.map((mall) => (
                     <tr key={mall.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3">
                         <input type="checkbox" checked={selectedLocalMalls.includes(mall.id)} onChange={() => setSelectedLocalMalls(prev => prev.includes(mall.id) ? prev.filter(id => id !== mall.id) : [...prev, mall.id])} className="rounded border-gray-300 text-brand-blue focus:ring-brand-blue" />
@@ -675,7 +711,7 @@ export default function LocalMallsPanel() {
                             <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-xl border border-gray-200 p-1 z-20">
                               <button onClick={() => { handleSelectMall(mall.id); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><Eye className="w-3.5 h-3.5" /> View</button>
                               <button onClick={() => { handleEdit(mall); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><Edit3 className="w-3.5 h-3.5" /> Edit</button>
-                              <button className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><BarChart3 className="w-3.5 h-3.5" /> Analytics</button>
+                              <button onClick={() => { handleSelectMall(mall.id); setDetailTab('analytics'); setActiveActionsMenu(null); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"><BarChart3 className="w-3.5 h-3.5" /> Analytics</button>
                               <button onClick={() => handleArchive(mall.id)} className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Archive className="w-3.5 h-3.5" /> Archive</button>
                             </div>
                           </>
@@ -688,10 +724,24 @@ export default function LocalMallsPanel() {
             </table>
           </div>
           <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/30">
-            <span className="text-[10px] font-bold text-gray-500">{filteredMalls.length} of {localMalls.length} LocalMalls</span>
+            <span className="text-[10px] font-bold text-gray-500">
+              {filteredMalls.length === 0 ? '0' : `${safeListPage * LIST_PAGE_SIZE + 1}–${Math.min((safeListPage + 1) * LIST_PAGE_SIZE, filteredMalls.length)} of ${filteredMalls.length}`} LocalMalls · Page {safeListPage + 1} of {totalListPages}
+            </span>
             <div className="flex items-center gap-2">
-              <button className="px-3 py-1.5 border border-gray-200 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-gray-50 transition-colors">Previous</button>
-              <button className="px-3 py-1.5 border border-gray-200 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-gray-50 transition-colors">Next</button>
+              <button
+                onClick={() => setListPage(p => Math.max(0, p - 1))}
+                disabled={safeListPage === 0}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setListPage(p => Math.min(totalListPages - 1, p + 1))}
+                disabled={safeListPage >= totalListPages - 1}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-[10px] font-bold text-gray-500 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
             </div>
           </div>
         </div>
@@ -1293,6 +1343,9 @@ export default function LocalMallsPanel() {
 
   if (view === 'detail' && selectedMall) {
     const mall = selectedMall;
+    // Real campaigns targeting this mall (by location id, falling back to name for legacy rows).
+    const mallCampaignList = mallCampaigns.filter(c => c.locationId === mall.id || c.locationName === mall.name);
+    const mallActiveCampaigns = mallCampaignList.filter(c => c.status === 'active');
     return (
       <div className="space-y-6">
         {/* Breadcrumb */}
@@ -1323,12 +1376,12 @@ export default function LocalMallsPanel() {
           </div>
         </div>
 
-        {/* Dashboard Cards */}
+        {/* Dashboard Cards (stored mall counters + live campaign count) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          <StatCard title="Businesses" value={String(mall.businesses ?? 0)} trend="" icon={Store} color="blue" />
-          <StatCard title="Customers" value={((mall.customers ?? 0) / 1000).toFixed(1) + 'k'} trend="" icon={Users} color="green" />
-          <StatCard title="Campaigns" value={String(mall.campaigns ?? 0)} trend="" icon={Target} color="purple" />
-          <StatCard title="Events" value={String(mall.events ?? 0)} trend="" icon={Music} color="amber" />
+          <StatCard title="Businesses" value={String(mall.businesses ?? 0)} icon={Store} color="blue" />
+          <StatCard title="Customers" value={((mall.customers ?? 0) / 1000).toFixed(1) + 'k'} icon={Users} color="green" />
+          <StatCard title="Campaigns" value={String(mallCampaignList.length)} trend={`${mallActiveCampaigns.length} active`} icon={Target} color="purple" />
+          <StatCard title="Events" value={String(mall.events ?? 0)} icon={Music} color="amber" />
         </div>
 
         {/* Tabs */}
@@ -1387,7 +1440,6 @@ export default function LocalMallsPanel() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mall.businesses} Businesses</h4>
-                  <button className="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-[10px] font-bold">View All</button>
                 </div>
                 <div className="space-y-2">
                   {mall.featuredBusinesses.map((b, i) => (
@@ -1399,6 +1451,9 @@ export default function LocalMallsPanel() {
                       <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Active</span>
                     </div>
                   ))}
+                  {mall.featuredBusinesses.length === 0 && (
+                    <p className="text-xs text-gray-400 text-center py-6">No featured businesses added yet. Edit this mall to add some.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -1406,77 +1461,91 @@ export default function LocalMallsPanel() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mall.customers.toLocaleString()} Registered Customers</h4>
-                  <button className="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-[10px] font-bold">View All</button>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-6 text-center">
                   <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm font-bold text-gray-700">Customer engagement metrics available in Analytics tab</p>
+                  <p className="text-sm font-bold text-gray-700">Per-customer engagement metrics live in the Analytics tab</p>
                 </div>
               </div>
             )}
             {detailTab === 'campaigns' && (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mall.campaigns} Active Campaigns</h4>
-                  <button className="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-[10px] font-bold">Create Campaign</button>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mallCampaignList.length} Campaigns ({mallActiveCampaigns.length} active)</h4>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {mall.featuredCampaigns.map((c, i) => (
-                    <div key={i} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                      <div className="flex items-center gap-2 mb-2"><Target className="w-4 h-4 text-brand-blue" /><span className="text-sm font-bold text-gray-900">{c}</span></div>
-                      <div className="flex items-center gap-4 text-[10px] font-medium text-gray-500">
-                         <span>Participation: {(i + 1) * 120}</span>
-                        <span className="px-2 py-0.5 rounded-full font-bold text-emerald-600 bg-emerald-50">Active</span>
+                {mallCampaignList.length === 0 ? (
+                  <div className="bg-gray-50 rounded-xl p-6 text-center">
+                    <Target className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-gray-700">No campaigns target this mall yet</p>
+                    <p className="text-xs text-gray-500 mt-1">Create one from a High Street or Borough with this mall as the location.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {mallCampaignList.map((c: any) => (
+                      <div key={c.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-2 mb-2"><Target className="w-4 h-4 text-brand-blue" /><span className="text-sm font-bold text-gray-900">{c.name}</span></div>
+                        <div className="flex items-center gap-4 text-[10px] font-medium text-gray-500">
+                          <span>{c.startDate ? new Date(c.startDate).toLocaleDateString() : 'No start date'}{c.endDate ? ` → ${new Date(c.endDate).toLocaleDateString()}` : ''}</span>
+                          <span className={cn("px-2 py-0.5 rounded-full font-bold", c.status === 'active' ? "text-emerald-600 bg-emerald-50" : "text-gray-500 bg-gray-100")}>{c.status}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {detailTab === 'events' && (
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mall.events} Upcoming Events</h4>
-                  <button className="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-[10px] font-bold">Create Event</button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {mall.featuredEvents.map((e, i) => (
-                    <div key={i} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                      <div className="flex items-center gap-2 mb-2"><Music className="w-4 h-4 text-brand-blue" /><span className="text-sm font-bold text-gray-900">{e}</span></div>
-                      <div className="text-[10px] font-medium text-gray-500">Date: {new Date(2025, 5 + i, 15).toLocaleDateString()}</div>
-                    </div>
-                  ))}
+                <div className="bg-gray-50 rounded-xl p-6 text-center">
+                  <Music className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-gray-700">Event scheduling isn&apos;t available yet</p>
+                  <p className="text-xs text-gray-500 mt-1">The tracked events counter is managed on the mall record. Full event management is coming soon.</p>
                 </div>
               </div>
             )}
             {detailTab === 'rewards' && (
               <div>
-                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Reward Statistics</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">1,847</div><div className="text-xs font-medium text-gray-500">Rewards Issued</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">68%</div><div className="text-xs font-medium text-gray-500">Redemption Rate</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">£12.4k</div><div className="text-xs font-medium text-gray-500">Value Redeemed</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">4.2</div><div className="text-xs font-medium text-gray-500">Avg. Per Customer</div></div>
-                </div>
-                <div className="space-y-2">
-                  {mall.featuredRewards.map((r, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                      <div className="flex items-center gap-3"><Gift className="w-4 h-4 text-brand-blue" /><span className="text-xs font-semibold text-gray-700">{r}</span></div>
-                       <span className="text-[10px] font-medium text-gray-500">{(i + 1) * 80} claims</span>
-                    </div>
-                  ))}
-                </div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Rewards</h4>
+                {mall.featuredRewards.length === 0 ? (
+                  <div className="bg-gray-50 rounded-xl p-6 text-center">
+                    <Gift className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-gray-700">No featured rewards yet</p>
+                    <p className="text-xs text-gray-500 mt-1">Live reward statistics will appear here once the Rewards platform is connected. Edit this mall to feature rewards.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {mall.featuredRewards.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3"><Gift className="w-4 h-4 text-brand-blue" /><span className="text-xs font-semibold text-gray-700">{r}</span></div>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Featured</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {detailTab === 'spin' && (
               <div>
-                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Gamification Statistics</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">6,230</div><div className="text-xs font-medium text-gray-500">Spin Sessions</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">3.2</div><div className="text-xs font-medium text-gray-500">Avg. Spins/User</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">42%</div><div className="text-xs font-medium text-gray-500">Win Rate</div></div>
-                  <div className="p-4 bg-gray-50 rounded-xl text-center"><div className="text-2xl font-bold text-gray-900">£8.2k</div><div className="text-xs font-medium text-gray-500">Prizes Awarded</div></div>
-                </div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Spin</h4>
+                {mall.featuredSpinCampaigns.length === 0 ? (
+                  <div className="bg-gray-50 rounded-xl p-6 text-center">
+                    <Sparkles className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-gray-700">No spin campaigns featured yet</p>
+                    <p className="text-xs text-gray-500 mt-1">Live gamification statistics will appear here once the Spin platform is connected.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {mall.featuredSpinCampaigns.map((s, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <div className="flex items-center gap-3"><Sparkles className="w-4 h-4 text-brand-blue" /><span className="text-xs font-semibold text-gray-700">{s}</span></div>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Featured</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {detailTab === 'team' && (
@@ -1528,21 +1597,19 @@ export default function LocalMallsPanel() {
                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Analytics & KPIs</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                   {[
-                    { label: 'Businesses Joined', value: String(mall.businesses), trend: '+12', icon: Store },
-                    { label: 'Customers Registered', value: (mall.customers / 1000).toFixed(1) + 'k', trend: '+8.1%', icon: Users },
-                    { label: 'Campaign Participation', value: '2,847', trend: '+15.3%', icon: Target },
-                    { label: 'Spin Engagement', value: '6,230', trend: '+22%', icon: Sparkles },
-                    { label: 'Reward Usage', value: '1,847', trend: '+18%', icon: Gift },
-                    { label: 'Store Visits', value: '14.2k', trend: '+12.4%', icon: Store },
-                    { label: 'Offer Redemptions', value: '3,561', trend: '+25%', icon: Percent },
+                    { label: 'Businesses', value: String(mall.businesses ?? 0), icon: Store },
+                    { label: 'Registered Customers', value: ((mall.customers ?? 0) / 1000).toFixed(1) + 'k', icon: Users },
+                    { label: 'Campaigns', value: String(mallCampaignList.length), sub: `${mallActiveCampaigns.length} active`, icon: Target },
+                    { label: 'Tracked Events', value: String(mall.events ?? 0), icon: Music },
                   ].map(m => (
                     <div key={m.label} className="p-4 bg-gray-50 rounded-xl">
                       <div className="flex items-center gap-2 mb-2"><m.icon className="w-4 h-4 text-brand-blue" /><span className="text-[10px] font-bold text-gray-500 uppercase">{m.label}</span></div>
                       <div className="text-lg font-bold text-gray-900">{m.value}</div>
-                      <div className="text-[10px] font-bold text-emerald-600">{m.trend}</div>
+                      {'sub' in m && m.sub ? <div className="text-[10px] font-bold text-emerald-600">{m.sub}</div> : null}
                     </div>
                   ))}
                 </div>
+                <p className="text-[11px] text-gray-400 mt-4">Richer engagement metrics (participation, redemptions, visits) will appear here once the Rewards and Spin platforms report live data.</p>
               </div>
             )}
           </div>
@@ -1558,12 +1625,7 @@ export default function LocalMallsPanel() {
               <span className="flex items-center gap-1 text-xs font-medium text-gray-500"><MapPin className="w-3 h-3" /> {mall.borough} Borough</span>
               <span className="flex items-center gap-1 text-xs font-medium text-gray-500"><Store className="w-3 h-3" /> {mall.primaryHighStreet}</span>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <button className="px-3 py-1.5 bg-brand-blue text-white rounded-lg text-[10px] font-bold">View Local Activity</button>
-              <button className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-[10px] font-bold">Join Campaign</button>
-              <button className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-[10px] font-bold">Join Event</button>
-              <button className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-[10px] font-bold">Promote Business</button>
-            </div>
+            <p className="text-[10px] font-medium text-gray-400">Static preview of the business dashboard widget.</p>
           </div>
         </div>
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { useAdminNotifications } from '../services/admin/hooks';
 
 export type AdminTab =
   'dashboard' | 'users'
@@ -139,8 +140,13 @@ interface AdminLayoutProps {
 export default function AdminLayout({ activeTab, onTabChange, title, subtitle, children, headerActions }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const { admin, logout } = useAdminAuth();
   const navigate = useNavigate();
+  // Real broadcast notifications feed the header bell (no fake indicator).
+  const { data: notifsRes } = useAdminNotifications({ page: 1, limit: 5 });
+  const recentNotifs: any[] = notifsRes?.data ?? [];
+  const scheduledCount = recentNotifs.filter(n => n.status === 'Scheduled').length;
 
   const handleLogout = () => {
     setUserMenuOpen(false);
@@ -222,10 +228,46 @@ export default function AdminLayout({ activeTab, onTabChange, title, subtitle, c
 
           <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
             {headerActions}
-            <button className="p-2 text-gray-400 hover:text-gray-600 relative shrink-0" aria-label="Notifications">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-brand-blue rounded-full" />
-            </button>
+            <div className="relative shrink-0">
+              <button
+                onClick={() => { setNotifOpen(!notifOpen); setUserMenuOpen(false); }}
+                className="p-2 text-gray-400 hover:text-gray-600 relative"
+                aria-label="Notifications"
+                title={scheduledCount > 0 ? `${scheduledCount} scheduled notifications` : 'Notifications'}
+              >
+                <Bell className="w-4 h-4" />
+                {scheduledCount > 0 && (
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-brand-blue rounded-full" />
+                )}
+              </button>
+              {notifOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-2 z-50">
+                    <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                      <div className="font-bold text-gray-900 text-sm">Notifications</div>
+                      <div className="text-[11px] text-gray-500">{scheduledCount} scheduled · {recentNotifs.length} recent</div>
+                    </div>
+                    {recentNotifs.length === 0 ? (
+                      <p className="px-3 py-4 text-xs text-gray-400 text-center">No broadcast notifications yet.</p>
+                    ) : (
+                      recentNotifs.slice(0, 5).map((n: any) => (
+                        <div key={n.id} className="px-3 py-2 rounded-xl hover:bg-gray-50">
+                          <div className="font-semibold text-xs text-gray-900 truncate">{n.title}</div>
+                          <div className="text-[10px] text-gray-500">{n.status} · {(n.audience ?? []).join(', ')}</div>
+                        </div>
+                      ))
+                    )}
+                    <button
+                      onClick={() => { setNotifOpen(false); onTabChange('notifications'); }}
+                      className="w-full mt-1 px-3 py-2 rounded-xl text-xs font-bold text-brand-blue hover:bg-blue-50 transition-colors text-center"
+                    >
+                      Manage notifications
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <div className={cn("relative shrink-0", userMenuOpen && "z-50")}>
               <button onClick={() => setUserMenuOpen(!userMenuOpen)} className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-gray-200 group">
                 <div className="text-right hidden sm:block">

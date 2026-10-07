@@ -19,14 +19,5 @@ export class SubscribeMembershipDto {
   billing?: 'monthly' | 'quarterly' | 'yearly' = 'monthly';
 }
 
-export class PurchasePackageDto {
-  @ApiProperty({ example: 'MCOM Mall', description: 'Target platform' })
-  @IsString()
-  @IsNotEmpty()
-  platform: string;
-
-  @ApiProperty({ example: 'Standard Tier', description: 'Package name' })
-  @IsString()
-  @IsNotEmpty()
-  packageName: string;
-}
+// PurchasePackageDto — REMOVED (memberships-only model). Standalone packages
+// are bought on the console-registered external platforms themselves.

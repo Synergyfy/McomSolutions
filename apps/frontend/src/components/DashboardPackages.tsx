@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Gift, Dices, Store, FileSearch, UsersRound,
-  CheckCircle2, AlertCircle, Clock, Plus, RefreshCw, X,
-  TrendingUp, ArrowUpRight, ChevronRight, PackageOpen
+  CheckCircle2, AlertCircle, Clock, PackageOpen
 } from 'lucide-react';
 import { useProfile } from '../services/business/hooks';
-import { usePurchasePackage, usePackageTemplates } from '../services/pricing/hooks';
 
 type PkgStatus = 'active' | 'expired' | 'pending';
 
@@ -37,43 +35,15 @@ const STATUS_CONFIG: Record<PkgStatus, { label: string; bg: string; text: string
 };
 
 type Filter = 'all' | PkgStatus;
-type ModalType = 'upgrade' | 'renew' | 'cancel' | 'purchase' | null;
 
 export default function DashboardPackages() {
   const [filter, setFilter] = useState<Filter>('all');
-  const [modal, setModal] = useState<ModalType>(null);
-  const [selectedPkg, setSelectedPkg] = useState<any | null>(null);
   const [activePackages, setActivePackages] = useState<any[]>([]);
   const { data: profile, isLoading: loading } = useProfile();
-  const { mutateAsync: purchasePackage } = usePurchasePackage();
-  const { data: dbTemplates = [] } = usePackageTemplates();
-  const [buying, setBuying] = useState(false);
 
-  const availablePlans = useMemo(() => {
-    if (!Array.isArray(dbTemplates) || dbTemplates.length === 0) {
-      return AVAILABLE_PLANS;
-    }
-    const platformIcons: Record<string, any> = {
-      'mcom rewards': { icon: Gift, color: 'bg-orange-500' },
-      'mcom spin': { icon: Dices, color: 'bg-amber-500' },
-      'mcom mall': { icon: Store, color: 'bg-sky-500' },
-      '247gbs audit': { icon: FileSearch, color: 'bg-indigo-500' },
-      '247gbs expo': { icon: UsersRound, color: 'bg-cyan-500' },
-      'mcom solutions': { icon: PackageOpen, color: 'bg-blue-600' },
-    };
-    return dbTemplates.map((t: any) => {
-      const meta = platformIcons[(t.platform || '').toLowerCase()] || { icon: PackageOpen, color: 'bg-orange-500' };
-      const price = Math.round(Number(t.monthlyPrice ?? t.price ?? 0));
-      return {
-        platform: t.platform || 'MCOM Platform',
-        icon: meta.icon,
-        color: meta.color,
-        tier: t.name,
-        price: `£${price}/mo`,
-        features: Array.isArray(t.features) && t.features.length > 0 ? t.features : ['Platform access'],
-      };
-    });
-  }, [dbTemplates]);
+  // Static catalogue metadata (icons/features) for packages owned on external
+  // platforms. Packages themselves are bought on those platforms, not here.
+  const availablePlans = AVAILABLE_PLANS;
 
   useEffect(() => {
     if (profile) {
@@ -101,19 +71,6 @@ export default function DashboardPackages() {
       setActivePackages([]);
     }
   }, [profile, availablePlans]);
-
-  const handlePurchase = async (platformName: string, packageName: string) => {
-    setBuying(true);
-    try {
-      await purchasePackage({ platform: platformName, packageName });
-      setModal(null);
-      setSelectedPkg(null);
-    } catch (err: any) {
-      alert('Purchase failed: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setBuying(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -143,14 +100,8 @@ export default function DashboardPackages() {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-3xl font-bold text-gray-900 mb-1">My Packages</h2>
-          <p className="text-gray-500">Manage your platform-specific add-ons and subscriptions.</p>
+          <p className="text-gray-500">Packages you own on MCOM and 247GBS ecosystem platforms. New packages are purchased on each platform directly.</p>
         </div>
-        <button
-          onClick={() => setModal('purchase')}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-7 py-4 rounded-full font-bold transition-colors shadow-lg shadow-orange-500/20"
-        >
-          <Plus className="w-5 h-5" /> Purchase / Activate Add-on
-        </button>
       </div>
 
       {/* Filter Tabs */}
@@ -171,13 +122,7 @@ export default function DashboardPackages() {
         <div className="text-center py-20 bg-white rounded-[2rem] border border-gray-200">
           <PackageOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h4 className="text-lg font-bold text-gray-700">No Add-on Packages Activated Yet</h4>
-          <p className="text-gray-500 text-sm mb-6">Unlock additional platforms in the MCOM and 247GBS Ecosystems.</p>
-          <button
-            onClick={() => setModal('purchase')}
-            className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-full font-bold transition shadow-md shadow-orange-500/25"
-          >
-            Browse Add-on Packages
-          </button>
+          <p className="text-gray-500 text-sm mb-6">Unlock additional platforms in the MCOM and 247GBS Ecosystems by purchasing on each platform.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -234,70 +179,6 @@ export default function DashboardPackages() {
           </AnimatePresence>
         </div>
       )}
-
-      {/* Modals */}
-      <AnimatePresence>
-        {modal === 'purchase' && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-            onClick={() => {
-              if (!buying) setModal(null);
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl max-h-[85vh] overflow-y-auto"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-black text-gray-900">Purchase Platform Add-ons</h3>
-                <button onClick={() => setModal(null)} className="p-2 hover:bg-gray-100 rounded-full transition">
-                  <X className="w-6 h-6 text-gray-500" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {availablePlans.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).map((plan, idx) => {
-                  const Icon = plan.icon;
-                  return (
-                    <div key={idx} className="flex flex-col md:flex-row items-start md:items-center justify-between p-6 bg-gray-50 border border-gray-200 rounded-2xl gap-4 hover:border-orange-200 transition">
-                      <div className="flex items-start gap-4">
-                        <div className={`w-12 h-12 ${plan.color} rounded-xl flex items-center justify-center text-white flex-shrink-0`}>
-                          <Icon className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h4 className="font-black text-gray-900">{plan.platform}</h4>
-                          <p className="text-xs text-orange-500 font-bold mb-2">{plan.tier} Plan — {plan.price}</p>
-                          <div className="flex flex-wrap gap-2">
-                            {plan.features.slice(0, 2).map((f, fi) => (
-                              <span key={fi} className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">{f}</span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        disabled={buying}
-                        onClick={() => handlePurchase(plan.platform, plan.tier)}
-                        className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-full font-bold text-sm transition shadow-md shadow-orange-500/10 shrink-0 disabled:opacity-50"
-                      >
-                        {buying ? 'Activating...' : 'Activate Add-on'}
-                      </button>
-                    </div>
-                  );
-                })}
-                {availablePlans.filter(plan => !activePackages.some(ap => ap.platform.toLowerCase() === plan.platform.toLowerCase())).length === 0 && (
-                  <p className="text-center py-6 text-gray-500 font-bold">You have purchased all available platform add-ons!</p>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

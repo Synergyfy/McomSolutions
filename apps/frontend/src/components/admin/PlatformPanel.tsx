@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ToggleLeft, Grid, Rocket, X, Edit3, Wrench, Eye, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { ToggleLeft, Grid, Rocket, X, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAdminPlatforms, useUpdatePlatform, useCreateLaunchRule, useDeleteLaunchRule } from '../../services/admin/hooks';
 import type { Platform, LaunchRule } from '../../services/admin/types';
@@ -57,8 +57,8 @@ function PlatformAccessPanel({ platforms }: { platforms: Platform[] }) {
           </div>
           <p className="text-xs text-gray-500 mb-4">{p.description}</p>
           <div className="flex items-center justify-between text-xs text-gray-400 mb-4">
-            <span className="font-bold">{p.totalUsers?.toLocaleString() ?? 0} users</span>
-            <span>Launched {p.launchDate ?? '—'}</span>
+            <span className="font-bold">{p.visible ? 'Visible to users' : 'Hidden from users'}</span>
+            <span>Launched {p.launchDate ? new Date(p.launchDate).toLocaleDateString() : '—'}</span>
           </div>
           <div className="flex gap-2">
             {(['Enabled', 'Disabled', 'Maintenance'] as const).map(status => (
@@ -81,23 +81,16 @@ function PlatformDirectoryPanel({ platforms }: { platforms: Platform[] }) {
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Platform</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Users</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Launched</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Visible</th>
-            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {platforms.map((p: any) => (
               <tr key={p.id} className="hover:bg-gray-50/80 transition-colors group">
                 <td className="px-6 py-4"><div className="font-bold text-sm text-gray-900">{p.name}</div><div className="text-[10px] text-gray-400">{p.description}</div></td>
                 <td className="px-6 py-4"><span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold", p.status === 'Enabled' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700')}>{p.status}</span></td>
-                <td className="px-6 py-4 font-bold text-sm">{p.totalUsers.toLocaleString()}</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{p.launchDate}</td>
+                <td className="px-6 py-4 text-sm text-gray-500">{p.launchDate ? new Date(p.launchDate).toLocaleDateString() : '—'}</td>
                 <td className="px-6 py-4"><button onClick={() => updatePlat.mutate({ id: p.id, data: { visible: !p.visible } })} className={cn("px-3 py-1 rounded-lg text-[10px] font-bold transition-all", p.visible ? "bg-green-50 text-green-700" : "bg-gray-50 text-gray-400")}>{p.visible ? 'Yes' : 'No'}</button></td>
-                <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5 text-gray-400" /></button>
-                  <button className="p-2 bg-gray-50 rounded-lg hover:bg-amber-50 hover:text-amber-500 transition-all"><Wrench className="w-3.5 h-3.5 text-gray-400" /></button>
-                </div></td>
               </tr>
             ))}
           </tbody>

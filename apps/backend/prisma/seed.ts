@@ -4,6 +4,7 @@ import {
   SupportAgentRole,
   TaskAssignmentStatus,
   TaskAudience,
+  TaskSource,
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -48,7 +49,27 @@ async function main() {
   // 1. Seed Core Users
   console.log('Seeding users...');
   
-  // Super Admin
+  // Super Admins
+  const chsAdminPasswordHash = await bcrypt.hash('AdminPass2026!', salt);
+  const chsAdminUser = await prisma.user.upsert({
+    where: { email: 'admin@centralhubsolution.com' },
+    update: {
+      password: chsAdminPasswordHash,
+      role: Role.ADMIN,
+      adminRole: 'Super Admin',
+      deletedAt: null,
+    },
+    create: {
+      email: 'admin@centralhubsolution.com',
+      password: chsAdminPasswordHash,
+      role: Role.ADMIN,
+      adminRole: 'Super Admin',
+      firstName: 'Central',
+      lastName: 'Admin',
+      jobTitle: 'System Administrator',
+    },
+  });
+
   const adminUser = await prisma.user.upsert({
     where: { email: 'admin@mcomsolutions.co.uk' },
     update: {},
@@ -313,44 +334,22 @@ async function main() {
     });
   }
 
-  // 3. Seed Package Templates (including MCOM Solutions Standalone Packages)
-  console.log('Seeding packages templates...');
-  const packages = [
-    { id: 'mcom-sol-starter', name: 'MCOM Business Starter', platform: 'MCOM Solutions', description: 'Core business dashboard and local directory listing.', price: 29, monthlyPrice: 29, quarterlyPrice: 78, annualPrice: 278, billingCycle: 'Monthly', features: ['Core Business Dashboard', 'Local Directory Listing', 'Basic Analytics'], usageLimits: { campaigns: 5, locations: 1 }, accessRights: ['Store Admin'] },
-    { id: 'mcom-sol-growth', name: 'MCOM Business Growth', platform: 'MCOM Solutions', description: 'Advanced analytics, territory growth, and lead hub.', price: 79, monthlyPrice: 79, quarterlyPrice: 213, annualPrice: 758, billingCycle: 'Monthly', features: ['Advanced Analytics', 'Multi-Territory High Street', 'Lead Generation Hub'], usageLimits: { campaigns: 20, locations: 5 }, accessRights: ['Store Admin', 'Marketing Admin'] },
-    { id: 'mcom-sol-ent', name: 'MCOM Enterprise Suite', platform: 'MCOM Solutions', description: 'Full AI business suite and unlimited high street territories.', price: 299, monthlyPrice: 299, quarterlyPrice: 807, annualPrice: 2870, billingCycle: 'Monthly', features: ['Full AI Business Copilot', 'Unlimited Territory Coverage', 'Custom API Access'], usageLimits: { campaigns: 100, locations: 25 }, accessRights: ['Store Admin', 'Marketing Admin', 'Analytics', 'Export Data'] },
-    { id: 'pkg-1', name: 'Loyalty Starter', platform: 'MCOM Rewards', description: 'Basic loyalty tools.', price: 29, monthlyPrice: 29, quarterlyPrice: 78, annualPrice: 278, billingCycle: 'Monthly', features: ['Points Management', 'Basic Rewards'], usageLimits: { members: 500 }, accessRights: ['View Analytics'] },
-    { id: 'pkg-2', name: 'Loyalty Pro', platform: 'MCOM Rewards', description: 'Advanced loyalty suite.', price: 99, monthlyPrice: 99, quarterlyPrice: 267, annualPrice: 950, billingCycle: 'Monthly', features: ['Points Management', 'Advanced Rewards', 'Campaign Builder'], usageLimits: { members: 5000 }, accessRights: ['View Analytics', 'Export Data'] },
-    { id: 'pkg-3', name: 'Mall Basic', platform: 'MCOM Mall', description: 'Get your store online.', price: 49, monthlyPrice: 49, quarterlyPrice: 132, annualPrice: 470, billingCycle: 'Monthly', features: ['Storefront', 'Product Listings'], usageLimits: { products: 100 }, accessRights: ['Store Admin'] },
-  ];
-  for (const pkg of packages) {
-    await prisma.packageTemplate.upsert({
-      where: { id: pkg.id },
-      update: {
-        name: pkg.name,
-        platform: pkg.platform,
-        description: pkg.description,
-        price: pkg.price,
-        monthlyPrice: pkg.monthlyPrice,
-        quarterlyPrice: pkg.quarterlyPrice,
-        annualPrice: pkg.annualPrice,
-        features: pkg.features,
-        usageLimits: pkg.usageLimits,
-        accessRights: pkg.accessRights,
-      },
-      create: pkg,
-    });
-  }
+  // 3. Standalone packages — REMOVED (memberships-only model).
+  // MCOM holds no plans of its own; standalone plans live on
+  // console-registered external platforms. Memberships bundle them via
+  // includedApps (see membership seed above).
 
-  // 4. Seed Platforms
+  // 4. Seed Platforms (reference rows only — user counts are always real:
+  // EcosystemPlatform.totalUsers is no longer used; GET /admin/stats counts
+  // non-admin users live. Never seed demo user numbers here.)
   console.log('Seeding platforms...');
   const platformsData = [
-    { id: 'rewards', name: 'MCOM Rewards', description: 'Loyalty and rewards platform', status: 'Enabled', icon: 'Star', launchDate: new Date('2025-06-01'), totalUsers: 1240, visible: true },
-    { id: 'spin', name: 'MCOM Spin', description: 'Spin-to-win engagement', status: 'Enabled', icon: 'Zap', launchDate: new Date('2025-08-15'), totalUsers: 890, visible: true },
-    { id: 'mall', name: 'MCOM Mall', description: 'E-commerce marketplace', status: 'Enabled', icon: 'ShoppingBag', launchDate: new Date('2025-03-01'), totalUsers: 2100, visible: true },
-    { id: 'audit', name: 'GBS Audit', description: 'Audit and compliance', status: 'Enabled', icon: 'ClipboardCheck', launchDate: new Date('2025-04-01'), totalUsers: 450, visible: true },
-    { id: 'expo', name: 'GBS Expo', description: 'Virtual exhibitions', status: 'Enabled', icon: 'Presentation', launchDate: new Date('2025-09-01'), totalUsers: 320, visible: true },
-    { id: 'loyalty', name: '24/7 GBS Loyalty', description: 'Cross-platform loyalty engine', status: 'Enabled', icon: 'Heart', launchDate: new Date('2025-01-01'), totalUsers: 3100, visible: true },
+    { id: 'rewards', name: 'MCOM Rewards', description: 'Loyalty and rewards platform', status: 'Enabled', icon: 'Star', launchDate: new Date('2025-06-01'), totalUsers: 0, visible: true },
+    { id: 'spin', name: 'MCOM Spin', description: 'Spin-to-win engagement', status: 'Enabled', icon: 'Zap', launchDate: new Date('2025-08-15'), totalUsers: 0, visible: true },
+    { id: 'mall', name: 'MCOM Mall', description: 'E-commerce marketplace', status: 'Enabled', icon: 'ShoppingBag', launchDate: new Date('2025-03-01'), totalUsers: 0, visible: true },
+    { id: 'audit', name: 'GBS Audit', description: 'Audit and compliance', status: 'Enabled', icon: 'ClipboardCheck', launchDate: new Date('2025-04-01'), totalUsers: 0, visible: true },
+    { id: 'expo', name: 'GBS Expo', description: 'Virtual exhibitions', status: 'Enabled', icon: 'Presentation', launchDate: new Date('2025-09-01'), totalUsers: 0, visible: true },
+    { id: 'loyalty', name: '24/7 GBS Loyalty', description: 'Cross-platform loyalty engine', status: 'Enabled', icon: 'Heart', launchDate: new Date('2025-01-01'), totalUsers: 0, visible: true },
   ];
   for (const platform of platformsData) {
     await prisma.ecosystemPlatform.upsert({
@@ -379,48 +378,9 @@ async function main() {
     });
   }
 
-  // 6. Seed Subscriptions (demo content — first run only, never duplicated)
-  console.log('Seeding subscriptions...');
-  await seedIfEmpty(prisma.ecosystemSubscription, 'ecosystem subscriptions', [
-      { businessId: 'global-retailers-id', businessName: 'Global Retailers Ltd', type: 'Membership', itemName: 'Gold Pro+', status: 'Active', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'), amount: 900, billingCycle: 'Monthly' },
-      { businessId: 'eco-market-id', businessName: 'Eco Market', type: 'Membership', itemName: 'Silver Normal', status: 'Active', startDate: new Date('2026-02-01'), endDate: new Date('2026-07-31'), amount: 75, billingCycle: 'Monthly' },
-  ]);
-
-  // 7. Seed Payments (demo content — first run only)
-  console.log('Seeding payments...');
-  await seedIfEmpty(prisma.adminPayment, 'admin payments', [
-      { businessId: 'global-retailers-id', businessName: 'Global Retailers Ltd', amount: 900, currency: 'GBP', method: 'Stripe', status: 'Completed', date: new Date('2026-04-01'), invoice: 'INV-001', type: 'Membership' },
-      { businessId: 'eco-market-id', businessName: 'Eco Market', amount: 75, currency: 'GBP', method: 'Stripe', status: 'Pending', date: new Date('2026-04-03'), invoice: 'INV-003', type: 'Membership' },
-  ]);
-
-  // 8. Seed Revenue logs (demo content — first run only)
-  console.log('Seeding revenue records...');
-  await seedIfEmpty(prisma.revenueRecord, 'revenue records', [
-      { date: '2026-04-01', amount: 12800, type: 'Membership', source: 'Monthly billing' },
-      { date: '2026-04-02', amount: 4500, type: 'Package', source: 'Package subscriptions' },
-      { date: '2026-04-03', amount: 3200, type: 'One-time', source: 'Setup fees' },
-  ]);
-
-  // 9. Seed Notifications (demo content — first run only)
-  console.log('Seeding notifications...');
-  await seedIfEmpty(prisma.broadcastNotification, 'broadcast notifications', [
-      { title: 'Welcome to MCOM', message: 'Welcome to the MCOM ecosystem!', audience: ['Businesses'], status: 'Sent', sentCount: 150 },
-      { title: 'Platform Maintenance', message: 'Scheduled maintenance on April 10th.', audience: ['Businesses', 'Customers'], status: 'Scheduled', sentCount: 0, scheduledDate: new Date('2026-04-10') },
-  ]);
-
-  // 10. Seed Support Tickets (demo content — first run only)
-  console.log('Seeding support tickets...');
-  await seedIfEmpty(prisma.supportTicket, 'support tickets', [
-      { subject: 'Cannot access dashboard', message: 'Getting 403 error on login', fromName: 'John Doe', fromType: 'Business', status: 'Open', priority: 'High', assignedTo: 'Adam Smith' },
-      { subject: 'Billing inquiry', message: 'Double charged for March subscription', fromName: 'Jane Smith', fromType: 'Business', status: 'Open', priority: 'Medium', assignedTo: 'Grace Anderson' },
-  ]);
-
-  // 11. Seed Audit Logs (demo content — first run only; never wipe real audit history)
-  console.log('Seeding audit logs...');
-  await seedIfEmpty(prisma.auditLog, 'audit logs', [
-      { action: 'Admin Login', adminName: 'Adam Smith', targetType: 'System', targetName: 'Admin Panel', details: 'Successful login from IP 192.168.1.1', timestamp: new Date(), category: 'Authentication' },
-      { action: 'Business Created', adminName: 'Adam Smith', targetType: 'Business', targetName: 'NewCo Ltd', details: 'Created business with Gold membership', timestamp: new Date(), category: 'Business' },
-  ]);
+  // 6-11. No demo subscriptions, payments, revenue, notifications, tickets or
+  // audit logs: the admin dashboard/panels must show real values (or honest
+  // empty states), never seeded demo numbers.
 
   // 12. Seed System Settings
   console.log('Seeding settings...');
@@ -824,13 +784,37 @@ async function main() {
   }
 
   // 23. Seed Task Definitions (Task Engine)
+  // Internal tasks auto-complete via the MCOM Central event worker (featureKey).
+  // External tasks link a console-registered platform (SsoClient) and complete
+  // manually — workers never touch them. External seeds are derived from the
+  // apps actually registered in /admin/console; nothing is seeded into the
+  // console itself here.
   console.log('Seeding task definitions...');
-  const tasksData = [
+  const tasksData: Array<{
+    title: string;
+    description: string;
+    targetAudience: TaskAudience;
+    taskSource: TaskSource;
+    featureKey: string | null;
+    externalClientId: string | null;
+    externalAppName: string | null;
+    externalPlatformSlug: string | null;
+    externalAppUrl: string | null;
+    deadlineDays: number;
+    rewardPoints: number;
+    isActive: boolean;
+    platform: string;
+  }> = [
     {
       title: 'Upload Official Business Logo',
       description: 'Upload a high-resolution logo for your storefront and digital directory listings across the ecosystem.',
       targetAudience: TaskAudience.BUSINESS,
+      taskSource: TaskSource.INTERNAL,
       featureKey: 'business.logo_uploaded',
+      externalClientId: null,
+      externalAppName: null,
+      externalPlatformSlug: null,
+      externalAppUrl: null,
       deadlineDays: 7,
       rewardPoints: 50,
       isActive: true,
@@ -840,7 +824,12 @@ async function main() {
       title: 'Complete Master Business Profile',
       description: 'Fill in your primary business details including telephone, address, sector, category, and operating hours.',
       targetAudience: TaskAudience.BUSINESS,
+      taskSource: TaskSource.INTERNAL,
       featureKey: 'business.profile_completed',
+      externalClientId: null,
+      externalAppName: null,
+      externalPlatformSlug: null,
+      externalAppUrl: null,
       deadlineDays: 5,
       rewardPoints: 100,
       isActive: true,
@@ -850,7 +839,12 @@ async function main() {
       title: 'Connect Google Business Listing',
       description: 'Link and verify your existing Google Business profile to sync reviews, ratings, and location data.',
       targetAudience: TaskAudience.BUSINESS,
+      taskSource: TaskSource.INTERNAL,
       featureKey: 'business.google_verified',
+      externalClientId: null,
+      externalAppName: null,
+      externalPlatformSlug: null,
+      externalAppUrl: null,
       deadlineDays: 14,
       rewardPoints: 75,
       isActive: true,
@@ -860,7 +854,12 @@ async function main() {
       title: 'Connect Social Media Channels',
       description: 'Add your business Instagram, Facebook, LinkedIn, or Twitter links to boost cross-platform engagement.',
       targetAudience: TaskAudience.BUSINESS,
+      taskSource: TaskSource.INTERNAL,
       featureKey: 'business.social_linked',
+      externalClientId: null,
+      externalAppName: null,
+      externalPlatformSlug: null,
+      externalAppUrl: null,
       deadlineDays: 10,
       rewardPoints: 40,
       isActive: true,
@@ -870,7 +869,12 @@ async function main() {
       title: 'Complete Customer Profile Details',
       description: 'Add your contact details and preferences to personalize your ecosystem rewards.',
       targetAudience: TaskAudience.CUSTOMER,
+      taskSource: TaskSource.INTERNAL,
       featureKey: 'customer.profile_completed',
+      externalClientId: null,
+      externalAppName: null,
+      externalPlatformSlug: null,
+      externalAppUrl: null,
       deadlineDays: 7,
       rewardPoints: 50,
       isActive: true,
@@ -878,9 +882,58 @@ async function main() {
     },
   ];
 
+  // External tasks: one per active console-registered app (SsoClient).
+  // Curated copy for known platform clients, generic fallback for the rest.
+  const registeredApps = await prisma.ssoClient.findMany({
+    where: { isActive: true },
+    select: { clientId: true, name: true, platformSlug: true, appUrl: true },
+  });
+  if (registeredApps.length === 0) {
+    console.warn('[Seed] No active console apps found — seeding internal tasks only.');
+  }
+  const externalCopy: Record<string, { title: string; description: string; deadlineDays: number; rewardPoints: number }> = {
+    'mcom-mall': {
+      title: 'Create your storefront on MCOM Mall',
+      description: 'Open MCOM Mall, create your storefront with business description and products, then come back here and mark this task done.',
+      deadlineDays: 14,
+      rewardPoints: 100,
+    },
+    '247gbs-affiliate': {
+      title: 'Activate your referral profile',
+      description: 'Open 247GBS Affiliates, activate your referral profile, then come back here and mark this task done.',
+      deadlineDays: 7,
+      rewardPoints: 25,
+    },
+  };
+  for (const app of registeredApps) {
+    const curated = externalCopy[app.clientId];
+    const platform = app.platformSlug ?? app.clientId;
+    tasksData.push({
+      title: curated?.title ?? `Complete onboarding on ${app.name}`,
+      description:
+        curated?.description ??
+        `Open ${app.name}, complete your onboarding there, then come back here and mark this task done.`,
+      targetAudience: TaskAudience.BUSINESS,
+      taskSource: TaskSource.EXTERNAL,
+      featureKey: null,
+      externalClientId: app.clientId,
+      externalAppName: app.name,
+      externalPlatformSlug: platform,
+      externalAppUrl: app.appUrl ?? null,
+      deadlineDays: curated?.deadlineDays ?? 14,
+      rewardPoints: curated?.rewardPoints ?? 50,
+      isActive: true,
+      platform,
+    });
+  }
+
   const seededTasks = [];
   for (const t of tasksData) {
-    const existing = await prisma.taskDefinition.findFirst({ where: { featureKey: t.featureKey } });
+    // Upsert on (title, platform): featureKey is NULL for external rows, so it
+    // cannot serve as the identity key.
+    const existing = await prisma.taskDefinition.findFirst({
+      where: { title: t.title, platform: t.platform },
+    });
     if (existing) {
       const updated = await prisma.taskDefinition.update({ where: { id: existing.id }, data: t });
       seededTasks.push(updated);

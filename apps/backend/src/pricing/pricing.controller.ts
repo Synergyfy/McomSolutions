@@ -7,7 +7,7 @@ import { PricingService } from './pricing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { SubscribeMembershipDto, PurchasePackageDto } from './dto/pricing.dto';
+import { SubscribeMembershipDto } from './dto/pricing.dto';
 
 @ApiTags('Pricing')
 @Controller('pricing')
@@ -52,26 +52,9 @@ export class PricingController {
     );
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @Post('packages/purchase')
-  @ApiOperation({ summary: 'Purchase a standalone platform package' })
-  async purchasePackage(
-    @Request() req: any,
-    @Body() dto: PurchasePackageDto,
-  ) {
-    if (!req.user.businessId) {
-      throw new NotFoundException('User does not have an active business profile');
-    }
-    return this.pricingService.purchasePackage(req.user.businessId, dto.platform, dto.packageName);
-  }
-
-  @SkipThrottle()
-  @Get('packages')
-  @ApiOperation({ summary: 'Get all active package templates' })
-  async getPackages() {
-    return this.pricingService.getPackageTemplates();
-  }
+  // POST pricing/packages/purchase + GET pricing/packages — REMOVED
+  // (memberships-only model: standalone packages are bought on the
+  // console-registered external platforms themselves).
 
   @UseGuards(JwtAuthGuard)
   @Get('transactions')

@@ -13,7 +13,6 @@ import {
   CreateConsultantUserDto,
   CreateAccountManagerDto,
   CreateMembershipPlanDto,
-  CreatePackageTemplateDto,
   CreateSubscriptionDto,
   UpdateSubscriptionDto,
   UpdateEcosystemPlatformDto,
@@ -29,7 +28,6 @@ import {
   CreateLocalMallDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
-  UpdatePackageTemplateDto,
   UpdateBoroughDto,
   UpdateHighStreetDto,
   UpdateLocalMallDto,
@@ -38,41 +36,39 @@ import {
   ClearAuditLogsDto,
 } from './dto/admin.dto';
 
+export interface AdminStatsResult {
+  success: boolean;
+  data: {
+    ecosystemStats: {
+      totalBusinesses: number;
+      totalCustomers: number;
+      totalAgents: number;
+      totalConsultants: number;
+      totalAccountManagers: number;
+      totalPlatformUsers: number;
+    };
+    membershipStats: {
+      active: number;
+      expired: number;
+      pending: number;
+      cancelled: number;
+    };
+    revenueStats: {
+      todayRevenue: number;
+      monthlyRevenue: number;
+      totalCompleted: number;
+      recurringRevenue: number;
+    };
+    platforms: { id: string; name: string; totalUsers: number }[];
+  };
+}
+
 @Injectable()
 export class AdminService implements OnModuleInit {
 
   async onModuleInit() {
-    await this.ensureDefaultTiers();
-  }
-
-  async ensureDefaultTiers() {
-    try {
-      const defaultTiers = [
-        { name: 'Standard', slug: 'standard', durationDays: 90, isAnnual: false, sortOrder: 1 },
-        { name: 'Pro', slug: 'pro', durationDays: 180, isAnnual: false, sortOrder: 2 },
-        { name: 'Pro+', slug: 'pro-plus', durationDays: null, isAnnual: true, sortOrder: 3 },
-      ];
-
-      for (const t of defaultTiers) {
-        await this.prisma.$executeRawUnsafe(
-          `INSERT INTO tiers (id, name, slug, duration_days, is_annual, sort_order, created_at, updated_at)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), NOW())
-           ON CONFLICT (slug) DO UPDATE
-           SET name = EXCLUDED.name,
-               duration_days = EXCLUDED.duration_days,
-               is_annual = EXCLUDED.is_annual,
-               sort_order = EXCLUDED.sort_order,
-               updated_at = NOW()`,
-          t.name,
-          t.slug,
-          t.durationDays,
-          t.isAnnual,
-          t.sortOrder,
-        );
-      }
-    } catch {
-      // Ignored if table not yet available
-    }
+    // No boot-time seeding: memberships-only model, tiers live as
+    // Standard/Pro/Pro+ values (tier* columns + tier-duration utils).
   }
 
 
@@ -202,6 +198,10 @@ export class AdminService implements OnModuleInit {
     adminName = 'System',
     category = 'General',
   ) {
+    // Every state-changing admin operation writes an audit row, so clearing
+    // the cached dashboard stats here keeps GET /admin/stats fresh without
+    // touching every write method. Reads never call this.
+    this.invalidateStatsCache();
     return tx.auditLog.create({
       data: {
         action,
@@ -214,8 +214,24 @@ export class AdminService implements OnModuleInit {
     });
   }
 
-  // ─── Dashboard Stats ────────────────────────────────────
-  async getStats() {
+  // ─── Dashboard Stats (cached, short TTL) ──────────
+  // Revenue + counts are computed live from actual money/rows (admin_payments,
+  // revenue_records, ecosystem_subscriptions, users) and cached in memory for
+  // 60s. Any admin write clears the cache via logAuditTx, so the dashboard
+  // never serves stale numbers after a mutation.
+  private static readonly STATS_TTL_MS = 60_000;
+  private statsCache: { at: number; payload: AdminStatsResult } | null = null;
+
+  private invalidateStatsCache() {
+    this.statsCache = null;
+  }
+
+  async getStats(): Promise<AdminStatsResult> {
+    const now = Date.now();
+    if (this.statsCache && now - this.statsCache.at < AdminService.STATS_TTL_MS) {
+      return this.statsCache.payload;
+    }
+
     const todayStr = new Date().toISOString().split('T')[0];
 
     const [
@@ -224,6 +240,7 @@ export class AdminService implements OnModuleInit {
       agentsCount,
       consultantsCount,
       managersCount,
+      totalPlatformUsers,
       activeSubs,
       expiredSubs,
       pendingSubs,
@@ -239,6 +256,9 @@ export class AdminService implements OnModuleInit {
       this.prisma.user.count({ where: { role: Role.AGENT } }),
       this.prisma.user.count({ where: { role: Role.CONSULTANT } }),
       this.prisma.user.count({ where: { role: Role.ACCOUNT_MANAGER } }),
+      // Real platform-user figure: every non-admin user on MCOM Solutions.
+      // (EcosystemPlatform.totalUsers is a legacy manual column — not used.)
+      this.prisma.user.count({ where: { role: { not: Role.ADMIN } } }),
       this.prisma.ecosystemSubscription.count({ where: { status: 'Active' } }),
       this.prisma.ecosystemSubscription.count({ where: { status: 'Expired' } }),
       this.prisma.ecosystemSubscription.count({ where: { status: 'Pending' } }),
@@ -266,14 +286,16 @@ export class AdminService implements OnModuleInit {
     const completedPayments = completedPaymentsAgg._sum.amount || 0;
     const recurringRevenue = recurringRevenueAgg._sum.amount || 0;
 
-    // Platforms users mapping
+    // Platforms list is real (DB rows). Per-platform user attribution does not
+    // exist yet, so each entry reports totalUsers: 0 rather than the legacy
+    // seeded demo numbers; the honest aggregate lives in totalPlatformUsers.
     const platformList = platforms.map(p => ({
       id: p.id,
       name: p.name,
-      totalUsers: p.totalUsers,
+      totalUsers: 0,
     }));
 
-    return {
+    const payload = {
       success: true,
       data: {
         ecosystemStats: {
@@ -282,7 +304,7 @@ export class AdminService implements OnModuleInit {
           totalAgents: agentsCount,
           totalConsultants: consultantsCount,
           totalAccountManagers: managersCount,
-          totalPlatformUsers: platformList.reduce((sum, p) => sum + p.totalUsers, 0),
+          totalPlatformUsers,
         },
         membershipStats: {
           active: activeSubs,
@@ -299,6 +321,9 @@ export class AdminService implements OnModuleInit {
         platforms: platformList,
       },
     };
+
+    this.statsCache = { at: Date.now(), payload };
+    return payload;
   }
 
   // ─── Analytics (growth + revenue breakdown) ─────────────
@@ -1200,78 +1225,9 @@ export class AdminService implements OnModuleInit {
     return { success: true };
   }
 
-  // ─── Packages CRUD ─────────────────────────────────────
-  async getPackages() {
-    const items = await this.prisma.packageTemplate.findMany({ orderBy: { createdAt: 'desc' } });
-    return { success: true, data: items };
-  }
-
-  async createPackage(dto: CreatePackageTemplateDto, adminName?: string) {
-    const pkg = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.packageTemplate.create({
-        data: {
-          name: dto.name,
-          platform: dto.platform,
-          description: dto.description,
-          price: dto.price,
-          billingCycle: dto.billingCycle,
-          monthlyPrice: dto.monthlyPrice ?? dto.price,
-          quarterlyPrice: dto.quarterlyPrice ?? (dto.price ? Math.floor(dto.price * 0.9 * 3) : null),
-          annualPrice: dto.annualPrice ?? (dto.price ? Math.floor(dto.price * 0.8 * 12) : null),
-          tierPrices: dto.tierPrices ?? undefined,
-          tierFeatures: dto.tierFeatures ?? undefined,
-          tierEntitlements: dto.tierEntitlements ?? undefined,
-          tierDurations: dto.tierDurations ?? undefined,
-          isDefault: dto.isDefault ?? false,
-          type: dto.type ?? 'STANDARD',
-          trialDuration: dto.trialDuration ?? null,
-          features: dto.features,
-          usageLimits: dto.usageLimits,
-          accessRights: dto.accessRights,
-          archived: false,
-        },
-      });
-
-
-
-      await this.logAuditTx(tx, 'Package Created', 'Package', dto.name, `Created ${dto.name} package`, adminName);
-      return result;
-    });
-
-    return { success: true, data: pkg };
-  }
-
-  async updatePackage(id: string, updates: UpdatePackageTemplateDto, adminName?: string) {
-    const pkgExists = await this.prisma.packageTemplate.findUnique({ where: { id } });
-    if (!pkgExists) throw new NotFoundException('Package not found');
-
-    const pkg = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.packageTemplate.update({
-        where: { id },
-        data: updates,
-      });
-
-
-
-      await this.logAuditTx(tx, 'Package Updated', 'Package', id, `Updated package template settings`, adminName);
-      return result;
-    });
-
-    return { success: true, data: pkg };
-  }
-
-  async deletePackage(id: string, adminName?: string) {
-    const pkgExists = await this.prisma.packageTemplate.findUnique({ where: { id } });
-    if (!pkgExists) throw new NotFoundException('Package not found');
-
-    await this.prisma.$transaction(async (tx) => {
-      // G5: soft-delete — preserved for audit, hidden from lists by extension.
-      await tx.packageTemplate.update({ where: { id }, data: { deletedAt: new Date() } });
-      await this.logAuditTx(tx, 'Package Deleted', 'Package', id, `Soft-deleted package`, adminName);
-    });
-
-    return { success: true };
-  }
+  // ─── Packages CRUD — REMOVED ───────────────────────────────
+  // MCOM holds no plans of its own (memberships-only model). Standalone plans
+  // live on console-registered external platforms (external_plans mirror).
 
   // ─── Subscriptions ─────────────────────────────────────
   async getSubscriptions(query: AdminQueryDto) {

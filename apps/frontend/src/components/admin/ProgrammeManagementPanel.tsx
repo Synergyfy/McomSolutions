@@ -1396,6 +1396,23 @@ function MonitoringSection() {
     }
   };
 
+  const handleExport = () => {
+    const rows = filtered.map(b => {
+      const { completed, total } = getPhaseTaskCount(b);
+      return [b.businessName, b.status, b.currentDay, `${completed}/${total}`, (b.completedMissions ?? []).length];
+    });
+    const csv = [['Business', 'Status', 'Current Day', 'Phase Tasks', 'Total Completed Missions'], ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `programme-monitoring-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getPhaseTaskCount = (b: BusinessProgrammeRecord): { completed: number; total: number; phase: ProgrammePhase | null } => {
     const phase = getPhaseForDay(b.currentDay);
     if (!phase) return { completed: 0, total: 0, phase: null };
@@ -1430,7 +1447,7 @@ function MonitoringSection() {
           <option value="completed">Completed</option>
           <option value="extended">Extended</option>
         </select>
-        <button className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 hover:bg-gray-50 transition-colors">
+        <button onClick={handleExport} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500 hover:bg-gray-50 transition-colors">
           <Download className="w-3.5 h-3.5" /> Export
         </button>
         <span className="text-xs text-gray-400 font-medium ml-auto">{overall.completed}/{overall.total} tasks completed across all businesses</span>

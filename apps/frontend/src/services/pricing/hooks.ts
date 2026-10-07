@@ -21,30 +21,13 @@ export const useSubscribeMembership = () => {
   });
 };
 
-export const usePurchasePackage = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ platform, packageName }: { platform: string; packageName: string }) =>
-      pricingApi.purchasePackage(platform, packageName),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-    },
-  });
-};
+// usePurchasePackage + usePackageTemplates — REMOVED (memberships-only model).
 
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
     queryFn: () => pricingApi.getTransactions(),
     staleTime: 1000 * 60 * 2, // 2 minutes
-  });
-};
-
-export const usePackageTemplates = () => {
-  return useQuery({
-    queryKey: ['packageTemplates'],
-    queryFn: () => pricingApi.getPackageTemplates(),
-    staleTime: 1000 * 60 * 5, // 5 minutes
   });
 };
 

@@ -24,6 +24,8 @@ interface SsoSeedDescriptor {
 }
 
 const SSO_SEED_CLIENTS: SsoSeedDescriptor[] = [
+  // NOTE: '247gbs' seed retired — do not re-add; it is deleted from staging
+  // and must not be recreated on boot. Re-register via Console if ever needed.
   {
     clientId: 'mcom-mall',
     name: 'MCOM Mall',
@@ -44,21 +46,6 @@ const SSO_SEED_CLIENTS: SsoSeedDescriptor[] = [
     apiKeyEnv: 'SSO_SEED_MALL_API_KEY',
     hmacEnv: 'SSO_SEED_MALL_HMAC_SECRET',
     webhookEnv: 'SSO_SEED_MALL_WEBHOOK_SECRET',
-  },
-  {
-    clientId: '247gbs',
-    name: '247GBS',
-    platformSlug: 'audit',
-    redirectUris: [
-      'https://247gbs.vercel.app/auth/callback',
-      'http://localhost:3010/auth/callback',
-    ],
-    scopes: ['profile', 'email', 'business', 'membership'],
-    appUrl: 'https://247gbs.vercel.app',
-    billingApiUrl: null,
-    corsOrigins: ['https://247gbs.vercel.app'],
-    secretEnv: 'SSO_SEED_247GBS_CLIENT_SECRET',
-    apiKeyEnv: 'SSO_SEED_247GBS_API_KEY',
   },
   {
     clientId: '247gbs-affiliate',
@@ -84,9 +71,9 @@ function randomHex(bytes: number): string {
 
 // ─── Phase 5: soft-delete query extension ──────────────────────────────
 // `$use` middleware was removed in Prisma 6 — this client extension is its
-// replacement. Applies to the nine models carrying `deletedAt` (User,
+// replacement. Applies to the eight models carrying `deletedAt` (User,
 // BusinessProfile, the four affiliate profile tables, plus G5 catalogue /
-// programme tables: MembershipPlan, PackageTemplate, BusinessProgramme):
+// programme tables: MembershipPlan, BusinessProgramme):
 // - findFirst / findMany / findFirstOrThrow / count (and deleteMany): inject
 //   `deletedAt: null` unless the caller set deletedAt explicitly (so a future
 //   trash-view can pass `deletedAt: { not: null }` to opt out).
@@ -106,7 +93,6 @@ type SoftDeleteModel =
   | 'consultantProfile'
   | 'accountManagerProfile'
   | 'membershipPlan'
-  | 'packageTemplate'
   | 'businessProgramme';
 
 function callerSetDeletedAt(where: unknown): boolean {
@@ -169,7 +155,6 @@ const softDeleteExtension: any = {
     consultantProfile: softDeleteModelHooks('consultantProfile'),
     accountManagerProfile: softDeleteModelHooks('accountManagerProfile'),
     membershipPlan: softDeleteModelHooks('membershipPlan'),
-    packageTemplate: softDeleteModelHooks('packageTemplate'),
     businessProgramme: softDeleteModelHooks('businessProgramme'),
   },
 };
@@ -228,7 +213,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'consultantProfile',
       'accountManagerProfile',
       'membershipPlan',
-      'packageTemplate',
       'businessProgramme',
     ] as const) {
       (this as any)[delegate] = (extended as any)[delegate];
