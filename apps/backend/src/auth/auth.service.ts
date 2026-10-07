@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   UnauthorizedException,
   HttpException,
@@ -78,6 +79,57 @@ export class AuthService {
 
   private generateNumericCode(): string {
     return crypto.randomInt(100000, 1000000).toString();
+  }
+
+  /**
+   * Referral codes: short 8-char uppercase alphanumeric (easy to share).
+   * Uniqueness is enforced by the DB `@unique` constraint; the
+   * check-then-create loop below keeps collisions to a retry, and the
+   * register transactions translate a lost race (P2002) into a 409.
+   */
+  private generateReferralCodeCandidate(): string {
+    return crypto.randomBytes(4).toString('hex').toUpperCase();
+  }
+
+  private async generateUniqueReferralCode(tx: { user: { findUnique: any } }): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = this.generateReferralCodeCandidate();
+      const existing = await tx.user.findUnique({
+        where: { referralCode: candidate },
+        select: { id: true },
+      });
+      if (!existing) return candidate;
+    }
+    // Entropy fallback — 12 hex chars (48 bits) after 10 collisions.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = crypto.randomBytes(6).toString('hex').toUpperCase();
+      const existing = await tx.user.findUnique({
+        where: { referralCode: candidate },
+        select: { id: true },
+      });
+      if (!existing) return candidate;
+    }
+    throw new ServiceUnavailableException('Could not generate a unique referral code');
+  }
+
+  /**
+   * Resolve `?ref=CODE` to a referrer user id. Unknown codes are rejected
+   * with 400 so typos surface instead of silently dropping attribution.
+   */
+  private async resolveReferrerId(
+    tx: { user: { findUnique: any } },
+    referredByCode?: string,
+  ): Promise<string | null> {
+    const code = referredByCode?.trim().toUpperCase();
+    if (!code) return null;
+    const referrer = await tx.user.findUnique({
+      where: { referralCode: code },
+      select: { id: true },
+    });
+    if (!referrer) {
+      throw new BadRequestException('Invalid referral code');
+    }
+    return referrer.id;
   }
 
   /**
@@ -579,6 +631,7 @@ export class AuthService {
         password: true,
         firstName: true,
         lastName: true,
+        referralCode: true,
         tokenVersion: true,
         businessProfile: { select: { id: true, businessName: true } },
       },
@@ -671,6 +724,7 @@ export class AuthService {
         role: user.role,
         name,
         businessId,
+        referralCode: user.referralCode ?? null,
         isOnboarded: !!businessId,
         activePlans,
       },
@@ -696,11 +750,15 @@ export class AuthService {
     let newUser;
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
+      const referredById = await this.resolveReferrerId(tx, data.referredByCode);
+      const referralCode = await this.generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
           password: passwordHash,
           role: Role.BUSINESS,
+          referralCode,
+          referredById,
           businessProfile: {
             create: {
               businessName: data.businessName || 'My New Business',
@@ -754,11 +812,15 @@ export class AuthService {
     let newUser;
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
+      const referredById = await this.resolveReferrerId(tx, data.referredByCode);
+      const referralCode = await this.generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
           password: passwordHash,
           role: Role.CUSTOMER,
+          referralCode,
+          referredById,
           firstName: data.firstName || '',
           lastName: data.lastName || '',
           wallet: {
@@ -807,11 +869,15 @@ export class AuthService {
     let affiliateUser;
     try {
       affiliateUser = await this.prisma.$transaction(async (tx) => {
+      const referredById = await this.resolveReferrerId(tx, data.referredByCode);
+      const referralCode = await this.generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
           password: passwordHash,
           role: targetRole,
+          referralCode,
+          referredById,
           firstName: data.firstName || '',
           lastName: data.lastName || '',
           registrationSource: 'affiliate-portal',

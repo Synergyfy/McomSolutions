@@ -20,6 +20,7 @@ import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
+import { persistReferralCodeFromSearchParams } from '../../lib/referral';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -635,6 +636,8 @@ function BusinessOnboardingInner() {
     const scope = searchParams.get('scope');
     const source = searchParams.get('source');
     const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl');
+    // Persist ?ref= alongside the SSO intent (register funnel merges it).
+    persistReferralCodeFromSearchParams(searchParams);
 
     if (clientId || redirectUri || source || redirect) {
       const intent: any = {};
@@ -830,6 +833,18 @@ function BusinessOnboardingInner() {
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
+
+  const { data: currentUser } = useCurrentUser(typeof window !== 'undefined' && !!localStorage.getItem('auth_token'));
+
+  // If user is already logged in with a completed business profile, redirect to dashboard (unless claim return, claim flow, or external platform/SSO intent in flight)
+  useEffect(() => {
+    const hasExternalIntent = Boolean(searchParams.get('source') || searchParams.get('client_id') || searchParams.get('redirect_uri') || searchParams.get('redirect'));
+    if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
+    const businessId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
+    if (currentUser?.role === 'BUSINESS' && businessId) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams]);
 
   // Prefill from login's "email not found" handoff (?email=). Skipped on a
   // Google-claim return, where ?email= is the verified claim email owned by
@@ -1394,8 +1409,6 @@ function BusinessOnboardingInner() {
   };
   const platformName = sourceParam ? platformMap[sourceParam] : null;
   const { data: externalPlansRes, isLoading: isLoadingPlans } = usePlatformPlans(platformName);
-  const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
-  const { data: currentUser } = useCurrentUser(hasToken);
 
   useEffect(() => {
     if (currentUser?.businessProfile?.id && platformName) {

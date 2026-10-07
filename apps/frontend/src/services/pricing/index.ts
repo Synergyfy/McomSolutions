@@ -16,18 +16,11 @@ export const pricingApi = {
     return res.data;
   },
 
-  purchasePackage: async (platform: string, packageName: string) => {
-    const res = await apiClient.post('/pricing/packages/purchase', { platform, packageName });
-    return res.data;
-  },
+  // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
+  // Standalone packages are bought on the console-registered external platforms.
 
   getTransactions: async () => {
     const res = await apiClient.get('/pricing/transactions');
-    return res.data;
-  },
-
-  getPackageTemplates: async () => {
-    const res = await apiClient.get('/pricing/packages');
     return res.data;
   },
 

@@ -7,7 +7,6 @@ import type {
   ConsultantUser,
   AccountManager,
   MembershipPlan,
-  PackageTemplate,
   Subscription,
   Platform,
   PlatformsResponse,
@@ -36,7 +35,6 @@ import type {
   UpdateTicketInput,
   CreatePlanInput,
   UpdatePlanInput,
-  CreatePackageInput,
   ExternalPlan,
   CreateExternalPlanInput,
   PlatformInfo,
@@ -199,26 +197,9 @@ export const adminApi = {
     return res.data
   },
 
-  // ─── Package Templates ───────────────────────────────
-  getPackages: async () => {
-    const res = await apiClient.get('/admin/packages')
-    return res.data as ApiResponse<PackageTemplate[]>
-  },
-
-  createPackage: async (data: CreatePackageInput) => {
-    const res = await apiClient.post('/admin/packages', data)
-    return res.data as ApiResponse<PackageTemplate>
-  },
-
-  updatePackage: async (id: string, data: Partial<CreatePackageInput & { archived: boolean }>) => {
-    const res = await apiClient.put(`/admin/packages/${id}`, data)
-    return res.data as ApiResponse<PackageTemplate>
-  },
-
-  deletePackage: async (id: string) => {
-    const res = await apiClient.delete(`/admin/packages/${id}`)
-    return res.data
-  },
+  // ─── Package Templates — REMOVED ─────────────────────
+  // MCOM holds no plans of its own (memberships-only model). Standalone plans
+  // live on console-registered external platforms (external plans API).
 
   // ─── Subscriptions ───────────────────────────────────
   getSubscriptions: async (params?: { page?: number; limit?: number; search?: string }) => {

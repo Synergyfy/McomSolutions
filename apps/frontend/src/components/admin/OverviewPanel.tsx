@@ -4,11 +4,11 @@ import { Building2, Users, Briefcase, UserCircle, Target, Zap, ShoppingBag, Clip
 
 const QUICK_ACTIONS = [
   { label: 'Create Membership', tab: 'memberships', icon: CreditCard, color: 'bg-blue-500' },
-  { label: 'Create Package', tab: 'packages', icon: Package, color: 'bg-emerald-500' },
-  { label: 'Manage Pricing', tab: 'pricing', icon: Target, color: 'bg-amber-500' },
   { label: 'Manage Users', tab: 'users', icon: Users, color: 'bg-purple-500' },
   { label: 'Manage Platforms', tab: 'platform-access', icon: Activity, color: 'bg-rose-500' },
   { label: 'View Payments', tab: 'payments', icon: Wallet, color: 'bg-cyan-500' },
+  { label: 'View Analytics', tab: 'analytics', icon: Target, color: 'bg-amber-500' },
+  { label: 'System Settings', tab: 'system-settings', icon: Package, color: 'bg-emerald-500' },
 ];
 
 export default function OverviewPanel({ onNavigate }: { onNavigate: (tab: string) => void }) {
@@ -22,11 +22,22 @@ export default function OverviewPanel({ onNavigate }: { onNavigate: (tab: string
     );
   }
 
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <AlertTriangle className="w-8 h-8 text-amber-500 mb-3" />
+        <p className="font-bold text-gray-900">Couldn&apos;t load ecosystem stats</p>
+        <p className="text-sm text-gray-500 mt-1">Check your connection and try again.</p>
+      </div>
+    );
+  }
+
   const stats = statsRes?.data;
   const platforms = stats?.platforms ?? [];
-  const totalPlatformUsers = platforms.reduce((sum, p) => sum + p.totalUsers, 0);
-
   const ecosystem = stats?.ecosystemStats;
+  // Real aggregate from GET /admin/stats (non-admin user count) — not the
+  // legacy per-platform seeded numbers.
+  const totalPlatformUsers = ecosystem?.totalPlatformUsers ?? 0;
   const membership = stats?.membershipStats;
   const revenue = stats?.revenueStats;
 
@@ -63,14 +74,20 @@ export default function OverviewPanel({ onNavigate }: { onNavigate: (tab: string
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Platform Users</h3>
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Platforms</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            <span className="font-bold text-brand-blue">{totalPlatformUsers.toLocaleString()}</span> total users across {platforms.length} {platforms.length === 1 ? 'platform' : 'platforms'}
+          </p>
           <div className="space-y-3">
             {platforms.slice(0, 6).map(p => (
               <div key={p.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-xl">
                 <span className="text-sm font-bold text-gray-700">{p.name}</span>
-                <span className="text-sm font-bold text-brand-blue">{p.totalUsers.toLocaleString()}</span>
+                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">Live</span>
               </div>
             ))}
+            {platforms.length === 0 && (
+              <p className="text-sm text-gray-400">No platforms registered yet.</p>
+            )}
           </div>
         </div>
       </div>

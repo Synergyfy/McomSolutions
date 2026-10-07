@@ -73,8 +73,19 @@ describe('AdminService', () => {
       const result = await service.getStats();
       expect(result.success).toBe(true);
       expect(result.data.ecosystemStats.totalBusinesses).toBe(5);
+      expect(result.data.ecosystemStats.totalPlatformUsers).toBe(5);
       expect(result.data.membershipStats.active).toBe(0);
       expect(result.data.revenueStats.todayRevenue).toBe(0);
+    });
+
+    it('serves cached stats within the TTL and recomputes after a write', async () => {
+      const first = await service.getStats();
+      await expect(service.getStats()).resolves.toBe(first);
+      // Any audited write clears the cache (via logAuditTx).
+      await service.logAuditTx(mockPrisma, 'Test', 'Test', 'test', 'test');
+      const third = await service.getStats();
+      expect(third).not.toBe(first);
+      expect(third).toEqual(first);
     });
   });
 

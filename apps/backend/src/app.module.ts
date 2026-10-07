@@ -1,7 +1,8 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AppThrottlerGuard } from './common/throttler/app-throttler.guard';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { BusinessModule } from './business/business.module';
@@ -19,6 +20,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
 import { QueueModule } from './queue/queue.module';
 import { TaskModule } from './task/task.module';
+import { ReferralsModule } from './referrals/referrals.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -66,7 +68,9 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
       imports: [RedisModule],
       inject: [RedisService],
       useFactory: (redis: RedisService) => ({
-        throttlers: [{ ttl: 60000, limit: 30, blockDuration: 60000 }],
+        // Global safety-net: 300 req/min per user (authenticated) or per IP
+        // (public). Sensitive routes override this with their own @Throttle().
+        throttlers: [{ ttl: 60000, limit: 300, blockDuration: 60000 }],
         storage: new RedisThrottlerStorage(redis),
       }),
     }),
@@ -88,12 +92,14 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     WebhookDispatcherModule,
     QueueModule,
     TaskModule,
+    ReferralsModule,
   ],
   controllers: [],
-  // Phase 3: bind ThrottlerGuard globally so per-route @Throttle() metadata
-  // (auth login/register/OTP, admin login, console, wallet) is actually
-  // enforced with 429s on a shared Redis budget (G4).
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  // Global throttler: AppThrottlerGuard keys by userId for authenticated
+  // requests (each user gets their own 300 req/min budget) and by IP for
+  // public ones. Per-route @Throttle() on sensitive endpoints (auth, console,
+  // wallet) still apply their own stricter limits on top of this.
+  providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

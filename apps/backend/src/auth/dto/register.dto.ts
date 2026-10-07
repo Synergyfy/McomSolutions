@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ example: 'user@example.com', description: 'User email address' })
@@ -112,4 +112,10 @@ export class RegisterDto {
   @IsString()
   @IsOptional()
   googlePlaceId?: string;
+
+  @ApiPropertyOptional({ example: 'A1B2C3D4', description: 'Referral code of the user who invited this user (?ref=CODE)' })
+  @IsString()
+  @IsOptional()
+  @Matches(/^[A-Za-z0-9]{6,12}$/, { message: 'referredByCode must be 6-12 alphanumeric characters' })
+  referredByCode?: string;
 }

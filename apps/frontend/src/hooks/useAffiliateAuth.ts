@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import affiliateApiClient from "../lib/affiliateApiClient";
 import { setSharedAuthCookies, clearSharedAuthCookies } from "../services/api";
+import { clearStoredReferralCode, withReferralCode } from "../lib/referral";
 import { useAffiliateAuthStore } from "../store/useAffiliateAuthStore";
 import { useNavigate } from "react-router-dom";
 
@@ -56,7 +57,7 @@ export const useAffiliateAuth = () => {
 
   const signupMutation = useMutation({
     mutationFn: async (userData: any) => {
-      const response = await affiliateApiClient.post("/auth/register", userData);
+      const response = await affiliateApiClient.post("/auth/register", withReferralCode(userData));
       return response.data;
     },
     onSuccess: (data) => {
@@ -89,6 +90,7 @@ export const useAffiliateAuth = () => {
           localStorage.setItem('auth_token', accessToken);
           localStorage.setItem('business_user', JSON.stringify(user));
           setSharedAuthCookies(accessToken, data.refreshToken || null, user);
+          clearStoredReferralCode();
         }
       }
     },

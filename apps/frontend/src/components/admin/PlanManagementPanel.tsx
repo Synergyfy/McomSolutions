@@ -2,18 +2,12 @@ import { useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles, Shield } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import PlanFormModal from './PlanFormModal';
 import TieredPlanEditorModal from './TieredPlanEditorModal';
-import LocalPackageEditorModal from './LocalPackageEditorModal';
 import {
   useAdminPlans,
-  useAdminPackages,
   useCreatePlan,
   useUpdatePlan,
   useDeletePlan,
-  useCreatePackage,
-  useUpdatePackage,
-  useDeletePackage,
   useExternalPlans,
   useExternalPlanSchema,
   useExternalPlatformSeasons,
@@ -24,7 +18,6 @@ import {
 } from '../../services/admin/hooks';
 import type {
   CreatePlanInput,
-  CreatePackageInput,
   CreateExternalPlanInput,
   ExternalPlan,
   ExternalSeason,
@@ -35,15 +28,11 @@ import type {
 
 export default function PlanManagementPanel() {
   const { data: plansRes, isLoading: plansLoading } = useAdminPlans();
-  const { data: packagesRes, isLoading: packagesLoading } = useAdminPackages();
   const { data: platformsRes, isLoading: platformsLoading } = useSupportedPlatforms();
 
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const deletePlan = useDeletePlan();
-  const createPackage = useCreatePackage();
-  const updatePackage = useUpdatePackage();
-  const deletePackage = useDeletePackage();
   const createExternalPlan = useCreateExternalPlan();
   const updateExternalPlan = useUpdateExternalPlan();
   const deleteExternalPlan = useDeleteExternalPlan();
@@ -51,8 +40,6 @@ export default function PlanManagementPanel() {
   const [tab, setTab] = useState<'memberships' | 'packages'>('memberships');
   const [showAddMembership, setShowAddMembership] = useState(false);
   const [editMembership, setEditMembership] = useState<string | null>(null);
-  const [showAddPackage, setShowAddPackage] = useState(false);
-  const [editPackage, setEditPackage] = useState<number | null>(null);
 
   // Dynamic external plan modal state
   const [addPlatformPlan, setAddPlatformPlan] = useState<PlatformInfo | null>(null);
@@ -61,11 +48,7 @@ export default function PlanManagementPanel() {
   const [deleteExternalPlanTarget, setDeleteExternalPlanTarget] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
 
   const membershipPlans = plansRes?.data ?? [];
-  const packages = packagesRes?.data ?? [];
   const platforms: PlatformInfo[] = platformsRes?.data ?? [];
-
-  const externalPlatformNames = new Set(platforms.map((p) => p.name.toLowerCase()));
-  const localPackages = packages.filter((p) => !externalPlatformNames.has((p.platform || '').toLowerCase()));
 
   return (
     <div>
@@ -244,99 +227,7 @@ export default function PlanManagementPanel() {
             ))
           )}
 
-          {/* Local Packages Section (Non-external platforms) */}
-          <div className="border-t border-gray-100 pt-8 mt-8">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-brand-blue" />
-                  Local Package Templates
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {packagesLoading ? 'Loading...' : `${localPackages.length} local templates configured`}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowAddPackage(true)}
-                className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" /> Create Local Package
-              </button>
-            </div>
-
-            {localPackages.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center mb-8">
-                <Package className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-400 font-medium">No local packages configured</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                {localPackages.map((pkg) => (
-                  <div key={pkg.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-all">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-bold text-gray-900">{pkg.name}</h4>
-                        <p className="text-xs text-gray-500">{pkg.description}</p>
-                        <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px] font-bold">
-                          {pkg.platform}
-                        </span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => setEditPackage(pkg.id)}
-                          className="p-1.5 bg-gray-50 rounded-lg hover:bg-blue-50 transition-all"
-                          title="Edit"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 text-gray-400" />
-                        </button>
-                        <button
-                          onClick={() => deletePackage.mutate(pkg.id.toString())}
-                          className="p-1.5 bg-gray-50 rounded-lg hover:bg-red-50 transition-all"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-gray-400" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-2 mb-3 bg-gray-50/70 p-3 rounded-xl border border-gray-100">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Configured Tiers</div>
-                      <div className="grid grid-cols-3 gap-1.5 text-center">
-                        <div className="bg-white p-1.5 rounded-lg border border-gray-100 shadow-2xs">
-                          <div className="text-[9px] font-bold text-gray-500">Standard</div>
-                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.Standard ?? pkg.price}</div>
-                          <div className="text-[8px] text-gray-400 font-semibold">90d</div>
-                        </div>
-                        <div className="bg-white p-1.5 rounded-lg border border-orange-200/80 shadow-2xs">
-                          <div className="text-[9px] font-bold text-orange-600">Pro</div>
-                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.Pro ?? Math.round(pkg.price * 2.5)}</div>
-                          <div className="text-[8px] text-orange-500 font-semibold">180d</div>
-                        </div>
-                        <div className="bg-white p-1.5 rounded-lg border border-purple-200/80 shadow-2xs">
-                          <div className="text-[9px] font-bold text-purple-600">Pro+</div>
-                          <div className="text-xs font-black text-gray-900">£{pkg.tierPrices?.['Pro+'] ?? Math.round(pkg.price * 5)}</div>
-                          <div className="text-[8px] text-purple-500 font-semibold">Annual</div>
-                        </div>
-                      </div>
-                      {Array.isArray(pkg.tierEntitlements) && pkg.tierEntitlements.length > 0 && (
-                        <div className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 mt-1">
-                          <Shield className="w-3 h-3 text-emerald-600" />
-                          {pkg.tierEntitlements.length} resource quotas enforced
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      {pkg.features.map((f) => (
-                        <div key={f} className="flex items-center gap-2 text-xs text-gray-600">
-                          <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                          {f}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Local plans were removed (memberships-only model). */}
         </div>
       )}
 
@@ -360,32 +251,6 @@ export default function PlanManagementPanel() {
             onSaveMembership={(data: CreatePlanInput) => {
               updatePlan.mutate({ id: editMembership!, data });
               setEditMembership(null);
-            }}
-          />
-        )}
-
-        {/* Local Package Modals */}
-        {showAddPackage && (
-          <LocalPackageEditorModal
-            onClose={() => setShowAddPackage(false)}
-            isSubmitting={createPackage.isPending}
-            onSave={(data: CreatePackageInput) => {
-              createPackage.mutate(data, {
-                onSuccess: () => setShowAddPackage(false),
-              });
-            }}
-          />
-        )}
-        {editPackage !== null && (
-          <LocalPackageEditorModal
-            initialPackage={packages.find((p) => p.id === editPackage)}
-            onClose={() => setEditPackage(null)}
-            isSubmitting={updatePackage.isPending}
-            onSave={(data: CreatePackageInput) => {
-              updatePackage.mutate(
-                { id: editPackage!.toString(), data },
-                { onSuccess: () => setEditPackage(null) }
-              );
             }}
           />
         )}
@@ -1422,198 +1287,6 @@ function ExternalPlanFormModal({
   );
 }
 
-function PackageFormModal({ title, initial, onClose, onSave }: any) {
-  const [form, setForm] = useState<any>(
-    initial || {
-      name: '',
-      platform: 'MCOM Solutions',
-      description: '',
-      price: 0,
-      monthlyPrice: 0,
-      quarterlyPrice: 0,
-      annualPrice: 0,
-      billingCycle: 'Monthly',
-      features: [],
-      usageLimits: { members: 0, products: 0, orders: 0, spins: 0, prizes: 0, audits: 0, templates: 0, booth: 1, media: 0 },
-      accessRights: [],
-      archived: false,
-    }
-  );
-  const [newFeature, setNewFeature] = useState('');
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto"
-      >
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
-          <h4 className="text-lg font-bold">{title}</h4>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl">
-            <X className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-        <div className="p-6 space-y-4">
-          <Field label="Package Name">
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Platform">
-              <select
-                value={form.platform}
-                onChange={(e) => setForm({ ...form, platform: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              >
-                {['MCOM Solutions', 'MCOM Rewards', 'MCOM Spin', 'GBS Audit', 'GBS Expo'].map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Billing Cycle">
-              <select
-                value={form.billingCycle}
-                onChange={(e) => setForm({ ...form, billingCycle: e.target.value })}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              >
-                {['Monthly', 'Quarterly', 'Yearly'].map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="Description">
-            <textarea
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20 h-16 resize-none"
-            />
-          </Field>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Monthly (£)">
-              <input
-                type="number"
-                value={form.monthlyPrice ?? form.price ?? 0}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) || 0;
-                  setForm({
-                    ...form,
-                    price: val,
-                    monthlyPrice: val,
-                    quarterlyPrice: form.quarterlyPrice || Math.floor(val * 0.9) * 3,
-                    annualPrice: form.annualPrice || Math.floor(val * 0.8) * 12,
-                  });
-                }}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              />
-            </Field>
-            <Field label="Quarterly (£)">
-              <input
-                type="number"
-                value={form.quarterlyPrice ?? 0}
-                onChange={(e) => setForm({ ...form, quarterlyPrice: parseFloat(e.target.value) || 0 })}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              />
-            </Field>
-            <Field label="Annual (£)">
-              <input
-                type="number"
-                value={form.annualPrice ?? 0}
-                onChange={(e) => setForm({ ...form, annualPrice: parseFloat(e.target.value) || 0 })}
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-              />
-            </Field>
-          </div>
-          <Field label="Features">
-            <div className="space-y-2">
-              {form.features.map((f: string, i: number) => (
-                <div key={`${f}-${i}`} className="flex items-center gap-2">
-                  <input
-                    value={f}
-                    onChange={(e) => {
-                      const arr = [...form.features];
-                      arr[i] = e.target.value;
-                      setForm({ ...form, features: arr });
-                    }}
-                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                  />
-                  <button
-                    onClick={() =>
-                      setForm({ ...form, features: form.features.filter((_: any, j: number) => j !== i) })
-                    }
-                    className="p-2 text-gray-400 hover:text-red-500"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <input
-                  value={newFeature}
-                  onChange={(e) => setNewFeature(e.target.value)}
-                  placeholder="Add feature..."
-                  className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (newFeature.trim()) {
-                      setForm({ ...form, features: [...form.features, newFeature.trim()] });
-                      setNewFeature('');
-                    }
-                  }}
-                  className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </Field>
-          <Field label="Access Rights">
-            <MultiSelect
-              options={[
-                'Store Admin',
-                'Marketing Admin',
-                'Analytics',
-                'View Analytics',
-                'Export Data',
-                'Spin Admin',
-                'Audit Access',
-                'Expo Admin',
-              ]}
-              selected={form.accessRights}
-              onChange={(v: any) => setForm({ ...form, accessRights: v })}
-            />
-          </Field>
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-500 hover:bg-gray-100 transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(form)}
-            className="flex-1 py-3 bg-brand-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-glow"
-          >
-            {initial ? 'Save' : 'Create'}
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
 function Field({ label, children, error }: { key?: string; label: string; children: ReactNode; error?: string }) {
   return (
     <div className="space-y-1.5">
@@ -1622,13 +1295,4 @@ function Field({ label, children, error }: { key?: string; label: string; childr
       {error && <p className="text-[11px] text-red-500 font-medium pl-2">{error}</p>}
     </div>
   );
-}
-
-function MultiSelect({ options, selected, onChange }: any) {
-  return <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 rounded-xl border border-gray-200">{
-    options.map((o: string) => (
-      <button key={o} type="button" onClick={() => onChange(selected.includes(o) ? selected.filter((x: string) => x !== o) : [...selected, o])}
-        className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", selected.includes(o) ? "bg-brand-blue text-white" : "bg-white text-gray-500 hover:bg-gray-100")}>{o}</button>
-    ))
-  }</div>;
 }

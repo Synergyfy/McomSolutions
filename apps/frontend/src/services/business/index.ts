@@ -1,4 +1,5 @@
 import { apiClient, setSharedAuthCookies } from '../api';
+import { clearStoredReferralCode, withReferralCode } from '../../lib/referral';
 import type { CreateSupportTicket } from '../../types/contracts';
 
 export const businessApi = {
@@ -87,7 +88,10 @@ export const businessApi = {
   },
 
   register: async (data: any) => {
-    const res = await apiClient.post('/auth/register', data);
+    const res = await apiClient.post('/auth/register', withReferralCode(data));
+    if (res.data?.accessToken) {
+      clearStoredReferralCode();
+    }
     return res.data;
   },
 

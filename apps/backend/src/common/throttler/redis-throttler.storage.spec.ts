@@ -76,4 +76,18 @@ describe('RedisThrottlerStorage (G4)', () => {
     expect(first.isBlocked).toBe(false);
     expect(first.totalHits).toBe(1);
   });
+
+  it('auto-heals corrupted legacy blocks that exceed the max allowed window', async () => {
+    const { storage, redis } = makeStorage();
+    // Simulate a record in Redis with a 16-hour legacy corrupted block (from old ms*1000 bug)
+    const corruptedRecord = {
+      hits: [{ expiresAt: Date.now() + 60000 }],
+      blockedUntil: Date.now() + 60000 * 1000, // ~16.6 hours in the future
+    };
+    (redis.get as jest.Mock).mockResolvedValueOnce(corruptedRecord);
+
+    const res = await storage.increment('legacy-corrupted', 60000, 5, 60000, 'default');
+    // Should self-heal to unblocked
+    expect(res.isBlocked).toBe(false);
+  });
 });

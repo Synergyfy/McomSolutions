@@ -25,9 +25,6 @@ describe('PricingService', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
     },
-    packageTemplate: {
-      findFirst: jest.fn(),
-    },
     ecosystemSubscription: {
       create: jest.fn(),
     },
@@ -340,75 +337,8 @@ describe('PricingService', () => {
     });
   });
 
-  // ─── purchasePackage ────────────────────────────
-  describe('purchasePackage', () => {
-    it('should throw NotFoundException if business not found', async () => {
-      mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
-      await expect(
-        service.purchasePackage('b-nonexistent', 'mall', 'starter'),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw NotFoundException if no package template exists', async () => {
-      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
-      mockPrisma.packageTemplate.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.purchasePackage('b1', 'mall', 'Standard'),
-      ).rejects.toThrow(NotFoundException);
-      expect(mockPrisma.platformPackage.upsert).not.toHaveBeenCalled();
-    });
-
-    it('should upsert platform package and create billing transaction', async () => {
-      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
-      mockPrisma.packageTemplate.findFirst.mockResolvedValue({
-        name: 'Standard',
-        price: 29,
-        usageLimits: { campaignsLimit: 1, rewardsLimit: 5 },
-        billingCycle: 'monthly',
-      });
-      mockPrisma.platformPackage.upsert.mockResolvedValue({
-        id: 'pkg-1',
-        platform: 'mall',
-        packageName: 'Standard',
-      });
-      mockPrisma.billingTransaction.create.mockResolvedValue({});
-
-      const result = await service.purchasePackage('b1', 'mall', 'Standard');
-      expect(result.platform).toBe('mall');
-      expect(result.packageName).toBe('Standard');
-      expect(mockPrisma.billingTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ amount: 29 }),
-        }),
-      );
-    });
-
-    it('should price from the PackageTemplate catalog when available', async () => {
-      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
-      mockPrisma.packageTemplate.findFirst.mockResolvedValue({
-        name: 'Enterprise',
-        price: 199,
-        usageLimits: { campaignsLimit: -1, rewardsLimit: -1 },
-        billingCycle: 'monthly',
-      });
-      mockPrisma.platformPackage.upsert.mockResolvedValue({
-        id: 'pkg-2',
-        platform: 'rewards',
-        packageName: 'Enterprise',
-      });
-      mockPrisma.billingTransaction.create.mockResolvedValue({});
-
-      await service.purchasePackage('b1', 'rewards', 'Enterprise');
-      expect(mockPrisma.billingTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            amount: 199,
-          }),
-        }),
-      );
-    });
-  });
+  // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
+  // Standalone packages are bought on the console-registered external platforms.
 
   // ─── getTransactions ───────────────────────────
   describe('getTransactions', () => {

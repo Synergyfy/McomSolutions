@@ -19,6 +19,7 @@ export const userProfileSelect = {
   smsNotifications: true,
   registrationSource: true,
   adminRole: true,
+  referralCode: true,
   createdAt: true,
   updatedAt: true,
   businessProfile: {

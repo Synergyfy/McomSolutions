@@ -1,4 +1,5 @@
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../api';
+import { clearStoredReferralCode, withReferralCode } from '../../lib/referral';
 import type { LoginCredentials, RegisterData, ResetPasswordData, SettingsUpdateData } from './hooks';
 
 export const authApi = {
@@ -28,11 +29,12 @@ export const authApi = {
   },
 
   register: async (data: RegisterData) => {
-    const res = await apiClient.post('/auth/register', data);
+    const res = await apiClient.post('/auth/register', withReferralCode(data));
     if (res.data?.accessToken) {
       localStorage.setItem('auth_token', res.data.accessToken);
       localStorage.setItem('business_user', JSON.stringify(res.data.user));
-      setSharedAuthCookies(res.data.accessToken, res.data.refreshToken, res.data.user);
+      setSharedAuthCookies(res.data.accessToken, res.data.refreshToken ?? null, res.data.user);
+      clearStoredReferralCode();
     }
     return res.data;
   },

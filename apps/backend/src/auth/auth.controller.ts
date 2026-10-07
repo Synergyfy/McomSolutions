@@ -57,7 +57,7 @@ export class AuthController {
     });
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('register')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: RegisterDto })
@@ -83,7 +83,7 @@ export class AuthController {
     return result;
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Get('check-email')
   @ApiOperation({ summary: 'Check whether an email is already registered' })
   @ApiOkResponse({ description: 'Email existence flag' })
@@ -95,7 +95,7 @@ export class AuthController {
     return { exists: !!user };
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 15, ttl: 60000, blockDuration: 60000 } })
   @UseGuards(LocalAuthGuard)
   @Post('login')
   @ApiOperation({ summary: 'Log in with email and password' })
@@ -147,7 +147,17 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException('Session expired. Please log in again.');
     }
-    return user;
+    const businessId = user.businessProfile?.id || null;
+    const name =
+      user.businessProfile?.businessName ||
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+      user.email.split('@')[0];
+    return {
+      ...user,
+      name,
+      businessId,
+      isOnboarded: !!businessId,
+    };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -214,39 +224,84 @@ export class AuthController {
   }
 
   @Get('google')
-  async googleAuth(@Res() res: any, @Query('returnUrl') returnUrl?: string) {
+  async googleAuth(
+    @Res() res: any,
+    @Query('returnUrl') returnUrl?: string,
+    @Query('role') role?: string,
+    @Query('mode') mode?: string,
+    @Query('ref') ref?: string,
+  ) {
     if (!this.googleOAuth.isConfigured()) {
       if (this.googleOAuth.isSimulatorEnabled()) {
         const baseUrl = this.configService.get('APP_URL') || 'http://localhost:3010';
-        return res.redirect(`${baseUrl}/api/v1/auth/google/simulator`);
+        const params = new URLSearchParams();
+        if (returnUrl) params.set('returnUrl', returnUrl);
+        if (role) params.set('role', role);
+        if (mode) params.set('mode', mode);
+        if (ref) params.set('ref', ref);
+        return res.redirect(`${baseUrl}/api/v1/auth/google/simulator?${params.toString()}`);
       }
       throw new ServiceUnavailableException('Google Sign-In is not configured');
     }
     // Real OAuth redirect — state is HMAC-signed and short-lived so it cannot be forged
     const authUrl = this.googleOAuth.getAuthUrl(
-      this.googleOAuth.signState({ type: 'login', returnUrl }),
+      this.googleOAuth.signState({
+        type: 'login',
+        returnUrl,
+        role: role || undefined,
+        mode: mode || undefined,
+        ref: ref || undefined,
+      }),
+      { prompt: 'select_account' }
     );
     return res.redirect(authUrl);
   }
 
   @Get('google/simulator')
-  async googleSimulator(@Res() res: any) {
+  async googleSimulator(
+    @Res() res: any,
+    @Query('returnUrl') returnUrl?: string,
+    @Query('role') role?: string,
+    @Query('mode') mode?: string,
+    @Query('ref') ref?: string,
+  ) {
     if (!this.googleOAuth.isSimulatorEnabled()) {
       throw new ForbiddenException('Google login simulator is disabled');
     }
     const users = await this.prisma.user.findMany({ take: 5 });
     const options = users
       .map((u) => {
-        const state = this.googleOAuth.signState({ type: 'sim-login', email: u.email });
+        const state = this.googleOAuth.signState({
+          type: 'sim-login',
+          email: u.email,
+          returnUrl,
+          role,
+          mode,
+          ref,
+        });
         return `<option value="${state}">${u.email} (${u.role})</option>`;
       })
       .join('');
+
+    const newSimEmail = `customer.google.${Date.now().toString().slice(-4)}@example.com`;
+    const newSimState = this.googleOAuth.signState({
+      type: 'sim-login',
+      email: newSimEmail,
+      firstName: 'Google',
+      lastName: 'Customer',
+      returnUrl,
+      role: role || 'CUSTOMER',
+      mode: mode || 'register',
+      ref,
+    });
+    const newCustomerOption = `<option value="${newSimState}">Create New Customer Account (${newSimEmail})</option>`;
+
     res.setHeader('Content-Type', 'text/html');
     res.send(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Google Login Simulator</title>
+        <title>Google Sign-In Simulator</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
@@ -263,8 +318,9 @@ export class AuthController {
           <form action="/api/v1/business/google/callback" method="GET" class="space-y-6">
             <input type="hidden" name="code" value="mock-google-code" />
             <div>
-              <label class="block text-sm font-bold text-gray-700 mb-2">Mock Accounts Available</label>
+              <label class="block text-sm font-bold text-gray-700 mb-2">Select Google Account</label>
               <select name="state" class="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-semibold">
+                ${mode === 'register' || role === 'CUSTOMER' ? newCustomerOption : ''}
                 ${options}
               </select>
             </div>

@@ -93,7 +93,7 @@ export default function LoginPage() {
     }
 
     // Scenario B: Direct SSO / Shared Handshake Flow
-    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : clientId === 'mcom-loyalty' ? 'mcomloyalty' : null);
+    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : (clientId === 'mcom-loyalty' || clientId === 'mcom-reward') ? 'mcomloyalty' : null);
     const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
     
     let redirectTarget = null;
@@ -109,11 +109,17 @@ export default function LoginPage() {
 
     // Determine platform base SSO url if redirect target is relative or null
     if (!redirectTarget) {
-      if (source === 'mcomloyalty') {
+      if (source === 'mcomloyalty' || source === 'rewards' || source === 'mcom-loyalty') {
         redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-      } else if (source === 'mcommall') {
+      } else if (source === 'mcommall' || source === 'mcom-mall') {
         redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3003'}/auth/sso`;
       }
+    }
+
+    const storedUser = localStorage.getItem('business_user');
+    let effectiveRole = userRole;
+    if (!effectiveRole && storedUser) {
+      try { effectiveRole = JSON.parse(storedUser)?.role; } catch {}
     }
 
     if (redirectTarget) {
@@ -131,12 +137,16 @@ export default function LoginPage() {
         return;
       } catch (err) {
         console.error('Failed to generate SSO token', err);
-        navigate('/dashboard');
+        navigate(effectiveRole === 'CUSTOMER' ? '/customer' : '/dashboard');
       }
     } else if (finalRedirectState) {
-      navigate(finalRedirectState);
+      if (effectiveRole === 'CUSTOMER' && finalRedirectState.startsWith('/dashboard')) {
+        navigate('/customer');
+      } else {
+        navigate(finalRedirectState);
+      }
     } else {
-      navigate('/dashboard');
+      navigate(effectiveRole === 'CUSTOMER' ? '/customer' : '/dashboard');
     }
   };
 
@@ -160,7 +170,9 @@ export default function LoginPage() {
       }
 
       // If business user without completed onboarding, take to /getstarted/business
-      if (res?.user?.role === 'BUSINESS' && (!res?.user?.isOnboarded || !res?.user?.businessId)) {
+      const userBizId = res?.user?.businessId || res?.user?.businessProfile?.id;
+      const userIsOnboarded = res?.user?.isOnboarded ?? !!userBizId;
+      if (res?.user?.role === 'BUSINESS' && (!userIsOnboarded || !userBizId)) {
         const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
         navigate(`/getstarted/business${searchStr}`);
         return;
@@ -172,7 +184,13 @@ export default function LoginPage() {
         return;
       }
 
-      await performRedirect();
+      // Customer roles logging in directly (not via SSO) belong on the customer portal
+      if (res?.user?.role === 'CUSTOMER' && !hasSsoIntent) {
+        navigate('/customer');
+        return;
+      }
+
+      await performRedirect(res?.user?.role);
     } catch (err: any) {
       const status = err.response?.status;
       const attemptedEmail = email.trim();
@@ -293,7 +311,9 @@ export default function LoginPage() {
         setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
 
         // If the user has not completed onboarding, take them directly to /getstarted/business
-        if (user?.role === 'BUSINESS' && (!user?.isOnboarded || !user?.businessId)) {
+        const googleBizId = user?.businessId || user?.businessProfile?.id;
+        const googleIsOnboarded = user?.isOnboarded ?? !!googleBizId;
+        if (user?.role === 'BUSINESS' && (!googleIsOnboarded || !googleBizId)) {
           const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
           navigate(`/getstarted/business${searchStr}`);
           return;
@@ -371,7 +391,9 @@ export default function LoginPage() {
         navigate('/admin');
         return;
       }
-      if (currentUser?.role === 'BUSINESS' && (!currentUser?.isOnboarded || !currentUser?.businessId) && !clientId) {
+      const currentBizId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
+      const currentIsOnboarded = currentUser?.isOnboarded ?? !!currentBizId;
+      if (currentUser?.role === 'BUSINESS' && (!currentIsOnboarded || !currentBizId) && !clientId) {
         const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
         navigate(`/getstarted/business${searchStr}`);
         return;

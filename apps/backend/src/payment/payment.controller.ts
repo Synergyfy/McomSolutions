@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SsoUserGuard } from '../auth/guards/sso-user.guard';
 import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
 import { MembershipInitiateDto, PaypalInitiateDto, PlatformConfirmDto, StripeConfirmDto } from './dto/membership-payment.dto';
 
@@ -109,7 +110,7 @@ export class PaymentController {
 
   // ─── PLATFORM PLAN PURCHASES (Stripe) ────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/stripe/initiate')
   @ApiOperation({ summary: 'Initiate Stripe payment for a platform plan (Mall/Rewards)' })
   async platformStripeInitiate(
@@ -126,7 +127,7 @@ export class PaymentController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/stripe/confirm')
   @ApiOperation({ summary: 'Confirm Stripe payment and activate platform plan' })
   @ApiBody({ type: PlatformConfirmDto })
@@ -143,7 +144,7 @@ export class PaymentController {
 
   // ─── PLATFORM PLAN PURCHASES (PayPal) ────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/paypal/initiate')
   @ApiOperation({ summary: 'Initiate PayPal payment for a platform plan (Mall/Rewards)' })
   async platformPaypalInitiate(
@@ -160,7 +161,7 @@ export class PaymentController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/paypal/capture')
   @ApiOperation({ summary: 'Capture PayPal order and activate platform plan' })
   async platformPaypalCapture(@Request() req: any, @Body('orderId') orderId: string) {

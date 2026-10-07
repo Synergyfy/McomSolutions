@@ -123,6 +123,7 @@ export interface RegisterData {
   website?: string;
   openingHours?: string;
   socialMedia?: string;
+  referredByCode?: string;
 }
 
 export interface ResetPasswordData {

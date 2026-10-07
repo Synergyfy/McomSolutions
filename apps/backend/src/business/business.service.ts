@@ -481,6 +481,7 @@ export class BusinessService {
 
     const redirectUri = this.googleOAuth.getRedirectUri();
     let email = '';
+    let googleProfile: { email: string; firstName?: string; lastName?: string; picture?: string } | null = null;
 
     if (payload.type === 'sim-login') {
       // Development-only path — never reachable in production
@@ -491,6 +492,11 @@ export class BusinessService {
       if (!email) {
         return this.claimFailureScript();
       }
+      googleProfile = {
+        email,
+        firstName: payload.firstName || 'Customer',
+        lastName: payload.lastName || '',
+      };
     } else {
       if (code === 'mock-google-code') {
         return this.loginFailureScript('Google login is not available');
@@ -501,6 +507,7 @@ export class BusinessService {
           throw new Error('Google profile did not return an email');
         }
         email = profile.email;
+        googleProfile = profile;
       } catch (err: any) {
         this.logger.error('Error in Google OAuth exchange:', err?.response?.data || err.message);
         const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
@@ -512,24 +519,48 @@ export class BusinessService {
 
     const targetOrigin = this.getTargetOrigin(payload?.returnUrl);
 
-    if (payload.type === 'login' || payload.type === 'sim-login') {
-      const user = await this.prisma.user.findUnique({
+    if (payload.type === 'login' || payload.type === 'sim-login' || payload.type === 'register') {
+      let user = await this.prisma.user.findUnique({
         where: { email },
-        include: { businessProfile: true },
+        include: { businessProfile: true, customerProfile: true },
       });
 
-      // Unknown Google email → no auto-provision. The frontend shows the
-      // "No account found" modal (code NO_ACCOUNT carries the email so the
-      // register handoff can prefill it) instead of a dead-end error.
+      let isNewUser = false;
       if (!user) {
-        return this.loginFailureScript(
-          'No account found for this email. Please register first.',
-          targetOrigin,
-          { code: 'NO_ACCOUNT', email },
-        );
+        const isCustomerRegister =
+          payload.role?.toUpperCase() === 'CUSTOMER' ||
+          payload.mode === 'register' ||
+          payload.type === 'register';
+
+        if (isCustomerRegister) {
+          const firstName = googleProfile?.firstName || payload.firstName || email.split('@')[0];
+          const lastName = googleProfile?.lastName || payload.lastName || '';
+          const randomPassword = crypto.randomBytes(16).toString('hex');
+          await this.authService.registerCustomer({
+            email,
+            firstName,
+            lastName,
+            password: randomPassword,
+            confirmPassword: randomPassword,
+            referredByCode: payload.ref,
+          });
+
+          user = await this.prisma.user.findUnique({
+            where: { email },
+            include: { businessProfile: true, customerProfile: true },
+          });
+          isNewUser = true;
+        } else {
+          // Unknown Google email → no auto-provision for default business login.
+          // The frontend shows the "No account found" modal with prefilled email.
+          return this.loginFailureScript(
+            'No account found for this email. Please register first.',
+            targetOrigin,
+            { code: 'NO_ACCOUNT', email },
+          );
+        }
       }
 
-      const isNewUser = false;
       const auth = await this.authService.login(user);
 
       if (res) {

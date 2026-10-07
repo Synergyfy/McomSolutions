@@ -26,7 +26,6 @@ import {
   CreateConsultantUserDto,
   CreateAccountManagerDto,
   CreateMembershipPlanDto,
-  CreatePackageTemplateDto,
   CreateSubscriptionDto,
   UpdateSubscriptionDto,
   UpdateEcosystemPlatformDto,
@@ -42,7 +41,6 @@ import {
   CreateLocalMallDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
-  UpdatePackageTemplateDto,
   UpdateBoroughDto,
   UpdateHighStreetDto,
   UpdateLocalMallDto,
@@ -273,35 +271,9 @@ export class AdminController {
     await this.adminService.deletePlan(id, this.getAdminName(req));
   }
 
-  // ─── Packages ──────────────────────────────────────────
-  @Get('packages')
-  @ApiOperation({ summary: 'List packages templates' })
-  async getPackages() {
-    return this.adminService.getPackages();
-  }
-
-  @Post('packages')
-  @ApiOperation({ summary: 'Create package template' })
-  async createPackage(@Req() req: any, @Body() dto: CreatePackageTemplateDto) {
-    return this.adminService.createPackage(dto, this.getAdminName(req));
-  }
-
-  @Put('packages/:id')
-  @ApiOperation({ summary: 'Update package template' })
-  async updatePackage(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() updates: UpdatePackageTemplateDto,
-  ) {
-    return this.adminService.updatePackage(id, updates, this.getAdminName(req));
-  }
-
-  @Delete('packages/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete package template' })
-  async deletePackage(@Req() req: any, @Param('id') id: string) {
-    await this.adminService.deletePackage(id, this.getAdminName(req));
-  }
+  // ─── Packages — REMOVED ──────────────────────────────────
+  // MCOM holds no plans of its own (memberships-only model). Standalone plans
+  // live on console-registered external platforms (see admin-ops external plans).
 
   // ─── Subscriptions ─────────────────────────────────────
   @Get('subscriptions')
