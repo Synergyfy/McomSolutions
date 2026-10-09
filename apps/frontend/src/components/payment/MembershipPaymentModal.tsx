@@ -4,6 +4,8 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Crown, Sparkles, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { paymentApi } from '../../services/payment';
+import { usePricing } from '../../context/PricingContext';
+import PaymentPlanSelector from './PaymentPlanSelector';
 import { cn } from '../../lib/utils';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
@@ -16,14 +18,19 @@ export interface MembershipPaymentPlan {
   totalPerCycle: number;
   description?: string;
   includedApps?: Array<{ platform: string; planName: string; standalonePrice?: number }>;
+  selectedTier?: 'Standard' | 'Pro' | 'Pro+';
 }
 
 function StripeMembershipForm({
   plan,
+  paymentPlan,
+  source = 'onboarding',
   onSuccess,
   onCancel,
 }: {
   plan: MembershipPaymentPlan;
+  paymentPlan: string;
+  source?: 'dashboard' | 'onboarding';
   onSuccess: () => void;
   onCancel: () => void;
 }) {
@@ -41,7 +48,10 @@ function StripeMembershipForm({
     setError(null);
 
     try {
-      const returnUrl = `${window.location.origin}/payment/success?plan=${encodeURIComponent(plan.id)}&billing=${encodeURIComponent(plan.billingCycle)}&onboarding=true`;
+      const returnUrl =
+        source === 'dashboard'
+          ? `${window.location.origin}/dashboard/memberships?payment_success=true`
+          : `${window.location.origin}/payment/success?plan=${encodeURIComponent(plan.id)}&billing=${encodeURIComponent(plan.billingCycle)}&onboarding=true`;
 
       const { error: submitError, paymentIntent } = await stripe.confirmPayment({
         elements,
@@ -61,10 +71,11 @@ function StripeMembershipForm({
         // Activate subscription in database
         await paymentApi.stripeConfirm(
           plan.id,
-          'Standard',
+          plan.selectedTier || 'Standard',
           plan.billingCycle,
           paymentIntent.id,
-          false
+          false,
+          paymentPlan
         );
 
         // Update local session
@@ -74,6 +85,7 @@ function StripeMembershipForm({
             const u = JSON.parse(userRaw);
             if (u?.businessProfile) {
               u.businessProfile.membershipLevel = plan.name || plan.id;
+              u.businessProfile.membershipTier = plan.selectedTier || 'Standard';
               u.businessProfile.membershipStatus = 'active';
               localStorage.setItem('business_user', JSON.stringify(u));
             }
@@ -145,11 +157,13 @@ export default function MembershipPaymentModal({
   onClose,
   onSuccess,
   plan,
+  source = 'dashboard',
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   plan: MembershipPaymentPlan | null;
+  source?: 'dashboard' | 'onboarding';
 }) {
   const [provider, setProvider] = useState<'stripe' | 'paypal'>('stripe');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -157,12 +171,34 @@ export default function MembershipPaymentModal({
   const [initError, setInitError] = useState<string | null>(null);
   const [isProcessingPaypal, setIsProcessingPaypal] = useState(false);
   const [isPaymentSuccess, setIsPaymentSuccess] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState<string>('full');
+
+  const { plans } = usePricing();
+  const modalPlan = plan ? plans.find((p) => p.id === plan.id || p.name === plan.id || p.name === plan.name) : undefined;
+  const currentSelectedTier = plan?.selectedTier || 'Standard';
+  const modalTier =
+    modalPlan?.tiers?.find((t) => t.tier === currentSelectedTier) ||
+    modalPlan?.tiers?.find((t) => t.tier === 'Standard');
+  const modalOptions =
+    modalTier && modalTier.paymentOptions.length > 0
+      ? modalTier.paymentOptions
+      : [{
+          paymentPlan: 'full' as const,
+          installments: 1,
+          mode: 'manual' as const,
+          perChargePrice: plan?.totalPerCycle ?? plan?.price ?? 0,
+          totalPrice: plan?.totalPerCycle ?? plan?.price ?? 0,
+          sliceDays: modalTier?.durationDays ?? (currentSelectedTier === 'Pro+' ? 365 : currentSelectedTier === 'Pro' ? 180 : 90),
+        }];
+  const modalSelected = modalOptions.find((o) => o.paymentPlan === paymentPlan) ?? modalOptions[0];
+  const modalDueToday = Number(modalSelected.perChargePrice);
 
   useEffect(() => {
     if (!isOpen || !plan) {
       setClientSecret(null);
       setInitError(null);
       setIsPaymentSuccess(false);
+      setPaymentPlan('full');
       return;
     }
 
@@ -172,7 +208,7 @@ export default function MembershipPaymentModal({
       setInitError(null);
 
       paymentApi
-        .stripeInitiate(plan.id, 'Standard', plan.billingCycle, false)
+        .stripeInitiate(plan.id, plan.selectedTier || 'Standard', plan.billingCycle, false, paymentPlan)
         .then((data) => {
           if (isMounted) {
             if (data?.clientSecret) {
@@ -196,7 +232,7 @@ export default function MembershipPaymentModal({
         isMounted = false;
       };
     }
-  }, [isOpen, plan, provider]);
+  }, [isOpen, plan, provider, paymentPlan]);
 
   const handlePaypalSubmit = async () => {
     if (!plan || isProcessingPaypal) return;
@@ -205,16 +241,23 @@ export default function MembershipPaymentModal({
     setInitError(null);
 
     try {
-      const returnUrl = `${window.location.origin}/checkout/paypal-return?plan=${encodeURIComponent(plan.id)}&billing=${encodeURIComponent(plan.billingCycle)}&onboarding=true`;
-      const cancelUrl = `${window.location.origin}/getstarted/business`;
+      const returnUrl =
+        source === 'dashboard'
+          ? `${window.location.origin}/checkout/paypal-return?plan=${encodeURIComponent(plan.id)}&billing=${encodeURIComponent(plan.billingCycle)}&source=dashboard`
+          : `${window.location.origin}/checkout/paypal-return?plan=${encodeURIComponent(plan.id)}&billing=${encodeURIComponent(plan.billingCycle)}&onboarding=true`;
+      const cancelUrl =
+        source === 'dashboard'
+          ? `${window.location.origin}/dashboard/memberships`
+          : `${window.location.origin}/getstarted/business`;
 
       const data = await paymentApi.paypalInitiate(
         plan.id,
-        'Standard',
+        plan.selectedTier || 'Standard',
         plan.billingCycle,
         returnUrl,
         cancelUrl,
-        false
+        false,
+        paymentPlan
       );
 
       if (data?.approvalUrl) {
@@ -224,8 +267,10 @@ export default function MembershipPaymentModal({
           JSON.stringify({
             tier: plan.id,
             name: plan.name,
+            selectedTier: plan.selectedTier || 'Standard',
             billing: plan.billingCycle,
-            price: plan.totalPerCycle,
+            paymentPlan,
+            price: modalDueToday,
             includedApps: plan.includedApps,
           })
         );
@@ -242,7 +287,9 @@ export default function MembershipPaymentModal({
 
   const handleSuccess = () => {
     setIsPaymentSuccess(true);
-    localStorage.setItem('onboardingPaymentSuccess', 'true');
+    if (source === 'onboarding') {
+      localStorage.setItem('onboardingPaymentSuccess', 'true');
+    }
     setTimeout(() => {
       onSuccess();
     }, 1200);
@@ -284,10 +331,11 @@ export default function MembershipPaymentModal({
               </div>
               <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-2">Payment Successful!</h3>
               <p className="text-xs sm:text-sm text-gray-600 max-w-sm">
-                Your <span className="font-bold text-gray-900">{plan.name} Membership</span> is now active. Proceeding to your business assessment...
+                Your <span className="font-bold text-gray-900">{plan.name} Membership ({plan.selectedTier || 'Standard'})</span> is now active.
+                {source === 'onboarding' ? ' Proceeding to your business assessment...' : ' Your subscription has been successfully updated.'}
               </p>
               <div className="mt-6 flex items-center gap-2 text-xs font-bold text-orange-600">
-                <RefreshCw className="w-4 h-4 animate-spin" /> Setting up your workspace...
+                <RefreshCw className="w-4 h-4 animate-spin" /> {source === 'onboarding' ? 'Setting up your workspace...' : 'Updating dashboard...'}
               </div>
             </div>
           ) : (
@@ -313,9 +361,11 @@ export default function MembershipPaymentModal({
                     <p className="text-[11px] sm:text-xs text-gray-600 capitalize">{cycleLabel}</p>
                   </div>
                   <div className="text-right">
-                    <span className="text-xl sm:text-2xl font-black text-orange-600 tracking-tight">£{plan.totalPerCycle}</span>
+                    <span className="text-xl sm:text-2xl font-black text-orange-600 tracking-tight">£{modalDueToday}</span>
                     <span className="block text-[10px] font-semibold text-gray-500">
-                      {plan.billingCycle === 'yearly' ? 'Save 20%' : plan.billingCycle === 'quarterly' ? 'Save 10%' : 'Standard Rate'}
+                      {modalSelected.installments > 1
+                        ? `${modalSelected.installments} payments · £${Number(modalSelected.totalPrice)} total`
+                        : plan.billingCycle === 'yearly' ? 'Save 20%' : plan.billingCycle === 'quarterly' ? 'Save 10%' : 'Standard Rate'}
                     </span>
                   </div>
                 </div>
@@ -328,6 +378,20 @@ export default function MembershipPaymentModal({
                     <span className="font-bold text-orange-700">{plan.includedApps.length} Apps Included</span>
                   </div>
                 )}
+              </div>
+
+              {/* How to pay — partitioned options appear here at payment time only */}
+              <div className="mb-4 sm:mb-5">
+                <div className="text-[11px] sm:text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                  Choose how to pay:
+                </div>
+                <PaymentPlanSelector
+                  tier="Standard"
+                  durationDays={modalTier?.durationDays ?? 90}
+                  options={modalOptions}
+                  value={paymentPlan}
+                  onChange={setPaymentPlan}
+                />
               </div>
 
               {/* Payment Method Selector Tabs */}
@@ -383,7 +447,8 @@ export default function MembershipPaymentModal({
                   ) : clientSecret ? (
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
                       <StripeMembershipForm
-                        plan={plan}
+                        plan={{ ...plan, totalPerCycle: modalDueToday }}
+                        paymentPlan={paymentPlan}
                         onSuccess={handleSuccess}
                         onCancel={onClose}
                       />
@@ -395,7 +460,7 @@ export default function MembershipPaymentModal({
                   <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-blue-900">
                     <p className="font-semibold mb-1">Pay with PayPal</p>
                     <p className="text-blue-700 text-[11px] sm:text-xs leading-relaxed">
-                      You will be redirected to PayPal to complete your payment of <strong>£{plan.totalPerCycle}</strong>. After authorization, you will return here automatically to continue with your setup.
+                      You will be redirected to PayPal to complete your payment of <strong>£{modalDueToday}</strong>. After authorization, you will return here automatically to continue with your setup.
                     </p>
                   </div>
 
@@ -419,7 +484,7 @@ export default function MembershipPaymentModal({
                           <RefreshCw className="w-4 h-4 animate-spin" /> Redirecting...
                         </>
                       ) : (
-                        `Continue to PayPal (£${plan.totalPerCycle})`
+                        `Continue to PayPal (£${modalDueToday})`
                       )}
                     </button>
                   </div>

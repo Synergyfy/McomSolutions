@@ -334,6 +334,81 @@ async function main() {
     });
   }
 
+  // 2b. Relational tiers + payment options (idempotent backfill).
+  // Same deterministic IDs and price precedence as migration
+  // 20261008000000 (explicit tierPrices → legacy columns → fallbacks).
+  // update:{} = first-wins: re-seeding never overwrites admin edits.
+  console.log('Seeding membership tiers + payment options...');
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  for (const plan of plans) {
+    const base = plan.monthlyPrice ?? plan.price;
+    const tiers = [
+      { key: 'Standard' as const, full: base, dur: 90, sort: 0 },
+      { key: 'Pro' as const, full: Math.floor(base * 6 * 0.85), dur: 180, sort: 1 },
+      { key: 'ProPlus' as const, full: plan.annualPrice ?? Math.floor(base * 0.8) * 12, dur: 365, sort: 2 },
+    ];
+    for (const t of tiers) {
+      const tierId = `${plan.id}__${t.key.toLowerCase()}`;
+      await prisma.membershipPlanTier.upsert({
+        where: { planId_tier: { planId: plan.id, tier: t.key } },
+        update: {},
+        create: { id: tierId, planId: plan.id, tier: t.key, durationDays: t.dur, fullPrice: t.full, sortOrder: t.sort },
+      });
+      const splits =
+        t.key === 'Standard'
+          ? [{ pp: 'monthly' as const, n: 3, slice: 30, sort: 1 }]
+          : t.key === 'Pro'
+            ? [
+                { pp: 'quarterly' as const, n: 2, slice: 90, sort: 1 },
+                { pp: 'monthly' as const, n: 6, slice: 30, sort: 2 },
+              ]
+            : [
+                { pp: 'halfYearly' as const, n: 2, slice: 180, sort: 1 },
+                { pp: 'quarterly' as const, n: 4, slice: 91, sort: 2 },
+                { pp: 'monthly' as const, n: 12, slice: 30, sort: 3 },
+              ];
+      await prisma.membershipPaymentOption.upsert({
+        where: { tierId_paymentPlan: { tierId, paymentPlan: 'full' } },
+        update: {},
+        create: {
+          id: `${tierId}__full`, tierId, paymentPlan: 'full', installments: 1,
+          mode: 'manual', manualPrice: t.full, perChargePrice: t.full,
+          totalPrice: t.full, sliceDays: t.dur, sortOrder: 0,
+        },
+      });
+      for (const s of splits) {
+        const per = round2(t.full / s.n);
+        await prisma.membershipPaymentOption.upsert({
+          where: { tierId_paymentPlan: { tierId, paymentPlan: s.pp } },
+          update: {},
+          create: {
+            id: `${tierId}__${s.pp}`, tierId, paymentPlan: s.pp, installments: s.n,
+            mode: 'auto', surchargePct: 0, perChargePrice: per,
+            totalPrice: round2(per * s.n), sliceDays: s.slice, sortOrder: s.sort,
+          },
+        });
+      }
+      for (let i = 0; i < plan.features.length; i++) {
+        await prisma.membershipTierFeature.upsert({
+          where: { tierId_sortOrder: { tierId, sortOrder: i } },
+          update: {},
+          create: { id: `${tierId}__f__base__${i + 1}`, tierId, feature: plan.features[i], sortOrder: i },
+        });
+      }
+    }
+    for (let i = 0; i < plan.includedApps.length; i++) {
+      const app = plan.includedApps[i] as { platform: string; planId: string; planName: string };
+      await prisma.membershipPlanAppBundle.upsert({
+        where: { id: `${plan.id}__app__${i + 1}` },
+        update: {},
+        create: {
+          id: `${plan.id}__app__${i + 1}`, planId: plan.id, platform: app.platform,
+          externalPlanId: app.planId ?? null, packageName: app.planName ?? app.platform,
+        },
+      });
+    }
+  }
+
   // 3. Standalone packages — REMOVED (memberships-only model).
   // MCOM holds no plans of its own; standalone plans live on
   // console-registered external platforms. Memberships bundle them via

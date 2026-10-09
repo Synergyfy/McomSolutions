@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles, Shield } from 'lucide-react';
+import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles, Shield, Bot } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import TieredPlanEditorModal from './TieredPlanEditorModal';
+import MembershipProtocolModal from './MembershipProtocolModal';
 import {
   useAdminPlans,
-  useCreatePlan,
   useUpdatePlan,
   useDeletePlan,
   useExternalPlans,
@@ -17,7 +17,6 @@ import {
   useSupportedPlatforms,
 } from '../../services/admin/hooks';
 import type {
-  CreatePlanInput,
   CreateExternalPlanInput,
   ExternalPlan,
   ExternalSeason,
@@ -27,10 +26,10 @@ import type {
 } from '../../services/admin/types';
 
 export default function PlanManagementPanel() {
+  const navigate = useNavigate();
   const { data: plansRes, isLoading: plansLoading } = useAdminPlans();
   const { data: platformsRes, isLoading: platformsLoading } = useSupportedPlatforms();
 
-  const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const deletePlan = useDeletePlan();
   const createExternalPlan = useCreateExternalPlan();
@@ -38,14 +37,13 @@ export default function PlanManagementPanel() {
   const deleteExternalPlan = useDeleteExternalPlan();
 
   const [tab, setTab] = useState<'memberships' | 'packages'>('memberships');
-  const [showAddMembership, setShowAddMembership] = useState(false);
-  const [editMembership, setEditMembership] = useState<string | null>(null);
 
   // Dynamic external plan modal state
   const [addPlatformPlan, setAddPlatformPlan] = useState<PlatformInfo | null>(null);
   const [editExternalPlan, setEditExternalPlan] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
   const [confirmEditPlan, setConfirmEditPlan] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
   const [deleteExternalPlanTarget, setDeleteExternalPlanTarget] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
+  const [showProtocolModal, setShowProtocolModal] = useState(false);
 
   const membershipPlans = plansRes?.data ?? [];
   const platforms: PlatformInfo[] = platformsRes?.data ?? [];
@@ -77,16 +75,27 @@ export default function PlanManagementPanel() {
 
       {tab === 'memberships' && (
         <div>
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <p className="text-sm text-gray-500 font-medium">
               {plansLoading ? 'Loading memberships...' : `${membershipPlans.length} membership plans configured`}
             </p>
-            <button
-              onClick={() => setShowAddMembership(true)}
-              className="px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Create Membership
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowProtocolModal(true)}
+                className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-xs transition-all shadow-xs hover:shadow flex items-center gap-2 min-h-[44px]"
+                title="View AI Agent Integration Blueprint & Protocol Specifications"
+              >
+                <Bot className="w-4 h-4 text-indigo-600" />
+                <span>AI Integration Skill & Blueprint</span>
+              </button>
+              <button
+                onClick={() => navigate('/admin/memberships/new')}
+                className="px-4 py-2.5 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-2 min-h-[44px]"
+              >
+                <Plus className="w-4 h-4" /> Create Membership
+              </button>
+            </div>
           </div>
           {plansLoading ? (
             <div className="flex items-center justify-center py-12 text-gray-400">
@@ -119,23 +128,26 @@ export default function PlanManagementPanel() {
                     </div>
                     <div className="flex gap-1.5">
                       <button
-                        onClick={() => setEditMembership(plan.id)}
-                        className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"
+                        onClick={() => navigate(`/admin/memberships/${plan.id}/edit`)}
+                        className="p-2.5 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                         title="Edit"
+                        aria-label={`Edit ${plan.name}`}
                       >
                         <Edit3 className="w-3.5 h-3.5 text-gray-400" />
                       </button>
                       <button
                         onClick={() => deletePlan.mutate(plan.id)}
-                        className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"
+                        className="p-2.5 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                         title="Delete"
+                        aria-label={`Delete ${plan.name}`}
                       >
                         <Trash2 className="w-3.5 h-3.5 text-gray-400" />
                       </button>
                       <button
                         onClick={() => updatePlan.mutate({ id: plan.id, data: { archived: !plan.archived } })}
-                        className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all"
+                        className="p-2.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                         title={plan.archived ? "Unarchive" : "Archive"}
+                        aria-label={`${plan.archived ? "Unarchive" : "Archive"} ${plan.name}`}
                       >
                         <Archive className={cn("w-3.5 h-3.5", plan.archived ? "text-amber-500" : "text-gray-400")} />
                       </button>
@@ -232,29 +244,6 @@ export default function PlanManagementPanel() {
       )}
 
       <AnimatePresence>
-        {/* Memberships Modals */}
-        {showAddMembership && (
-          <TieredPlanEditorModal
-            mode="membership"
-            onClose={() => setShowAddMembership(false)}
-            onSaveMembership={(data: CreatePlanInput) => {
-              createPlan.mutate(data);
-              setShowAddMembership(false);
-            }}
-          />
-        )}
-        {editMembership && (
-          <TieredPlanEditorModal
-            mode="membership"
-            initialPlan={membershipPlans.find((p) => p.id === editMembership)}
-            onClose={() => setEditMembership(null)}
-            onSaveMembership={(data: CreatePlanInput) => {
-              updatePlan.mutate({ id: editMembership!, data });
-              setEditMembership(null);
-            }}
-          />
-        )}
-
         {/* Dynamic External Plan Modals */}
         {addPlatformPlan && (
           <ExternalPlanFormModal
@@ -310,6 +299,9 @@ export default function PlanManagementPanel() {
             }}
             onClose={() => setDeleteExternalPlanTarget(null)}
           />
+        )}
+        {showProtocolModal && (
+          <MembershipProtocolModal onClose={() => setShowProtocolModal(false)} />
         )}
       </AnimatePresence>
     </div>

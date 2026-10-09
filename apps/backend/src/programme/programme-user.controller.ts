@@ -53,4 +53,12 @@ export class ProgrammeUserController {
   async getPublicPhases() {
     return this.programmeService.getPhases();
   }
+
+  @Get('settings')
+  @ApiOperation({ summary: 'Get active programme trial settings for businesses' })
+  @ApiOkResponse({ description: 'Programme settings' })
+  async getSettings() {
+    return this.programmeService.getSettings();
+  }
 }
+

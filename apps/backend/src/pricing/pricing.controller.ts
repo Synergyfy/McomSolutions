@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body, UseGuards, Request, NotFoundException, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Query, UseGuards, Request, NotFoundException, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiOkResponse, ApiNotFoundResponse } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
@@ -7,7 +7,7 @@ import { PricingService } from './pricing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { SubscribeMembershipDto } from './dto/pricing.dto';
+import { PaymentQuoteQueryDto, SubscribeMembershipDto } from './dto/pricing.dto';
 
 @ApiTags('Pricing')
 @Controller('pricing')
@@ -20,6 +20,19 @@ export class PricingController {
   @ApiOperation({ summary: 'Get all active membership plans with bundles and sub-tiers' })
   async getPlans() {
     return this.pricingService.getPlans();
+  }
+
+  @SkipThrottle()
+  @Get('quotes')
+  @ApiOperation({ summary: 'Quote a membership payment option (per-charge price, total and instalments)' })
+  @ApiOkResponse({ description: 'Payment quote. Display these numbers at checkout — never recompute prices on the client.' })
+  @ApiNotFoundResponse({ description: 'Plan does not exist' })
+  async quote(@Query() query: PaymentQuoteQueryDto) {
+    return this.pricingService.resolvePaymentQuote(
+      query.level,
+      query.tier ?? 'Standard',
+      query.paymentPlan ?? 'full',
+    );
   }
 
   /**

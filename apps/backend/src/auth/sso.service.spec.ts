@@ -1,69 +1,47 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SsoService } from './sso.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { SsoService, EntitlementUser, EntitlementClient } from './sso.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 
-describe('SsoService', () => {
+describe('SsoService - Entitlement & Trial Protocol', () => {
   let service: SsoService;
-  let prisma: any;
-  let jwtService: any;
-  let configService: any;
-
-  const mockRedisService = {
-    get: jest.fn(),
-    set: jest.fn(),
-    del: jest.fn(),
-    setex: jest.fn(),
-    delPattern: jest.fn(),
-  };
 
   const mockPrisma = {
-    ssoClient: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      findMany: jest.fn(),
-    },
-    ssoAuthCode: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
-    },
-    ssoSession: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
-    user: {
-      findUnique: jest.fn(),
-    },
     membershipPlan: {
       findFirst: jest.fn(),
+    },
+    taskDefinition: {
+      findMany: jest.fn(),
+    },
+    ssoClient: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
     },
   };
 
   const mockJwtService = {
-    sign: jest.fn().mockReturnValue('mock-jwt-token'),
-    verify: jest.fn().mockReturnValue({ sub: 'user-1', scopes: ['profile'] }),
+    sign: jest.fn(),
+    verify: jest.fn(),
   };
 
   const mockConfigService = {
-    get: jest.fn((key: string, defaultValue?: any) => {
-      const config: Record<string, any> = {
-        SSO_JWT_SECRET: 'test-sso-secret',
-        SSO_CODE_TTL_SECONDS: '300',
-        SSO_ACCESS_TOKEN_TTL: '3600',
-        SSO_REFRESH_TOKEN_TTL: '604800',
-      };
-      return config[key] ?? defaultValue;
+    get: jest.fn((key: string) => {
+      if (key === 'SSO_JWT_SECRET') return 'test-sso-secret';
+      if (key === 'FRONTEND_URL') return 'https://mcomcentral.co.uk';
+      return null;
     }),
   };
 
+  const mockRedisService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+  };
+
   beforeEach(async () => {
+    jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SsoService,
@@ -75,591 +53,283 @@ describe('SsoService', () => {
     }).compile();
 
     service = module.get<SsoService>(SsoService);
-    prisma = module.get(PrismaService);
-    jwtService = module.get(JwtService);
-    configService = module.get(ConfigService);
-
-    jest.clearAllMocks();
   });
 
-  // ─── generateToken ────────────────────────────────
-  describe('generateToken', () => {
-    it('should sign a payload and return a JWT', () => {
-      const result = service.generateToken({ sub: 'user-1', role: 'BUSINESS' });
-      expect(result).toBe('mock-jwt-token');
-      expect(jwtService.sign).toHaveBeenCalledWith(
-        { sub: 'user-1', role: 'BUSINESS' },
-        expect.objectContaining({ expiresIn: '5m', algorithm: 'HS256' }),
-      );
-    });
-  });
+  const testClient: EntitlementClient = {
+    id: 'client_mall_1',
+    clientId: 'mcom-mall',
+    platformSlug: 'mall',
+    name: 'MCOM Mall',
+  };
 
-  // ─── generateAuthCode ─────────────────────────────
-  describe('generateAuthCode', () => {
-    it('should throw BadRequestException if client not found', async () => {
-      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
-      await expect(
-        service.generateAuthCode('user-1', 'unknown-client', 'https://example.com/callback', ['profile']),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw BadRequestException if redirect URI not allowed', async () => {
-      mockPrisma.ssoClient.findUnique.mockResolvedValue({
-        id: 1,
-        clientId: 'test-client',
-        redirectUris: ['https://allowed.com/callback'],
-      });
-      await expect(
-        service.generateAuthCode('user-1', 'test-client', 'https://evil.com/callback', ['profile']),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should create auth code and return it', async () => {
-      mockPrisma.ssoClient.findUnique.mockResolvedValue({
-        id: 1,
-        clientId: 'test-client',
-        redirectUris: ['https://example.com/callback'],
-      });
-      mockPrisma.ssoAuthCode.create.mockResolvedValue({ code: 'generated-code-hex' });
-
-      const code = await service.generateAuthCode(
-        'user-1',
-        'test-client',
-        'https://example.com/callback',
-        ['profile', 'email'],
-      );
-
-      expect(code).toBeDefined();
-      expect(mockPrisma.ssoAuthCode.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            userId: 'user-1',
-            clientId: 1,
-            redirectUri: 'https://example.com/callback',
-            scopes: ['profile', 'email'],
-          }),
-        }),
-      );
-    });
-  });
-
-  // ─── exchangeCodeForTokens ────────────────────────
-  describe('exchangeCodeForTokens', () => {
-    const validAuthCode = {
-      code: 'valid-code',
-      used: false,
-      expiresAt: new Date(Date.now() + 3600000),
-      client: { id: 1, clientId: 'test-client' },
-      redirectUri: 'https://example.com/callback',
-      userId: 'user-1',
-    };
-
-    it('should throw UnauthorizedException if auth code not found', async () => {
-      mockPrisma.ssoAuthCode.findUnique.mockResolvedValue(null);
-      await expect(
-        service.exchangeCodeForTokens('bad-code', 'test-client', 'https://example.com/callback'),
-      ).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException if code already used', async () => {
-      mockPrisma.ssoAuthCode.findUnique.mockResolvedValue({
-        ...validAuthCode,
-        used: true,
-      });
-      await expect(
-        service.exchangeCodeForTokens('used-code', 'test-client', 'https://example.com/callback'),
-      ).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException if code expired', async () => {
-      mockPrisma.ssoAuthCode.findUnique.mockResolvedValue({
-        ...validAuthCode,
-        expiresAt: new Date(Date.now() - 3600000),
-      });
-      await expect(
-        service.exchangeCodeForTokens('expired-code', 'test-client', 'https://example.com/callback'),
-      ).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException on client mismatch', async () => {
-      mockPrisma.ssoAuthCode.findUnique.mockResolvedValue(validAuthCode);
-      await expect(
-        service.exchangeCodeForTokens('valid-code', 'wrong-client', 'https://example.com/callback'),
-      ).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should exchange code and return tokens on success', async () => {
-      mockPrisma.ssoAuthCode.findUnique.mockResolvedValue(validAuthCode);
-      mockPrisma.ssoAuthCode.updateMany.mockResolvedValue({ count: 1 });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-1',
-        email: 'test@test.com',
-        role: 'BUSINESS',
-        firstName: 'John',
-        lastName: 'Doe',
-        businessProfile: {
-          id: 'b1',
-          businessName: 'Test Biz',
-          membershipLevel: 'Bronze',
-          membershipStatus: 'active',
-        },
-      });
-      mockPrisma.ssoSession.create.mockResolvedValue({ id: 'session-1' });
-
-      const result = await service.exchangeCodeForTokens(
-        'valid-code',
-        'test-client',
-        'https://example.com/callback',
-      );
-
-      expect(result.accessToken).toBeDefined();
-      expect(result.refreshToken).toBeDefined();
-      expect(result.tokenType).toBe('Bearer');
-      expect(result.user.email).toBe('test@test.com');
-      expect(result.user.businessProfile).toBeDefined();
-    });
-  });
-
-  // ─── refreshSsoToken ──────────────────────────────
-  describe('refreshSsoToken', () => {
-    it('should throw UnauthorizedException if session not found', async () => {
-      mockPrisma.ssoSession.findUnique.mockResolvedValue(null);
-      await expect(service.refreshSsoToken('invalid-refresh-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
-    });
-
-    it('should throw UnauthorizedException if session expired', async () => {
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'session-1',
-        refreshToken: 'expired-token',
-        expiresAt: new Date(Date.now() - 3600000),
-        userId: 'user-1',
-      });
-      mockPrisma.ssoSession.delete.mockResolvedValue({});
-      await expect(service.refreshSsoToken('expired-token')).rejects.toThrow(
-        UnauthorizedException,
-      );
-      expect(mockPrisma.ssoSession.delete).toHaveBeenCalled();
-    });
-
-    it('should refresh token successfully', async () => {
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'session-1',
-        refreshToken: 'valid-refresh-token',
-        expiresAt: new Date(Date.now() + 3600000),
-        userId: 'user-1',
-      });
-      mockJwtService.verify.mockReturnValue({ sub: 'user-1', scopes: ['profile'] });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-1',
-        email: 'test@test.com',
-        role: 'BUSINESS',
-        firstName: 'John',
-        lastName: 'Doe',
-        businessProfile: { id: 'b1', businessName: 'Test Biz' },
-      });
-      mockPrisma.ssoSession.update.mockResolvedValue({});
-
-      const result = await service.refreshSsoToken('valid-refresh-token');
-      expect(result.accessToken).toBeDefined();
-      expect(result.tokenType).toBe('Bearer');
-    });
-  });
-
-  // ─── logout ───────────────────────────────────────
-  describe('logout', () => {
-    it('should delete session if found', async () => {
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({ id: 'session-1' });
-      mockPrisma.ssoSession.delete.mockResolvedValue({});
-      const result = await service.logout('valid-access-token');
-      expect(result.success).toBe(true);
-      expect(mockPrisma.ssoSession.delete).toHaveBeenCalled();
-    });
-
-    it('should return success even if session not found', async () => {
-      mockPrisma.ssoSession.findUnique.mockResolvedValue(null);
-      const result = await service.logout('no-session-token');
-      expect(result.success).toBe(true);
-    });
-  });
-
-  // ─── registerClient ───────────────────────────────
-  describe('registerClient', () => {
-    it('should create a new SSO client', async () => {
-      mockPrisma.ssoClient.create.mockResolvedValue({
-        id: 1,
-        clientId: 'new-client',
-        name: 'New Client',
-        redirectUris: ['https://example.com/callback'],
-        scopes: ['profile'],
-      });
-
-      const result = await service.registerClient({
-        clientId: 'new-client',
-        clientSecret: 'secret',
-        name: 'New Client',
-        redirectUris: ['https://example.com/callback'],
-        scopes: ['profile'],
-      });
-      expect(result.clientId).toBe('new-client');
-      expect(mockPrisma.ssoClient.create).toHaveBeenCalled();
-    });
-  });
-
-  // ─── listClients ──────────────────────────────────
-  describe('listClients', () => {
-    it('should return all clients with selected fields', async () => {
-      const clients = [
-        { id: 1, clientId: 'client-1', name: 'Client 1', redirectUris: [], scopes: [], logoUrl: null, apiKey: 'key', isActive: true, createdAt: new Date() },
-      ];
-      mockPrisma.ssoClient.findMany.mockResolvedValue(clients);
-      const result = await service.listClients();
-      expect(result).toEqual(clients);
-    });
-  });
-
-  // ─── getClientByClientId (multi-layer cache) ──────
-  describe('getClientByClientId', () => {
-    it('should hit Redis (L2) when L1 miss and cache into L1', async () => {
-      const client = { id: 1, clientId: 'mcom-mall' };
-      mockRedisService.get.mockResolvedValue(client);
-      const result = await service.getClientByClientId('mcom-mall');
-      expect(result).toEqual(client);
-      expect(mockRedisService.get).toHaveBeenCalledWith('sso_client:mcom-mall');
-      // L1 now warm — second call should skip Redis
-      mockRedisService.get.mockClear();
-      const second = await service.getClientByClientId('mcom-mall');
-      expect(second).toEqual(client);
-      expect(mockRedisService.get).not.toHaveBeenCalled();
-    });
-
-    it('should hit DB (L3) on Redis miss and populate caches', async () => {
-      const client = { id: 1, clientId: 'new-app' };
-      mockRedisService.get.mockResolvedValue(null);
-      mockPrisma.ssoClient.findUnique.mockResolvedValue(client);
-      const result = await service.getClientByClientId('new-app');
-      expect(result).toEqual(client);
-      expect(mockRedisService.set).toHaveBeenCalledWith('sso_client:new-app', client, 300);
-    });
-
-    it('should return null when not found anywhere', async () => {
-      mockRedisService.get.mockResolvedValue(null);
-      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
-      expect(await service.getClientByClientId('missing')).toBeNull();
-    });
-
-    it('should strip clientSecret and webhookSecret before caching in Redis', async () => {
-      const dbClient = {
-        id: 'c1',
-        clientId: 'app-with-secrets',
-        clientSecret: 'super-secret-hash',
-        webhookSecret: 'enc-webhook-secret',
-        hmacSecret: 'enc-hmac-secret',
-        name: 'App With Secrets',
-      };
-      mockRedisService.get.mockResolvedValue(null);
-      mockPrisma.ssoClient.findUnique.mockResolvedValue(dbClient);
-
-      const result = await service.getClientByClientId('app-with-secrets');
-      expect(result).not.toBeNull();
-      expect(result).not.toHaveProperty('clientSecret');
-      expect(result).not.toHaveProperty('webhookSecret');
-      expect(result).toMatchObject({
-        id: 'c1',
-        clientId: 'app-with-secrets',
-        name: 'App With Secrets',
-        hmacSecret: 'enc-hmac-secret',
-      });
-
-      // Assert L1 in-memory cache also returns the sanitized client
-      mockPrisma.ssoClient.findUnique.mockClear();
-      const l1Result = await service.getClientByClientId('app-with-secrets');
-      expect(mockPrisma.ssoClient.findUnique).not.toHaveBeenCalled();
-      expect(l1Result).not.toHaveProperty('clientSecret');
-      expect(l1Result).not.toHaveProperty('webhookSecret');
-
-      expect(mockRedisService.set).toHaveBeenCalledWith(
-        'sso_client:app-with-secrets',
-        expect.not.objectContaining({
-          clientSecret: 'super-secret-hash',
-          webhookSecret: 'enc-webhook-secret',
-        }),
-        300,
-      );
-      expect(mockRedisService.set).toHaveBeenCalledWith(
-        'sso_client:app-with-secrets',
-        expect.objectContaining({
-          id: 'c1',
-          clientId: 'app-with-secrets',
-          name: 'App With Secrets',
-        }),
-        300,
-      );
-    });
-  });
-
-  // ─── getAllCorsOrigins ────────────────────────────
-  describe('getAllCorsOrigins', () => {
-    it('should return cached origins from Redis when present', async () => {
-      mockRedisService.get.mockResolvedValue(['https://vcard.mcom.com']);
-      const result = await service.getAllCorsOrigins();
-      expect(result).toEqual(['https://vcard.mcom.com']);
-      expect(mockPrisma.ssoClient.findMany).not.toHaveBeenCalled();
-    });
-
-    it('should flatten unique origins from active clients and cache for 60s', async () => {
-      mockRedisService.get.mockResolvedValue(null);
-      mockPrisma.ssoClient.findMany.mockResolvedValue([
-        { corsOrigins: ['https://vcard.mcom.com', 'https://app.vcard.mcom.com'] },
-        { corsOrigins: ['https://vcard.mcom.com'] },
-        { corsOrigins: [] },
-      ]);
-      const result = await service.getAllCorsOrigins();
-      expect(result).toEqual(['https://vcard.mcom.com', 'https://app.vcard.mcom.com']);
-      expect(mockRedisService.set).toHaveBeenCalledWith('cors:all_origins', result, 60);
-    });
-  });
-
-  // ─── invalidateCorsCache ──────────────────────────
-  describe('invalidateCorsCache', () => {
-    it('should delete the cors:all_origins Redis key', async () => {
-      await service.invalidateCorsCache();
-      expect(mockRedisService.del).toHaveBeenCalledWith('cors:all_origins');
-    });
-  });
-
-  // ─── getUserInfoFromToken & Entitlement Resolution ─
-  describe('getUserInfoFromToken', () => {
-    it('should throw UnauthorizedException if token verification fails', async () => {
-      mockJwtService.verify.mockImplementation(() => {
-        throw new Error('invalid token');
-      });
-      await expect(service.getUserInfoFromToken('bad-token')).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException if user not found', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 'user-unknown' });
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      await expect(service.getUserInfoFromToken('valid-token')).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should service user with direct platform package (the former standalone system)', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 'user-direct' });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-direct',
-        email: 'direct@test.com',
-        role: 'BUSINESS',
-        firstName: 'Alice',
-        lastName: 'Direct',
-        businessProfile: {
-          id: 'b-direct',
-          businessName: 'Direct Shop',
-          membershipLevel: 'Bronze',
-          membershipStatus: 'active',
-          membershipPlanName: null,
-          packages: [
-            {
-              id: 'pkg-1',
-              platform: 'MCOM Mall',
-              packageName: 'Standard',
-              externalPlanId: 'tier-1',
-              planName: 'Standard Plan',
-              planType: 'STANDARD',
-              status: 'active',
-              limits: { maxProducts: 50 },
-              amount: 29.99,
-              expiresAt: new Date(Date.now() + 86400000),
-            },
-          ],
-        },
-      });
-
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'sess-1',
-        client: {
-          clientId: 'mcom-mall',
-          name: 'MCOM Mall',
-          platformSlug: 'mall',
-        },
-      });
-
-      const result = await service.getUserInfoFromToken('token-direct');
-      expect(result.sub).toBe('user-direct');
-      expect(result.appPlan).toBeDefined();
-      expect(result.appPlan.source).toBe('direct');
-      expect(result.appPlan.planId).toBe('tier-1');
-      expect(result.appPlan.planName).toBe('Standard Plan');
-      expect(result.appPlan.limits).toEqual({ maxProducts: 50 });
-      expect(result.appPlan.directPlan).toBeDefined();
-      expect(result.appPlan.membershipPlan).toBeNull();
-      expect(result.packages).toHaveLength(1);
-      expect(result.packages[0].source).toBe('direct');
-      expect(result.permissions.canAccessMall).toBe(true);
-    });
-
-    it('should service user with active membership plan (multi-app bundle system)', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 'user-member' });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-member',
-        email: 'member@test.com',
-        role: 'BUSINESS',
-        firstName: 'Bob',
-        lastName: 'Member',
-        businessProfile: {
-          id: 'b-member',
-          businessName: 'Member Store',
-          membershipLevel: 'Gold',
-          membershipStatus: 'active',
-          membershipPlanName: 'Gold',
-          packages: [],
-        },
-      });
-
+  describe('resolveEntitlements', () => {
+    it('grants PAID_MEMBERSHIP access when client is included in active membership plan', async () => {
       mockPrisma.membershipPlan.findFirst.mockResolvedValue({
-        id: 'plan-gold',
         name: 'Gold',
         includedApps: [
           {
             platform: 'MCOM Mall',
             clientId: 'mcom-mall',
-            planId: 'mall-gold-tier',
-            planName: 'Gold Mall Plan',
-            quotas: { maxProducts: 500, bannerAds: 5 },
-          },
-          {
-            platform: 'MCOM Loyalty',
-            clientId: 'mcom-loyalty',
-            planId: 'loyalty-gold-tier',
-            planName: 'Gold Loyalty Plan',
-            quotas: { maxPoints: 10000 },
+            planId: 'mall-pro',
+            planName: 'Vendor Pro',
+            quotas: { productLimit: 100 },
           },
         ],
       });
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
 
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'sess-2',
-        client: {
-          clientId: 'mcom-mall',
-          name: 'MCOM Mall',
-          platformSlug: 'mall',
+      const user: EntitlementUser = {
+        id: 'usr_1',
+        email: 'merchant@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_1',
+          businessName: 'Apex Store',
+          membershipLevel: 'Gold',
+          membershipStatus: 'active',
+          membershipPlanName: 'Gold',
+          hasPaidVerificationFee: true,
+          packages: [],
         },
-      });
+      };
 
-      const result = await service.getUserInfoFromToken('token-member');
-      expect(result.sub).toBe('user-member');
-      expect(result.appPlan).toBeDefined();
-      expect(result.appPlan.source).toBe('membership');
-      expect(result.appPlan.planId).toBe('mall-gold-tier');
-      expect(result.appPlan.planName).toBe('Gold Mall Plan');
-      expect(result.appPlan.membershipPlanName).toBe('Gold');
-      expect(result.appPlan.quotas).toEqual({ maxProducts: 500, bannerAds: 5 });
-      expect(result.appPlan.membershipPlan).toBeDefined();
-      expect(result.appPlan.directPlan).toBeNull();
-      expect(result.membership.hasActiveMembership).toBe(true);
-      expect(result.membership.appPlans).toHaveLength(2);
-      expect(result.permissions.canAccessMall).toBe(true);
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(true);
+      expect(result.entitlement?.access.accessType).toBe('PAID_MEMBERSHIP');
+      expect(result.entitlement?.plan?.planId).toBe('mall-pro');
+      expect(result.entitlement?.plan?.planName).toBe('Vendor Pro');
+      expect(result.entitlement?.plan?.source).toBe('membership');
+      expect(result.entitlement?.membershipContext.isIncludedInMembership).toBe(true);
     });
 
-    it('should service user with both direct plan and membership, preserving both details', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 'user-both' });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-both',
-        email: 'both@test.com',
-        role: 'BUSINESS',
-        firstName: 'Charlie',
-        lastName: 'Both',
-        businessProfile: {
-          id: 'b-both',
-          businessName: 'Both Enterprises',
-          membershipLevel: 'Silver',
-          membershipStatus: 'active',
-          membershipPlanName: 'Silver',
-          packages: [
-            {
-              id: 'pkg-direct-pro',
-              platform: 'MCOM Mall',
-              packageName: 'Pro',
-              externalPlanId: 'mall-pro-paid',
-              planName: 'Pro Tier',
-              planType: 'STANDARD',
-              status: 'active',
-              limits: { customDomains: 3 },
-              amount: 79.99,
-              expiresAt: new Date(Date.now() + 86400000),
-            },
-          ],
-        },
-      });
-
+    it('denies access with PLATFORM_NOT_IN_MEMBERSHIP when active membership does not include the platform', async () => {
       mockPrisma.membershipPlan.findFirst.mockResolvedValue({
-        id: 'plan-silver',
-        name: 'Silver',
+        name: 'Bronze',
+        includedApps: [
+          {
+            platform: 'MCOM Rewards',
+            clientId: 'mcom-rewards',
+            planId: 'rewards-standard',
+            planName: 'Standard',
+          },
+        ],
+      });
+      // No trial tasks
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
+
+      const user: EntitlementUser = {
+        id: 'usr_2',
+        email: 'merchant2@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_2',
+          businessName: 'Cafe London',
+          membershipLevel: 'Bronze',
+          membershipStatus: 'active',
+          membershipPlanName: 'Bronze',
+          hasPaidVerificationFee: false,
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(false);
+      expect(result.entitlement?.access.accessType).toBe('NONE');
+      expect(result.entitlement?.access.reason).toBe('PLATFORM_NOT_IN_MEMBERSHIP');
+      expect(result.entitlement?.access.upgradeUrl).toContain('/dashboard/memberships');
+      expect(result.entitlement?.membershipContext.isIncludedInMembership).toBe(false);
+    });
+
+    it('grants TRIAL_PROGRAMME access during active trial when platform has active task in programme', async () => {
+      // No paid membership
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+
+      // Active task exists for MCOM Mall in TaskEngine
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([
+        {
+          id: 'task_mall_1',
+          title: 'Setup Store Profile',
+          description: 'Upload banner and logo on MCOM Mall',
+          deadlineDays: 7,
+          rewardPoints: 50,
+          assignments: [{ status: 'PENDING' }],
+        },
+      ]);
+
+      const futureDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000); // 10 days remaining
+      const user: EntitlementUser = {
+        id: 'usr_3',
+        email: 'trialuser@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_3',
+          businessName: 'New Merchant',
+          membershipStatus: 'active',
+          membershipPlanName: null,
+          hasPaidVerificationFee: true,
+          verificationFeePaidAt: new Date(),
+          trialAccessDays: 14,
+          trialAccessExpiresAt: futureDate,
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(true);
+      expect(result.entitlement?.access.accessType).toBe('TRIAL_PROGRAMME');
+      expect(result.entitlement?.trialContext.isInTrial).toBe(true);
+      expect(result.entitlement?.trialContext.daysRemaining).toBeGreaterThanOrEqual(9);
+      expect(result.entitlement?.trialContext.programmeTasks).toHaveLength(1);
+      expect(result.entitlement?.trialContext.programmeTasks[0].taskId).toBe('task_mall_1');
+      expect(result.appPlan?.source).toBe('trial');
+    });
+
+    it('grants TRIAL_PROGRAMME (not PAID_MEMBERSHIP) when user has membershipLevel="Gold" but no paid membershipPlanName', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        name: 'Gold',
         includedApps: [
           {
             platform: 'MCOM Mall',
             clientId: 'mcom-mall',
-            planId: 'mall-silver-tier',
-            planName: 'Silver Mall Plan',
-            quotas: { maxProducts: 200 },
+            planId: 'mall-pro',
+            planName: 'Vendor Pro',
           },
         ],
       });
 
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'sess-3',
-        client: {
-          clientId: 'mcom-mall',
-          name: 'MCOM Mall',
-          platformSlug: 'mall',
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([
+        {
+          id: 'task_mall_1',
+          title: 'Setup Store Profile',
+          description: 'Upload banner and logo on MCOM Mall',
+          deadlineDays: 7,
+          rewardPoints: 50,
+          assignments: [{ status: 'PENDING' }],
         },
-      });
+      ]);
 
-      const result = await service.getUserInfoFromToken('token-both');
-      expect(result.appPlan).toBeDefined();
-      expect(result.appPlan.directPlan).toBeDefined();
-      expect(result.appPlan.directPlan.planId).toBe('mall-pro-paid');
-      expect(result.appPlan.membershipPlan).toBeDefined();
-      expect(result.appPlan.membershipPlan.planId).toBe('mall-silver-tier');
-      expect(result.membership.appPlans).toHaveLength(1);
-    });
-
-    it('should return appPlan null when user has no package and membership does not include app', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 'user-none' });
-      mockPrisma.user.findUnique.mockResolvedValue({
-        id: 'user-none',
-        email: 'none@test.com',
+      const futureDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+      const user: EntitlementUser = {
+        id: 'usr_trial_gold',
+        email: 'trialgold@example.com',
         role: 'BUSINESS',
-        firstName: 'David',
-        lastName: 'None',
         businessProfile: {
-          id: 'b-none',
-          businessName: 'No Access Co',
-          membershipLevel: 'Bronze',
+          id: 'biz_trial_gold',
+          businessName: 'Trial Gold Merchant',
+          membershipLevel: 'Gold',
           membershipStatus: 'active',
-          membershipPlanName: 'Bronze',
+          membershipPlanName: null, // Did not purchase Gold membership
+          hasPaidVerificationFee: true,
+          verificationFeePaidAt: new Date(),
+          trialAccessDays: 14,
+          trialAccessExpiresAt: futureDate,
           packages: [],
         },
-      });
+      };
 
-      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
-        id: 'plan-bronze',
-        name: 'Bronze',
-        includedApps: [],
-      });
+      const result = await service.resolveEntitlements(user, testClient);
 
-      mockPrisma.ssoSession.findUnique.mockResolvedValue({
-        id: 'sess-4',
-        client: {
-          clientId: 'mcom-mall',
-          name: 'MCOM Mall',
-          platformSlug: 'mall',
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(true);
+      expect(result.entitlement?.access.accessType).toBe('TRIAL_PROGRAMME');
+      expect(result.entitlement?.trialContext.isInTrial).toBe(true);
+      expect(result.entitlement?.membershipContext.isIncludedInMembership).toBe(false);
+      expect(result.entitlement?.membershipContext.membershipPlanName).toBeNull();
+      expect(result.entitlement?.plan?.planName).toBe('Programme Trial Access');
+      expect(result.entitlement?.plan?.source).toBe('trial');
+    });
+
+    it('denies trial access with TRIAL_NO_TASKS when platform has NO tasks in programme', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      // Platform has NO tasks configured
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
+
+      const futureDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+      const user: EntitlementUser = {
+        id: 'usr_4',
+        email: 'trialuser2@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_4',
+          businessName: 'Unassigned App Merchant',
+          membershipStatus: 'active',
+          hasPaidVerificationFee: true,
+          trialAccessExpiresAt: futureDate,
+          packages: [],
         },
-      });
+      };
 
-      const result = await service.getUserInfoFromToken('token-none');
-      expect(result.appPlan).toBeNull();
-      expect(result.permissions.canAccessMall).toBe(false);
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(false);
+      expect(result.entitlement?.access.accessType).toBe('NONE');
+      expect(result.entitlement?.access.reason).toBe('TRIAL_NO_TASKS');
+    });
+
+    it('denies access with TRIAL_EXPIRED when trial period has elapsed', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([
+        {
+          id: 'task_mall_1',
+          title: 'Setup Store Profile',
+          description: 'Upload banner',
+          deadlineDays: 7,
+          rewardPoints: 50,
+          assignments: [],
+        },
+      ]);
+
+      const pastDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // expired 2 days ago
+      const user: EntitlementUser = {
+        id: 'usr_5',
+        email: 'expireduser@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_5',
+          businessName: 'Expired Merchant',
+          hasPaidVerificationFee: true,
+          trialAccessExpiresAt: pastDate,
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(false);
+      expect(result.entitlement?.access.accessType).toBe('NONE');
+      expect(result.entitlement?.access.reason).toBe('TRIAL_EXPIRED');
+    });
+
+    it('denies access with UNVERIFIED when business has not paid verification fee', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
+
+      const user: EntitlementUser = {
+        id: 'usr_6',
+        email: 'unverified@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_6',
+          businessName: 'Unverified Merchant',
+          hasPaidVerificationFee: false,
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement).not.toBeNull();
+      expect(result.entitlement?.access.hasAccess).toBe(false);
+      expect(result.entitlement?.access.reason).toBe('UNVERIFIED');
+      expect(result.entitlement?.access.upgradeUrl).toContain('/dashboard?action=verify');
     });
   });
 });

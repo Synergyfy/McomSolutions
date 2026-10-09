@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Req, Res, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Req, Res, UseGuards, BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { SsoService } from './sso.service';
 import { SsoClientGuard } from './guards/sso-client.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -153,6 +153,62 @@ export class SsoController {
       (req.headers['x-client-id'] as string) ||
       (req.headers['x-service-id'] as string);
     return this.ssoService.getUserInfoFromToken(token, explicitClientId);
+  }
+
+  @Get('sso/entitlement')
+  @ApiOperation({ summary: 'Introspect platform entitlement for a business or user' })
+  @ApiQuery({ name: 'client_id', required: false, description: 'SSO Client ID' })
+  @ApiQuery({ name: 'user_id', required: false, description: 'User ID or Business Profile ID' })
+  @ApiOkResponse({ description: 'Platform entitlement retrieved successfully' })
+  async getEntitlement(
+    @Req() req: Request,
+    @Query('client_id') queryClientId?: string,
+    @Query('user_id') queryUserId?: string,
+  ) {
+    const authHeader = req.headers.authorization;
+    const explicitClientId =
+      queryClientId ||
+      (req.headers['x-client-id'] as string) ||
+      (req.headers['x-service-id'] as string);
+
+    // If caller provided a Bearer access token, resolve directly from token
+    if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+      const token = authHeader.substring(7).trim();
+      const userInfo = await this.ssoService.getUserInfoFromToken(token, explicitClientId);
+      return {
+        success: true,
+        entitlement: userInfo.entitlement,
+        appPlan: userInfo.appPlan,
+        membership: userInfo.membership,
+        user: {
+          id: userInfo.sub,
+          email: userInfo.email,
+          role: userInfo.role,
+          name: userInfo.name,
+          businessId: userInfo.businessId,
+        },
+      };
+    }
+
+    // Direct platform introspection via client credentials / API key
+    if (!explicitClientId) {
+      throw new BadRequestException('client_id is required');
+    }
+    if (!queryUserId) {
+      throw new BadRequestException('user_id is required when no Bearer token is provided');
+    }
+
+    // Validate client API key if passed in header
+    const apiKey = (req.headers['x-api-key'] as string) || (req.headers['apikey'] as string);
+    const client = await this.ssoService.getClientByClientId(explicitClientId);
+    if (!client || !client.isActive) {
+      throw new UnauthorizedException('Invalid or inactive SSO client');
+    }
+    if (apiKey && client.apiKey && apiKey !== client.apiKey) {
+      throw new UnauthorizedException('Invalid API key for client');
+    }
+
+    return this.ssoService.getIntrospectedEntitlement(explicitClientId, queryUserId);
   }
 
   // Admin route to list clients

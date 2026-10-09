@@ -19,6 +19,11 @@ export const pricingApi = {
   // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
   // Standalone packages are bought on the console-registered external platforms.
 
+  getQuote: async (level: string, tier: string = 'Standard', paymentPlan: string = 'full') => {
+    const res = await apiClient.get('/pricing/quotes', { params: { level, tier, paymentPlan } });
+    return res.data;
+  },
+
   getTransactions: async () => {
     const res = await apiClient.get('/pricing/transactions');
     return res.data;

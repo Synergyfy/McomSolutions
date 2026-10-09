@@ -247,3 +247,21 @@ export class PhaseMissionsDto {
   @ApiProperty({ type: [MissionDto], description: 'Phase missions' })
   missions: MissionDto[];
 }
+
+export class UpdateProgrammeSettingsDto {
+  @ApiPropertyOptional({ example: 14, description: 'Default days of dashboard access granted upon £1 verification' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  trialAccessDays?: number;
+
+  @ApiPropertyOptional({ example: 1.0, description: 'Verification fee amount in GBP' })
+  @IsOptional()
+  verificationFeeAmount?: number;
+
+  @ApiPropertyOptional({ example: true, description: 'Whether verification fee is mandatory for platform access' })
+  @IsOptional()
+  @IsBoolean()
+  verificationRequired?: boolean;
+}
+

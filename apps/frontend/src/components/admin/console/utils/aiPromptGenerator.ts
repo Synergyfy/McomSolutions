@@ -127,85 +127,89 @@ Implement the following modules in this codebase:
      \`\`\`
 3. Store the \`accessToken\`, \`refreshToken\`, and user profile in your application's session or issue a local JWT session.
 
-### Task 3: Dual Entitlement Model (Standalone Plans vs. MCOM Memberships)
-MCOM Solutions services users through two distinct access paths:
-1. **Standalone Direct Plan (The Former System)**:
-   - The merchant purchased a subscription plan specifically for ${client.name}.
-   - \`appPlan.source === 'direct'\`.
-   - \`appPlan.planId\` contains the direct plan identifier.
-   - \`appPlan.planName\` contains the plan name.
-   - \`appPlan.limits\` / \`quotas\` contain the feature quotas.
-   - \`appPlan.membershipPlanName\` is \`null\`.
-2. **MCOM Ecosystem Membership (Multi-App Bundle)**:
+### Task 3: Unified Entitlement & Trial Access Protocol
+MCOM Solutions delivers a standardized **PlatformEntitlement** object inside both \`POST /auth/sso/token\` and \`GET /auth/sso/userinfo\` (and via \`GET /auth/sso/entitlement\`):
+
+1. **Paid Ecosystem Membership Bundle**:
    - The merchant holds an active MCOM Membership (e.g. Gold, Silver, Platinum) that bundles access to ${client.name}.
-   - \`appPlan.source === 'membership'\`.
-   - \`appPlan.planId\` contains the plan level bundled for this app by their membership.
-   - \`appPlan.planName\` contains the bundled plan display name.
-   - \`appPlan.quotas\` contains the bundled quotas.
-   - \`appPlan.membershipPlanName\` indicates the parent membership tier (e.g. "Gold").
-3. **Both Active**:
-   - If the merchant has both a direct package and an active membership bundling this app, \`appPlan\` resolves with priority and provides both \`directPlan\` and \`membershipPlan\` blocks for full transparency.
+   - \`entitlement.access.hasAccess === true\`
+   - \`entitlement.access.accessType === 'PAID_MEMBERSHIP'\`
+   - \`entitlement.plan.planId\` contains the plan level bundled for this app.
+   - \`entitlement.membershipContext.isIncludedInMembership === true\`.
+
+2. **Programme Trial Access (Task-Gated)**:
+   - When a business pays the £1 verification fee in MCOM Central, they receive a timed trial (e.g. 14 days).
+   - If an admin created an active task in the **Task Engine & Rewards** (/admin/programme) selecting **${client.name}** under *External App (from Console)*, the business automatically unlocks trial access to this platform!
+   - \`entitlement.access.hasAccess === true\`
+   - \`entitlement.access.accessType === 'TRIAL_PROGRAMME'\`
+   - \`entitlement.trialContext.isInTrial === true\`
+   - \`entitlement.trialContext.programmeTasks\` contains the list of tasks the merchant must complete on your platform!
+
+3. **No Access / Upgrade Required**:
+   - If the merchant has no membership bundling ${client.name}, or trial is expired / platform has no programme tasks:
+   - \`entitlement.access.hasAccess === false\`
+   - \`entitlement.access.accessType === 'NONE'\`
+   - \`entitlement.access.reason\`:
+     - \`'PLATFORM_NOT_IN_MEMBERSHIP'\`: Member, but this app wasn't bundled.
+     - \`'TRIAL_NO_TASKS'\`: In trial, but no active tasks exist for this platform.
+     - \`'TRIAL_EXPIRED'\`: Trial window has ended.
+     - \`'UNVERIFIED'\`: Verification fee unpaid.
+   - \`entitlement.access.upgradeUrl\`: Pre-built link back to MCOM Central for instant upgrade/payment.
 
 #### Handling Entitlements in Your Backend:
 \`\`\`typescript
-// Extract appPlan from the token response or userinfo response
-const businessProfile = user.businessProfile;
-const appPlan = businessProfile?.appPlan;
-const hasAccess = user.permissions?.canAccess_${platformSlug} === true;
+// Extract entitlement from the SSO token response or /auth/sso/entitlement
+const { entitlement, user } = response.data;
 
-if (hasAccess && appPlan && appPlan.status === 'active') {
-  // 1. Extract plan details regardless of whether it came from a direct plan or membership:
-  const planId = appPlan.planId;       // e.g. "tier-1" or "growth-tier"
-  const planName = appPlan.planName;   // e.g. "Standard Plan"
-  const quotas = appPlan.quotas || {}; // e.g. { maxProducts: 50, maxPoints: 1000 }
-  const source = appPlan.source;       // "membership" | "direct"
-  const membershipTier = appPlan.membershipPlanName; // "Gold" (if from membership)
-
-  console.log(\`User \${user.email} entitled to \${planName} via \${source}\`);
-  if (source === 'membership') {
-    console.log(\`Bundled with MCOM Membership: \${membershipTier}\`);
-  }
-
-  // 2. Synchronize local store/user permissions and feature limits:
-  await db.Subscription.upsert({
-    where: { userId: user.id },
-    update: {
-      planId,
-      planName,
-      quotas,
-      source,
-      membershipTier: membershipTier ?? null,
-      isActive: true,
-      updatedAt: new Date(),
-    },
-    create: {
-      userId: user.id,
-      planId,
-      planName,
-      quotas,
-      source,
-      membershipTier: membershipTier ?? null,
-      isActive: true,
-    },
-  });
-} else {
-  // User has no active plan or membership bundle for ${client.name}
-  // Restrict access or redirect to MCOM Solutions to choose a plan or membership:
-  // ${mcomBaseUrl}/pricing or ${mcomBaseUrl}/memberships
+if (!entitlement?.access?.hasAccess) {
+  // Merchant does not have access to this platform
+  const reason = entitlement?.access?.reason;
+  const upgradeUrl = entitlement?.access?.upgradeUrl;
+  console.warn(\`Access denied for \${user.email}: \${reason}\`);
+  return res.redirect(\`/upgrade?reason=\${reason}&upgradeUrl=\${encodeURIComponent(upgradeUrl)}\`);
 }
+
+// User is entitled! Provision based on whether it is a Paid Membership or Trial:
+const isTrial = entitlement.access.accessType === 'TRIAL_PROGRAMME';
+const planId = entitlement.plan?.planId;
+const planName = entitlement.plan?.planName;
+const quotas = entitlement.plan?.quotas || {};
+const tasksToComplete = entitlement.trialContext?.programmeTasks || [];
+
+await db.Subscription.upsert({
+  where: { userId: user.id },
+  update: {
+    planId,
+    planName,
+    quotas,
+    isTrial,
+    tasksToComplete,
+    isActive: true,
+    updatedAt: new Date(),
+  },
+  create: {
+    userId: user.id,
+    planId,
+    planName,
+    quotas,
+    isTrial,
+    tasksToComplete,
+    isActive: true,
+  },
+});
 \`\`\`
 
-### Task 4: Fresh Profile & Entitlements Synchronization
-Whenever your backend needs to re-verify a user's subscription, refresh quotas, or check active packages without a full re-login:
+### Task 4: Real-time Entitlement Introspection API
+Whenever your backend needs to re-verify a user's subscription or check active trial tasks without forcing a re-login:
 \`\`\`http
-GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/userinfo
+GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/entitlement?client_id=\${MCOM_CLIENT_ID}&user_id=\${userId}
+X-API-Key: \${MCOM_API_KEY}
+\`\`\`
+Or with the user's Bearer token:
+\`\`\`http
+GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/entitlement
 Authorization: Bearer \${accessToken}
 \`\`\`
-Response provides:
-- \`appPlan\`: The latest resolved plan for ${client.name} (direct or membership bundle).
-- \`membership\`: Full membership metadata (\`planName\`, \`level\`, \`status\`, and all \`appPlans\`).
-- \`packages\`: Array of all active platform packages.
-- \`permissions\`: Calculated access flags (\`canAccess_${platformSlug}: true\`).
 
 ${
   hasBilling

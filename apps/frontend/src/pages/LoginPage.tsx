@@ -75,8 +75,8 @@ export default function LoginPage() {
     }
   }, [searchParams]);
 
-  const performRedirect = async (clientIdParam?: string | null) => {
-    const clientId = clientIdParam || searchParams.get('client_id');
+  const performRedirect = async (userRole?: string | null) => {
+    const clientId = searchParams.get('client_id');
     const redirectUri = searchParams.get('redirect_uri');
     const state = searchParams.get('state');
     const scope = searchParams.get('scope');
@@ -87,14 +87,21 @@ export default function LoginPage() {
         const authRes = await postSsoAuthorize({ clientId, redirectUri, scope: scope || undefined, state: state || undefined });
         window.location.href = `${redirectUri}?code=${authRes.code}&state=${state || ''}`;
         return;
-      } catch (err) {
+      } catch (err: any) {
         console.error("SSO OAuth authorization failed", err);
+        setError(err.response?.data?.message || 'SSO authorization failed. Please try again or contact support.');
+        return;
       }
     }
 
     // Scenario B: Direct SSO / Shared Handshake Flow
-    const source = searchParams.get('source') || (clientId === 'mcom-mall' ? 'mcommall' : (clientId === 'mcom-loyalty' || clientId === 'mcom-reward') ? 'mcomloyalty' : null);
-    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl') || state;
+    const rawSource = searchParams.get('source');
+    const source = rawSource || (
+      clientId === 'mcom-mall' ? 'mcommall' : 
+      (clientId === 'mcom-loyalty' || clientId === 'mcom-reward' || clientId === 'rewards') ? 'mcomloyalty' : 
+      null
+    );
+    const redirectParam = searchParams.get('redirect') || searchParams.get('callbackUrl');
     
     let redirectTarget = null;
     let finalRedirectState = null;
@@ -105,13 +112,19 @@ export default function LoginPage() {
       } else {
         finalRedirectState = redirectParam;
       }
+    } else if (state && (state.startsWith('/') || state.startsWith('http://') || state.startsWith('https://'))) {
+      if (state.startsWith('http://') || state.startsWith('https://')) {
+        redirectTarget = state;
+      } else {
+        finalRedirectState = state;
+      }
     }
 
     // Determine platform base SSO url if redirect target is relative or null
     if (!redirectTarget) {
-      if (source === 'mcomloyalty' || source === 'rewards' || source === 'mcom-loyalty') {
+      if (source === 'mcomloyalty' || source === 'rewards' || source === 'mcom-loyalty' || source === 'mcom-reward' || source === 'reward') {
         redirectTarget = `${import.meta.env.VITE_MCOM_LOYALTY_URL || 'http://localhost:3005'}/sso-login`;
-      } else if (source === 'mcommall' || source === 'mcom-mall') {
+      } else if (source === 'mcommall' || source === 'mcom-mall' || source === 'mall') {
         redirectTarget = `${import.meta.env.VITE_MCOM_MALL_URL || 'http://localhost:3003'}/auth/sso`;
       }
     }
@@ -129,15 +142,16 @@ export default function LoginPage() {
         const tokenParamName = redirectTarget.includes('sso_token') || redirectTarget.includes('/auth/sso') ? 'sso_token' : 'token';
         let targetUrl = `${redirectTarget}${separator}${tokenParamName}=${ssoRes.ssoToken}`;
         
-        if (finalRedirectState) {
-          targetUrl += `&state=${encodeURIComponent(finalRedirectState)}`;
+        if (state) {
+          targetUrl += `&state=${encodeURIComponent(state)}`;
         }
         
         window.location.href = targetUrl;
         return;
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to generate SSO token', err);
-        navigate(effectiveRole === 'CUSTOMER' ? '/customer' : '/dashboard');
+        setError(err.response?.data?.message || 'Failed to generate single sign-on token.');
+        return;
       }
     } else if (finalRedirectState) {
       if (effectiveRole === 'CUSTOMER' && finalRedirectState.startsWith('/dashboard')) {
@@ -325,7 +339,7 @@ export default function LoginPage() {
           return;
         }
 
-        await performRedirect();
+        await performRedirect(user?.role);
       } catch (err: any) {
         setError('Google authentication failed. Please try again.');
       } finally {
@@ -403,7 +417,7 @@ export default function LoginPage() {
       if (await redirectAffiliateToPortal((currentUser as any)?.role)) {
         return;
       }
-      await performRedirect();
+      await performRedirect((currentUser as any)?.role);
     } catch (err: any) {
       setError('Something went wrong. Please try again.');
     } finally {

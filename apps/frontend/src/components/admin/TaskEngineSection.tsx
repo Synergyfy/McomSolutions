@@ -933,10 +933,18 @@ export default function TaskEngineSection() {
                         No active apps registered yet — register one in /admin/console, then return here.
                       </p>
                     ) : (
-                      <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
-                        <Globe className="w-3 h-3 text-violet-600" />
-                        No event worker — the user opens the app, completes the work there, then manually marks this task done.
-                      </p>
+                      <>
+                        <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-violet-600" />
+                          No event worker — the user opens the app, completes the work there, then manually marks this task done.
+                        </p>
+                        <div className="mt-2 p-2.5 bg-violet-50/80 border border-violet-200/60 rounded-xl text-[11px] text-violet-800 font-medium flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-violet-600 flex-shrink-0" />
+                          <span>
+                            <strong className="font-bold">Trial Access Protocol:</strong> Assigning a task to this app automatically unlocks access to this platform for verified businesses during their trial period.
+                          </span>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

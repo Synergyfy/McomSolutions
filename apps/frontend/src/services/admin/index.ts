@@ -885,4 +885,16 @@ export const adminApi = {
     })
     return res.data as { success: boolean; url: string; width?: number; height?: number }
   },
+
+  // ─── Programme Settings & Trial Duration ──────────────
+  getProgrammeSettings: async () => {
+    const res = await apiClient.get('/admin/programme/settings')
+    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean }>
+  },
+
+  updateProgrammeSettings: async (data: { trialAccessDays?: number; verificationFeeAmount?: number; verificationRequired?: boolean }) => {
+    const res = await apiClient.put('/admin/programme/settings', data)
+    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean }>
+  },
+
 }

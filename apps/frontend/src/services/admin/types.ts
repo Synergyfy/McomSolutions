@@ -112,6 +112,75 @@ export interface TierEntitlementResource {
   usedOn?: string[]
 }
 
+export type TierName = 'Standard' | 'Pro' | 'Pro+'
+export type PaymentPlanName = 'full' | 'monthly' | 'quarterly' | 'halfYearly'
+export type PriceModeName = 'manual' | 'auto'
+
+/** Allowed splits per tier (mirrors backend ALLOWED_SPLITS). */
+export const TIER_SPLITS: Record<TierName, { paymentPlan: PaymentPlanName; installments: number; sliceDays: number | 'duration'; label: string }[]> = {
+  Standard: [
+    { paymentPlan: 'full', installments: 1, sliceDays: 'duration', label: 'Pay in full' },
+    { paymentPlan: 'monthly', installments: 3, sliceDays: 30, label: 'Monthly' },
+  ],
+  Pro: [
+    { paymentPlan: 'full', installments: 1, sliceDays: 'duration', label: 'Pay in full' },
+    { paymentPlan: 'quarterly', installments: 2, sliceDays: 90, label: 'Quarterly' },
+    { paymentPlan: 'monthly', installments: 6, sliceDays: 30, label: 'Monthly' },
+  ],
+  'Pro+': [
+    { paymentPlan: 'full', installments: 1, sliceDays: 'duration', label: 'Pay in full' },
+    { paymentPlan: 'halfYearly', installments: 2, sliceDays: 180, label: 'Every 6 months' },
+    { paymentPlan: 'quarterly', installments: 4, sliceDays: 91, label: 'Quarterly' },
+    { paymentPlan: 'monthly', installments: 12, sliceDays: 30, label: 'Monthly' },
+  ],
+}
+
+export interface TierPaymentOptionInput {
+  paymentPlan: PaymentPlanName
+  mode: PriceModeName
+  manualPrice?: number
+  surchargePct?: number
+  isActive?: boolean
+}
+
+export interface TierEntitlementInput {
+  resourceKey: string
+  quotaValue: string
+}
+
+export interface PlanTierInput {
+  tier: TierName
+  fullPrice: number
+  durationDays?: number
+  features?: string[]
+  entitlements?: TierEntitlementInput[]
+  paymentOptions?: TierPaymentOptionInput[]
+}
+
+export interface PlanTierPaymentOption {
+  paymentPlan: PaymentPlanName
+  installments: number
+  mode: PriceModeName
+  perChargePrice: number
+  totalPrice: number
+  sliceDays: number
+}
+
+export interface PlanTierDetail {
+  tier: TierName
+  durationDays: number
+  fullPrice: number
+  features: string[]
+  entitlements: { resourceKey: string; quotaValue: string }[]
+  paymentOptions: PlanTierPaymentOption[]
+}
+
+export interface PlanAppBundle {
+  platform: string
+  externalPlanId?: string | null
+  packageName: string
+}
+
 export interface MembershipPlan {
   id: string
   name: string
@@ -129,6 +198,8 @@ export interface MembershipPlan {
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
   tierDurations?: Record<string, number>
+  tiers?: PlanTierDetail[]
+  appBundles?: PlanAppBundle[]
   whoItIsFor?: string
   badge?: string
   color?: string
@@ -410,6 +481,7 @@ export interface CreatePlanInput {
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
   tierDurations?: Record<string, number>
+  tiers?: PlanTierInput[]
   whoItIsFor?: string
   badge?: string
   color?: string

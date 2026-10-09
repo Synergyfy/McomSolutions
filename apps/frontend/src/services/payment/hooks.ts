@@ -3,16 +3,16 @@ import { paymentApi } from './index';
 
 export const useStripeInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, isTrial }: { level: string; tier: string; billing: string; isTrial: boolean }) =>
-      paymentApi.stripeInitiate(level, tier, billing, isTrial),
+    mutationFn: ({ level, tier, billing, isTrial, paymentPlan }: { level: string; tier: string; billing: string; isTrial: boolean; paymentPlan?: string }) =>
+      paymentApi.stripeInitiate(level, tier, billing, isTrial, paymentPlan ?? 'full'),
   });
 };
 
 export const useStripeConfirm = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ level, tier, billing, paymentIntentId, isTrial }: { level: string; tier: string; billing: string; paymentIntentId: string; isTrial: boolean }) =>
-      paymentApi.stripeConfirm(level, tier, billing, paymentIntentId, isTrial),
+    mutationFn: ({ level, tier, billing, paymentIntentId, isTrial, paymentPlan }: { level: string; tier: string; billing: string; paymentIntentId: string; isTrial: boolean; paymentPlan?: string }) =>
+      paymentApi.stripeConfirm(level, tier, billing, paymentIntentId, isTrial, paymentPlan ?? 'full'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -22,8 +22,8 @@ export const useStripeConfirm = () => {
 
 export const usePaypalInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean }) =>
-      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial),
+    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean; paymentPlan?: string }) =>
+      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan ?? 'full'),
   });
 };
 
@@ -82,5 +82,44 @@ export const usePlatformPlans = (platform: string | null) => {
     queryKey: ['platformPlans', platform],
     queryFn: () => paymentApi.getPlatformPlans(platform!),
     enabled: !!platform,
+  });
+};
+
+
+// ─── Verification Fee Hooks ──────────────────────────────────────────
+export const useVerificationStripeInitiate = () => {
+  return useMutation({
+    mutationFn: () => paymentApi.verificationStripeInitiate(),
+  });
+};
+
+export const useVerificationStripeConfirm = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (paymentIntentId: string) => paymentApi.verificationStripeConfirm(paymentIntentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['businessProfile'] });
+    },
+  });
+};
+
+export const useVerificationPaypalInitiate = () => {
+  return useMutation({
+    mutationFn: ({ returnUrl, cancelUrl }: { returnUrl?: string; cancelUrl?: string }) =>
+      paymentApi.verificationPaypalInitiate(returnUrl, cancelUrl),
+  });
+};
+
+export const useVerificationPaypalCapture = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => paymentApi.verificationPaypalCapture(orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['businessProfile'] });
+    },
   });
 };

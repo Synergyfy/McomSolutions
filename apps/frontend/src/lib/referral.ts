@@ -71,7 +71,7 @@ export function clearStoredReferralCode(): void {
  * Merge the stored referral code into a register payload (payload wins when
  * it already carries `referredByCode`).
  */
-export function withReferralCode<T extends { referredByCode?: string }>(payload: T): T {
+export function withReferralCode<T extends Record<string, any>>(payload: T): T & { referredByCode?: string } {
   if (payload.referredByCode) return payload;
   const stored = getStoredReferralCode();
   return stored ? { ...payload, referredByCode: stored } : payload;

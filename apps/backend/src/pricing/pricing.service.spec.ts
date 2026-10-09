@@ -25,6 +25,18 @@ describe('PricingService', () => {
       findFirst: jest.fn(),
       findMany: jest.fn(),
     },
+    membershipPlanTier: {
+      findFirst: jest.fn(),
+    },
+    membershipPaymentOption: {
+      findFirst: jest.fn(),
+    },
+    membershipInstallmentSubscription: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     ecosystemSubscription: {
       create: jest.fn(),
     },
@@ -43,7 +55,11 @@ describe('PricingService', () => {
     prisma = module.get(PrismaService);
     jest.clearAllMocks();
     // Re-establish shared defaults (clearAllMocks wipes implementations).
-    mockPrisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+    // Supports both the array form and the interactive callback form.
+    mockPrisma.$transaction.mockImplementation((arg: any) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    );
+    mockPrisma.$queryRaw.mockResolvedValue([]);
     mockPrisma.billingTransaction.findUnique.mockResolvedValue(null);
   });
 
@@ -337,8 +353,220 @@ describe('PricingService', () => {
     });
   });
 
+  // ─── resolvePaymentQuote ────────────────────
+  describe('resolvePaymentQuote', () => {
+    it('quotes from relational rows when present', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ id: 'gold', name: 'Gold' });
+      mockPrisma.membershipPlanTier.findFirst.mockResolvedValue({
+        id: 't1',
+        paymentOptions: [
+          { paymentPlan: 'full', perChargePrice: 90, totalPrice: 90, installments: 1, sliceDays: 90, mode: 'manual' },
+          { paymentPlan: 'monthly', perChargePrice: 30.6, totalPrice: 91.8, installments: 3, sliceDays: 30, mode: 'auto' },
+        ],
+      });
+
+      const quote = await service.resolvePaymentQuote('Gold', 'Standard', 'monthly');
+
+      expect(quote).toMatchObject({
+        planName: 'Gold',
+        tier: 'Standard',
+        paymentPlan: 'monthly',
+        perChargePrice: 30.6,
+        totalPrice: 91.8,
+        installments: 3,
+        sliceDays: 30,
+        currency: 'GBP',
+      });
+    });
+
+    it('falls back to the legacy single-charge price when no tier rows exist', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({
+        id: 'bronze', name: 'Bronze', price: 10, monthlyPrice: 10,
+      });
+      mockPrisma.membershipPlanTier.findFirst.mockResolvedValue(null);
+
+      const full = await service.resolvePaymentQuote('Bronze', 'Standard', 'full');
+      expect(full).toMatchObject({ perChargePrice: 10, totalPrice: 10, installments: 1, sliceDays: 90 });
+
+      const monthly = await service.resolvePaymentQuote('Bronze', 'Standard', 'monthly');
+      expect(monthly).toMatchObject({ perChargePrice: 3.33, totalPrice: 9.99, installments: 3 });
+    });
+
+    it('rejects splits the tier does not support in plain language', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ id: 'gold', name: 'Gold' });
+
+      await expect(service.resolvePaymentQuote('Gold', 'Standard', 'quarterly')).rejects.toThrow(
+        'The quarterly payment option is not available for the Standard tier.',
+      );
+      expect(mockPrisma.membershipPlanTier.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing option row in plain language', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue({ id: 'gold', name: 'Gold' });
+      mockPrisma.membershipPlanTier.findFirst.mockResolvedValue({ id: 't1', paymentOptions: [] });
+
+      await expect(service.resolvePaymentQuote('Gold', 'Pro', 'monthly')).rejects.toThrow(
+        'not available for the Pro tier right now',
+      );
+    });
+
+    it('throws NotFoundException for an unknown plan', async () => {
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      await expect(service.resolvePaymentQuote('Nope', 'Standard', 'full')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
   // Standalone packages are bought on the console-registered external platforms.
+
+  // ─── subscribeMembership (instalments) ───────
+  describe('subscribeMembership instalments', () => {
+    const business = { id: 'b1', businessName: 'Acme', membershipExpiresAt: null as Date | null };
+    const plan = { id: 'bronze', name: 'Bronze' };
+    const option = {
+      id: 'opt-monthly',
+      tierId: 'bronze__standard',
+      installments: 3,
+      perChargePrice: 3.33,
+      totalPrice: 9.99,
+      sliceDays: 30,
+    };
+
+    beforeEach(() => {
+      mockPrisma.businessProfile.findFirst.mockResolvedValue(business);
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(plan);
+      mockPrisma.membershipPaymentOption.findFirst.mockResolvedValue(option);
+      mockPrisma.membershipInstallmentSubscription.findFirst.mockResolvedValue(null);
+      mockPrisma.membershipInstallmentSubscription.create.mockImplementation(async (args: any) => ({
+        id: 'sub-1',
+        ...args.data,
+      }));
+      mockPrisma.businessProfile.update.mockImplementation(async (args: any) => ({
+        ...business,
+        ...args.data,
+      }));
+      mockPrisma.billingTransaction.create.mockResolvedValue({});
+      mockPrisma.ecosystemSubscription.create.mockResolvedValue({});
+    });
+
+    it('grants one slice per charge and opens an instalment schedule', async () => {
+      const before = Date.now();
+      const result: any = await service.subscribeMembership('b1', 'Bronze', 'Standard', 'monthly', {
+        provider: 'stripe',
+        providerPaymentId: 'pi_inst_1',
+        paymentPlan: 'monthly',
+      });
+
+      expect(result.price).toBe(3.33);
+      expect(result.installmentNo).toBe(1);
+      expect(result.installmentsTotal).toBe(3);
+      const expiry = new Date(result.expiresAt).getTime();
+      expect(expiry - before).toBeGreaterThan(29 * 86400000);
+      expect(expiry - before).toBeLessThan(31 * 86400000);
+      expect(mockPrisma.ecosystemSubscription.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: 3.33,
+            billingCycle: 'Monthly instalment 1 of 3',
+          }),
+        }),
+      );
+      expect(mockPrisma.membershipInstallmentSubscription.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ installmentsTotal: 3, installmentsPaid: 1, status: 'active' }),
+        }),
+      );
+    });
+
+    it('extends from the current expiry on later steps', async () => {
+      const currentExpiry = new Date(Date.now() + 30 * 86400000);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ ...business, membershipExpiresAt: currentExpiry });
+      mockPrisma.membershipInstallmentSubscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        installmentsPaid: 1,
+        installmentsTotal: 3,
+        createdAt: new Date(Date.now() - 86400000),
+      });
+      mockPrisma.membershipInstallmentSubscription.update.mockResolvedValue({});
+
+      const result: any = await service.subscribeMembership('b1', 'Bronze', 'Standard', 'monthly', {
+        provider: 'stripe',
+        providerPaymentId: 'pi_inst_2',
+        paymentPlan: 'monthly',
+      });
+
+      expect(result.installmentNo).toBe(2);
+      const newExpiry = new Date(result.expiresAt).getTime();
+      expect(newExpiry - currentExpiry.getTime()).toBeGreaterThan(29 * 86400000);
+      expect(newExpiry - currentExpiry.getTime()).toBeLessThan(31 * 86400000);
+      expect(mockPrisma.membershipInstallmentSubscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sub-1' },
+          data: expect.objectContaining({ installmentsPaid: 2, status: 'active' }),
+        }),
+      );
+    });
+
+    it('tops up to the exact full-term expiry on the final step and completes', async () => {
+      const termStart = new Date(Date.now() - 60 * 86400000);
+      const currentExpiry = new Date(termStart.getTime() + 60 * 86400000);
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ ...business, membershipExpiresAt: currentExpiry });
+      mockPrisma.membershipInstallmentSubscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        installmentsPaid: 2,
+        installmentsTotal: 3,
+        createdAt: termStart,
+      });
+      mockPrisma.membershipInstallmentSubscription.update.mockResolvedValue({});
+
+      const result: any = await service.subscribeMembership('b1', 'Bronze', 'Standard', 'monthly', {
+        provider: 'stripe',
+        providerPaymentId: 'pi_inst_3',
+        paymentPlan: 'monthly',
+      });
+
+      expect(result.installmentNo).toBe(3);
+      // Standard = term start + 90 days (not 3 × 30-day slices, which drift on rounding)
+      const expected = new Date(termStart.getTime());
+      expected.setUTCDate(expected.getUTCDate() + 90);
+      expect(Math.abs(new Date(result.expiresAt).getTime() - expected.getTime())).toBeLessThan(5000);
+      expect(mockPrisma.membershipInstallmentSubscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ installmentsPaid: 3, status: 'completed', nextDueAt: null }),
+        }),
+      );
+    });
+
+    it('replays an already-processed instalment without double-charging', async () => {
+      mockPrisma.billingTransaction.findUnique.mockResolvedValue({
+        businessId: 'b1',
+        amount: 3.33,
+      });
+
+      const result: any = await service.subscribeMembership('b1', 'Bronze', 'Standard', 'monthly', {
+        provider: 'stripe',
+        providerPaymentId: 'pi_inst_1',
+        paymentPlan: 'monthly',
+      });
+
+      expect(result.replayed).toBe(true);
+      expect(mockPrisma.businessProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unavailable option in plain language', async () => {
+      mockPrisma.membershipPaymentOption.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.subscribeMembership('b1', 'Bronze', 'Standard', 'monthly', {
+          provider: 'stripe',
+          providerPaymentId: 'pi_inst_9',
+          paymentPlan: 'monthly',
+        }),
+      ).rejects.toThrow('not available for the Standard tier right now');
+    });
+  });
 
   // ─── getTransactions ───────────────────────────
   describe('getTransactions', () => {

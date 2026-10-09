@@ -48,6 +48,10 @@ export const userProfileSelect = {
       membershipStatus: true,
       membershipPlanName: true,
       membershipExpiresAt: true,
+      hasPaidVerificationFee: true,
+      verificationFeePaidAt: true,
+      trialAccessDays: true,
+      trialAccessExpiresAt: true,
       apiKey: true,
       localMallName: true,
       localMallId: true,
@@ -82,6 +86,11 @@ export const ssoUserInfoSelect = {
       membershipTier: true,
       membershipStatus: true,
       membershipPlanName: true,
+      membershipExpiresAt: true,
+      hasPaidVerificationFee: true,
+      verificationFeePaidAt: true,
+      trialAccessDays: true,
+      trialAccessExpiresAt: true,
       packages: {
         select: {
           id: true,

@@ -2,18 +2,18 @@ import { apiClient } from '../api';
 import type { PlatformConfirm, PlatformPurchase } from '../../types/contracts';
 
 export const paymentApi = {
-  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean) => {
-    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial });
+  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean, paymentPlan: string = 'full') => {
+    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial, paymentPlan });
     return res.data;
   },
 
-  stripeConfirm: async (level: string, tier: string, billing: string, paymentIntentId: string, isTrial: boolean) => {
-    const res = await apiClient.post('/payment/stripe/confirm', { level, tier, billing, paymentIntentId, isTrial });
+  stripeConfirm: async (level: string, tier: string, billing: string, paymentIntentId: string, isTrial: boolean, paymentPlan: string = 'full') => {
+    const res = await apiClient.post('/payment/stripe/confirm', { level, tier, billing, paymentIntentId, isTrial, paymentPlan });
     return res.data;
   },
 
-  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean) => {
-    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial });
+  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean, paymentPlan: string = 'full') => {
+    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan });
     return res.data;
   },
 
@@ -48,4 +48,26 @@ export const paymentApi = {
     const res = await apiClient.get('/plans/platform', { params: { platform } });
     return res.data;
   },
+
+  // ─── Verification Fee (£1.00) ─────────────────────────────────────────
+  verificationStripeInitiate: async () => {
+    const res = await apiClient.post('/payment/verification-fee/stripe/initiate');
+    return res.data;
+  },
+
+  verificationStripeConfirm: async (paymentIntentId: string) => {
+    const res = await apiClient.post('/payment/verification-fee/stripe/confirm', { paymentIntentId });
+    return res.data;
+  },
+
+  verificationPaypalInitiate: async (returnUrl?: string, cancelUrl?: string) => {
+    const res = await apiClient.post('/payment/verification-fee/paypal/initiate', { returnUrl, cancelUrl });
+    return res.data;
+  },
+
+  verificationPaypalCapture: async (orderId: string) => {
+    const res = await apiClient.post('/payment/verification-fee/paypal/capture', { orderId });
+    return res.data;
+  },
+
 };

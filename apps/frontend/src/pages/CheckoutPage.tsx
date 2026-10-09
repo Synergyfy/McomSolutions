@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePricing } from '../context/PricingContext';
+import type { PlanTier } from '../context/PricingContext';
 import { useStripeInitiate, useStripeConfirm, usePaypalInitiate } from '../services/payment/hooks';
+import PaymentPlanSelector from '../components/payment/PaymentPlanSelector';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -51,6 +53,7 @@ function StripeCardForm({
   planId,
   tier,
   billing,
+  paymentPlan,
   isTrial,
   subtotal,
   user,
@@ -60,6 +63,7 @@ function StripeCardForm({
   planId: string;
   tier: string;
   billing: string;
+  paymentPlan: string;
   isTrial: boolean;
   subtotal: number;
   user: any;
@@ -99,6 +103,7 @@ function StripeCardForm({
           billing,
           paymentIntentId: paymentIntent.id,
           isTrial,
+          paymentPlan,
         });
 
         if (user) {
@@ -165,8 +170,10 @@ export default function CheckoutPage() {
     return 'Standard';
   });
   const tier = selectedTier;
-  const billing = searchParams.get('billing') || (selectedTier === 'Pro+' ? 'yearly' : 'monthly');
   const isTrial = searchParams.get('isTrial') === 'true';
+  // Legacy billing cycle (kept for the one-off charge metadata). The real
+  // price driver is paymentPlan, resolved server-side via /pricing/quotes.
+  const legacyBilling = searchParams.get('billing') || (selectedTier === 'Pro+' ? 'yearly' : 'monthly');
 
   const [paymentProvider, setPaymentProvider] = useState<'stripe' | 'paypal'>('stripe');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -187,8 +194,15 @@ export default function CheckoutPage() {
     (p) => p.name.toLowerCase() === planId.toLowerCase() || p.id.toLowerCase() === planId.toLowerCase()
   );
 
-  // Calculate pricing details dynamically
-  const basePrice = useMemo(() => {
+  // Server-computed payment options for the selected tier (never priced on the client).
+  const tierDetail: PlanTier | undefined = useMemo(() => {
+    return currentPlan?.tiers?.find((t) => t.tier === selectedTier);
+  }, [currentPlan, selectedTier]);
+
+  const tierDuration = tierDetail?.durationDays ?? (selectedTier === 'Pro+' ? 365 : selectedTier === 'Pro' ? 180 : 90);
+
+  // Legacy fallback when the plan has no relational rows yet: one outright charge.
+  const fallbackPrice = useMemo(() => {
     if (currentPlan?.tierPrices) {
       const tp = currentPlan.tierPrices as any;
       const direct = tp[selectedTier] ?? (selectedTier === 'Standard' ? tp.Normal : undefined);
@@ -199,10 +213,40 @@ export default function CheckoutPage() {
     return prices[legacyKey as keyof typeof prices] || prices.Normal;
   }, [currentPlan, selectedTier, planId]);
 
-  const discount = (billing === 'yearly' || selectedTier === 'Pro+') ? 0.2 : 0;
-  const finalMonthlyPrice = Math.floor(basePrice * (1 - discount));
-  const subtotal = (billing === 'yearly' || selectedTier === 'Pro+') ? (basePrice > 300 ? basePrice : finalMonthlyPrice * 12) : basePrice;
-  const total = isTrial ? 0 : subtotal;
+  const options = useMemo(() => {
+    if (tierDetail && tierDetail.paymentOptions.length > 0) return tierDetail.paymentOptions;
+    return [{
+      paymentPlan: 'full' as const,
+      installments: 1,
+      mode: 'manual' as const,
+      perChargePrice: fallbackPrice,
+      totalPrice: fallbackPrice,
+      sliceDays: tierDuration,
+    }];
+  }, [tierDetail, fallbackPrice, tierDuration]);
+
+  const [paymentPlan, setPaymentPlan] = useState<string>('full');
+
+  // Reset to outright whenever the plan/tier (and therefore the splits) change.
+  useEffect(() => {
+    setPaymentPlan('full');
+  }, [planId, selectedTier]);
+
+  const selected = options.find((o) => o.paymentPlan === paymentPlan) ?? options[0];
+  const monthlyOption = options.find((o) => o.paymentPlan === 'monthly');
+  const savingsVsMonthly =
+    monthlyOption && selected.paymentPlan !== 'monthly'
+      ? Math.max(0, Number(monthlyOption.totalPrice) - Number(selected.totalPrice))
+      : 0;
+
+  // Closest legacy billing label for the one-off charge metadata.
+  const billing =
+    selected.paymentPlan === 'monthly' ? 'monthly'
+    : selected.paymentPlan === 'quarterly' || selected.paymentPlan === 'halfYearly' ? 'quarterly'
+    : legacyBilling;
+
+  const dueToday = isTrial ? 0 : Number(selected.perChargePrice);
+  const subtotal = dueToday;
 
   useEffect(() => {
     if (!token || paymentProvider !== 'stripe') return;
@@ -211,7 +255,7 @@ export default function CheckoutPage() {
     setLoadingSecret(true);
     setErrorMessage(null);
 
-    stripeInitiate({ level: planId, tier, billing, isTrial })
+    stripeInitiate({ level: planId, tier, billing, isTrial, paymentPlan: selected.paymentPlan })
       .then((data) => {
         if (isMounted && data?.clientSecret) {
           setClientSecret(data.clientSecret);
@@ -230,7 +274,7 @@ export default function CheckoutPage() {
     return () => {
       isMounted = false;
     };
-  }, [token, paymentProvider, planId, tier, billing, isTrial]);
+  }, [token, paymentProvider, planId, tier, billing, isTrial, paymentPlan, selected.paymentPlan]);
 
   const handlePaypalPayment = async () => {
     setIsProcessing(true);
@@ -238,10 +282,10 @@ export default function CheckoutPage() {
 
     try {
       const origin = window.location.origin;
-      const returnUrl = `${origin}/checkout/paypal-return?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&isTrial=${isTrial}`;
+      const returnUrl = `${origin}/checkout/paypal-return?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&paymentPlan=${encodeURIComponent(selected.paymentPlan)}&isTrial=${isTrial}`;
       const cancelUrl = `${origin}/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&isTrial=${isTrial}`;
 
-      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial });
+      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan: selected.paymentPlan });
 
       if (initiated?.approvalUrl) {
         window.location.href = initiated.approvalUrl;
@@ -313,20 +357,36 @@ export default function CheckoutPage() {
               </div>
             </div>
 
+            {/* How to pay — partitioned options appear here at payment time only */}
+            <div className="mb-6 sm:mb-8">
+              <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">2. Choose how to pay</h3>
+              <PaymentPlanSelector
+                tier={tier}
+                durationDays={tierDuration}
+                options={options}
+                value={selected.paymentPlan}
+                onChange={setPaymentPlan}
+              />
+            </div>
+
             {/* Pricing details */}
             <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8 text-xs sm:text-sm">
               <div className="flex justify-between items-center text-gray-500 font-medium">
-                <span>Billing Frequency</span>
-                <span className="font-bold text-gray-900 capitalize">{billing}</span>
+                <span>Membership</span>
+                <span className="font-bold text-gray-900">{planId} · {tier}</span>
               </div>
               <div className="flex justify-between items-center text-gray-500 font-medium">
-                <span>Base Price</span>
-                <span className="font-bold text-gray-900">£{basePrice}/mo</span>
+                <span>Payment plan</span>
+                <span className="font-bold text-gray-900">
+                  {selected.paymentPlan === 'full'
+                    ? 'One outright payment'
+                    : `${selected.paymentPlan === 'halfYearly' ? 'Every 6 months' : selected.paymentPlan} × ${selected.installments}`}
+                </span>
               </div>
-              {discount > 0 && (
+              {savingsVsMonthly > 0.005 && (
                 <div className="flex justify-between items-center text-green-600 font-bold">
-                  <span>Yearly Discount (20%)</span>
-                  <span>-£{(basePrice - finalMonthlyPrice) * 12}/yr</span>
+                  <span>You save vs monthly</span>
+                  <span>£{savingsVsMonthly.toFixed(2).replace(/\.00$/, '')}</span>
                 </div>
               )}
               {isTrial && (
@@ -336,11 +396,13 @@ export default function CheckoutPage() {
                 </div>
               )}
               <div className="border-t border-gray-100 pt-3 sm:pt-4 flex justify-between items-baseline">
-                <span className="font-bold text-gray-900 text-sm sm:text-base">Total Due Today</span>
+                <span className="font-bold text-gray-900 text-sm sm:text-base">Due Today</span>
                 <div className="text-right">
-                  <span className="text-2xl sm:text-3xl font-black text-gray-900">£{total.toLocaleString()}</span>
-                  {billing === 'yearly' && !isTrial && (
-                    <span className="block text-[10px] sm:text-xs text-gray-400 font-semibold">billed annually</span>
+                  <span className="text-2xl sm:text-3xl font-black text-gray-900">£{dueToday.toLocaleString()}</span>
+                  {selected.installments > 1 && !isTrial && (
+                    <span className="block text-[10px] sm:text-xs text-gray-400 font-semibold">
+                      £{Number(selected.totalPrice).toLocaleString()} total · {selected.installments} payments · +{selected.sliceDays} days access per payment
+                    </span>
                   )}
                 </div>
               </div>
@@ -385,7 +447,7 @@ export default function CheckoutPage() {
 
             {paymentProvider === 'stripe' ? (
               <div>
-                <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">2. Card Information</h3>
+                <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">3. Card Information</h3>
                 {loadingSecret ? (
                   <div className="py-12 flex flex-col items-center justify-center">
                     <RefreshCw className="w-7 h-7 text-brand-blue animate-spin mb-3" />
@@ -397,6 +459,7 @@ export default function CheckoutPage() {
                       planId={planId}
                       tier={tier}
                       billing={billing}
+                      paymentPlan={selected.paymentPlan}
                       isTrial={isTrial}
                       subtotal={subtotal}
                       user={user}
@@ -411,7 +474,7 @@ export default function CheckoutPage() {
               </div>
             ) : (
               <div>
-                <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">2. PayPal Authorization</h3>
+                <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">3. PayPal Authorization</h3>
                 <div className="p-6 sm:p-8 rounded-2xl sm:rounded-3xl border border-blue-100 bg-blue-50/30 text-center mb-6">
                   <span className="inline-block text-2xl sm:text-3xl font-black italic text-blue-900 mb-2 sm:mb-3">Pay<span className="text-blue-500">Pal</span></span>
                   <p className="text-xs sm:text-sm text-gray-600 font-medium mb-6">

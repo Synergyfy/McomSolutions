@@ -5,7 +5,7 @@ export const usePlans = () => {
   return useQuery({
     queryKey: ['plans'],
     queryFn: () => pricingApi.getPlans(),
-    staleTime: 1000 * 60 * 10, // 10 minutes — plans rarely change
+    staleTime: 1000 * 60, // 1 minute
   });
 };
 

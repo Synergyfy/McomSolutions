@@ -3,9 +3,18 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import {
+  allowedSplit,
+  normalizePaymentPlan,
+  normalizePlanTier,
+  planTierDisplay,
+  planTierLabel,
+  resolveOptionPrice,
+} from '../pricing/payment-option.util';
+import type { PlanTierInputDto } from './dto/admin.dto';
 import {
   CreateBusinessUserDto,
   CreateCustomerUserDto,
@@ -1137,8 +1146,194 @@ export class AdminService implements OnModuleInit {
 
   // ─── Membership Plans CRUD ─────────────────────────────
   async getPlans() {
-    const items = await this.prisma.membershipPlan.findMany({ orderBy: { createdAt: 'desc' } });
+    const items = await this.prisma.membershipPlan.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        tiers: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            paymentOptions: { orderBy: { sortOrder: 'asc' } },
+            features: { orderBy: { sortOrder: 'asc' } },
+            entitlements: true,
+          },
+        },
+        appBundles: true,
+      },
+    });
     return { success: true, data: items };
+  }
+
+  /**
+   * Writes relational tier rows (+options/features/entitlements) inside the
+   * caller's transaction and returns the legacy JSON mirror so old readers
+   * keep working during the transition. Relational rows are the source of
+   * truth; per-charge prices are always recomputed server-side here.
+   */
+  private async syncPlanTiersTx(
+    tx: Prisma.TransactionClient,
+    planId: string,
+    tiers: PlanTierInputDto[],
+  ) {
+    const seen = new Set<string>();
+    const tierPrices: Record<string, number> = {};
+    const tierFeatures: Record<string, string[]> = {};
+    const tierDurations: Record<string, number> = {};
+    const entitlementMatrix = new Map<string, { resourceKey: string; standard?: string; pro?: string; proPlus?: string }>();
+
+    for (const [index, t] of tiers.entries()) {
+      const planTier = normalizePlanTier(t.tier);
+      const key = planTierLabel(planTier);
+      if (seen.has(key)) {
+        throw new BadRequestException(
+          `The ${planTierDisplay(planTier)} tier is listed twice. Please keep one row per tier.`,
+        );
+      }
+      seen.add(key);
+      if (!Number.isFinite(t.fullPrice) || t.fullPrice < 0) {
+        throw new BadRequestException('The full-term price must be £0 or more.');
+      }
+      const durationDays =
+        t.durationDays ?? (key === 'Pro' ? 180 : key === 'ProPlus' ? 365 : 90);
+
+      const tierRow = await tx.membershipPlanTier.upsert({
+        where: { planId_tier: { planId, tier: planTier } },
+        update: { durationDays, fullPrice: t.fullPrice, sortOrder: index },
+        create: { planId, tier: planTier, durationDays, fullPrice: t.fullPrice, sortOrder: index },
+      });
+
+      // Payment options replace the tier's whole set; an outright (full)
+      // option always exists so the tier can never become unbuyable.
+      const provided = t.paymentOptions ?? [];
+      const options = [...provided];
+      if (!provided.some((o) => normalizePaymentPlan(o.paymentPlan) === MembershipPaymentPlan.full)) {
+        options.push({ paymentPlan: 'full', mode: 'manual', manualPrice: t.fullPrice });
+      }
+      const optionSeen = new Set<string>();
+      const optionRows: Array<{
+        paymentPlan: MembershipPaymentPlan;
+        installments: number;
+        mode: PaymentPriceMode;
+        manualPrice: number | null;
+        surchargePct: number | null;
+        perChargePrice: number;
+        totalPrice: number;
+        sliceDays: number;
+        sortOrder: number;
+      }> = [];
+      for (const o of options) {
+        const pp = normalizePaymentPlan(o.paymentPlan);
+        const mode =
+          o.mode === 'manual'
+            ? PaymentPriceMode.manual
+            : o.mode === 'auto'
+              ? PaymentPriceMode.auto
+              : null;
+        if (!mode) {
+          throw new BadRequestException('Pricing mode must be manual or auto.');
+        }
+        if (optionSeen.has(pp)) {
+          throw new BadRequestException(
+            `The ${o.paymentPlan} option is listed twice for ${planTierDisplay(planTier)}.`,
+          );
+        }
+        optionSeen.add(pp);
+        const split = allowedSplit(key, pp);
+        if (!split) {
+          throw new BadRequestException(
+            `The ${o.paymentPlan} option is not available for the ${planTierDisplay(planTier)} tier.`,
+          );
+        }
+        const { perChargePrice, totalPrice } = resolveOptionPrice(
+          t.fullPrice,
+          split.installments,
+          mode,
+          o.manualPrice ?? null,
+          o.surchargePct ?? null,
+        );
+        optionRows.push({
+          paymentPlan: pp,
+          installments: split.installments,
+          mode,
+          manualPrice: mode === PaymentPriceMode.manual ? Number(o.manualPrice) : null,
+          surchargePct: mode === PaymentPriceMode.auto ? Number(o.surchargePct ?? 0) : null,
+          perChargePrice,
+          totalPrice,
+          sliceDays: split.sliceDays === 'duration' ? durationDays : split.sliceDays,
+          sortOrder: split.sortOrder,
+        });
+      }
+      await tx.membershipPaymentOption.deleteMany({ where: { tierId: tierRow.id } });
+      if (optionRows.length > 0) {
+        await tx.membershipPaymentOption.createMany({
+          data: optionRows.map((r) => ({ ...r, tierId: tierRow.id })),
+        });
+      }
+
+      const features = (t.features ?? []).filter(
+        (f): f is string => typeof f === 'string' && f.trim().length > 0,
+      );
+      await tx.membershipTierFeature.deleteMany({ where: { tierId: tierRow.id } });
+      if (features.length > 0) {
+        await tx.membershipTierFeature.createMany({
+          data: features.map((f, i) => ({ tierId: tierRow.id, feature: f.trim(), sortOrder: i })),
+        });
+      }
+
+      const ents = (t.entitlements ?? []).filter((e) => e?.resourceKey?.trim());
+      await tx.membershipTierEntitlement.deleteMany({ where: { tierId: tierRow.id } });
+      if (ents.length > 0) {
+        await tx.membershipTierEntitlement.createMany({
+          data: ents.map((e) => ({
+            tierId: tierRow.id,
+            resourceKey: e.resourceKey.trim(),
+            quotaValue: String(e.quotaValue),
+          })),
+        });
+      }
+
+      const display = planTierDisplay(planTier);
+      tierPrices[display] = t.fullPrice;
+      tierDurations[display] = durationDays;
+      tierFeatures[display] = features.map((f) => f.trim());
+      for (const e of ents) {
+        const resourceKey = e.resourceKey.trim();
+        const cell = entitlementMatrix.get(resourceKey) ?? { resourceKey };
+        if (key === 'Standard') cell.standard = String(e.quotaValue);
+        else if (key === 'Pro') cell.pro = String(e.quotaValue);
+        else cell.proPlus = String(e.quotaValue);
+        entitlementMatrix.set(resourceKey, cell);
+      }
+    }
+
+    return {
+      tierPrices,
+      tierFeatures,
+      tierDurations,
+      tierEntitlements: [...entitlementMatrix.values()],
+    };
+  }
+
+  private async syncPlanBundlesTx(tx: Prisma.TransactionClient, planId: string, includedApps: unknown) {
+    if (!Array.isArray(includedApps)) return;
+    await tx.membershipPlanAppBundle.deleteMany({ where: { planId } });
+    const rows = (includedApps as Array<Record<string, unknown>>)
+      .filter((a) => a && typeof a === 'object' && (a['platform'] || a['platformName']))
+      .map((a) => ({
+        planId,
+        platform: String(a['platform'] ?? a['platformName']),
+        externalPlanId:
+          a['planId'] != null
+            ? String(a['planId'])
+            : a['externalPlanId'] != null
+              ? String(a['externalPlanId'])
+              : a['id'] != null
+                ? String(a['id'])
+                : null,
+        packageName: String(a['planName'] ?? a['name'] ?? a['platform'] ?? a['platformName']),
+      }));
+    if (rows.length > 0) {
+      await tx.membershipPlanAppBundle.createMany({ data: rows });
+    }
   }
 
   async createPlan(dto: CreateMembershipPlanDto, adminName?: string) {
@@ -1149,7 +1344,7 @@ export class AdminService implements OnModuleInit {
         ? Array.from(new Set(dto.includedApps.map((a: any) => a.platform).filter(Boolean)))
         : [];
 
-      const result = await tx.membershipPlan.create({
+      const created = await tx.membershipPlan.create({
         data: {
           name: dto.name,
           description: dto.description,
@@ -1174,7 +1369,22 @@ export class AdminService implements OnModuleInit {
         },
       });
 
-
+      let result = created;
+      if (dto.tiers && dto.tiers.length > 0) {
+        const mirror = await this.syncPlanTiersTx(tx, created.id, dto.tiers);
+        result = await tx.membershipPlan.update({
+          where: { id: created.id },
+          data: {
+            tierPrices: mirror.tierPrices as unknown as Prisma.InputJsonValue,
+            tierFeatures: mirror.tierFeatures as unknown as Prisma.InputJsonValue,
+            tierDurations: mirror.tierDurations as unknown as Prisma.InputJsonValue,
+            tierEntitlements: mirror.tierEntitlements as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+      if (Array.isArray(dto.includedApps)) {
+        await this.syncPlanBundlesTx(tx, created.id, dto.includedApps);
+      }
 
       await this.logAuditTx(tx, 'Membership Created', 'Membership', dto.name, `Created ${dto.name} membership`, adminName);
       return result;
@@ -1193,16 +1403,46 @@ export class AdminService implements OnModuleInit {
         platformAccess = Array.from(new Set(updates.includedApps.map((a: any) => a.platform).filter(Boolean)));
       }
 
+      // `tiers` is a relational-only input — never pass it to the plan update.
+      const { tiers, ...planUpdates } = updates;
       const result = await tx.membershipPlan.update({
         where: { id },
         data: {
-          ...updates,
+          ...planUpdates,
           ...(updates.includedApps ? { includedApps: updates.includedApps as unknown as Prisma.InputJsonValue } : {}),
           ...(platformAccess ? { platformAccess } : {}),
         },
       });
 
-
+      if (tiers && tiers.length > 0) {
+        const mirror = await this.syncPlanTiersTx(tx, id, tiers);
+        const prevPrices = (planExists.tierPrices as Record<string, number> | null) ?? {};
+        const prevFeatures = (planExists.tierFeatures as Record<string, string[]> | null) ?? {};
+        const prevDurations = (planExists.tierDurations as Record<string, number> | null) ?? {};
+        const prevEnts = Array.isArray(planExists.tierEntitlements)
+          ? (planExists.tierEntitlements as Array<Record<string, string>>)
+          : [];
+        const mergedEnts = new Map<string, Record<string, string>>();
+        for (const e of prevEnts) {
+          const k = e.resourceKey ?? e['name'];
+          if (k) mergedEnts.set(k, { ...e });
+        }
+        for (const cell of mirror.tierEntitlements) {
+          mergedEnts.set(cell.resourceKey, { ...(mergedEnts.get(cell.resourceKey) ?? { resourceKey: cell.resourceKey }), ...cell });
+        }
+        await tx.membershipPlan.update({
+          where: { id },
+          data: {
+            tierPrices: { ...prevPrices, ...mirror.tierPrices } as unknown as Prisma.InputJsonValue,
+            tierFeatures: { ...prevFeatures, ...mirror.tierFeatures } as unknown as Prisma.InputJsonValue,
+            tierDurations: { ...prevDurations, ...mirror.tierDurations } as unknown as Prisma.InputJsonValue,
+            tierEntitlements: [...mergedEnts.values()] as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+      if (Array.isArray(updates.includedApps)) {
+        await this.syncPlanBundlesTx(tx, id, updates.includedApps);
+      }
 
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
       return result;

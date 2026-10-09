@@ -11,7 +11,10 @@ import {
   IsEnum,
   Min,
   Max,
+  MaxLength,
   IsInt,
+  IsIn,
+  ArrayMaxSize,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -354,6 +357,116 @@ export class CreateMembershipPlanDto {
   @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
   @IsOptional()
   tierDurations?: Record<string, number>;
+
+  @ApiPropertyOptional({
+    type: 'array',
+    description: 'Relational tiers (source of truth). When provided, tier rows + payment options are written transactionally and the legacy tier_* JSON is rebuilt as a mirror.',
+    example: [{
+      tier: 'Standard', fullPrice: 90, durationDays: 90,
+      features: ['Local directory listing'],
+      entitlements: [{ resourceKey: 'campaigns', quotaValue: '20' }],
+      paymentOptions: [
+        { paymentPlan: 'full', mode: 'manual', manualPrice: 90 },
+        { paymentPlan: 'monthly', mode: 'auto', surchargePct: 2 },
+      ],
+    }],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => PlanTierInputDto)
+  tiers?: PlanTierInputDto[];
+}
+
+// --- Relational membership tiers & payment options (validated DTOs) ---
+export class TierEntitlementInputDto {
+  @ApiProperty({ example: 'campaigns', description: 'Resource key, e.g. campaigns, listings, api_calls' })
+  @IsString()
+  @IsNotEmpty({ message: 'Each entitlement needs a resource name.' })
+  @MaxLength(100)
+  resourceKey: string;
+
+  @ApiProperty({ example: '20', description: 'Quota for this tier (stored as text, parsed by type in code)' })
+  @IsString()
+  @IsNotEmpty({ message: 'Each entitlement needs a quota value.' })
+  @MaxLength(100)
+  quotaValue: string;
+}
+
+export class PaymentOptionInputDto {
+  @ApiProperty({ enum: ['full', 'monthly', 'quarterly', 'halfYearly'], example: 'monthly', description: 'full = one outright payment; monthly/quarterly/halfYearly = auto-charged instalments' })
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['full', 'monthly', 'quarterly', 'halfYearly', 'half_yearly'], { message: 'Payment plan must be full, monthly, quarterly or halfYearly.' })
+  paymentPlan: string;
+
+  @ApiProperty({ enum: ['manual', 'auto'], example: 'auto', description: 'manual = admin sets the per-charge price; auto = per-charge is calculated from the full price plus surcharge %' })
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['manual', 'auto'], { message: 'Pricing mode must be manual or auto.' })
+  mode: string;
+
+  @ApiPropertyOptional({ example: 30.6, description: 'Per-charge price in GBP (required when mode is manual)' })
+  @IsOptional()
+  @IsNumber({}, { message: 'Manual price must be a number.' })
+  @Min(0, { message: 'Price cannot be negative.' })
+  manualPrice?: number;
+
+  @ApiPropertyOptional({ example: 2, description: 'Surcharge % added to each instalment (used when mode is auto)' })
+  @IsOptional()
+  @IsNumber({}, { message: 'Surcharge must be a number.' })
+  @Min(0, { message: 'Surcharge must be between 0% and 100%.' })
+  @Max(100, { message: 'Surcharge must be between 0% and 100%.' })
+  surchargePct?: number;
+
+  @ApiPropertyOptional({ example: true, description: 'Inactive options are hidden at checkout but kept for history' })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class PlanTierInputDto {
+  @ApiProperty({ enum: ['Standard', 'Pro', 'Pro+'], example: 'Standard', description: 'Standard = 90 days, Pro = 180 days, Pro+ = 1 year' })
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['Standard', 'Normal', 'Pro', 'Pro+', 'ProPlus'], { message: 'Tier must be Standard, Pro or Pro+.' })
+  tier: string;
+
+  @ApiProperty({ example: 90, description: 'Outright price for the whole tier term, in GBP' })
+  @IsNumber({}, { message: 'Full price must be a number.' })
+  @Min(0, { message: 'Price cannot be negative.' })
+  fullPrice: number;
+
+  @ApiPropertyOptional({ example: 90, description: 'Access duration in days (defaults: Standard 90, Pro 180, Pro+ 365)' })
+  @IsOptional()
+  @IsInt({ message: 'Duration must be a whole number of days.' })
+  @Min(1, { message: 'Duration must be at least 1 day.' })
+  @Max(800, { message: 'Duration looks too long. Please check the number of days.' })
+  durationDays?: number;
+
+  @ApiPropertyOptional({ type: [String], example: ['Local directory listing'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  features?: string[];
+
+  @ApiPropertyOptional({ type: [TierEntitlementInputDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => TierEntitlementInputDto)
+  entitlements?: TierEntitlementInputDto[];
+
+  @ApiPropertyOptional({ type: [PaymentOptionInputDto], description: 'Allowed splits — Standard: full+monthly; Pro: full+quarterly+monthly; Pro+: full+halfYearly+quarterly+monthly' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => PaymentOptionInputDto)
+  paymentOptions?: PaymentOptionInputDto[];
 }
 
 export class CreateSubscriptionDto {
@@ -1286,6 +1399,14 @@ export class UpdateMembershipPlanDto {
   @ApiPropertyOptional({ example: { Standard: 90, Pro: 180, 'Pro+': 365 } })
   @IsOptional()
   tierDurations?: Record<string, number>;
+
+  @ApiPropertyOptional({ type: [PlanTierInputDto], description: 'Provided tiers are upserted with their options/features/entitlements; tiers not mentioned are left untouched.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => PlanTierInputDto)
+  tiers?: PlanTierInputDto[];
 }
 
 export class UpdateBoroughDto {

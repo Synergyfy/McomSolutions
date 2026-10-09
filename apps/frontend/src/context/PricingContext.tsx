@@ -14,8 +14,27 @@ export interface IncludedAppPlan {
   quotas?: Record<string, any>;
 }
 
+export interface PlanPaymentOption {
+  paymentPlan: 'full' | 'monthly' | 'quarterly' | 'halfYearly';
+  installments: number;
+  mode: 'manual' | 'auto';
+  perChargePrice: number;
+  totalPrice: number;
+  sliceDays: number;
+}
+
+export interface PlanTier {
+  tier: 'Standard' | 'Pro' | 'Pro+';
+  durationDays: number;
+  fullPrice: number;
+  features: string[];
+  entitlements: { resourceKey: string; quotaValue: string }[];
+  paymentOptions: PlanPaymentOption[];
+}
+
 export interface PricingPlan {
   id: string;
+  planId?: string;
   name: string;
   description: string;
   whoItIsFor: string;
@@ -32,6 +51,8 @@ export interface PricingPlan {
   tierFeatures?: Record<string, string[]>;
   tierEntitlements?: any[];
   tierDurations?: Record<string, number>;
+  tiers?: PlanTier[];
+  appBundles?: { platform: string; externalPlanId?: string | null; packageName: string }[];
 }
 
 interface PricingContextType {
@@ -83,6 +104,7 @@ const mapApiPlan = (p: any): PricingPlan => {
 
   return {
     id: p.id || name,
+    planId: p.planId || p.id,
     name: name,
     description: p.description || '',
     whoItIsFor: p.whoItIsFor || meta.whoItIsFor || 'Businesses',
@@ -99,6 +121,26 @@ const mapApiPlan = (p: any): PricingPlan => {
     tierFeatures: p.tierFeatures,
     tierEntitlements: p.tierEntitlements,
     tierDurations: p.tierDurations,
+    tiers: Array.isArray(p.tiers)
+      ? p.tiers.map((t: any) => ({
+          tier: t.tier,
+          durationDays: Number(t.durationDays) || 0,
+          fullPrice: Number(t.fullPrice) || 0,
+          features: Array.isArray(t.features) ? t.features : [],
+          entitlements: Array.isArray(t.entitlements) ? t.entitlements : [],
+          paymentOptions: Array.isArray(t.paymentOptions)
+            ? t.paymentOptions.map((o: any) => ({
+                paymentPlan: o.paymentPlan,
+                installments: Number(o.installments) || 1,
+                mode: o.mode,
+                perChargePrice: Number(o.perChargePrice) || 0,
+                totalPrice: Number(o.totalPrice) || 0,
+                sliceDays: Number(o.sliceDays) || 0,
+              }))
+            : [],
+        }))
+      : [],
+    appBundles: Array.isArray(p.appBundles) ? p.appBundles : [],
   };
 };
 

@@ -19,6 +19,7 @@ import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
 import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
+import AdminMembershipEditor from './AdminMembershipEditor';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -41,8 +42,15 @@ const ADMIN_TABS: AdminTab[] = [
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
-  const pathTab = location.pathname.split('/')[2] || 'dashboard';
+  const segments = location.pathname.split('/');
+  const pathTab = segments[2] || 'dashboard';
   const activeTab = (ADMIN_TABS as readonly string[]).includes(pathTab) ? (pathTab as AdminTab) : 'dashboard';
+
+  // Dedicated membership editor pages (cleaner than a modal, mobile-first):
+  // /admin/memberships/new and /admin/memberships/:id/edit
+  const isMembershipEditor =
+    segments[2] === 'memberships' && (segments[3] === 'new' || segments[4] === 'edit');
+  const editorTitle = segments[3] === 'new' ? 'New Membership' : 'Edit Membership';
 
   const handleTabChange = (tab: AdminTab) => {
     navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
@@ -82,7 +90,11 @@ export default function AdminDashboard() {
     return map[tab] || { title: tab, subtitle: '' };
   };
 
-  const { title, subtitle } = getTabInfo(activeTab);
+  const tabInfo = getTabInfo(activeTab);
+  const title = isMembershipEditor ? editorTitle : tabInfo.title;
+  const subtitle = isMembershipEditor
+    ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
+    : tabInfo.subtitle;
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -140,7 +152,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
-      {renderPanel()}
+      {isMembershipEditor ? <AdminMembershipEditor /> : renderPanel()}
     </AdminLayout>
   );
 }

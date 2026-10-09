@@ -239,7 +239,10 @@ export const useCreatePlan = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: CreatePlanInput) => adminApi.createPlan(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
@@ -248,7 +251,10 @@ export const useUpdatePlan = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdatePlanInput }) =>
       adminApi.updatePlan(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
@@ -256,7 +262,10 @@ export const useDeletePlan = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => adminApi.deletePlan(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
@@ -1352,5 +1361,25 @@ export const useDeleteSubCategory = () => {
 export const useUploadCatalogImage = () => {
   return useMutation({
     mutationFn: (file: File) => adminApi.uploadCatalogImage(file),
+  })
+}
+
+
+// ─── Programme Settings Hooks ──────────────────────────────────────────
+export const useProgrammeSettings = () => {
+  return useQuery({
+    queryKey: ['admin', 'programme', 'settings'],
+    queryFn: () => adminApi.getProgrammeSettings(),
+  })
+}
+
+export const useUpdateProgrammeSettings = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { trialAccessDays?: number; verificationFeeAmount?: number; verificationRequired?: boolean }) =>
+      adminApi.updateProgrammeSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'programme', 'settings'] })
+    },
   })
 }
