@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Bell, AlertTriangle, Info, CheckCircle, PackageOpen, Crown,
-  CreditCard, Megaphone, Trash2, CheckCheck
+  CreditCard, Megaphone, Trash2, CheckCheck, MessageSquare
 } from 'lucide-react';
 import { useNotifications, useMarkNotificationsRead, useDeleteNotification } from '../services/notification/hooks';
 
-type NotifType = 'membership' | 'package' | 'update' | 'payment' | 'announcement';
+type NotifType = 'membership' | 'package' | 'update' | 'payment' | 'announcement' | 'chat_message';
 
 interface NotificationItem {
   id: string;
@@ -14,6 +14,7 @@ interface NotificationItem {
   title: string;
   message: string;
   read: boolean;
+  data?: any;
   createdAt: string;
 }
 
@@ -23,6 +24,7 @@ const typeMeta: Record<string, { icon: any; color: string; bg: string }> = {
   package: { icon: PackageOpen, color: 'text-red-500', bg: 'bg-red-100' },
   update: { icon: Info, color: 'text-blue-500', bg: 'bg-blue-100' },
   announcement: { icon: Megaphone, color: 'text-purple-500', bg: 'bg-purple-100' },
+  chat_message: { icon: MessageSquare, color: 'text-orange-500', bg: 'bg-orange-100' },
 };
 
 function formatRelativeTime(dateString: string) {
@@ -76,6 +78,7 @@ export default function DashboardNotifications() {
 
   const filters = [
     { id: 'all', label: 'All Alerts' },
+    { id: 'chat_message', label: 'Chat Messages' },
     { id: 'membership', label: 'Membership' },
     { id: 'package', label: 'Packages' },
     { id: 'payment', label: 'Payments' },

@@ -93,16 +93,38 @@ type SoftDeleteModel =
   | 'consultantProfile'
   | 'accountManagerProfile'
   | 'membershipPlan'
-  | 'businessProgramme';
+  | 'businessProgramme'
+  | 'conversation'
+  | 'message';
 
 function callerSetDeletedAt(where: unknown): boolean {
   return !!where && typeof where === 'object' && 'deletedAt' in (where as Record<string, unknown>);
 }
 
+function flattenCompoundUniqueWhere(where: unknown): Record<string, any> {
+  if (!where || typeof where !== 'object') return {};
+  const flat: Record<string, any> = {};
+  for (const [key, val] of Object.entries(where as Record<string, any>)) {
+    if (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)) {
+      // Prisma compound unique keys are structured like: conversationId_idempotencyKey: { conversationId, idempotencyKey }
+      const isOperator = Object.keys(val).some((k) =>
+        ['equals', 'in', 'not', 'contains', 'is', 'isNot', 'every', 'some', 'none', 'lt', 'lte', 'gt', 'gte'].includes(k),
+      );
+      if (!isOperator && key.includes('_')) {
+        Object.assign(flat, val);
+        continue;
+      }
+    }
+    flat[key] = val;
+  }
+  return flat;
+}
+
 function withDeletedAt<T extends { where?: unknown }>(args: T): T {
   if (!args) return { ...(args as object), where: { deletedAt: null } } as T;
-  if (callerSetDeletedAt((args as { where?: unknown }).where)) return args;
-  return { ...args, where: { ...(args.where as object), deletedAt: null } };
+  const flatWhere = flattenCompoundUniqueWhere(args.where);
+  if (callerSetDeletedAt(flatWhere)) return { ...args, where: flatWhere };
+  return { ...args, where: { ...flatWhere, deletedAt: null } };
 }
 
 // Prisma 6.19 only honors the OBJECT form of `$extends` (callback-form
@@ -156,6 +178,8 @@ const softDeleteExtension: any = {
     accountManagerProfile: softDeleteModelHooks('accountManagerProfile'),
     membershipPlan: softDeleteModelHooks('membershipPlan'),
     businessProgramme: softDeleteModelHooks('businessProgramme'),
+    conversation: softDeleteModelHooks('conversation'),
+    message: softDeleteModelHooks('message'),
   },
 };
 
@@ -214,6 +238,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'accountManagerProfile',
       'membershipPlan',
       'businessProgramme',
+      'conversation',
+      'message',
     ] as const) {
       (this as any)[delegate] = (extended as any)[delegate];
     }

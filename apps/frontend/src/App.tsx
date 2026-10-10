@@ -32,6 +32,8 @@ import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
 import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
 import ProtectedBusinessRoute from './components/auth/ProtectedBusinessRoute';
 import ProtectedCustomerRoute from './components/auth/ProtectedCustomerRoute';
+import ChatWidget from './components/chat/ChatWidget';
+import ChatToastNotifications from './components/chat/ChatToastNotifications';
 
 const queryClient = new QueryClient();
 
@@ -288,6 +290,8 @@ function AnimatedRoutes() {
         </Routes>
       </AnimatePresence>
       {!hideNavFooter && <Footer />}
+      <ChatToastNotifications />
+      <ChatWidget />
     </>
   );
 }

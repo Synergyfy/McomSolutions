@@ -6,12 +6,13 @@ import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   Wallet, Building2, ShieldCheck,
-  User, Users, ChevronDown, ExternalLink, MoreHorizontal
+  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
 import { useLogout } from '../services/auth/hooks';
 import DashboardMemberships from '../components/DashboardMemberships';
+import DashboardMessages from '../components/DashboardMessages';
 
 import DashboardOverview from '../components/DashboardOverview';
 import DashboardAllProducts from '../components/DashboardAllProducts';
@@ -28,7 +29,7 @@ import VerificationPaymentModal from '../components/payment/VerificationPaymentM
 import { apiClient } from '../services/api';
 
 const DASHBOARD_TABS = [
-  'overview', 'all-products', 'access', 'notifications',
+  'overview', 'all-products', 'access', 'notifications', 'messages',
   'memberships', 'billing', 'business-profile',
   'referrals', 'support', 'settings', 'wallet',
 ] as const;
@@ -143,6 +144,7 @@ export default function Dashboard() {
           <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => handleNav('all-products')} />
           <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => handleNav('access')} />
           <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
+          <NavItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
           <div className="pt-8 pb-4 px-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Billing & Plans</span>
           </div>
@@ -368,6 +370,7 @@ export default function Dashboard() {
           {activeTab === 'all-products' && <DashboardAllProducts />}
           {activeTab === 'access' && <DashboardAccess />}
           {activeTab === 'notifications' && <DashboardNotifications />}
+          {activeTab === 'messages' && <DashboardMessages />}
           {activeTab === 'memberships' && <DashboardMemberships />}
 
           {activeTab === 'billing' && <DashboardBilling />}
@@ -440,6 +443,7 @@ export default function Dashboard() {
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={ShieldCheck} label="Access" active={activeTab === 'access'} onClick={() => handleNav('access')} />
                     <SheetItem icon={Bell} label="Alerts" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
+                    <SheetItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
                     <SheetItem icon={HelpCircle} label="Support" active={activeTab === 'support'} onClick={() => handleNav('support')} />
                   </div>
                 </div>

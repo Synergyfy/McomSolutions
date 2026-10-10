@@ -72,6 +72,16 @@ model User {
   wallet                Wallet?
   walletTopUps          WalletTopUpRequest[]
   taskAssignments       UserTaskAssignment[]
+  conversationsCreated  Conversation[]         @relation("ConversationCreator")
+  conversationMemberships ConversationParticipant[]
+  sentMessages          Message[]              @relation("MessageSender")
+  messageReadReceipts   MessageReadReceipt[]
+  pushSubscriptions     PushSubscription[]
+  notificationPreference NotificationPreference?
+  messageRequestsSent   ChatMessageRequest[]   @relation("MessageRequestsSent")
+  messageRequestsReceived ChatMessageRequest[] @relation("MessageRequestsReceived")
+  blocksSent            ChatBlock[]            @relation("UserBlocksSent")
+  blocksReceived        ChatBlock[]            @relation("UserBlocksReceived")
 
   @@index([deletedAt])
   @@index([role])
@@ -137,6 +147,7 @@ model Notification {
   title      String
   message    String
   read       Boolean          @default(false)
+  data       Json?
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
@@ -1589,3 +1600,179 @@ model ProgrammeSetting {
 // Tier/Plan/PlanVariant/PlanPrice/Subscription tables were dropped in
 // migration 20261006030000_drop_tier_plan_package_tables; tiers survive as
 // Standard/Pro/Pro+ values in tier* JSON columns and tier-duration utils.
+
+// ─── ENTERPRISE REAL-TIME CHAT & MESSAGING SYSTEM ────────────────────────────
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ParticipantRole {
+  ADMIN
+  MEMBER
+}
+
+model Conversation {
+  id                  String                    @id @default(uuid())
+  type                ConversationType          @default(DIRECT)
+  title               String?                   // For group conversations
+  avatarUrl           String?                   @map("avatar_url")
+  directKey           String?                   @unique @map("direct_key") // canonical sorted "userIdA:userIdB"
+  createdById         String?                   @map("created_by_id")
+  createdBy           User?                     @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessageAt       DateTime                  @default(now()) @map("last_message_at")
+  lastMessageText     String?                   @map("last_message_text")
+  lastMessageSenderId String?                   @map("last_message_sender_id")
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+  deletedAt           DateTime?                 @map("deleted_at")
+
+  participants        ConversationParticipant[]
+  messages            Message[]
+
+  @@index([lastMessageAt(sort: Desc)])
+  @@index([deletedAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id                String          @id @default(uuid())
+  conversationId    String          @map("conversation_id")
+  conversation      Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId            String          @map("user_id")
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role              ParticipantRole @default(MEMBER)
+  isMuted           Boolean         @default(false) @map("is_muted")
+  lastReadMessageId String?         @map("last_read_message_id")
+  lastReadAt        DateTime?       @map("last_read_at")
+  joinedAt          DateTime        @default(now()) @map("joined_at")
+  leftAt            DateTime?       @map("left_at")
+
+  @@unique([conversationId, userId])
+  @@index([userId, isMuted])
+  @@index([conversationId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String               @id @default(uuid())
+  conversationId String               @map("conversation_id")
+  conversation   Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String               @map("sender_id")
+  sender         User                 @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  idempotencyKey String?              @map("idempotency_key")
+  type           String               @default("TEXT") // TEXT, SYSTEM, IMAGE, FILE
+  content        String               @db.Text
+  metadata       Json?
+  deletedAt      DateTime?            @map("deleted_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  readReceipts   MessageReadReceipt[]
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model MessageReadReceipt {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now()) @map("read_at")
+
+  @@unique([messageId, userId])
+  @@index([messageId, readAt])
+  @@index([userId])
+  @@map("message_read_receipts")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model NotificationPreference {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  directMessages Boolean  @default(true) @map("direct_messages")
+  groupMessages  Boolean  @default(true) @map("group_messages")
+  pushEnabled    Boolean  @default(true) @map("push_enabled")
+  emailEnabled   Boolean  @default(true) @map("email_enabled")
+  dndEnabled     Boolean  @default(false) @map("dnd_enabled")
+  dndStartTime   String?  @map("dnd_start_time")
+  dndEndTime     String?  @map("dnd_end_time")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
+model ChatOutbox {
+  id           String    @id @default(uuid())
+  eventType    String    @map("event_type") // NEW_MESSAGE, PUSH_DISPATCH, READ_SYNC
+  payload      Json
+  status       String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  retryCount   Int       @default(0) @map("retry_count")
+  errorMessage String?   @map("error_message")
+  processedAt  DateTime? @map("processed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@map("chat_outbox")
+}
+
+enum MessageRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model ChatMessageRequest {
+  id             String               @id @default(uuid())
+  senderId       String               @map("sender_id")
+  sender         User                 @relation("MessageRequestsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     String               @map("receiver_id")
+  receiver       User                 @relation("MessageRequestsReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+  status         MessageRequestStatus @default(PENDING)
+  message        String?              @db.Text
+  rejectionCount Int                  @default(0) @map("rejection_count")
+  respondedAt    DateTime?            @map("responded_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
+  @@map("chat_message_requests")
+}
+
+model ChatBlock {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blocker   User     @relation("UserBlocksSent", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String   @map("blocked_id")
+  blocked   User     @relation("UserBlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("chat_blocks")
+}
+
