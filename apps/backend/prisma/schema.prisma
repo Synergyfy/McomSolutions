@@ -39,49 +39,49 @@ enum MembershipStatus {
 }
 
 model User {
-  id                    String                 @id @default(uuid())
-  email                 String                 @unique
-  password              String
-  role                  Role                   @default(BUSINESS)
-  firstName             String?
-  lastName              String?
-  jobTitle              String?                @default("Managing Director")
-  twoFactorEnabled      Boolean                @default(false)
-  emailNotifications    Boolean                @default(true)
-  smsNotifications      Boolean                @default(false)
-  registrationSource    String?                @default("direct")
-  adminRole             String?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  deletedAt             DateTime?              @map("deleted_at")
+  id                      String                    @id @default(uuid())
+  email                   String                    @unique
+  password                String
+  role                    Role                      @default(BUSINESS)
+  firstName               String?
+  lastName                String?
+  jobTitle                String?                   @default("Managing Director")
+  twoFactorEnabled        Boolean                   @default(false)
+  emailNotifications      Boolean                   @default(true)
+  smsNotifications        Boolean                   @default(false)
+  registrationSource      String?                   @default("direct")
+  adminRole               String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  deletedAt               DateTime?                 @map("deleted_at")
   // Phase 3: session version — bumped on password reset / role change / ban-deactivate.
   // Outstanding access tokens carry `tv` and are rejected when it mismatches.
-  tokenVersion          Int                    @default(0) @map("token_version")
-  referralCode          String?                @unique @map("referral_code")
-  referredById          String?                @map("referred_by_id")
-  referredBy            User?                  @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
-  referrals             User[]                 @relation("Referrals")
-  businessProfile       BusinessProfile?
-  customerProfile       CustomerProfile?
-  agentProfile          AgentProfile?
-  consultantProfile     ConsultantProfile?
-  accountManagerProfile AccountManagerProfile?
-  ssoSessions           SsoSession[]
-  refreshSessions       RefreshSession[]
-  resetCodes            PasswordResetCode[]
-  wallet                Wallet?
-  walletTopUps          WalletTopUpRequest[]
-  taskAssignments       UserTaskAssignment[]
-  conversationsCreated  Conversation[]         @relation("ConversationCreator")
+  tokenVersion            Int                       @default(0) @map("token_version")
+  referralCode            String?                   @unique @map("referral_code")
+  referredById            String?                   @map("referred_by_id")
+  referredBy              User?                     @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals               User[]                    @relation("Referrals")
+  businessProfile         BusinessProfile?
+  customerProfile         CustomerProfile?
+  agentProfile            AgentProfile?
+  consultantProfile       ConsultantProfile?
+  accountManagerProfile   AccountManagerProfile?
+  ssoSessions             SsoSession[]
+  refreshSessions         RefreshSession[]
+  resetCodes              PasswordResetCode[]
+  wallet                  Wallet?
+  walletTopUps            WalletTopUpRequest[]
+  taskAssignments         UserTaskAssignment[]
+  conversationsCreated    Conversation[]            @relation("ConversationCreator")
   conversationMemberships ConversationParticipant[]
-  sentMessages          Message[]              @relation("MessageSender")
-  messageReadReceipts   MessageReadReceipt[]
-  pushSubscriptions     PushSubscription[]
-  notificationPreference NotificationPreference?
-  messageRequestsSent   ChatMessageRequest[]   @relation("MessageRequestsSent")
-  messageRequestsReceived ChatMessageRequest[] @relation("MessageRequestsReceived")
-  blocksSent            ChatBlock[]            @relation("UserBlocksSent")
-  blocksReceived        ChatBlock[]            @relation("UserBlocksReceived")
+  sentMessages            Message[]                 @relation("MessageSender")
+  messageReadReceipts     MessageReadReceipt[]
+  pushSubscriptions       PushSubscription[]
+  notificationPreference  NotificationPreference?
+  messageRequestsSent     ChatMessageRequest[]      @relation("MessageRequestsSent")
+  messageRequestsReceived ChatMessageRequest[]      @relation("MessageRequestsReceived")
+  blocksSent              ChatBlock[]               @relation("UserBlocksSent")
+  blocksReceived          ChatBlock[]               @relation("UserBlocksReceived")
 
   @@index([deletedAt])
   @@index([role])
@@ -89,46 +89,46 @@ model User {
 }
 
 model BusinessProfile {
-  id                  String               @id @default(uuid())
-  userId              String               @unique
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  businessName        String
-  businessType        String
-  country             String
-  phone               String
-  email               String
-  isOnGoogle          Boolean              @default(false)
-  googlePlaceId       String?
-  address             String?
-  postcode            String?
-  industry            String?
-  category            String?
-  subCategory         String?
-  description         String?
-  website             String?
-  logoUrl             String?
-  openingHours        String?
-  socialMedia         String?
-  membershipLevel     MembershipLevel      @default(Bronze)
-  membershipTier      MembershipTier       @default(Normal)
-  membershipStatus    MembershipStatus     @default(active)
-  membershipPlanName  String?              @map("membership_plan_name")
-  membershipExpiresAt DateTime?            @map("membership_expires_at")
+  id                     String               @id @default(uuid())
+  userId                 String               @unique
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName           String
+  businessType           String
+  country                String
+  phone                  String
+  email                  String
+  isOnGoogle             Boolean              @default(false)
+  googlePlaceId          String?
+  address                String?
+  postcode               String?
+  industry               String?
+  category               String?
+  subCategory            String?
+  description            String?
+  website                String?
+  logoUrl                String?
+  openingHours           String?
+  socialMedia            String?
+  membershipLevel        MembershipLevel      @default(Bronze)
+  membershipTier         MembershipTier       @default(Normal)
+  membershipStatus       MembershipStatus     @default(active)
+  membershipPlanName     String?              @map("membership_plan_name")
+  membershipExpiresAt    DateTime?            @map("membership_expires_at")
   hasPaidVerificationFee Boolean              @default(false) @map("has_paid_verification_fee")
   verificationFeePaidAt  DateTime?            @map("verification_fee_paid_at")
-  trialAccessDays        Int                  @default(14)    @map("trial_access_days")
+  trialAccessDays        Int                  @default(14) @map("trial_access_days")
   trialAccessExpiresAt   DateTime?            @map("trial_access_expires_at")
-  apiKey              String?              @unique
-  localMallName       String?
-  localMallId         String?
-  proximityTier       String?              @default("national") // high_street, national
-  packages            PlatformPackage[]
-  transactions        BillingTransaction[]
-  notifications       Notification[]
-  supportTickets      SupportTicket[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  deletedAt           DateTime?            @map("deleted_at")
+  apiKey                 String?              @unique
+  localMallName          String?
+  localMallId            String?
+  proximityTier          String?              @default("national") // high_street, national
+  packages               PlatformPackage[]
+  transactions           BillingTransaction[]
+  notifications          Notification[]
+  supportTickets         SupportTicket[]
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  deletedAt              DateTime?            @map("deleted_at")
 
   @@index([deletedAt])
   @@index([membershipExpiresAt])
@@ -218,6 +218,95 @@ model PaymentOutbox {
   @@map("payment_outbox")
 }
 
+// ─── MCOM PAY — GENERIC APP PAYMENTS LEDGER ─────────────────────────────────
+// Any Console-registered app (SsoClient) can charge its customers for anything
+// it sells, and MCOM processes the payment (Stripe / PayPal / MCOM wallet).
+// Amounts are stored in MINOR units (pence) as BigInt — never floats — so money
+// is exact. AppCharge is the header row (attribution + gross/fee/net); the
+// double-entry rows live in AppPaymentLedgerEntry (append-only).
+
+enum AppChargeMethod {
+  stripe
+  paypal
+  wallet
+}
+
+enum AppChargeStatus {
+  pending
+  paid
+  failed
+  refunded
+  cancelled
+}
+
+enum LedgerDirection {
+  debit
+  credit
+}
+
+enum LedgerAccount {
+  gateway_clearing
+  wallet_clearing
+  app_payable
+  mcom_revenue
+  refund
+}
+
+model AppCharge {
+  id                 String          @id @default(cuid())
+  appClientId        String          @map("app_client_id") // SsoClient.clientId (natural key)
+  amountMinor        BigInt          @map("amount_minor") // gross charge, pence
+  currency           String          @default("GBP")
+  feeMinor           BigInt          @default(0) @map("fee_minor")
+  netMinor           BigInt          @map("net_minor") // amountMinor - feeMinor (owed to app)
+  method             AppChargeMethod @map("method")
+  status             AppChargeStatus @default(pending)
+  reference          String? // app's order/invoice id
+  description        String?
+  mcomUserId         String?         @map("mcom_user_id") // payer's MCOM identity
+  externalCustomerId String?         @map("external_customer_id") // app's own customer id
+  provider           String? // stripe | paypal (card methods only)
+  providerRef        String?         @unique @map("provider_ref") // PaymentIntent/order id
+  walletDebitAmount  Decimal?        @map("wallet_debit_amount") @db.Decimal(18, 4) // MCOM credits debited (wallet method)
+  idempotencyKey     String          @unique @map("idempotency_key")
+  metadata           Json?
+  failureReason      String?         @map("failure_reason")
+  paidAt             DateTime?       @map("paid_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  ledgerEntries AppPaymentLedgerEntry[]
+
+  @@index([appClientId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([mcomUserId])
+  @@index([reference])
+  @@map("app_charges")
+}
+
+model AppPaymentLedgerEntry {
+  id             String          @id @default(cuid())
+  chargeId       String          @map("charge_id")
+  charge         AppCharge       @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  appClientId    String          @map("app_client_id")
+  account        LedgerAccount   @map("account")
+  direction      LedgerDirection @map("direction")
+  amountMinor    BigInt          @map("amount_minor")
+  currency       String          @default("GBP")
+  mcomUserId     String?         @map("mcom_user_id")
+  provider       String?
+  providerRef    String?         @map("provider_ref")
+  reference      String?
+  metadata       Json?
+  idempotencyKey String          @unique @map("idempotency_key")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([chargeId])
+  @@index([appClientId, createdAt(sort: Desc)])
+  @@index([account])
+  @@map("app_payment_ledger_entries")
+}
+
 model SsoClient {
   id           String        @id @default(cuid())
   clientId     String        @unique @map("client_id")
@@ -246,6 +335,10 @@ model SsoClient {
   metadata         Json?     @map("metadata")
   lastWebhookAt    DateTime? @map("last_webhook_at")
   webhookFailCount Int       @default(0) @map("webhook_fail_count")
+
+  // ── MCOM PAY fee config (per-app override; falls back to ProgrammeSetting) ─
+  feePercent    Decimal? @map("fee_percent") @db.Decimal(5, 4)
+  feeFixedMinor BigInt?  @map("fee_fixed_minor")
 
   @@index([clientId])
   @@index([apiKey])
@@ -1592,7 +1685,6 @@ model ProgrammeSetting {
   @@map("programme_settings")
 }
 
-
 // ─── RELATIONAL PLAN FAMILY & TIER ARCHITECTURE — REMOVED ──────────────────────
 // MCOM holds no plans of its own (memberships-only model). Memberships
 // (membership_plans) bundle plans/packages that live on console-registered
@@ -1614,22 +1706,22 @@ enum ParticipantRole {
 }
 
 model Conversation {
-  id                  String                    @id @default(uuid())
-  type                ConversationType          @default(DIRECT)
-  title               String?                   // For group conversations
-  avatarUrl           String?                   @map("avatar_url")
-  directKey           String?                   @unique @map("direct_key") // canonical sorted "userIdA:userIdB"
-  createdById         String?                   @map("created_by_id")
-  createdBy           User?                     @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  lastMessageAt       DateTime                  @default(now()) @map("last_message_at")
-  lastMessageText     String?                   @map("last_message_text")
-  lastMessageSenderId String?                   @map("last_message_sender_id")
-  createdAt           DateTime                  @default(now()) @map("created_at")
-  updatedAt           DateTime                  @updatedAt @map("updated_at")
-  deletedAt           DateTime?                 @map("deleted_at")
+  id                  String           @id @default(uuid())
+  type                ConversationType @default(DIRECT)
+  title               String? // For group conversations
+  avatarUrl           String?          @map("avatar_url")
+  directKey           String?          @unique @map("direct_key") // canonical sorted "userIdA:userIdB"
+  createdById         String?          @map("created_by_id")
+  createdBy           User?            @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessageAt       DateTime         @default(now()) @map("last_message_at")
+  lastMessageText     String?          @map("last_message_text")
+  lastMessageSenderId String?          @map("last_message_sender_id")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  deletedAt           DateTime?        @map("deleted_at")
 
-  participants        ConversationParticipant[]
-  messages            Message[]
+  participants ConversationParticipant[]
+  messages     Message[]
 
   @@index([lastMessageAt(sort: Desc)])
   @@index([deletedAt])
@@ -1656,20 +1748,20 @@ model ConversationParticipant {
 }
 
 model Message {
-  id             String               @id @default(uuid())
-  conversationId String               @map("conversation_id")
-  conversation   Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderId       String               @map("sender_id")
-  sender         User                 @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
-  idempotencyKey String?              @map("idempotency_key")
-  type           String               @default("TEXT") // TEXT, SYSTEM, IMAGE, FILE
-  content        String               @db.Text
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @map("sender_id")
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  idempotencyKey String?      @map("idempotency_key")
+  type           String       @default("TEXT") // TEXT, SYSTEM, IMAGE, FILE
+  content        String       @db.Text
   metadata       Json?
-  deletedAt      DateTime?            @map("deleted_at")
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  readReceipts   MessageReadReceipt[]
+  readReceipts MessageReadReceipt[]
 
   @@unique([conversationId, idempotencyKey])
   @@index([conversationId, createdAt(sort: Desc)])
@@ -1775,4 +1867,3 @@ model ChatBlock {
   @@index([blockedId])
   @@map("chat_blocks")
 }
-

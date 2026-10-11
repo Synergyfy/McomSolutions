@@ -3,11 +3,15 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ArrayMaxSize,
 } from 'class-validator';
@@ -90,4 +94,23 @@ export class RegisterAppDto {
   @IsOptional()
   @IsBoolean()
   isSystemApp?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0.029,
+    description: 'MCOM Pay fee percentage per charge (0.029 = 2.9%). Omit to use the platform default.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(0.5)
+  feePercent?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'MCOM Pay fixed fee per charge in minor units (pence). Omit to use the platform default.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  feeFixedMinor?: number;
 }

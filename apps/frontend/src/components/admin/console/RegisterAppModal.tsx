@@ -107,6 +107,8 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   const [corsOrigins, setCorsOrigins] = useState<string[]>(['']);
   const [scopes, setScopes] = useState<string[]>(['profile', 'email', 'business']);
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [feePercent, setFeePercent] = useState('');
+  const [feeFixedMinor, setFeeFixedMinor] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Auto-slugify helpers
@@ -155,6 +157,14 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
     if (currentStep === 3) {
       if (scopes.length === 0) return 'Please select at least one OAuth scope.';
       if (webhookUrl && !isValidUrl(webhookUrl)) return 'Webhook URL must be a valid URL.';
+      if (feePercent.trim()) {
+        const pct = Number(feePercent);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 0.5) return 'MCOM Pay fee percent must be between 0 and 0.5 (e.g. 0.029 for 2.9%).';
+      }
+      if (feeFixedMinor.trim()) {
+        const fixed = Number(feeFixedMinor);
+        if (!Number.isInteger(fixed) || fixed < 0) return 'MCOM Pay fixed fee must be a non-negative whole number of pence.';
+      }
     }
     return null;
   };
@@ -194,6 +204,8 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         corsOrigins: corsOrigins.map((u) => u.trim()).filter(Boolean),
         scopes,
         webhookUrl: webhookUrl.trim() || undefined,
+        feePercent: feePercent.trim() ? Number(feePercent) : undefined,
+        feeFixedMinor: feeFixedMinor.trim() ? Math.round(Number(feeFixedMinor)) : undefined,
       });
       onRegistered(result);
     } catch (err: any) {
@@ -496,6 +508,35 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                 <p className="text-[10px] text-gray-400 mt-1">
                   MCOM dispatches user registration and lifecycle event payloads to this URL with HMAC signatures.
                 </p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
+                <label className={labelCls}>MCOM Pay Fee (Optional)</label>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Commission MCOM takes per charge processed through this app. Leave blank to use the platform default.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Fee Percent</label>
+                    <input
+                      value={feePercent}
+                      onChange={(e) => setFeePercent(e.target.value)}
+                      placeholder="0.029"
+                      className={cn(inputCls, 'font-mono')}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">e.g. 0.029 = 2.9% of the charge.</p>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Fixed Fee (pence)</label>
+                    <input
+                      value={feeFixedMinor}
+                      onChange={(e) => setFeeFixedMinor(e.target.value)}
+                      placeholder="20"
+                      className={cn(inputCls, 'font-mono')}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Added per charge, in minor units (e.g. 20 = £0.20).</p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

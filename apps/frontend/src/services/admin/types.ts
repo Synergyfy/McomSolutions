@@ -739,6 +739,8 @@ export interface SsoClientDetail extends SsoClientListItem {
   webhookSecret: string | null
   webhookFailCount: number
   lastWebhookAt: string | null
+  feePercent?: number | null
+  feeFixedMinor?: number | null
 }
 
 export interface RegisterAppInput {
@@ -753,6 +755,8 @@ export interface RegisterAppInput {
   corsOrigins: string[]
   scopes: string[]
   webhookUrl?: string
+  feePercent?: number
+  feeFixedMinor?: number
 }
 
 export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>

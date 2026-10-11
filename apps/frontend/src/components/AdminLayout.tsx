@@ -6,7 +6,7 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -24,6 +24,7 @@ export type AdminTab =
   | 'audit-logs'
   | 'console'
   | 'wallet'
+  | 'mcom-pay'
   | 'programme'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
@@ -82,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
       { tab: 'payments', icon: DollarSign, label: 'Payments' },
       { tab: 'billing', icon: Receipt, label: 'Billing' },
       { tab: 'wallet', icon: Wallet, label: 'Wallet Management' },
+      { tab: 'mcom-pay', icon: BookOpen, label: 'MCOM Pay Ledger' },
     ],
   },
   {

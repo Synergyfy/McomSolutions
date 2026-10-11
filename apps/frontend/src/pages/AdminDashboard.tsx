@@ -18,6 +18,7 @@ import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
+import { McomPayPanel } from '../components/admin/mcom-pay/McomPayPanel';
 import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
 import AdminMembershipEditor from './AdminMembershipEditor';
 
@@ -33,6 +34,7 @@ const ADMIN_TABS: AdminTab[] = [
   'audit-logs',
   'console',
   'wallet',
+  'mcom-pay',
   'programme',
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
@@ -78,6 +80,7 @@ export default function AdminDashboard() {
       'audit-logs': { title: 'Audit Logs', subtitle: 'Track all admin activity in the ecosystem' },
       'console': { title: 'MCOM Console', subtitle: 'Register and manage ecosystem applications' },
       'wallet': { title: 'Wallet Management', subtitle: 'View and manage user wallets and transactions across all platforms' },
+      'mcom-pay': { title: 'MCOM Pay Ledger', subtitle: 'Read-only ledger of every charge processed through registered apps' },
       'programme': { title: '90-Day Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
@@ -130,6 +133,8 @@ export default function AdminDashboard() {
         return <ConsolePanel />;
       case 'wallet':
         return <WalletPanel />;
+      case 'mcom-pay':
+        return <McomPayPanel />;
       case 'programme':
         return <ProgrammeManagementPanel />;
       case 'audit-logs':

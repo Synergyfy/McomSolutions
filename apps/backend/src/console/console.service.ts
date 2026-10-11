@@ -82,6 +82,8 @@ export class ConsoleService {
         webhookSecret: dto.webhookUrl ? encrypt(secrets.webhookSecret, this.encryptionKey()) : null,
         hmacSecret: encrypt(secrets.hmacSecret, this.encryptionKey()),
         isSystemApp: dto.isSystemApp ?? false,
+        feePercent: dto.feePercent ?? null,
+        feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
         metadata: dto.planSchemaEndpoint ? { planSchemaEndpoint: dto.planSchemaEndpoint } : undefined,
       },
     });
@@ -136,6 +138,10 @@ export class ConsoleService {
         ...existingMetadata,
         planSchemaEndpoint: dto.planSchemaEndpoint || null,
       };
+    }
+    if (dto.feePercent !== undefined) data.feePercent = dto.feePercent ?? null;
+    if (dto.feeFixedMinor !== undefined) {
+      data.feeFixedMinor = dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null;
     }
 
     const updated = await this.prisma.ssoClient.update({
@@ -536,6 +542,8 @@ export class ConsoleService {
       webhookSecret: client.webhookSecret ? MASK : null,
       isActive: client.isActive,
       isSystemApp: client.isSystemApp,
+      feePercent: client.feePercent != null ? Number(client.feePercent) : null,
+      feeFixedMinor: client.feeFixedMinor != null ? Number(client.feeFixedMinor) : null,
       webhookFailCount: client.webhookFailCount,
       lastWebhookAt: client.lastWebhookAt,
       createdAt: client.createdAt,

@@ -520,6 +520,8 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [planSchemaEndpoint, setPlanSchemaEndpoint] = useState(detail.planSchemaEndpoint ?? '');
   const [platformSlug, setPlatformSlug] = useState(detail.platformSlug ?? '');
   const [webhookUrl, setWebhookUrl] = useState(detail.webhookUrl ?? '');
+  const [feePercent, setFeePercent] = useState(detail.feePercent != null ? String(detail.feePercent) : '');
+  const [feeFixedMinor, setFeeFixedMinor] = useState(detail.feeFixedMinor != null ? String(detail.feeFixedMinor) : '');
   const [scopes, setScopes] = useState<string[]>(detail.scopes);
   const [redirectUris, setRedirectUris] = useState<string[]>(detail.redirectUris);
   const [corsOrigins, setCorsOrigins] = useState<string[]>(detail.corsOrigins);
@@ -553,6 +555,8 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       scopes,
       redirectUris: redirectUris.map((u) => u.trim()).filter(Boolean),
       corsOrigins: corsOrigins.map((u) => u.trim()).filter(Boolean),
+      feePercent: feePercent.trim() ? Number(feePercent) : undefined,
+      feeFixedMinor: feeFixedMinor.trim() ? Math.round(Number(feeFixedMinor)) : undefined,
     };
     try {
       await updateApp.mutateAsync({ clientId: detail.clientId, data: payload });
@@ -642,6 +646,30 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
         <p className="text-[10px] text-gray-400 mt-1">
           Plan configuration schema used by the plan form. Leave blank to auto-derive from the Billing API URL.
         </p>
+      </div>
+
+      {/* MCOM Pay Fee */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={labelCls}>MCOM Pay Fee Percent</label>
+          <input
+            value={feePercent}
+            onChange={(e) => setFeePercent(e.target.value)}
+            className={cn(inputCls, 'font-mono text-xs')}
+            placeholder="e.g. 0.029 (2.9%)"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">Commission per charge. Leave blank to use the platform default.</p>
+        </div>
+        <div>
+          <label className={labelCls}>MCOM Pay Fixed Fee (pence)</label>
+          <input
+            value={feeFixedMinor}
+            onChange={(e) => setFeeFixedMinor(e.target.value)}
+            className={cn(inputCls, 'font-mono text-xs')}
+            placeholder="e.g. 20 (£0.20)"
+          />
+          <p className="text-[10px] text-gray-400 mt-1">Added per charge in minor units. Leave blank to use the platform default.</p>
+        </div>
       </div>
 
       {/* Scopes Selector */}
