@@ -340,11 +340,40 @@ model SsoClient {
   feePercent    Decimal? @map("fee_percent") @db.Decimal(5, 4)
   feeFixedMinor BigInt?  @map("fee_fixed_minor")
 
+  // ── Ecosystem service-to-service identity (M2M, additive) ────────────────
+  // Enables a registered app's backend to call another registered app's
+  // backend directly (peer-to-peer). MCOM is only the credential issuer and
+  // registry; requests never transit MCOM.
+  serviceEnabled   Boolean  @default(true) @map("service_enabled")
+  serviceBaseUrl   String?  @map("service_base_url")
+  serviceScopes    String[] @default([]) @map("service_scopes")
+  allowedAudiences String[] @default([]) @map("allowed_audiences")
+  allowedCallers   String[] @default([]) @map("allowed_callers")
+
   @@index([clientId])
   @@index([apiKey])
   @@index([platformSlug])
   @@index([isActive])
   @@map("sso_clients")
+}
+
+// Audit trail for issued ecosystem service tokens (control-plane traceability).
+// FK-free by design: tokens outlive/relate to clients by natural key and must
+// survive client deletion. Append-only.
+model ServiceTokenAudit {
+  id        String   @id @default(cuid())
+  jti       String   @unique @map("jti")
+  tokenType String   @map("token_type") // "service" | "delegated"
+  clientId  String   @map("client_id")  // caller app (sub for service, act.sub for delegated)
+  subject   String?  @map("subject")    // end-user id for delegated tokens
+  audience  String?  @map("audience")
+  scopes    String[] @default([])
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("service_token_audit")
 }
 
 model AppWebhookLog {

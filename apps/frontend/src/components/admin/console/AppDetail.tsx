@@ -44,6 +44,7 @@ import { cn } from '../../../lib/utils';
 import { generateAiIntegrationPrompt } from './utils/aiPromptGenerator';
 import {
   useConsoleApp,
+  useConsoleApps,
   useDeactivateApp,
   useRotateApiKey,
   useRotateClientSecret,
@@ -54,6 +55,8 @@ import {
 import { useAppHealth, useConsoleAuditLogs } from './hooks/useAppHealth';
 import AppHealthBadge from './AppHealthBadge';
 import DeleteAppModal from './DeleteAppModal';
+import AppPeerSelect from './AppPeerSelect';
+import TagInput from './TagInput';
 import { CONSOLE_ALLOWED_SCOPES, type SsoClientDetail, type UpdateAppInput } from '../../../services/admin/types';
 
 interface AppDetailProps {
@@ -513,6 +516,12 @@ function CredentialsTab({
 /* ========================================================================= */
 function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const updateApp = useUpdateApp();
+  const { data: apps = [] } = useConsoleApps();
+  const scopeSuggestions = useMemo(() => {
+    const set = new Set<string>();
+    apps.forEach((a) => (a.serviceScopes ?? []).forEach((s) => set.add(s)));
+    return [...set];
+  }, [apps]);
   const [name, setName] = useState(detail.name);
   const [description, setDescription] = useState(detail.description ?? '');
   const [appUrl, setAppUrl] = useState(detail.appUrl ?? '');
@@ -525,6 +534,11 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [scopes, setScopes] = useState<string[]>(detail.scopes);
   const [redirectUris, setRedirectUris] = useState<string[]>(detail.redirectUris);
   const [corsOrigins, setCorsOrigins] = useState<string[]>(detail.corsOrigins);
+  const [serviceEnabled, setServiceEnabled] = useState(detail.serviceEnabled ?? true);
+  const [serviceBaseUrl, setServiceBaseUrl] = useState(detail.serviceBaseUrl ?? '');
+  const [serviceScopes, setServiceScopes] = useState<string[]>(detail.serviceScopes ?? []);
+  const [allowedAudiences, setAllowedAudiences] = useState<string[]>(detail.allowedAudiences ?? []);
+  const [allowedCallers, setAllowedCallers] = useState<string[]>(detail.allowedCallers ?? []);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -557,6 +571,11 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       corsOrigins: corsOrigins.map((u) => u.trim()).filter(Boolean),
       feePercent: feePercent.trim() ? Number(feePercent) : undefined,
       feeFixedMinor: feeFixedMinor.trim() ? Math.round(Number(feeFixedMinor)) : undefined,
+      serviceEnabled,
+      serviceBaseUrl: serviceBaseUrl.trim() || undefined,
+      serviceScopes,
+      allowedAudiences,
+      allowedCallers,
     };
     try {
       await updateApp.mutateAsync({ clientId: detail.clientId, data: payload });
@@ -726,6 +745,101 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
           placeholder="https://api.vcard.mcom.com/webhooks"
         />
         <p className="text-[10px] text-gray-400 mt-1">Lifecycle events are dispatched to this endpoint.</p>
+      </div>
+
+      {/* ── Service Access (M2M) ─────────────────────────────────────────── */}
+      <div className="pt-4 border-t border-gray-100 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h5 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+              <Lock className="w-3.5 h-3.5 text-brand-blue" />
+              Service Access (Backend-to-Backend)
+            </h5>
+            <p className="text-[10px] text-gray-400 mt-1 max-w-lg">
+              Let this app's backend call other registered app backends directly. MCOM issues short-lived
+              service tokens; peers verify them offline via JWKS — requests never transit MCOM. Policy is
+              deny-by-default: use <code>*</code> for "anyone".
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setServiceEnabled((v) => !v)}
+            className={cn(
+              'relative w-11 h-6 rounded-full transition-colors flex-shrink-0',
+              serviceEnabled ? 'bg-brand-blue' : 'bg-gray-300',
+            )}
+            aria-label="Toggle service access"
+          >
+            <span
+              className={cn(
+                'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                serviceEnabled && 'translate-x-5',
+              )}
+            />
+          </button>
+        </div>
+
+        {serviceEnabled && (
+          <>
+            <div>
+              <label className={labelCls}>Service Base URL</label>
+              <input
+                value={serviceBaseUrl}
+                onChange={(e) => setServiceBaseUrl(e.target.value)}
+                className={cn(inputCls, 'font-mono text-xs')}
+                placeholder="https://api.vcard.mcom.com (defaults to Billing API URL)"
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Base URL peers call for direct requests.</p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={labelCls}>Service Scopes</label>
+                <TagInput
+                  value={serviceScopes}
+                  onChange={setServiceScopes}
+                  suggestions={scopeSuggestions}
+                  placeholder="e.g. rewards:read"
+                  hint="Scopes this app may request. Type and press Enter; suggestions come from other apps."
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Allowed Audiences (peers it may call)</label>
+                  <AppPeerSelect
+                    value={allowedAudiences}
+                    onChange={setAllowedAudiences}
+                    apps={apps}
+                    excludeClientId={detail.clientId}
+                    placeholder="Select peers…"
+                    emptyHint="Empty = deny all. Pick “Anyone” for no restriction."
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Allowed Callers (may call this app)</label>
+                  <AppPeerSelect
+                    value={allowedCallers}
+                    onChange={setAllowedCallers}
+                    apps={apps}
+                    excludeClientId={detail.clientId}
+                    placeholder="Select peers…"
+                    emptyHint="Empty = deny all. Pick “Anyone” to accept all."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-gray-900 rounded-2xl text-[11px] font-mono text-emerald-300 space-y-1">
+              <p className="text-gray-400">// Ecosystem service identity endpoints</p>
+              <p>issuer:            mcom-solutions</p>
+              <p>jwks:              /.well-known/jwks.json</p>
+              <p>token:             /api/v1/auth/service-token</p>
+              <p>token exchange:    /api/v1/auth/service-token/exchange</p>
+              <p>registry:          /api/v1/ecosystem/services</p>
+            </div>
+          </>
+        )}
       </div>
 
       {error && (

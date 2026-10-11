@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { consoleApi } from '../api/console.api'
-import type { RegisterAppInput, UpdateAppInput } from '../../../../services/admin/types'
+import type { RegisterAppInput, SetServicePolicyInput, UpdateAppInput } from '../../../../services/admin/types'
 
 const appsKey = ['admin', 'console', 'apps'] as const
 const appKey = (clientId: string) => ['admin', 'console', 'apps', clientId] as const
+const servicePolicyKey = ['admin', 'console', 'service-policy'] as const
 
 export const useConsoleApps = () =>
   useQuery({
@@ -111,6 +112,24 @@ export const useRotateWebhookSecret = () => {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.invalidateQueries({ queryKey: appKey(vars.clientId) })
+    },
+  })
+}
+
+export const useServicePolicy = () =>
+  useQuery({
+    queryKey: servicePolicyKey,
+    queryFn: () => consoleApi.getServicePolicy(),
+    staleTime: 1000 * 30,
+  })
+
+export const useUpdateServicePolicy = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: SetServicePolicyInput) => consoleApi.setServicePolicy(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: servicePolicyKey })
+      queryClient.invalidateQueries({ queryKey: appsKey })
     },
   })
 }

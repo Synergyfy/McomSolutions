@@ -17,6 +17,11 @@ export function generateAiIntegrationPrompt(
   const scopes = client.scopes?.join(' ') || 'profile email business';
   const hasBilling = !!client.billingApiUrl;
   const hasWebhook = !!client.webhookUrl;
+  const serviceEnabled = client.serviceEnabled !== false;
+  const serviceBaseUrl = client.serviceBaseUrl || client.billingApiUrl || 'https://api.your-app.com';
+  const serviceScopes = client.serviceScopes?.length
+    ? client.serviceScopes.join(' ')
+    : '<space-separated service scopes>';
 
   return `# AI Developer Prompt: Integrate ${client.name} with MCOM Solutions Ecosystem
 
@@ -47,6 +52,11 @@ MCOM_WEBHOOK_SECRET="${webhookSecret}"
 MCOM_PLATFORM_SLUG="${platformSlug}"
 MCOM_REDIRECT_URI="${redirectUri}"
 MCOM_SCOPES="${scopes}"
+
+# Ecosystem Service-to-Service (M2M) — direct peer-to-peer calls, no MCOM in the path
+MCOM_SERVICE_ENABLED="${serviceEnabled}"
+MCOM_SERVICE_BASE_URL="${serviceBaseUrl}"
+MCOM_SERVICE_SCOPES="${serviceScopes}"
 \`\`\`
 
 ---
@@ -294,6 +304,86 @@ async function checkUserMembership(userId: string) {
 }
 \`\`\`
 
+### Task 8: Direct Backend-to-Backend Calls (Ecosystem Service Identity)
+Registered app backends can call each other **directly** — MCOM is not in the request path.
+MCOM only issues short-lived RS256 service tokens and publishes a public JWKS for offline verification.
+
+**A. Calling a peer (outbound):**
+\`\`\`typescript
+import axios from 'axios';
+
+// Exchange your client credentials for a short-lived service token (cache it until expiry).
+async function getServiceToken(audience: string, scope: string) {
+  const basic = Buffer.from(\`\${process.env.MCOM_CLIENT_ID}:\${process.env.MCOM_CLIENT_SECRET}\`).toString('base64');
+  const { data } = await axios.post(
+    \`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token\`,
+    { grant_type: 'client_credentials', audience, scope },
+    { headers: { Authorization: \`Basic \${basic}\` } },
+  );
+  return data.access_token as string;
+}
+
+// Call the peer backend DIRECTLY (never through MCOM).
+async function callPeer() {
+  const token = await getServiceToken('mcom-rewards', 'rewards:read');
+  return axios.get('https://api.mcomrewards.com/api/v1/whatever', {
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+}
+\`\`\`
+
+**B. Verifying an incoming service token (offline, via JWKS + cached registry):**
+\`\`\`typescript
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+const JWKS = createRemoteJWKSet(new URL(\`\${process.env.MCOM_SOLUTIONS_URL}/.well-known/jwks.json\`));
+
+// Ingress policy: peers allowed to call THIS app (from the cached registry).
+// Empty = deny all; ["*"] = anyone. Refresh periodically (e.g. every 60s).
+async function getAllowedCallers(): Promise<string[]> {
+  const { data } = await axios.get(\`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/ecosystem/services\`);
+  const self = (data as any[]).find((s) => s.clientId === process.env.MCOM_CLIENT_ID);
+  return self?.allowedCallers ?? [];
+}
+const peerAllowed = (list: string[], peer: string) => list.includes('*') || list.includes(peer);
+
+export async function verifyServiceToken(authHeader?: string) {
+  const token = authHeader?.replace(/^Bearer /i, '');
+  if (!token) throw new Error('Missing service token');
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: 'mcom-solutions',
+    audience: process.env.MCOM_CLIENT_ID, // this app's own clientId
+  });
+
+  // Deny-by-default ingress check (caller app id; act.sub for delegated tokens).
+  const caller = (payload.act?.sub as string) || (payload.sub as string);
+  const allowed = await getAllowedCallers();
+  if (!peerAllowed(allowed, caller)) throw new Error('Caller not permitted by ingress policy');
+
+  // payload.sub       → calling app (service token) or user id (delegated)
+  // payload.act?.sub  → caller app id for delegated tokens
+  return payload;
+}
+\`\`\`
+
+**C. User-bound (delegated) calls (RFC 8693):** to act on behalf of a specific user, exchange the
+user's SSO access token for a delegated service token. The receiver sees \`sub\` = user and
+\`act.sub\` = the calling app.
+\`\`\`typescript
+const { data } = await axios.post(
+  \`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token/exchange\`,
+  { subject_token: userSsoAccessToken, audience: 'mcom-rewards', scope: 'rewards:read' },
+  { headers: { Authorization: \`Basic \${basic}\` } },
+);
+\`\`\`
+
+Discovery: \`GET /api/v1/ecosystem/services\` (cached registry) · \`GET /api/v1/ecosystem/discovery\`.
+
+> **Policy is deny-by-default.** A call succeeds only if the caller's egress (\`allowedAudiences\`)
+> permits the target AND the target's ingress (\`allowedCallers\`) permits the caller. Use \`"*"\` for
+> "anyone". Admins manage this in the MCOM Console → **Service Mesh Policy** matrix.
+
 ---
 
 ## 3. Verification & Acceptance Criteria
@@ -306,5 +396,6 @@ async function checkUserMembership(userId: string) {
 5. User permissions show \`canAccess_${platformSlug}: true\` for authorized accounts.
 6. Token refresh handles expired access tokens seamlessly via \`/api/v1/auth/sso/token/refresh\`.
 7. All secrets are kept on the server and never exposed in client-side bundles.
+8. (Optional) Registered apps can call each other's backends **directly** using service tokens verified offline via JWKS — no MCOM request in the path.
 `;
 }

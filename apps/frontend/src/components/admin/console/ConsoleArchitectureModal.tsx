@@ -31,7 +31,7 @@ interface ConsoleArchitectureModalProps {
   onClose: () => void;
 }
 
-type TabType = 'overview' | 'ai-skill' | 'sso' | 'hmac' | 'permissions' | 'connector' | 'quickstart';
+type TabType = 'overview' | 'ai-skill' | 'sso' | 'hmac' | 'service-mesh' | 'permissions' | 'connector' | 'quickstart';
 
 export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectureModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -41,6 +41,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
     { id: 'ai-skill', label: '🤖 AI Agent Skill / Blueprint', icon: Bot },
     { id: 'sso', label: 'OAuth 2.0 SSO Flow', icon: KeyRound },
     { id: 'hmac', label: 'Inter-Service HMAC', icon: Lock },
+    { id: 'service-mesh', label: 'Service Mesh (M2M)', icon: Radio },
     { id: 'permissions', label: 'Dynamic Permissions', icon: Zap },
     { id: 'connector', label: 'Billing Connector', icon: Puzzle },
     { id: 'quickstart', label: 'Developer Quickstart', icon: Code2 },
@@ -104,6 +105,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
           {activeTab === 'ai-skill' && <AiSkillTab />}
           {activeTab === 'sso' && <SsoTab />}
           {activeTab === 'hmac' && <HmacTab />}
+          {activeTab === 'service-mesh' && <ServiceMeshTab />}
           {activeTab === 'permissions' && <PermissionsTab />}
           {activeTab === 'connector' && <ConnectorTab />}
           {activeTab === 'quickstart' && <QuickstartTab />}
@@ -402,6 +404,118 @@ function HmacTab() {
         <p>&nbsp;&nbsp;'X-Mcom-Signature': `sha256=$&#123;signature&#125;`,</p>
         <p>&nbsp;&nbsp;'X-Mcom-Client-ID': MCOM_CLIENT_ID</p>
         <p>&#125;</p>
+      </div>
+    </div>
+  );
+}
+
+function ServiceMeshTab() {
+  return (
+    <div className="space-y-4">
+      <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+        <h4 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+          <Radio className="w-4 h-4 text-emerald-600" />
+          Direct Backend-to-Backend Service Mesh (M2M)
+        </h4>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Registered app backends call each other <b>directly</b> — MCOM is never in the request path. MCOM acts
+          only as the credential issuer and registry (control plane); peers verify tokens offline via JWKS (data plane).
+        </p>
+      </div>
+
+      <div className="bg-gray-900 rounded-2xl p-4 text-white space-y-2">
+        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Request path</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+          <div className="p-3 bg-gray-800/80 rounded-xl border border-gray-700 text-center">
+            <div className="text-xs font-bold text-white">MCOM Mall backend</div>
+            <div className="text-[10px] text-gray-400 font-mono">gets token (cached 5m)</div>
+          </div>
+          <div className="text-center text-emerald-400 text-xs font-bold font-mono py-2">
+            ── direct HTTPS ──►
+            <div className="text-[9px] text-gray-500 font-normal">Bearer service token</div>
+          </div>
+          <div className="p-3 bg-gray-800/80 rounded-xl border border-emerald-500/30 text-center">
+            <div className="text-xs font-bold text-white">MCOM Rewards backend</div>
+            <div className="text-[10px] text-emerald-400 font-mono">verifies offline (JWKS)</div>
+          </div>
+        </div>
+        <p className="text-[10px] text-gray-400 pt-1">
+          MCOM is contacted only to mint tokens (once per ~5 min, cached) and to read the public JWKS/registry —
+          never per request.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+          <span className="text-[10px] font-bold text-gray-400 uppercase">Service token (client_credentials)</span>
+          <pre className="text-[10px] font-mono text-gray-700 bg-white p-2 rounded-lg border border-gray-100 overflow-x-auto">
+{`{
+  "iss": "mcom-solutions",
+  "sub": "mcom-mall",
+  "aud": "mcom-rewards",
+  "scope": "rewards:read",
+  "typ": "service",
+  "jti": "...", "exp": 1730000000
+}`}
+          </pre>
+        </div>
+        <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100 space-y-2">
+          <span className="text-[10px] font-bold text-emerald-700 uppercase">Delegated token (RFC 8693)</span>
+          <pre className="text-[10px] font-mono text-emerald-900 bg-white p-2 rounded-lg border border-emerald-100 overflow-x-auto">
+{`{
+  "iss": "mcom-solutions",
+  "sub": "usr_123",
+  "aud": "mcom-rewards",
+  "act": { "sub": "mcom-mall" },
+  "scope": "rewards:read",
+  "typ": "delegated", "exp": 1730000000
+}`}
+          </pre>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-[10px] font-bold text-gray-400 uppercase">Endpoints</div>
+        <div className="grid grid-cols-1 gap-1.5 font-mono text-[11px]">
+          <div className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+            <span className="text-emerald-700 font-bold">POST</span>
+            <span className="text-gray-700">/api/v1/auth/service-token</span>
+            <span className="text-gray-400 text-[10px]">Issue service token</span>
+          </div>
+          <div className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+            <span className="text-emerald-700 font-bold">POST</span>
+            <span className="text-gray-700">/api/v1/auth/service-token/exchange</span>
+            <span className="text-gray-400 text-[10px]">User-bound delegation</span>
+          </div>
+          <div className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+            <span className="text-blue-700 font-bold">GET</span>
+            <span className="text-gray-700">/.well-known/jwks.json</span>
+            <span className="text-gray-400 text-[10px]">Public keys (cache it)</span>
+          </div>
+          <div className="px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+            <span className="text-blue-700 font-bold">GET</span>
+            <span className="text-gray-700">/api/v1/ecosystem/services</span>
+            <span className="text-gray-400 text-[10px]">Registry (cache it)</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100 text-xs text-blue-900 space-y-1">
+        <p className="font-bold">Only registered apps can talk.</p>
+        <p className="text-blue-700 text-[11px]">
+          Only registered apps hold credentials, so only they can obtain a token. Receivers also check the token's
+          <code> sub</code> against the cached active registry — an unregistered or deactivated app is rejected.
+          Deactivation cuts access within the token/registry TTL (~5 min), with no MCOM call.
+        </p>
+      </div>
+
+      <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-100 text-xs text-amber-900 space-y-1">
+        <p className="font-bold">Directed peer policy — deny by default.</p>
+        <p className="text-amber-700 text-[11px]">
+          Each app has an egress list (<code>allowedAudiences</code> — who it may call) and an ingress list
+          (<code>allowedCallers</code> — who may call it). Empty = deny all; <code>"*"</code> = anyone. A call
+          needs <b>both</b> sides to allow it. Manage the whole graph in <b>Service Mesh Policy</b>.
+        </p>
       </div>
     </div>
   );

@@ -590,3 +590,197 @@ Before shipping your integration to Staging or Production, ensure your team has 
 - [ ] Purchases create a `PlatformPackage` in Central and flip `canAccess_<slug>` to `true`.
 - [ ] `/api/v1/mcom/webhook` verifies `X-Mcom-Webhook-Signature` and updates local quotas on `package.created`.
 - [ ] Token refresh flow recovers gracefully from expired access tokens without logging the user out.
+
+---
+
+## 9. Pillar 5: Direct Backend-to-Backend Service Identity (M2M)
+
+### 9.1 What this enables
+
+Any two **registered** app backends (e.g. `mcom-mall` and `mcom-rewards`) can call each other
+**directly** — the request does **not** transit MCOM Solutions. MCOM acts only as the
+**control plane**: it issues short-lived service tokens and publishes a public key set (JWKS)
+and a service registry. Peers verify tokens **offline** (data plane).
+
+```
+CONTROL PLANE (MCOM, cached/rare)                 DATA PLANE (direct, hot path)
+  POST /auth/service-token   (client_credentials)     ┌────────────┐
+  POST /auth/service-token/exchange (RFC 8693)        │ MCOM Mall  │──HTTPS──┐
+  GET  /.well-known/jwks.json                         │  backend   │         ▼
+  GET  /ecosystem/services                            └────────────┘   ┌────────────┐
+                                                    Bearer <svc token> │MCOM Rewards│
+                                                    (cached ~5 min)    │  backend   │
+                                                                       └────────────┘
+```
+
+MCOM is contacted only to mint a token (once per ~5 min, cached) and to read the public
+JWKS/registry (cached). It is **never** in the per-request path. Only registered apps hold
+credentials, so only they can obtain a token; receivers additionally check the token `sub`
+against the cached active registry.
+
+### 9.2 Credentials & config
+
+No new secrets are required on the partner side — reuse the existing `MCOM_CLIENT_ID` /
+`MCOM_CLIENT_SECRET`. MCOM requires the following **server** config (already set centrally):
+
+```env
+SERVICE_JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+SERVICE_JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+SERVICE_JWT_KID="mcom-svc-1"
+SERVICE_JWT_ISSUER="mcom-solutions"
+SERVICE_TOKEN_TTL_SECONDS="300"
+```
+
+Console fields per app (App Detail → *Service Access*): `serviceEnabled`, `serviceBaseUrl`,
+`serviceScopes`, `allowedAudiences`, `allowedCallers`.
+
+### 9.3 Issuer endpoints (MCOM)
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/auth/service-token` | `client_credentials` — pure service-to-service token |
+| `POST` | `/api/v1/auth/service-token/exchange` | RFC 8693 token exchange — user-bound delegation |
+| `GET` | `/.well-known/jwks.json` | Public keys (cache; refresh on unknown `kid`) |
+| `GET` | `/api/v1/ecosystem/services` | Active service registry (cache ~60s) |
+| `GET` | `/api/v1/ecosystem/discovery` | Issuer + endpoint discovery document |
+
+### 9.4 Outbound: call a peer directly
+
+```typescript
+import axios from 'axios';
+
+// Cache this token until it expires (expires_in seconds). Do NOT request per call.
+async function getServiceToken(audience: string, scope: string): Promise<string> {
+  const basic = Buffer.from(
+    `${process.env.MCOM_CLIENT_ID}:${process.env.MCOM_CLIENT_SECRET}`,
+  ).toString('base64');
+
+  const { data } = await axios.post(
+    `${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token`,
+    { grant_type: 'client_credentials', audience, scope },
+    { headers: { Authorization: `Basic ${basic}` } },
+  );
+  return data.access_token;
+}
+
+// Direct call — never through MCOM.
+async function callRewards() {
+  const token = await getServiceToken('mcom-rewards', 'rewards:read');
+  return axios.get('https://api.mcomrewards.com/api/v1/some-resource', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+```
+
+### 9.5 Inbound: verify a service token offline (JWKS)
+
+The receiving app verifies the RS256 signature against MCOM's cached JWKS — **no MCOM call**.
+Reject unless: signature valid, `iss === 'mcom-solutions'`, `aud === <this app's clientId>`,
+`exp` in the future, and the caller is permitted by **this app's ingress policy** (see 9.6).
+
+```typescript
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.MCOM_SOLUTIONS_URL}/.well-known/jwks.json`),
+);
+
+// Ingress policy for THIS app, read from the cached registry. Empty = deny all; ["*"] = anyone.
+async function getAllowedCallers(): Promise<string[]> {
+  const { data } = await axios.get(`${process.env.MCOM_SOLUTIONS_URL}/api/v1/ecosystem/services`);
+  return (data as any[]).find((s) => s.clientId === process.env.MCOM_CLIENT_ID)?.allowedCallers ?? [];
+}
+const peerAllowed = (list: string[], peer: string) => list.includes('*') || list.includes(peer);
+
+export async function verifyServiceToken(authHeader?: string) {
+  const token = authHeader?.replace(/^Bearer /i, '');
+  if (!token) throw new Error('Missing service token');
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: 'mcom-solutions',
+    audience: process.env.MCOM_CLIENT_ID, // this app's own clientId
+  });
+
+  const caller = (payload.act?.sub as string) || (payload.sub as string);
+  if (!peerAllowed(await getAllowedCallers(), caller)) {
+    throw new Error('Caller not permitted by ingress policy');
+  }
+
+  // payload.sub       → calling app (service token) or user id (delegated)
+  // payload.act?.sub  → caller app id for delegated tokens
+  // payload.scope     → space-separated granted scopes
+  return payload;
+}
+```
+
+> Enforce `payload.scope` per route (e.g. require `rewards:read`). Use `timingSafeEqual`
+> for any local secret comparisons and allow a ±60s clock skew when checking `exp`.
+
+### 9.6 Peer policy — who may call whom (deny-by-default)
+
+Access is controlled by two directed allow-lists per app:
+
+| List | Field | Meaning |
+|---|---|---|
+| Egress | `allowedAudiences` | peers this app **may call** |
+| Ingress | `allowedCallers` | peers **permitted to call** this app |
+
+Semantics (both lists): **empty = deny all**, `"*"` = any registered app, otherwise only the
+listed clientIds. A call succeeds only if **both** the caller's egress and the target's ingress
+permit it.
+
+Example — `mcom-mall` may only call `mcom-reward`, `mcom-reward` may only call `fundordonate`,
+`mcom-spin` may call anyone:
+
+```
+mcom-mall    allowedAudiences = ["mcom-reward"]      allowedCallers = []
+mcom-reward  allowedAudiences = ["fundordonate"]     allowedCallers = ["mcom-mall"]
+fundordonate allowedAudiences = []                   allowedCallers = ["mcom-reward"]
+mcom-spin    allowedAudiences = ["*"]                allowedCallers = []
+```
+
+Admins manage the whole graph in **MCOM Console → Service Mesh Policy** (a callers × targets
+matrix). Enforcement:
+- **Egress** is enforced by MCOM at token issuance (the caller cannot get a token for a
+  disallowed audience).
+- **Ingress** is enforced by the receiving app using its cached `allowedCallers` from the
+  registry (see 9.5).
+
+### 9.7 User-bound (delegated) calls — RFC 8693
+
+To act **on behalf of a specific user**, exchange that user's SSO access token for a delegated
+service token. The receiver learns both the user (`sub`) and the acting app (`act.sub`).
+
+```typescript
+const { data } = await axios.post(
+  `${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token/exchange`,
+  {
+    subject_token: userSsoAccessToken, // the user's SSO access token
+    audience: 'mcom-rewards',
+    scope: 'rewards:read',
+  },
+  { headers: { Authorization: `Basic ${basic}` } },
+);
+```
+
+### 9.8 Security properties
+
+| Property | How it holds |
+|---|---|
+| No MCOM in the request path | Receivers verify signatures offline via cached JWKS |
+| Only registered apps can talk | Only registered apps get credentials → tokens |
+| Directed least privilege | Egress (`allowedAudiences`) enforced at issuance; ingress (`allowedCallers`) enforced by the receiver — both deny-by-default |
+| An app cannot impersonate another | Asymmetric (RS256) signatures — private key never leaves MCOM |
+| Auditable delegation | `act.sub` records the acting app; `service_token_audit` logs every issuance |
+| Bounded revocation | Short token TTL (5 min) + registry/JWKS cache TTL (~5 min) |
+
+### 9.9 Service identity verification checklist
+
+- [ ] Console: app has `serviceEnabled = true` and the needed `serviceScopes`.
+- [ ] Console → Service Mesh Policy: egress (`allowedAudiences`) and ingress (`allowedCallers`) set (or `"*"`).
+- [ ] Outbound calls fetch a service token (cached) and hit the peer URL directly.
+- [ ] Inbound guard verifies signature via JWKS, plus `iss`/`aud`/`exp`/scope.
+- [ ] Inbound guard enforces the caller against `allowedCallers` from the cached registry (deny-by-default).
+- [ ] Delegated calls use `/auth/service-token/exchange` and the receiver honours `act.sub`.
+- [ ] JWKS and registry are cached (not fetched per request).
+

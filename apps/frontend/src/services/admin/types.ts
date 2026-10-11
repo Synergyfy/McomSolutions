@@ -719,6 +719,7 @@ export interface SsoClientListItem {
   platformSlug: string | null
   isActive: boolean
   isSystemApp: boolean
+  serviceScopes: string[]
   createdAt: string
   updatedAt: string
 }
@@ -741,6 +742,11 @@ export interface SsoClientDetail extends SsoClientListItem {
   lastWebhookAt: string | null
   feePercent?: number | null
   feeFixedMinor?: number | null
+  serviceEnabled: boolean
+  serviceBaseUrl: string | null
+  serviceScopes: string[]
+  allowedAudiences: string[]
+  allowedCallers: string[]
 }
 
 export interface RegisterAppInput {
@@ -757,6 +763,11 @@ export interface RegisterAppInput {
   webhookUrl?: string
   feePercent?: number
   feeFixedMinor?: number
+  serviceEnabled?: boolean
+  serviceBaseUrl?: string
+  serviceScopes?: string[]
+  allowedAudiences?: string[]
+  allowedCallers?: string[]
 }
 
 export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>
@@ -776,6 +787,27 @@ export interface RegisterAppResult {
 export interface AppHealthResult {
   reachable: boolean
   latencyMs: number
+}
+
+export interface ServicePolicyApp {
+  clientId: string
+  name: string
+  serviceEnabled: boolean
+  isActive: boolean
+  allowedAudiences: string[]
+  allowedCallers: string[]
+}
+
+export interface ServicePolicyResponse {
+  apps: ServicePolicyApp[]
+}
+
+export interface SetServicePolicyInput {
+  apps: {
+    clientId: string
+    allowedAudiences: string[]
+    allowedCallers: string[]
+  }[]
 }
 
 export interface ConsoleAuditLog {

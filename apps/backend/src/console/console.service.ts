@@ -24,6 +24,9 @@ import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { ConsoleAuditQueryDto } from './dto/console-audit-query.dto';
 import { encrypt } from './crypto.util';
+import { ECOSYSTEM_SERVICES_CACHE_KEY } from '../service-identity/constants';
+import { normalizePeerList, SERVICE_PEER_WILDCARD } from '../service-identity/policy.util';
+import { SetServicePolicyDto } from './dto/service-policy.dto';
 
 const MASK = '••••••••••••••••';
 
@@ -85,10 +88,16 @@ export class ConsoleService {
         feePercent: dto.feePercent ?? null,
         feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
         metadata: dto.planSchemaEndpoint ? { planSchemaEndpoint: dto.planSchemaEndpoint } : undefined,
+        serviceEnabled: dto.serviceEnabled ?? true,
+        serviceBaseUrl: dto.serviceBaseUrl ?? null,
+        serviceScopes: dto.serviceScopes ?? [],
+        allowedAudiences: dto.allowedAudiences ?? [],
+        allowedCallers: dto.allowedCallers ?? [],
       },
     });
 
     await this.redis.del(`sso_client:${dto.clientId}`);
+    await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
     await this.ssoService.invalidateCorsCache();
     await this.audit(adminId, dto.clientId, 'register_app', { name: dto.name, platformSlug: dto.platformSlug }, req);
 
@@ -143,6 +152,11 @@ export class ConsoleService {
     if (dto.feeFixedMinor !== undefined) {
       data.feeFixedMinor = dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null;
     }
+    if (dto.serviceEnabled !== undefined) data.serviceEnabled = dto.serviceEnabled;
+    if (dto.serviceBaseUrl !== undefined) data.serviceBaseUrl = dto.serviceBaseUrl ?? null;
+    if (dto.serviceScopes !== undefined) data.serviceScopes = dto.serviceScopes;
+    if (dto.allowedAudiences !== undefined) data.allowedAudiences = dto.allowedAudiences;
+    if (dto.allowedCallers !== undefined) data.allowedCallers = dto.allowedCallers;
 
     const updated = await this.prisma.ssoClient.update({
       where: { clientId },
@@ -150,6 +164,7 @@ export class ConsoleService {
     });
 
     await this.redis.del(`sso_client:${clientId}`);
+    await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
     if (dto.corsOrigins !== undefined) {
       await this.ssoService.invalidateCorsCache();
     }
@@ -178,6 +193,7 @@ export class ConsoleService {
     ]);
 
     await this.redis.del(`sso_client:${clientId}`);
+    await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
     await this.ssoService.invalidateCorsCache();
     await this.audit(adminId, clientId, 'deactivate_app', { clientId, name: client.name }, req);
 
@@ -234,6 +250,7 @@ export class ConsoleService {
     if (client.apiKey) {
       await this.redis.del(`sso_client:apikey:${client.apiKey}`);
     }
+    await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
     await this.ssoService.invalidateCorsCache();
 
     return { success: true, message: `App "${client.name}" (${clientId}) and all associated traces permanently deleted` };
@@ -357,6 +374,125 @@ export class ConsoleService {
     };
   }
 
+  // ─── SERVICE MESH POLICY ─────────────────────────────────────────────────────
+
+  /**
+   * Returns the directed peer policy for every app (egress + ingress).
+   * Deny-by-default: empty = no peers; `*` = any registered app.
+   */
+  async getServicePolicy() {
+    const clients = await this.prisma.ssoClient.findMany({
+      orderBy: [{ isSystemApp: 'desc' }, { createdAt: 'asc' }],
+      select: {
+        clientId: true,
+        name: true,
+        serviceEnabled: true,
+        isActive: true,
+        allowedAudiences: true,
+        allowedCallers: true,
+      },
+    });
+
+    return {
+      apps: clients.map((c) => ({
+        clientId: c.clientId,
+        name: c.name,
+        serviceEnabled: c.serviceEnabled,
+        isActive: c.isActive,
+        allowedAudiences: c.allowedAudiences ?? [],
+        allowedCallers: c.allowedCallers ?? [],
+      })),
+    };
+  }
+
+  /**
+   * Bulk-replaces the peer policy graph in one transaction. Validates that every
+   * referenced peer is a registered clientId/platformSlug (or `*`) and that no
+   * app references itself. Writes a single audit entry.
+   */
+  async setServicePolicy(dto: SetServicePolicyDto, adminId: string, req?: Request) {
+    const clients = await this.prisma.ssoClient.findMany({
+      select: {
+        clientId: true,
+        platformSlug: true,
+        allowedAudiences: true,
+        allowedCallers: true,
+      },
+    });
+
+    const byClientId = new Map(clients.map((c) => [c.clientId, c]));
+    const validPeers = new Set<string>([SERVICE_PEER_WILDCARD]);
+    for (const c of clients) {
+      validPeers.add(c.clientId);
+      if (c.platformSlug) validPeers.add(c.platformSlug);
+    }
+
+    const seen = new Set<string>();
+    for (const app of dto.apps) {
+      const client = byClientId.get(app.clientId);
+      if (!client) {
+        throw new NotFoundException(`App "${app.clientId}" not found`);
+      }
+      if (seen.has(app.clientId)) {
+        throw new BadRequestException(`Duplicate policy entry for "${app.clientId}"`);
+      }
+      seen.add(app.clientId);
+
+      const selfIds = new Set(
+        [client.clientId, client.platformSlug].filter((v): v is string => Boolean(v)),
+      );
+      for (const field of ['allowedAudiences', 'allowedCallers'] as const) {
+        for (const peer of app[field] ?? []) {
+          if (!validPeers.has(peer)) {
+            throw new BadRequestException(
+              `Unknown peer "${peer}" in ${field} for "${app.clientId}"`,
+            );
+          }
+          if (selfIds.has(peer)) {
+            throw new BadRequestException(
+              `"${app.clientId}" cannot reference itself in ${field}`,
+            );
+          }
+        }
+      }
+    }
+
+    await this.prisma.$transaction(
+      dto.apps.map((app) =>
+        this.prisma.ssoClient.update({
+          where: { clientId: app.clientId },
+          data: {
+            allowedAudiences: normalizePeerList(app.allowedAudiences),
+            allowedCallers: normalizePeerList(app.allowedCallers),
+          },
+        }),
+      ),
+    );
+
+    for (const app of dto.apps) {
+      await this.redis.del(`sso_client:${app.clientId}`);
+    }
+    await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
+
+    const changes: Record<string, any> = {};
+    for (const app of dto.apps) {
+      const before = byClientId.get(app.clientId)!;
+      changes[app.clientId] = {
+        before: {
+          allowedAudiences: before.allowedAudiences ?? [],
+          allowedCallers: before.allowedCallers ?? [],
+        },
+        after: {
+          allowedAudiences: normalizePeerList(app.allowedAudiences),
+          allowedCallers: normalizePeerList(app.allowedCallers),
+        },
+      };
+    }
+    await this.audit(adminId, 'service-policy', 'update_service_policy', changes, req);
+
+    return { success: true, updated: dto.apps.length };
+  }
+
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
   private encryptionKey(): string {
@@ -444,6 +580,11 @@ export class ConsoleService {
       'scopes',
       'webhookUrl',
       'planSchemaEndpoint',
+      'serviceEnabled',
+      'serviceBaseUrl',
+      'serviceScopes',
+      'allowedAudiences',
+      'allowedCallers',
     ];
     for (const field of fields) {
       const beforeVal = field === 'planSchemaEndpoint'
@@ -516,6 +657,7 @@ export class ConsoleService {
       platformSlug: client.platformSlug,
       isActive: client.isActive,
       isSystemApp: client.isSystemApp,
+      serviceScopes: client.serviceScopes ?? [],
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
     };
@@ -544,6 +686,11 @@ export class ConsoleService {
       isSystemApp: client.isSystemApp,
       feePercent: client.feePercent != null ? Number(client.feePercent) : null,
       feeFixedMinor: client.feeFixedMinor != null ? Number(client.feeFixedMinor) : null,
+      serviceEnabled: client.serviceEnabled ?? true,
+      serviceBaseUrl: client.serviceBaseUrl ?? null,
+      serviceScopes: client.serviceScopes ?? [],
+      allowedAudiences: client.allowedAudiences ?? [],
+      allowedCallers: client.allowedCallers ?? [],
       webhookFailCount: client.webhookFailCount,
       lastWebhookAt: client.lastWebhookAt,
       createdAt: client.createdAt,

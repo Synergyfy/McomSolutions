@@ -5,6 +5,8 @@ import type {
   ConsoleAuditQuery,
   RegisterAppInput,
   RegisterAppResult,
+  ServicePolicyResponse,
+  SetServicePolicyInput,
   SsoClientDetail,
   SsoClientListItem,
   UpdateAppInput,
@@ -49,5 +51,13 @@ export const consoleApi = {
         '/admin/console/audit-logs',
         { params },
       )
+      .then((r) => r.data),
+
+  getServicePolicy: () =>
+    apiClient.get<ServicePolicyResponse>('/admin/console/service-policy').then((r) => r.data),
+
+  setServicePolicy: (dto: SetServicePolicyInput) =>
+    apiClient
+      .put<{ success: boolean; updated: number }>('/admin/console/service-policy', dto)
       .then((r) => r.data),
 }

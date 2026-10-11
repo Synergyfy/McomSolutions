@@ -16,6 +16,7 @@ import { ProgrammeModule } from './programme/programme.module';
 import { CampaignModule } from './campaign/campaign.module';
 import { ServiceConnectorsModule } from './service-connectors/service-connectors.module';
 import { ConsoleModule } from './console/console.module';
+import { ServiceIdentityModule } from './service-identity/service-identity.module';
 import { WalletModule } from './wallet/wallet.module';
 import { AppPaymentsModule } from './app-payments/app-payments.module';
 import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
@@ -90,6 +91,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     CampaignModule,
     ServiceConnectorsModule,
     ConsoleModule,
+    ServiceIdentityModule,
     WalletModule,
     AppPaymentsModule,
     WebhookDispatcherModule,

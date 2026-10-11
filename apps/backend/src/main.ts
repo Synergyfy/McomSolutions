@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
@@ -118,8 +118,12 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mcom-Client-ID', 'X-Mcom-Signature', 'X-Idempotency-Key', 'ngrok-skip-browser-warning'],
   });
 
-  // Global prefix
-  app.setGlobalPrefix('api/v1');
+  // Global prefix. The JWKS discovery endpoint is deliberately served at the
+  // root (/.well-known/jwks.json) — standard OIDC location — so it is excluded
+  // from the /api/v1 prefix.
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: '.well-known/jwks.json', method: RequestMethod.GET }],
+  });
 
   // Validation pipe (dto-validation.md: whitelist + forbid unknown +
   // explicit @Type() conversions only — no implicit coercion).
