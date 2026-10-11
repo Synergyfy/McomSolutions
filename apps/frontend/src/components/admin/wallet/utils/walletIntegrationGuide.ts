@@ -1,23 +1,48 @@
 /**
- * Written MCOM Wallet partner-integration guide (human-authored, not AI).
+ * Written MCOM Payments partner-integration guide (human-authored, not AI).
+ * Covers both MCOM Wallet (prepaid balance) and MCOM Pay (charge customers).
  * Rendered in the admin Wallet panel and copied to the clipboard verbatim.
  */
 
 const baseUrl = (import.meta.env.VITE_API_URL?.replace(/\/api\/v1\/?$/, '') || 'https://api.mcomsolutions.com').replace(/\/$/, '');
 
 export function generateWalletIntegrationGuide(): string {
-  return `# MCOM Wallet — Partner Integration Guide
+  return `# MCOM Payments — Partner Integration Guide
 
-Integrate MCOM Wallet payments into your registered MCOM application (MCOM Mall, MCOM Rewards, MCOM Spin, VemTap, 247GBS, or any Console-registered app).
+### Wallet (prepaid balance) + MCOM Pay (charge customers through MCOM)
+
+Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, MCOM Spin, VemTap, 247GBS, or any Console-registered app). MCOM exposes **two complementary payment capabilities**, both authenticated with the same app credentials and the same HMAC scheme:
+
+| Capability | What it is | Use it when |
+|---|---|---|
+| **MCOM Wallet** | One central prepaid balance (MCOM credits) per user, spendable across every MCOM platform. | The user already has a balance and you want to move credits (debit/credit/hold). |
+| **MCOM Pay** | A generic payment gateway — you charge the customer an arbitrary amount and MCOM processes it via **Stripe**, **PayPal**, or the **MCOM Wallet**, then records it in an immutable ledger. | You sell something on your app and want MCOM to collect the money. |
 
 - Base URL: \`${baseUrl}\`
-- API prefix: \`/api/v1/wallet/partner\`
-- Wallet currency: **MCOM credits** (displayed to 2 dp; stored to 4 dp server-side)
-- Every user on McomSolutions already has one wallet — you never create one. You only debit, credit, or hold it.
+- API prefixes: \`/api/v1/wallet/partner\` and \`/api/v1/app-payments\`
+- Shared auth: HMAC via \`X-Mcom-Client-ID\` + \`X-Mcom-Signature\` (same \`hmacSecret\` for both)
+- Wallet currency: **MCOM credits** (displayed 2 dp, stored 4 dp)
+- MCOM Pay money: **minor units** (pence) stored as exact integers — never floats
 
 ---
 
-## 1. How It Works
+# Part 0 — Which capability do I need?
+
+| Scenario | Use | Endpoint family |
+|---|---|---|
+| User has an MCOM wallet balance and you charge them from it | **MCOM Pay (method = \`wallet\`)** *or* Wallet \`/debit\` | \`/app-payments/charges\` or \`/wallet/partner/debit\` |
+| Customer pays by card / PayPal for anything you sell | **MCOM Pay** | \`/app-payments/charges\` |
+| You reward, refund, or cashback credits into a user's wallet | **MCOM Wallet** | \`/wallet/partner/credit\` |
+| Reserve funds before confirming an order (pre-auth) | **MCOM Wallet** | \`/wallet/partner/hold/*\` |
+| You want an immutable, auditable money ledger in pence with MCOM fees/net | **MCOM Pay** | \`/app-payments/*\` |
+
+> Rule of thumb: **MCOM Wallet moves existing MCOM credits. MCOM Pay collects real money (or spends the wallet) and keeps the books.**
+
+---
+
+# Part A — MCOM Wallet (prepaid balance)
+
+## A1. How It Works
 
 1. A user registers on McomSolutions → a wallet is **auto-created** (balance 0).
 2. The user tops up via MCOM Wallet (Stripe) → wallet credited.
@@ -27,18 +52,14 @@ Integrate MCOM Wallet payments into your registered MCOM application (MCOM Mall,
 
 McomSolutions is the **single source of truth** for balances. Your app never stores wallet balances.
 
----
-
-## 2. Prerequisites & Credentials
+## A2. Prerequisites & Credentials
 
 1. Your app must be **registered in the MCOM Console** (Admin → MCOM Console). This gives you:
    - \`clientId\` (e.g. \`mcom-mall\`) — public identifier
    - \`hmacSecret\` (prefixed \`hm_\`) — shown **once** at registration; rotate it anytime from the Console (Admin → MCOM Console → your app → Rotate HMAC Secret)
 2. If your app was seeded before per-app secrets existed, the backend falls back to \`MCOM_<CLIENT_ID>_SECRET\` or the shared \`SSO_API_SECRET\`. For production, issue a **per-app HMAC secret** via the Console so each platform uses its own.
 
----
-
-## 3. Environment Variables
+## A3. Environment Variables
 
 \`\`\`env
 # MCOM Solutions central API
@@ -48,20 +69,19 @@ MCOM_SOLUTIONS_URL="${baseUrl}"
 MCOM_CLIENT_ID=<YOUR_CLIENT_ID>        # e.g. mcom-mall
 MCOM_HMAC_SECRET=<YOUR_HMAC_SECRET>    # shown once in the Console
 
-# Feature flag
+# Feature flags
 MCOM_WALLET_ENABLED=true
+MCOM_PAY_ENABLED=true
 \`\`\`
 
----
+## A4. Authentication (HMAC)
 
-## 4. Authentication (HMAC)
-
-Every request requires three headers:
+Every request requires these headers:
 
 | Header | Value |
 |---|---|
 | \`X-Mcom-Client-ID\` | your \`clientId\` |
-| \`X-Mcom-Signature\` | \`sha256=<hex>\` — HMAC-SHA256 of the request body with your \`hmacSecret\` |
+| \`X-Mcom-Signature\` | \`sha256=<hex>\` — HMAC-SHA256 of the raw request body with your \`hmacSecret\` |
 | \`X-Idempotency-Key\` | unique-per-business-event string (**required on every write**) |
 | \`Content-Type\` | \`application/json\` |
 
@@ -94,9 +114,7 @@ const getHeaders = {
 };
 \`\`\`
 
----
-
-## 5. Endpoints
+## A5. Wallet Endpoints
 
 All under \`${baseUrl}/api/v1/wallet/partner\`. HMAC + \`X-Mcom-Client-ID\` required on all.
 
@@ -111,7 +129,7 @@ All under \`${baseUrl}/api/v1/wallet/partner\`. HMAC + \`X-Mcom-Client-ID\` requ
 | GET | \`/transactions/:userId\` | Transactions **your platform** originated for this user | — |
 | GET | \`/transaction/:id\` | Look up one of your transactions (by \`id\` or \`?by=idempotencyKey\`) | — |
 
-### 5.1 Debit a wallet
+### A5.1 Debit a wallet
 
 \`\`\`http
 POST ${baseUrl}/api/v1/wallet/partner/debit
@@ -149,7 +167,7 @@ Success (201):
 }
 \`\`\`
 
-### 5.2 Check balance
+### A5.2 Check balance
 
 \`\`\`http
 GET ${baseUrl}/api/v1/wallet/partner/balance/user_abc123
@@ -169,36 +187,14 @@ X-Mcom-Signature: sha256=<sign empty string>
 
 \`availableBalance\` = balance minus active holds. Check it before charging.
 
-### 5.3 Holds (pre-authorization)
+### A5.3 Holds (pre-authorization)
 
 1. \`POST /hold/place\` → reserves funds, returns \`holdId\` + \`expiresAt\`.
 2. \`POST /hold/capture\` → converts the hold into a real debit (\`HOLD_CAPTURE\`).
 3. \`POST /hold/release\` → releases funds back to available balance.
 4. Uncaptured holds auto-expire after \`WALLET_HOLD_DEFAULT_TTL_HOURS\` (default 24h) — the system releases them; you don't need to.
 
----
-
-## 6. Idempotency — Prevent Double Charges
-
-Use a **deterministic** key derived from your internal record:
-
-\`\`\`ts
-const key = \`\${CLIENT_ID}-sub-\${invoiceId}\`;       // subscriptions
-const key = \`\${CLIENT_ID}-purchase-\${orderId}\`;    // purchases
-const key = \`\${CLIENT_ID}-refund-\${originalTxnId}\`; // refunds
-const key = \`\${CLIENT_ID}-reward-\${campaignId}-\${userId}-\${date}\`;
-\`\`\`
-
-Rules:
-- Max 255 chars, ASCII only.
-- Unique per **business event**, never per HTTP retry.
-- **Never reuse** a key for a different amount or operation.
-- Same key + same body on retry → you get the original receipt back, no second charge.
-- Keys are scoped to your platform — another platform's key never collides with yours.
-
----
-
-## 7. Error Codes & Handling
+## A6. Wallet Error Codes & Handling
 
 | HTTP | error | Meaning | What to do |
 |---|---|---|---|
@@ -218,63 +214,239 @@ Rules:
 | 500 | \`INTERNAL_ERROR\` | Server error | Retry with backoff |
 | 503 | \`SERVICE_UNAVAILABLE\` | DB/Redis down | Retry with backoff |
 
-Handling \`INSUFFICIENT_BALANCE\`:
+---
 
-\`\`\`ts
-try {
-  const receipt = await mcomWallet.debit(userId, amount, opts);
-} catch (err) {
-  if (err.code === 'INSUFFICIENT_BALANCE') {
-    // Return a top-up prompt to your frontend:
-    return res.status(402).json({
-      error: 'WALLET_INSUFFICIENT_FUNDS',
-      message: 'Top up your MCOM Wallet to continue.',
-      topUpUrl: '${baseUrl}/dashboard/wallet',
-    });
-  }
-  throw err;
+# Part B — MCOM Pay (charge customers through MCOM)
+
+## B1. How It Works
+
+MCOM Pay turns any Console-registered app into a merchant. Your **backend** (never the browser) creates a charge with an exact amount; MCOM collects it and keeps an immutable ledger.
+
+1. Your app backend calls \`POST /app-payments/charges\` (HMAC-signed) with the amount in **minor units** and the payment method.
+2. MCOM creates the charge and returns a provider handle:
+   - \`stripe\` → \`clientSecret\` for Stripe Elements / Payment Element
+   - \`paypal\` → \`approvalUrl\` to redirect the customer
+   - \`wallet\` → settles immediately by debiting the payer's MCOM wallet
+3. Your frontend completes the payment, then your backend calls \`POST /app-payments/charges/:id/confirm\`.
+4. On success MCOM marks the charge **paid**, posts a **double-entry ledger** entry, and fires a \`payment.succeeded\` webhook to your app.
+5. Refunds post the exact reverse ledger entries.
+
+**Trust model:** the amount always comes from your authenticated backend — the customer's browser can never set or alter it.
+
+## B2. Amounts — Minor Units (Pence)
+
+- Send \`amountMinor\` as a **positive integer string** in the smallest currency unit.
+- \`"10270"\` = **£102.70** (\`"1"\` = £0.01). No decimals, no floats.
+- Every amount in responses and the ledger is also a minor-unit string (\`amountMinor\`, \`feeMinor\`, \`netMinor\`).
+- Format for display: \`(Number(minor) / 100).toFixed(2)\`.
+
+## B3. Fees, Net, and the Ledger
+
+- Each app has a **fee config** (set in the Console; platform default **2.9% + 20p**):
+  - \`feePercent\` (e.g. \`0.029\` = 2.9%)
+  - \`feeFixedMinor\` (e.g. \`20\` = £0.20)
+- \`feeMinor = round(amountMinor × feePercent) + feeFixedMinor\`, clamped to \`[0, amountMinor]\`.
+- \`netMinor = amountMinor − feeMinor\` — what MCOM records as owed to your app.
+- Every paid charge posts a **balanced double-entry** set (append-only, immutable):
+  \`\`\`
+  debit  <clearing>      amountMinor   (money in: gateway or wallet)
+  credit app_payable     netMinor      (owed to your app)
+  credit mcom_revenue    feeMinor      (MCOM's fee, when > 0)
+  \`\`\`
+  A refund posts the exact reverse, so the ledger always sums to zero. Entries are never edited or deleted.
+
+## B4. MCOM Pay Endpoints
+
+All under \`${baseUrl}/api/v1/app-payments\`. HMAC + \`X-Mcom-Client-ID\` required on all; app identity always comes from the header.
+
+| Method | Path | Purpose | Idempotency-Key |
+|---|---|---|---|
+| POST | \`/charges\` | Create a charge (\`stripe\` \\| \`paypal\` \\| \`wallet\`) | **Required** |
+| POST | \`/charges/:id/confirm\` | Confirm after the customer pays | — (idempotent by status) |
+| POST | \`/charges/:id/refund\` | Refund a paid charge (full or partial) | — |
+| GET | \`/charges\` | List charges this app created | — |
+| GET | \`/charges/:id\` | Fetch a single charge | — |
+
+### B4.1 Create a charge
+
+\`\`\`http
+POST ${baseUrl}/api/v1/app-payments/charges
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+X-Idempotency-Key: mcom-mall-order-ORDER_123
+Content-Type: application/json
+
+{
+  "amountMinor": "10270",          // £102.70 — required, integer string, minor units
+  "currency": "GBP",               // optional, default GBP
+  "method": "stripe",              // "stripe" | "paypal" | "wallet"
+  "reference": "ORDER_123",        // your order/invoice id — required
+  "description": "Pro plan renewal",
+  "mcomUserId": "user_abc123",     // required only for method = "wallet"
+  "externalCustomerId": "cust_987",// your own customer id (optional)
+  "metadata": { "cartId": "c_1" }
 }
 \`\`\`
 
-**Retry with backoff** — permanent errors (400/401/403/404/422) should NOT be retried; transient ones (409/429/500/503) should, with the **same idempotency key**:
+Response (201):
 
-\`\`\`ts
-async function debitWithRetry(payload, idempKey, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const res = await fetch(\`\${MCOM_URL}/api/v1/wallet/partner/debit\`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mcom-Client-ID': CLIENT_ID,
-        'X-Mcom-Signature': sign(payload, HMAC_SECRET),
-        'X-Idempotency-Key': idempKey, // SAME KEY every retry
-      },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) return res.json();
-    if (![409, 429, 500, 503].includes(res.status)) throw await res.json(); // permanent
-    if (attempt === maxRetries) throw await res.json();
-    await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+\`\`\`json
+{
+  "charge": {
+    "id": "clx8p2qr10000x4vj3k5m7n9p",
+    "appClientId": "mcom-mall",
+    "amountMinor": "10270",
+    "currency": "GBP",
+    "feeMinor": "318",
+    "netMinor": "9952",
+    "method": "stripe",
+    "status": "pending",
+    "reference": "ORDER_123",
+    "provider": "stripe",
+    "providerRef": "pi_3Pabc...",
+    "createdAt": "2026-10-11T10:00:00.000Z"
+  },
+  "clientSecret": "pi_3Pabc..._secret_xyz"   // stripe only
+  // paypal returns: "approvalUrl": "https://www.paypal.com/checkoutnow?token=5O1..."
+}
+\`\`\`
+
+**Method-specific notes:**
+- \`stripe\` → use \`clientSecret\` with Stripe.js. \`paypal\` → redirect the customer to \`approvalUrl\`.
+- \`wallet\` → no \`clientSecret\`/\`approvalUrl\`; the charge settles immediately (status \`paid\`) by debiting the payer's MCOM wallet. If the wallet has insufficient funds you get **422 \`INSUFFICIENT_BALANCE\`**.
+
+### B4.2 Confirm a charge
+
+After the customer completes payment, confirm server-side:
+
+\`\`\`http
+POST ${baseUrl}/api/v1/app-payments/charges/clx8p2qr.../confirm
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+Content-Type: application/json
+
+{ "paymentIntentId": "pi_3Pabc..." }   // stripe — or { "orderId": "5O1..." } for paypal
+\`\`\`
+
+Returns the charge with \`status: "paid"\`. Confirm is **idempotent** — confirming an already-paid charge returns it unchanged. MCOM also settles charges from provider webhooks as a backstop (close-tab-after-charge), so you never lose a paid charge.
+
+### B4.3 Refund a charge
+
+\`\`\`http
+POST ${baseUrl}/api/v1/app-payments/charges/clx8p2qr.../refund
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+Content-Type: application/json
+
+{ "amountMinor": "10270", "reason": "Customer requested refund" }
+\`\`\`
+
+- \`amountMinor\` is optional — omit for a full refund. Fee is prorated for partial refunds.
+- A full refund flips the charge to \`refunded\`; a partial refund leaves it \`paid\` and records the refund in metadata.
+- Wallet-method refunds credit the payer's MCOM wallet back.
+
+### B4.4 List / fetch charges
+
+\`\`\`http
+GET ${baseUrl}/api/v1/app-payments/charges?status=paid&dateFrom=2026-10-01&dateTo=2026-10-31&page=1&limit=20
+GET ${baseUrl}/api/v1/app-payments/charges/clx8p2qr...
+\`\`\`
+
+Filters: \`status\`, \`mcomUserId\`, \`reference\`, \`dateFrom\`, \`dateTo\`, \`page\`, \`limit\`. You can only read charges your own app created.
+
+## B5. Webhooks (server-to-server notifications)
+
+MCOM POSTs lifecycle events to your app's **Webhook URL** (set in the Console), signed with your **Webhook Secret**:
+
+| Header | Value |
+|---|---|
+| \`X-Mcom-Webhook-Signature\` | \`sha256=HMAC-SHA256(rawBody, webhookSecret)\` |
+
+Events:
+- \`payment.succeeded\` — a charge was paid.
+- \`payment.refunded\` — a charge was refunded.
+
+Payload:
+
+\`\`\`json
+{
+  "event": "payment.succeeded",
+  "platform": "mcom-mall",
+  "timestamp": "2026-10-11T10:00:05.000Z",
+  "data": {
+    "chargeId": "clx8p2qr10000x4vj3k5m7n9p",
+    "amountMinor": "10270",
+    "feeMinor": "318",
+    "netMinor": "9952",
+    "currency": "GBP",
+    "method": "stripe",
+    "status": "paid",
+    "reference": "ORDER_123",
+    "mcomUserId": "user_abc123",
+    "externalCustomerId": "cust_987",
+    "provider": "stripe",
+    "providerRef": "pi_3Pabc...",
+    "paidAt": "2026-10-11T10:00:05.000Z"
   }
 }
 \`\`\`
+
+Verify the signature before trusting the payload, and treat webhooks as **at-least-once** (idempotent handling keyed on \`chargeId\`).
+
+## B6. MCOM Pay Error Codes
+
+| HTTP | error | Meaning | What to do |
+|---|---|---|---|
+| 400 | \`VALIDATION_ERROR\` | Bad body / bad \`amountMinor\` | Fix request — don't retry |
+| 400 | (idempotency missing) | \`X-Idempotency-Key\` absent on create | Add the header |
+| 400 | amount mismatch | Confirmed/paid amount ≠ charge amount | Do not activate; investigate |
+| 401 | \`INVALID_SIGNATURE\` | Bad HMAC / unknown client | Check \`hmacSecret\`; rotate in Console |
+| 403 | forbidden | Charge belongs to another app | Only read/confirm your own charges |
+| 404 | not found | Unknown charge id | Check the id |
+| 409 | conflict | Idempotency key reused by another app | Use a platform-scoped key |
+| 409 | conflict | Charge not in a refundable/confirmable state | Re-read the charge |
+| 422 | \`INSUFFICIENT_BALANCE\` | Wallet method — not enough balance | Show top-up prompt / offer card |
+| 429 | \`RATE_LIMITED\` | Too many requests | Exponential backoff |
+| 500 / 503 | server | Transient failure | Retry with backoff, same idempotency key |
 
 ---
 
-## 8. Drop-In Client (TypeScript / NestJS)
+# Part C — Idempotency — Prevent Double Charges
+
+Use a **deterministic** key derived from your internal record:
+
+\`\`\`ts
+const key = \`\${CLIENT_ID}-sub-\${invoiceId}\`;        // wallet subscription
+const key = \`\${CLIENT_ID}-purchase-\${orderId}\`;     // wallet purchase
+const key = \`\${CLIENT_ID}-refund-\${originalTxnId}\`;  // wallet refund
+const key = \`\${CLIENT_ID}-reward-\${campaignId}-\${userId}-\${date}\`;
+
+const key = \`\${CLIENT_ID}-pay-\${orderId}\`;           // MCOM Pay charge
+\`\`\`
+
+Rules:
+- Max 255 chars, ASCII only.
+- Unique per **business event**, never per HTTP retry.
+- **Never reuse** a key for a different amount or operation.
+- Same key + same body on retry → you get the original result back, no second charge.
+- Keys are scoped to your platform — another platform's key never collides with yours.
+
+---
+
+# Part D — Drop-In Client (TypeScript / NestJS)
 
 \`\`\`ts
 import * as crypto from 'crypto';
 
-export class McomWalletError extends Error {
+export class McomPaymentsError extends Error {
   constructor(public code: string, message: string, public httpStatus: number) {
     super(message);
-    this.name = 'McomWalletError';
+    this.name = 'McomPaymentsError';
   }
 }
 
 @Injectable()
-export class McomWalletService {
+export class McomPaymentsService {
   private base = process.env.MCOM_SOLUTIONS_URL;
   private clientId = process.env.MCOM_CLIENT_ID;
   private hmacSecret = process.env.MCOM_HMAC_SECRET;
@@ -293,62 +465,74 @@ export class McomWalletService {
     };
   }
 
-  async getBalance(userId: string) {
-    const res = await fetch(\`\${this.base}/api/v1/wallet/partner/balance/\${userId}\`, {
-      headers: this.headers(''), // GET → sign empty string
+  private async call<T>(path: string, body: unknown, method = 'POST', idempKey?: string): Promise<T> {
+    const res = await fetch(\`\${this.base}/api/v1\${path}\`, {
+      method,
+      headers: this.headers(method === 'GET' ? '' : body, idempKey),
+      ...(method === 'GET' ? {} : { body: JSON.stringify(body) }),
     });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new McomPaymentsError(json.error || 'ERROR', json.message || res.statusText, res.status);
+    return json;
   }
 
-  async debit(userId: string, amount: number, opts: {
-    category: string; description: string; reference?: string;
-    metadata?: object; idempotencyKey: string;
-  }) {
-    const body = { userId, amount, ...opts };
-    const res = await fetch(\`\${this.base}/api/v1/wallet/partner/debit\`, {
-      method: 'POST',
-      headers: this.headers(body, opts.idempotencyKey),
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new McomWalletError(err.error || 'ERROR', err.message, res.status);
-    }
-    return res.json();
+  // ── Wallet ──────────────────────────────────────────────────────────────
+  getBalance(userId: string) {
+    return this.call(\`/wallet/partner/balance/\${userId}\`, undefined, 'GET');
+  }
+  debit(userId: string, amount: number, opts: { category: string; description: string; reference?: string; metadata?: object; idempotencyKey: string }) {
+    return this.call('/wallet/partner/debit', { userId, amount, ...opts }, 'POST', opts.idempotencyKey);
+  }
+  credit(userId: string, amount: number, opts: { category: string; description: string; reference?: string; metadata?: object; idempotencyKey: string }) {
+    return this.call('/wallet/partner/credit', { userId, amount, ...opts }, 'POST', opts.idempotencyKey);
   }
 
-  async credit(userId: string, amount: number, opts: {
-    category: string; description: string; reference?: string;
+  // ── MCOM Pay ────────────────────────────────────────────────────────────
+  createCharge(input: {
+    amountMinor: string; method: 'stripe' | 'paypal' | 'wallet'; reference: string;
+    currency?: string; description?: string; mcomUserId?: string; externalCustomerId?: string;
     metadata?: object; idempotencyKey: string;
   }) {
-    const body = { userId, amount, ...opts };
-    const res = await fetch(\`\${this.base}/api/v1/wallet/partner/credit\`, {
-      method: 'POST',
-      headers: this.headers(body, opts.idempotencyKey),
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new McomWalletError(err.error || 'ERROR', err.message, res.status);
-    }
-    return res.json();
+    const { idempotencyKey, ...body } = input;
+    return this.call('/app-payments/charges', body, 'POST', idempotencyKey);
+  }
+  confirmCharge(chargeId: string, handle: { paymentIntentId?: string; orderId?: string }) {
+    return this.call(\`/app-payments/charges/\${chargeId}/confirm\`, handle, 'POST');
+  }
+  refundCharge(chargeId: string, amountMinor?: string, reason?: string) {
+    return this.call(\`/app-payments/charges/\${chargeId}/refund\`, { amountMinor, reason }, 'POST');
+  }
+  getCharge(chargeId: string) {
+    return this.call(\`/app-payments/charges/\${chargeId}\`, undefined, 'GET');
   }
 }
 \`\`\`
 
 ---
 
-## 9. Go-Live Checklist
+# Part E — Go-Live Checklist
 
-- [ ] App registered in MCOM Console with a per-app \`hmacSecret\`
-- [ ] \`MCOM_SOLUTIONS_URL\`, \`MCOM_CLIENT_ID\`, \`MCOM_HMAC_SECRET\` in env
+**Shared**
+- [ ] App registered in MCOM Console with a per-app \`hmacSecret\` (and a Webhook URL for MCOM Pay events)
+- [ ] \`MCOM_SOLUTIONS_URL\`, \`MCOM_CLIENT_ID\`, \`MCOM_HMAC_SECRET\` in env (server-side only — never in the browser)
+
+**Wallet**
 - [ ] \`getBalance\` returns \`ACTIVE\` before charging
 - [ ] Every debit/credit uses a deterministic idempotency key
 - [ ] \`INSUFFICIENT_BALANCE\` handled (top-up prompt)
-- [ ] 409/429/5xx retried with backoff, same key
 - [ ] Captured holds are captured or released; rely on 24h auto-expiry as backstop
-- [ ] Test with the MCOM Wallet smoke script or a real account before launch
+
+**MCOM Pay**
+- [ ] Charges are created **server-side** only (amount never comes from the browser)
+- [ ] Amounts sent as integer minor-unit strings (pence)
+- [ ] \`clientSecret\` / \`approvalUrl\` handled for the chosen method; \`wallet\` path handles 422
+- [ ] \`confirm\` called after payment, and the \`payment.succeeded\` webhook verified (signature + idempotent)
+- [ ] Refunds go through \`/refund\` (never a manual ledger edit)
+- [ ] Fee config reviewed in the Console (default 2.9% + 20p) if you need a custom split
+
+**Both**
+- [ ] Transient errors (409/429/5xx) retried with backoff, same idempotency key
+- [ ] Test with a sandbox Stripe/PayPal account and a real MCOM user before launch
 
 Questions? Support: MCOM Console → Wallet Management → Wallet Admin.
 `;
@@ -359,5 +543,6 @@ export function walletEnvBlock(): string {
   return `MCOM_SOLUTIONS_URL="${baseUrl}"
 MCOM_CLIENT_ID=<YOUR_CLIENT_ID>
 MCOM_HMAC_SECRET=<YOUR_HMAC_SECRET>
-MCOM_WALLET_ENABLED=true`;
+MCOM_WALLET_ENABLED=true
+MCOM_PAY_ENABLED=true`;
 }
