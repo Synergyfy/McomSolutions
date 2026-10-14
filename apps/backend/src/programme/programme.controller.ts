@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Put,
+  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -36,6 +37,7 @@ import {
   UpdateReadinessGateDto,
   UpdateSupportAgentDto,
   UpdateTaskStatusDto,
+  UpdateProgrammeSettingsDto,
 } from './dto/programme.dto';
 
 @ApiTags('Programme Management')
@@ -214,4 +216,22 @@ export class ProgrammeController {
   setTaskStatus(@Param('id') id: string, @Body() dto: UpdateTaskStatusDto) {
     return this.programmeService.setTaskStatus(id, dto);
   }
+
+  // ─── Programme Settings & Trial Duration ──────────────
+  @Get('settings')
+  @ApiOperation({ summary: 'Get programme configuration and trial access duration' })
+  @ApiOkResponse({ description: 'Current programme settings' })
+  getSettings() {
+    return this.programmeService.getSettings();
+  }
+
+  @Put('settings')
+  @ApiOperation({ summary: 'Update programme configuration and trial access duration' })
+  @ApiBody({ type: UpdateProgrammeSettingsDto })
+  @ApiOkResponse({ description: 'Updated programme settings' })
+  updateSettings(@Request() req: any, @Body() dto: UpdateProgrammeSettingsDto) {
+    const adminName = req.user?.name || req.user?.email || 'Admin';
+    return this.programmeService.updateSettings(dto, adminName);
+  }
 }
+

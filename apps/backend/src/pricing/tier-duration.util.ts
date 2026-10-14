@@ -77,6 +77,15 @@ export function getTierDurationDays(tier: string, startDate: Date = new Date()):
 }
 
 /**
+ * Adds whole calendar days to a timestamp in UTC (DST-safe).
+ */
+export function addDaysUtc(from: Date, days: number): Date {
+  const d = new Date(from.getTime());
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+/**
  * Calculates the exact expiry timestamp (UTC) for a subscription tier from a start date.
  * - Standard: startDate + 90 calendar days
  * - Pro: startDate + 180 calendar days

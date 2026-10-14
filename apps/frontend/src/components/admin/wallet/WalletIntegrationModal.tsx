@@ -3,8 +3,10 @@ import {
   BookOpen,
   Check,
   Copy,
+  CreditCard,
   Download,
   KeyRound,
+  Landmark,
   Lock,
   Network,
   Server,
@@ -16,12 +18,13 @@ import {
 import { cn } from '../../../lib/utils';
 import { generateWalletIntegrationGuide, walletEnvBlock } from './utils/walletIntegrationGuide';
 
-type Tab = 'overview' | 'credentials' | 'endpoints' | 'hmac' | 'errors' | 'code';
+type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'hmac' | 'errors' | 'code';
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'overview', label: 'Overview', icon: Network },
   { id: 'credentials', label: 'Credentials', icon: KeyRound },
-  { id: 'endpoints', label: 'Endpoints', icon: Server },
+  { id: 'endpoints', label: 'Wallet API', icon: Server },
+  { id: 'mcompay', label: 'MCOM Pay', icon: CreditCard },
   { id: 'hmac', label: 'HMAC Auth', icon: Lock },
   { id: 'errors', label: 'Errors & Retry', icon: ShieldAlert },
   { id: 'code', label: 'Drop-In Code', icon: TerminalSquare },
@@ -75,7 +78,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400">
-                How any registered app (Mall, Rewards, Spin, VemTap, 247GBS) integrates the MCOM wallet.
+                How any registered app integrates MCOM Wallet (prepaid balance) and MCOM Pay (charge customers).
               </p>
             </div>
           </div>
@@ -131,6 +134,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'credentials' && <CredentialsTab />}
           {activeTab === 'endpoints' && <EndpointsTab />}
+          {activeTab === 'mcompay' && <McomPayTab />}
           {activeTab === 'hmac' && <HmacTab />}
           {activeTab === 'errors' && <ErrorsTab />}
           {activeTab === 'code' && <CodeTab />}
@@ -312,10 +316,12 @@ function OverviewTab() {
 
       <Section title="When to use what">
         <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
-          <li><b>Subscriptions / purchases / fees</b> → <code className="text-emerald-600 font-mono">/debit</code></li>
+          <li><b>Subscriptions / purchases / fees from a balance</b> → <code className="text-emerald-600 font-mono">/debit</code></li>
           <li><b>Cashback, rewards, refunds</b> → <code className="text-emerald-600 font-mono">/credit</code></li>
           <li><b>Reserve before confirming (e.g. order pre-auth)</b> → <code className="text-emerald-600 font-mono">/hold/place → /hold/capture</code></li>
           <li><b>Show balance in your UI</b> → <code className="text-emerald-600 font-mono">/balance/:userId</code> (cached 30s)</li>
+          <li><b>Sell anything and collect real money (card / PayPal / wallet)</b> → <b>MCOM Pay</b> <code className="text-emerald-600 font-mono">/app-payments/charges</code></li>
+          <li><b>Immutable ledger in pence with fee/net + webhooks</b> → <b>MCOM Pay</b></li>
         </ul>
       </Section>
     </div>
@@ -454,6 +460,186 @@ X-Mcom-Signature: sha256=<sign empty string>
           <li><code className="text-emerald-600 font-mono">POST /hold/release</code> → returns funds to available balance</li>
           <li>Uncaptured holds auto-expire after 24h (system releases them — you don't need to)</li>
         </ol>
+      </Section>
+    </div>
+  );
+}
+
+function McomPayTab() {
+  const base = (import.meta.env.VITE_API_URL || 'https://api.mcomsolutions.com/api/v1').replace(/\/$/, '');
+  return (
+    <div className="space-y-6">
+      <Section title="Charge customers through MCOM — any amount, any app">
+        <p className="text-xs text-gray-600 leading-relaxed">
+          MCOM Pay is a generic payment gateway. Your <b>backend</b> (never the browser) creates a charge with an exact
+          amount in <b>minor units (pence)</b>; MCOM collects it via <b>Stripe</b>, <b>PayPal</b>, or the customer's{' '}
+          <b>MCOM Wallet</b>, then records it in an immutable, double-entry ledger. You also get a fee/net split and
+          lifecycle webhooks.
+        </p>
+      </Section>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <FeatureCard n="₩" title="Wallet = prepaid credits" color="bg-emerald-50 text-emerald-600" body="Moves a user's existing MCOM balance. Debit, credit, hold. Best for rewards, refunds and in-ecosystem spending." />
+        <FeatureCard n="£" title="MCOM Pay = collect money" color="bg-indigo-50 text-indigo-600" body="Charges real money (card / PayPal) or the wallet for anything you sell, and keeps an auditable ledger in pence with fees and net." />
+      </div>
+
+      <Section title="MCOM Pay endpoints — /api/v1/app-payments">
+        <EndpointTable
+          rows={[
+            ['POST', '/charges', 'Create a charge (stripe | paypal | wallet)', 'Required'],
+            ['POST', '/charges/:id/confirm', 'Confirm after the customer pays (idempotent)', '—'],
+            ['POST', '/charges/:id/refund', 'Refund a paid charge (full or partial)', '—'],
+            ['GET', '/charges', 'List charges your app created (filters + paging)', '—'],
+            ['GET', '/charges/:id', 'Fetch a single charge', '—'],
+          ]}
+        />
+      </Section>
+
+      <Section title="Create a charge">
+        <CodeBlock
+          label="POST /api/v1/app-payments/charges"
+          code={`POST ${base}/app-payments/charges
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+X-Idempotency-Key: mcom-mall-order-ORDER_123
+Content-Type: application/json
+
+{
+  "amountMinor": "10270",           // £102.70 — integer string, MINOR units
+  "currency": "GBP",                // optional, default GBP
+  "method": "stripe",               // "stripe" | "paypal" | "wallet"
+  "reference": "ORDER_123",         // your order/invoice id (required)
+  "description": "Pro plan renewal",
+  "mcomUserId": "user_abc123",      // required only for method = "wallet"
+  "externalCustomerId": "cust_987", // your own customer id (optional)
+  "metadata": { "cartId": "c_1" }
+}
+
+→ 201 {
+  "charge": {
+    "id": "clx8p2qr10000x4vj3k5m7n9p",
+    "appClientId": "mcom-mall",
+    "amountMinor": "10270",
+    "currency": "GBP",
+    "feeMinor": "318",
+    "netMinor": "9952",
+    "method": "stripe",
+    "status": "pending",
+    "reference": "ORDER_123",
+    "provider": "stripe",
+    "providerRef": "pi_3Pabc...",
+    "createdAt": "2026-10-11T10:00:00.000Z"
+  },
+  "clientSecret": "pi_3Pabc..._secret_xyz"   // stripe only
+  // paypal returns: "approvalUrl": "https://www.paypal.com/checkoutnow?token=5O1..."
+  // wallet: settles immediately (status "paid"); 422 INSUFFICIENT_BALANCE if too low
+}`}
+        />
+      </Section>
+
+      <Section title="Confirm & refund">
+        <CodeBlock
+          label="confirm then refund"
+          code={`// 1) After the customer completes payment, confirm server-side.
+POST ${base}/app-payments/charges/clx8p2qr.../confirm
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+Content-Type: application/json
+
+{ "paymentIntentId": "pi_3Pabc..." }   // stripe — or { "orderId": "5O1..." } for paypal
+// → charge.status = "paid"  (confirm is idempotent; MCOM webhooks are the backstop)
+
+// 2) Refund (omit amountMinor for a full refund; fee is prorated for partials).
+POST ${base}/app-payments/charges/clx8p2qr.../refund
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+Content-Type: application/json
+
+{ "amountMinor": "10270", "reason": "Customer requested refund" }`}
+        />
+      </Section>
+
+      <Section title="Amounts, fees & the ledger">
+        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
+          <li><b>Minor units only.</b> Send <code className="text-emerald-600 font-mono">amountMinor</code> as a positive integer string — <code className="text-emerald-600 font-mono">"10270"</code> = £102.70. Responses return <code className="text-emerald-600 font-mono">amountMinor</code> / <code className="text-emerald-600 font-mono">feeMinor</code> / <code className="text-emerald-600 font-mono">netMinor</code> as strings. Never floats.</li>
+          <li><b>Fee config</b> (per app, set in the Console; default <b>2.9% + 20p</b>): <code className="text-emerald-600 font-mono">feePercent</code> + <code className="text-emerald-600 font-mono">feeFixedMinor</code>. Fee is clamped to <code className="text-emerald-600 font-mono">[0, amountMinor]</code>.</li>
+          <li><b>Net</b> = <code className="text-emerald-600 font-mono">amountMinor − feeMinor</code> — what MCOM records as owed to your app.</li>
+          <li><b>Immutable double-entry ledger</b>: a paid charge posts <code className="text-emerald-600 font-mono">debit clearing = credit app_payable + credit mcom_revenue</code>; refunds post the exact reverse. Entries are never edited or deleted.</li>
+        </ul>
+        <CodeBlock
+          label="ledger (per paid charge)"
+          code={`debit  <clearing>     amountMinor   (money in: gateway or wallet)
+credit app_payable    netMinor      (owed to your app)
+credit mcom_revenue   feeMinor      (MCOM fee, when > 0)
+
+// Refunds post the reverse, so the ledger always sums to zero.`}
+        />
+      </Section>
+
+      <Section title="Webhooks (payment.succeeded / payment.refunded)">
+        <p className="text-xs text-gray-600 leading-relaxed">
+          MCOM POSTs lifecycle events to your app's <b>Webhook URL</b> (Console), signed with your Webhook Secret via{' '}
+          <code className="text-emerald-600 font-mono">X-Mcom-Webhook-Signature: sha256=HMAC-SHA256(rawBody, webhookSecret)</code>.
+          Verify the signature and treat deliveries as at-least-once (dedupe on <code className="text-emerald-600 font-mono">chargeId</code>).
+        </p>
+        <CodeBlock
+          label="webhook payload"
+          code={`{
+  "event": "payment.succeeded",
+  "platform": "mcom-mall",
+  "timestamp": "2026-10-11T10:00:05.000Z",
+  "data": {
+    "chargeId": "clx8p2qr10000x4vj3k5m7n9p",
+    "amountMinor": "10270", "feeMinor": "318", "netMinor": "9952",
+    "currency": "GBP", "method": "stripe", "status": "paid",
+    "reference": "ORDER_123", "mcomUserId": "user_abc123",
+    "externalCustomerId": "cust_987", "provider": "stripe",
+    "providerRef": "pi_3Pabc...", "paidAt": "2026-10-11T10:00:05.000Z"
+  }
+}`}
+        />
+      </Section>
+
+      <Section title="MCOM Pay error codes">
+        <ErrorTable
+          rows={[
+            ['400', 'VALIDATION_ERROR', 'Bad body / bad amountMinor', 'Fix request — don\'t retry'],
+            ['400', '—', 'X-Idempotency-Key missing on create', 'Add the header'],
+            ['400', 'amount mismatch', 'Confirmed amount ≠ charge amount', 'Do not activate; investigate'],
+            ['401', 'INVALID_SIGNATURE', 'Bad HMAC / unknown client', 'Check hmacSecret; rotate in Console'],
+            ['403', 'forbidden', 'Charge belongs to another app', 'Only read/confirm your own charges'],
+            ['404', 'not found', 'Unknown charge id', 'Check the id'],
+            ['409', 'conflict', 'Idempotency key reused by another app', 'Use a platform-scoped key'],
+            ['409', 'conflict', 'Charge not in a confirmable/refundable state', 'Re-read the charge'],
+            ['422', 'INSUFFICIENT_BALANCE', 'Wallet method — not enough balance', 'Offer top-up or card'],
+            ['429', 'RATE_LIMITED', 'Too many requests', 'Exponential backoff'],
+            ['500/503', 'server', 'Transient failure', 'Retry with backoff, same key'],
+          ]}
+        />
+      </Section>
+
+      <Section title="Drop-in usage">
+        <CodeBlock
+          label="MCOM Pay usage"
+          code={`// Your backend creates the charge; hand the handle to your frontend.
+const { charge, clientSecret } = await mcom.createCharge({
+  amountMinor: '10270',        // £102.70
+  method: 'stripe',
+  reference: order.id,
+  description: 'Pro plan renewal',
+  externalCustomerId: order.customerId,
+  idempotencyKey: \`\${CLIENT_ID}-pay-\${order.id}\`,
+});
+
+// Stripe.js on the client: confirm with clientSecret, then:
+await mcom.confirmCharge(charge.id, { paymentIntentId });
+
+// Or collect into the user's MCOM wallet instead:
+await mcom.createCharge({
+  amountMinor: '10270', method: 'wallet', reference: order.id,
+  mcomUserId: user.mcomId, idempotencyKey: \`\${CLIENT_ID}-pay-\${order.id}\`,
+});`}
+        />
       </Section>
     </div>
   );
@@ -687,6 +873,10 @@ export class McomWalletService {
           <li><code className="text-emerald-600 font-mono">INSUFFICIENT_BALANCE</code> handled (top-up prompt)</li>
           <li>409/429/5xx retried with backoff, same key</li>
           <li>Captured holds are captured or released; rely on 24h auto-expiry as backstop</li>
+          <li><b>MCOM Pay:</b> charges created server-side only (amount never from the browser), sent as integer minor-unit strings</li>
+          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">clientSecret</code>/<code className="text-emerald-600 font-mono">approvalUrl</code> handled per method; <code className="text-emerald-600 font-mono">confirm</code> called after payment</li>
+          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">payment.succeeded</code>/<code className="text-emerald-600 font-mono">payment.refunded</code> webhooks verified (signature + idempotent)</li>
+          <li><b>MCOM Pay:</b> refunds go through <code className="text-emerald-600 font-mono">/refund</code>; fee config reviewed in the Console (default 2.9% + 20p)</li>
         </ul>
       </Section>
     </div>

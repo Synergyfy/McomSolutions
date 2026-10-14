@@ -79,11 +79,14 @@ export const useCompleteGoogleOnboarding = () => {
   });
 };
 
-export const useAllBusinesses = (searchQuery?: string) => {
+export const useAllBusinesses = (searchQuery?: string, enabled = true) => {
+  const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token'));
   return useQuery({
     queryKey: ['businesses', searchQuery],
     queryFn: () => businessApi.getAllBusinesses(searchQuery),
     staleTime: 1000 * 60 * 2, // 2 minutes
+    enabled: Boolean(enabled && hasToken),
+    retry: false,
   });
 };
 

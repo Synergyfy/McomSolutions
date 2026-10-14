@@ -1,4 +1,5 @@
 import { apiClient, setSharedAuthCookies } from '../api';
+import { clearStoredReferralCode, withReferralCode } from '../../lib/referral';
 import type { CreateSupportTicket } from '../../types/contracts';
 
 export const businessApi = {
@@ -87,12 +88,27 @@ export const businessApi = {
   },
 
   register: async (data: any) => {
-    const res = await apiClient.post('/auth/register', data);
+    const res = await apiClient.post('/auth/register', withReferralCode(data));
+    if (res.data?.accessToken) {
+      localStorage.setItem('auth_token', res.data.accessToken);
+      if (res.data?.user) {
+        localStorage.setItem('business_user', JSON.stringify(res.data.user));
+      }
+      setSharedAuthCookies(res.data.accessToken, res.data.refreshToken ?? null, res.data.user);
+      clearStoredReferralCode();
+    }
     return res.data;
   },
 
   login: async (data: any) => {
     const res = await apiClient.post('/auth/login', data);
+    if (res.data?.accessToken) {
+      localStorage.setItem('auth_token', res.data.accessToken);
+      if (res.data?.user) {
+        localStorage.setItem('business_user', JSON.stringify(res.data.user));
+      }
+      setSharedAuthCookies(res.data.accessToken, res.data.refreshToken ?? null, res.data.user);
+    }
     return res.data;
   },
 

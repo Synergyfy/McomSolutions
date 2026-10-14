@@ -3,7 +3,7 @@ import { TaskService } from './task.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TASK_REWARD_QUEUE } from '../queue/queue.constants';
-import { TaskAssignmentStatus, TaskAudience, Role } from '@prisma/client';
+import { TaskAssignmentStatus, TaskAudience, Role, TaskSource } from '@prisma/client';
 
 describe('TaskService', () => {
   let service: TaskService;
@@ -35,6 +35,9 @@ describe('TaskService', () => {
     },
     user: {
       findMany: jest.fn(),
+    },
+    ssoClient: {
+      findUnique: jest.fn(),
     },
     $transaction: jest.fn((callback) => {
       if (typeof callback === 'function') {
@@ -88,6 +91,114 @@ describe('TaskService', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual(created);
       expect(mockPrisma.auditLog.create).toHaveBeenCalled();
+    });
+
+    it('should reject internal tasks without a feature key', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'No trigger',
+          description: 'Missing feature key',
+          targetAudience: TaskAudience.BUSINESS,
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('Select a platform trigger feature');
+    });
+
+    it('should reject internal tasks with an unknown feature key', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'Bad trigger',
+          description: 'Unknown key',
+          targetAudience: TaskAudience.BUSINESS,
+          featureKey: 'made.up_key',
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('Unknown feature key');
+    });
+
+    it('should reject external tasks without a console app', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'External thing',
+          description: 'Do it over there',
+          targetAudience: TaskAudience.BUSINESS,
+          taskSource: TaskSource.EXTERNAL,
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('Select an external app');
+    });
+
+    it('should reject external tasks that still carry a feature key', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'External thing',
+          description: 'Do it over there',
+          targetAudience: TaskAudience.BUSINESS,
+          taskSource: TaskSource.EXTERNAL,
+          featureKey: 'business.logo_uploaded',
+          externalClientId: 'mcom-mall',
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('omit the feature key');
+    });
+
+    it('should reject external tasks for unregistered apps', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      await expect(
+        service.createTaskDefinition({
+          title: 'External thing',
+          description: 'Do it over there',
+          targetAudience: TaskAudience.BUSINESS,
+          taskSource: TaskSource.EXTERNAL,
+          externalClientId: 'ghost-app',
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('not registered in the console');
+    });
+
+    it('should create external tasks with a console app snapshot and manual completion', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue({
+        clientId: 'mcom-mall',
+        name: 'MCOM Mall',
+        platformSlug: 'mall',
+        appUrl: 'https://mall.example.com',
+        isActive: true,
+      });
+      const created = {
+        id: 'task-ext-1',
+        title: 'Create your storefront',
+        taskSource: TaskSource.EXTERNAL,
+        featureKey: null,
+        externalClientId: 'mcom-mall',
+        platform: 'mall',
+      };
+      mockPrisma.taskDefinition.create.mockResolvedValue(created);
+
+      const result = await service.createTaskDefinition({
+        title: 'Create your storefront',
+        description: 'Open MCOM Mall and create your storefront, then mark done here.',
+        targetAudience: TaskAudience.BUSINESS,
+        taskSource: TaskSource.EXTERNAL,
+        externalClientId: 'mcom-mall',
+        deadlineDays: 14,
+        rewardPoints: 100,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.taskDefinition.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          taskSource: TaskSource.EXTERNAL,
+          featureKey: null,
+          externalClientId: 'mcom-mall',
+          externalAppName: 'MCOM Mall',
+          platform: 'mall',
+        }),
+      });
     });
   });
 

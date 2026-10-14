@@ -63,6 +63,7 @@ describe('PaymentService', () => {
   const mockPricingService = {
     subscribeMembership: jest.fn(),
     resolveMembershipPrice: jest.fn().mockResolvedValue(10),
+    resolvePaymentQuote: jest.fn().mockResolvedValue({ perChargePrice: 30.6, totalPrice: 91.8, installments: 3 }),
   };
 
   const mockPrisma = {
@@ -280,6 +281,129 @@ describe('PaymentService', () => {
       // custom_id carries no trial segment anymore
       const orderBody = mockAxiosPost.mock.calls[1][1];
       expect(orderBody.purchase_units[0].custom_id).toBe('b1|Gold|Pro|yearly');
+    });
+  });
+
+  // ─── instalment payment plans ──────────────────
+  describe('instalment payment plans', () => {
+    beforeEach(() => {
+      mockPricingService.resolvePaymentQuote = jest.fn().mockResolvedValue({
+        perChargePrice: 30.6,
+        totalPrice: 91.8,
+        installments: 3,
+      });
+    });
+
+    it('stripeInitiate charges the per-instalment price and tags intent metadata', async () => {
+      const result = await service.stripeInitiate('b1', 'Bronze', 'Standard', 'monthly', 'monthly');
+
+      expect(result.type).toBe('payment');
+      expect(mockPaymentIntents.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 3060,
+          metadata: expect.objectContaining({ businessId: 'b1', paymentPlan: 'monthly' }),
+        }),
+      );
+      expect(mockPricingService.resolvePaymentQuote).toHaveBeenCalledWith(
+        'Bronze', 'Standard', 'monthly',
+      );
+    });
+
+    it('stripeConfirm trusts intent metadata and forwards the payment plan', async () => {
+      mockPaymentIntents.retrieve.mockResolvedValue({
+        status: 'succeeded',
+        amount: 3060,
+        currency: 'gbp',
+        metadata: { businessId: 'b1', paymentPlan: 'monthly' },
+      });
+      mockPricingService.subscribeMembership.mockResolvedValue({ membershipLevel: 'Bronze' });
+
+      await service.stripeConfirm('b1', 'Bronze', 'Standard', 'monthly', 'pi_inst_1', {
+        userId: 'u1',
+        businessId: 'b1',
+      }, 'monthly');
+
+      expect(mockPricingService.subscribeMembership).toHaveBeenCalledWith(
+        'b1', 'Bronze', 'Standard', 'monthly',
+        { provider: 'stripe', providerPaymentId: 'pi_inst_1', paymentPlan: 'monthly' },
+      );
+    });
+
+    it('stripeConfirm rejects an instalment amount mismatch in plain language', async () => {
+      mockPaymentIntents.retrieve.mockResolvedValue({
+        status: 'succeeded',
+        amount: 9999,
+        currency: 'gbp',
+        metadata: { businessId: 'b1', paymentPlan: 'monthly' },
+      });
+
+      await expect(
+        service.stripeConfirm('b1', 'Bronze', 'Standard', 'monthly', 'pi_inst_2', {
+          userId: 'u1',
+          businessId: 'b1',
+        }, 'monthly'),
+      ).rejects.toThrow('Paid amount does not match the plan price');
+    });
+
+    it('paypalInitiate appends the payment plan to custom_id for instalments only', async () => {
+      mockAxiosPost
+        .mockResolvedValueOnce({ data: { access_token: 'paypal-token' } })
+        .mockResolvedValueOnce({
+          data: {
+            id: 'order-inst-1',
+            links: [{ rel: 'approve', href: 'https://paypal.com/checkout?token=order-inst-1' }],
+          },
+        });
+
+      await service.paypalInitiate(
+        'b1', 'Bronze', 'Standard', 'monthly',
+        'https://example.com/return', 'https://example.com/cancel', 'monthly',
+      );
+
+      const orderBody = mockAxiosPost.mock.calls[1][1];
+      expect(orderBody.purchase_units[0].custom_id).toBe('b1|Bronze|Standard|monthly|monthly');
+      expect(orderBody.purchase_units[0].amount.value).toBe('30.60');
+    });
+
+    it('paypalCapture activates the instalment step from a 5-segment custom_id', async () => {
+      mockAxiosPost
+        .mockResolvedValueOnce({ data: { access_token: 'paypal-token' } })
+        .mockResolvedValueOnce({
+          data: {
+            purchase_units: [{
+              custom_id: 'b1|Bronze|Standard|monthly|monthly',
+              payments: { captures: [{ amount: { currency_code: 'GBP', value: '30.60' } }] },
+            }],
+          },
+        });
+      mockAxiosGet.mockResolvedValueOnce({
+        data: {
+          id: 'order-inst-1',
+          purchase_units: [{
+            custom_id: 'b1|Bronze|Standard|monthly|monthly',
+            amount: { currency_code: 'GBP', value: '30.60' },
+          }],
+        },
+      });
+      mockPricingService.subscribeMembership.mockResolvedValue({ membershipLevel: 'Bronze' });
+
+      await service.paypalCapture('order-inst-1', { userId: 'u1', businessId: 'b1' });
+
+      expect(mockPricingService.subscribeMembership).toHaveBeenCalledWith(
+        'b1', 'Bronze', 'Standard', 'monthly',
+        { provider: 'paypal', providerPaymentId: 'order-inst-1', paymentPlan: 'monthly' },
+      );
+    });
+
+    it('still rejects legacy trial custom_ids', async () => {
+      mockAxiosPost.mockResolvedValueOnce({ data: { access_token: 'paypal-token' } });
+      mockAxiosGet.mockResolvedValueOnce({
+        data: { id: 'order-trial', purchase_units: [{ custom_id: 'b1|Gold|Pro|yearly|true' }] },
+      });
+
+      await expect(
+        service.paypalCapture('order-trial', { userId: 'u1', businessId: 'b1' }),
+      ).rejects.toThrow('Trial orders are no longer supported');
     });
   });
 

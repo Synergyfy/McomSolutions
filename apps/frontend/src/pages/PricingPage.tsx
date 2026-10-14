@@ -18,24 +18,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { PRODUCTS } from '../constants';
 
 import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
-import { usePackageTemplates } from '../services/pricing/hooks';
 
 function ModularProductCard({ product }: any) {
-  const { data: packageTemplates = [] } = usePackageTemplates();
-  const matching = packageTemplates.filter(
-    (t: any) =>
-      t.platform?.toLowerCase() === product.id?.toLowerCase() ||
-      product.name?.toLowerCase().includes((t.name || '').toLowerCase())
-  );
-  const validPrices = matching
-    .map((t: any) => Number(t.monthlyPrice || t.price || 0))
-    .filter((p: number) => p > 0);
-  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
-
-  const displayPrice = (minPrice !== null && isFinite(minPrice))
-    ? `£${minPrice}`
-    : (product.name.includes('Mall') ? '£40' : 
-       product.name.includes('Loyalty') ? '£25' : 
+  // Package catalog removed (memberships-only model): standalone plans live on
+  // the external platforms. Show indicative starting prices.
+  const displayPrice = (product.name.includes('Mall') ? '£40' :
+       product.name.includes('Loyalty') ? '£25' :
        product.name.includes('Rewards') ? '£15' : '£20');
 
   return (

@@ -17,6 +17,11 @@ export function generateAiIntegrationPrompt(
   const scopes = client.scopes?.join(' ') || 'profile email business';
   const hasBilling = !!client.billingApiUrl;
   const hasWebhook = !!client.webhookUrl;
+  const serviceEnabled = client.serviceEnabled !== false;
+  const serviceBaseUrl = client.serviceBaseUrl || client.billingApiUrl || 'https://api.your-app.com';
+  const serviceScopes = client.serviceScopes?.length
+    ? client.serviceScopes.join(' ')
+    : '<space-separated service scopes>';
 
   return `# AI Developer Prompt: Integrate ${client.name} with MCOM Solutions Ecosystem
 
@@ -47,6 +52,11 @@ MCOM_WEBHOOK_SECRET="${webhookSecret}"
 MCOM_PLATFORM_SLUG="${platformSlug}"
 MCOM_REDIRECT_URI="${redirectUri}"
 MCOM_SCOPES="${scopes}"
+
+# Ecosystem Service-to-Service (M2M) — direct peer-to-peer calls, no MCOM in the path
+MCOM_SERVICE_ENABLED="${serviceEnabled}"
+MCOM_SERVICE_BASE_URL="${serviceBaseUrl}"
+MCOM_SERVICE_SCOPES="${serviceScopes}"
 \`\`\`
 
 ---
@@ -127,85 +137,89 @@ Implement the following modules in this codebase:
      \`\`\`
 3. Store the \`accessToken\`, \`refreshToken\`, and user profile in your application's session or issue a local JWT session.
 
-### Task 3: Dual Entitlement Model (Standalone Plans vs. MCOM Memberships)
-MCOM Solutions services users through two distinct access paths:
-1. **Standalone Direct Plan (The Former System)**:
-   - The merchant purchased a subscription plan specifically for ${client.name}.
-   - \`appPlan.source === 'direct'\`.
-   - \`appPlan.planId\` contains the direct plan identifier.
-   - \`appPlan.planName\` contains the plan name.
-   - \`appPlan.limits\` / \`quotas\` contain the feature quotas.
-   - \`appPlan.membershipPlanName\` is \`null\`.
-2. **MCOM Ecosystem Membership (Multi-App Bundle)**:
+### Task 3: Unified Entitlement & Trial Access Protocol
+MCOM Solutions delivers a standardized **PlatformEntitlement** object inside both \`POST /auth/sso/token\` and \`GET /auth/sso/userinfo\` (and via \`GET /auth/sso/entitlement\`):
+
+1. **Paid Ecosystem Membership Bundle**:
    - The merchant holds an active MCOM Membership (e.g. Gold, Silver, Platinum) that bundles access to ${client.name}.
-   - \`appPlan.source === 'membership'\`.
-   - \`appPlan.planId\` contains the plan level bundled for this app by their membership.
-   - \`appPlan.planName\` contains the bundled plan display name.
-   - \`appPlan.quotas\` contains the bundled quotas.
-   - \`appPlan.membershipPlanName\` indicates the parent membership tier (e.g. "Gold").
-3. **Both Active**:
-   - If the merchant has both a direct package and an active membership bundling this app, \`appPlan\` resolves with priority and provides both \`directPlan\` and \`membershipPlan\` blocks for full transparency.
+   - \`entitlement.access.hasAccess === true\`
+   - \`entitlement.access.accessType === 'PAID_MEMBERSHIP'\`
+   - \`entitlement.plan.planId\` contains the plan level bundled for this app.
+   - \`entitlement.membershipContext.isIncludedInMembership === true\`.
+
+2. **Programme Trial Access (Task-Gated)**:
+   - When a business pays the £1 verification fee in MCOM Central, they receive a timed trial (e.g. 14 days).
+   - If an admin created an active task in the **Task Engine & Rewards** (/admin/programme) selecting **${client.name}** under *External App (from Console)*, the business automatically unlocks trial access to this platform!
+   - \`entitlement.access.hasAccess === true\`
+   - \`entitlement.access.accessType === 'TRIAL_PROGRAMME'\`
+   - \`entitlement.trialContext.isInTrial === true\`
+   - \`entitlement.trialContext.programmeTasks\` contains the list of tasks the merchant must complete on your platform!
+
+3. **No Access / Upgrade Required**:
+   - If the merchant has no membership bundling ${client.name}, or trial is expired / platform has no programme tasks:
+   - \`entitlement.access.hasAccess === false\`
+   - \`entitlement.access.accessType === 'NONE'\`
+   - \`entitlement.access.reason\`:
+     - \`'PLATFORM_NOT_IN_MEMBERSHIP'\`: Member, but this app wasn't bundled.
+     - \`'TRIAL_NO_TASKS'\`: In trial, but no active tasks exist for this platform.
+     - \`'TRIAL_EXPIRED'\`: Trial window has ended.
+     - \`'UNVERIFIED'\`: Verification fee unpaid.
+   - \`entitlement.access.upgradeUrl\`: Pre-built link back to MCOM Central for instant upgrade/payment.
 
 #### Handling Entitlements in Your Backend:
 \`\`\`typescript
-// Extract appPlan from the token response or userinfo response
-const businessProfile = user.businessProfile;
-const appPlan = businessProfile?.appPlan;
-const hasAccess = user.permissions?.canAccess_${platformSlug} === true;
+// Extract entitlement from the SSO token response or /auth/sso/entitlement
+const { entitlement, user } = response.data;
 
-if (hasAccess && appPlan && appPlan.status === 'active') {
-  // 1. Extract plan details regardless of whether it came from a direct plan or membership:
-  const planId = appPlan.planId;       // e.g. "tier-1" or "growth-tier"
-  const planName = appPlan.planName;   // e.g. "Standard Plan"
-  const quotas = appPlan.quotas || {}; // e.g. { maxProducts: 50, maxPoints: 1000 }
-  const source = appPlan.source;       // "membership" | "direct"
-  const membershipTier = appPlan.membershipPlanName; // "Gold" (if from membership)
-
-  console.log(\`User \${user.email} entitled to \${planName} via \${source}\`);
-  if (source === 'membership') {
-    console.log(\`Bundled with MCOM Membership: \${membershipTier}\`);
-  }
-
-  // 2. Synchronize local store/user permissions and feature limits:
-  await db.Subscription.upsert({
-    where: { userId: user.id },
-    update: {
-      planId,
-      planName,
-      quotas,
-      source,
-      membershipTier: membershipTier ?? null,
-      isActive: true,
-      updatedAt: new Date(),
-    },
-    create: {
-      userId: user.id,
-      planId,
-      planName,
-      quotas,
-      source,
-      membershipTier: membershipTier ?? null,
-      isActive: true,
-    },
-  });
-} else {
-  // User has no active plan or membership bundle for ${client.name}
-  // Restrict access or redirect to MCOM Solutions to choose a plan or membership:
-  // ${mcomBaseUrl}/pricing or ${mcomBaseUrl}/memberships
+if (!entitlement?.access?.hasAccess) {
+  // Merchant does not have access to this platform
+  const reason = entitlement?.access?.reason;
+  const upgradeUrl = entitlement?.access?.upgradeUrl;
+  console.warn(\`Access denied for \${user.email}: \${reason}\`);
+  return res.redirect(\`/upgrade?reason=\${reason}&upgradeUrl=\${encodeURIComponent(upgradeUrl)}\`);
 }
+
+// User is entitled! Provision based on whether it is a Paid Membership or Trial:
+const isTrial = entitlement.access.accessType === 'TRIAL_PROGRAMME';
+const planId = entitlement.plan?.planId;
+const planName = entitlement.plan?.planName;
+const quotas = entitlement.plan?.quotas || {};
+const tasksToComplete = entitlement.trialContext?.programmeTasks || [];
+
+await db.Subscription.upsert({
+  where: { userId: user.id },
+  update: {
+    planId,
+    planName,
+    quotas,
+    isTrial,
+    tasksToComplete,
+    isActive: true,
+    updatedAt: new Date(),
+  },
+  create: {
+    userId: user.id,
+    planId,
+    planName,
+    quotas,
+    isTrial,
+    tasksToComplete,
+    isActive: true,
+  },
+});
 \`\`\`
 
-### Task 4: Fresh Profile & Entitlements Synchronization
-Whenever your backend needs to re-verify a user's subscription, refresh quotas, or check active packages without a full re-login:
+### Task 4: Real-time Entitlement Introspection API
+Whenever your backend needs to re-verify a user's subscription or check active trial tasks without forcing a re-login:
 \`\`\`http
-GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/userinfo
+GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/entitlement?client_id=\${MCOM_CLIENT_ID}&user_id=\${userId}
+X-API-Key: \${MCOM_API_KEY}
+\`\`\`
+Or with the user's Bearer token:
+\`\`\`http
+GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/entitlement
 Authorization: Bearer \${accessToken}
 \`\`\`
-Response provides:
-- \`appPlan\`: The latest resolved plan for ${client.name} (direct or membership bundle).
-- \`membership\`: Full membership metadata (\`planName\`, \`level\`, \`status\`, and all \`appPlans\`).
-- \`packages\`: Array of all active platform packages.
-- \`permissions\`: Calculated access flags (\`canAccess_${platformSlug}: true\`).
 
 ${
   hasBilling
@@ -290,6 +304,86 @@ async function checkUserMembership(userId: string) {
 }
 \`\`\`
 
+### Task 8: Direct Backend-to-Backend Calls (Ecosystem Service Identity)
+Registered app backends can call each other **directly** — MCOM is not in the request path.
+MCOM only issues short-lived RS256 service tokens and publishes a public JWKS for offline verification.
+
+**A. Calling a peer (outbound):**
+\`\`\`typescript
+import axios from 'axios';
+
+// Exchange your client credentials for a short-lived service token (cache it until expiry).
+async function getServiceToken(audience: string, scope: string) {
+  const basic = Buffer.from(\`\${process.env.MCOM_CLIENT_ID}:\${process.env.MCOM_CLIENT_SECRET}\`).toString('base64');
+  const { data } = await axios.post(
+    \`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token\`,
+    { grant_type: 'client_credentials', audience, scope },
+    { headers: { Authorization: \`Basic \${basic}\` } },
+  );
+  return data.access_token as string;
+}
+
+// Call the peer backend DIRECTLY (never through MCOM).
+async function callPeer() {
+  const token = await getServiceToken('mcom-rewards', 'rewards:read');
+  return axios.get('https://api.mcomrewards.com/api/v1/whatever', {
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+}
+\`\`\`
+
+**B. Verifying an incoming service token (offline, via JWKS + cached registry):**
+\`\`\`typescript
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+const JWKS = createRemoteJWKSet(new URL(\`\${process.env.MCOM_SOLUTIONS_URL}/.well-known/jwks.json\`));
+
+// Ingress policy: peers allowed to call THIS app (from the cached registry).
+// Empty = deny all; ["*"] = anyone. Refresh periodically (e.g. every 60s).
+async function getAllowedCallers(): Promise<string[]> {
+  const { data } = await axios.get(\`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/ecosystem/services\`);
+  const self = (data as any[]).find((s) => s.clientId === process.env.MCOM_CLIENT_ID);
+  return self?.allowedCallers ?? [];
+}
+const peerAllowed = (list: string[], peer: string) => list.includes('*') || list.includes(peer);
+
+export async function verifyServiceToken(authHeader?: string) {
+  const token = authHeader?.replace(/^Bearer /i, '');
+  if (!token) throw new Error('Missing service token');
+
+  const { payload } = await jwtVerify(token, JWKS, {
+    issuer: 'mcom-solutions',
+    audience: process.env.MCOM_CLIENT_ID, // this app's own clientId
+  });
+
+  // Deny-by-default ingress check (caller app id; act.sub for delegated tokens).
+  const caller = (payload.act?.sub as string) || (payload.sub as string);
+  const allowed = await getAllowedCallers();
+  if (!peerAllowed(allowed, caller)) throw new Error('Caller not permitted by ingress policy');
+
+  // payload.sub       → calling app (service token) or user id (delegated)
+  // payload.act?.sub  → caller app id for delegated tokens
+  return payload;
+}
+\`\`\`
+
+**C. User-bound (delegated) calls (RFC 8693):** to act on behalf of a specific user, exchange the
+user's SSO access token for a delegated service token. The receiver sees \`sub\` = user and
+\`act.sub\` = the calling app.
+\`\`\`typescript
+const { data } = await axios.post(
+  \`\${process.env.MCOM_SOLUTIONS_URL}/api/v1/auth/service-token/exchange\`,
+  { subject_token: userSsoAccessToken, audience: 'mcom-rewards', scope: 'rewards:read' },
+  { headers: { Authorization: \`Basic \${basic}\` } },
+);
+\`\`\`
+
+Discovery: \`GET /api/v1/ecosystem/services\` (cached registry) · \`GET /api/v1/ecosystem/discovery\`.
+
+> **Policy is deny-by-default.** A call succeeds only if the caller's egress (\`allowedAudiences\`)
+> permits the target AND the target's ingress (\`allowedCallers\`) permits the caller. Use \`"*"\` for
+> "anyone". Admins manage this in the MCOM Console → **Service Mesh Policy** matrix.
+
 ---
 
 ## 3. Verification & Acceptance Criteria
@@ -302,5 +396,6 @@ async function checkUserMembership(userId: string) {
 5. User permissions show \`canAccess_${platformSlug}: true\` for authorized accounts.
 6. Token refresh handles expired access tokens seamlessly via \`/api/v1/auth/sso/token/refresh\`.
 7. All secrets are kept on the server and never exposed in client-side bundles.
+8. (Optional) Registered apps can call each other's backends **directly** using service tokens verified offline via JWKS — no MCOM request in the path.
 `;
 }

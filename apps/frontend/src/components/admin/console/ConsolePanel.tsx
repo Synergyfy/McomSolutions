@@ -4,6 +4,7 @@ import {
   BookOpen,
   HelpCircle,
   Lock,
+  Network,
   Plus,
   RefreshCw,
   Shield,
@@ -18,10 +19,11 @@ import RegisterAppModal from './RegisterAppModal';
 import CredentialsSuccess from './CredentialsSuccess';
 import ConsoleMetrics from './ConsoleMetrics';
 import ConsoleArchitectureModal from './ConsoleArchitectureModal';
+import ServiceMeshPolicyPanel from './ServiceMeshPolicyPanel';
 import { useConsoleApps } from './hooks/useConsoleApps';
 import type { RegisterAppResult } from '../../../services/admin/types';
 
-type View = { kind: 'list' } | { kind: 'detail'; clientId: string };
+type View = { kind: 'list' } | { kind: 'detail'; clientId: string } | { kind: 'policy' };
 
 export default function ConsolePanel() {
   const { admin } = useAdminAuth();
@@ -69,6 +71,16 @@ export default function ConsolePanel() {
 
         {/* Global Header Actions */}
         <div className="flex items-center gap-2 flex-wrap">
+          {view.kind === 'list' && (
+            <button
+              onClick={() => setView({ kind: 'policy' })}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white rounded-xl text-xs font-bold transition-all border border-gray-700"
+            >
+              <Network className="w-3.5 h-3.5 text-brand-blue" />
+              <span>Service Mesh Policy</span>
+            </button>
+          )}
+
           <button
             onClick={() => setShowArchGuide(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white rounded-xl text-xs font-bold transition-all border border-gray-700"
@@ -101,16 +113,20 @@ export default function ConsolePanel() {
       {view.kind === 'list' && <ConsoleMetrics apps={apps} />}
 
       {/* Main View Router */}
-      {view.kind === 'list' ? (
+      {view.kind === 'list' && (
         <AppList
           onManage={(clientId) => setView({ kind: 'detail', clientId })}
           onRegisterClick={() => setShowRegister(true)}
         />
-      ) : (
+      )}
+      {view.kind === 'detail' && (
         <AppDetail
           clientId={view.clientId}
           onBack={() => setView({ kind: 'list' })}
         />
+      )}
+      {view.kind === 'policy' && (
+        <ServiceMeshPolicyPanel onBack={() => setView({ kind: 'list' })} />
       )}
 
       {/* Registration Wizard Modal */}

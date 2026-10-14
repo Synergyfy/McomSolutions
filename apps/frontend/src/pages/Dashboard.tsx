@@ -5,14 +5,15 @@ import CHSLogo from '../components/CHSLogo';
 import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
-  PackageOpen, Wallet, Building2, ShieldCheck,
-  User, ChevronDown, ExternalLink, MoreHorizontal
+  Wallet, Building2, ShieldCheck,
+  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
 import { useLogout } from '../services/auth/hooks';
 import DashboardMemberships from '../components/DashboardMemberships';
-import DashboardPackages from '../components/DashboardPackages';
+import DashboardMessages from '../components/DashboardMessages';
+
 import DashboardOverview from '../components/DashboardOverview';
 import DashboardAllProducts from '../components/DashboardAllProducts';
 import DashboardBilling from '../components/DashboardBilling';
@@ -22,12 +23,15 @@ import DashboardNotifications from '../components/DashboardNotifications';
 import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
 import DashboardWallet from '../components/DashboardWallet';
+import DashboardReferrals from '../components/DashboardReferrals';
 import FirstDashboardWelcome from '../components/FirstDashboardWelcome';
+import VerificationPaymentModal from '../components/payment/VerificationPaymentModal';
+import { apiClient } from '../services/api';
 
 const DASHBOARD_TABS = [
-  'overview', 'all-products', 'access', 'notifications',
-  'memberships', 'packages', 'billing', 'business-profile',
-  'support', 'settings', 'wallet',
+  'overview', 'all-products', 'access', 'notifications', 'messages',
+  'memberships', 'billing', 'business-profile',
+  'referrals', 'support', 'settings', 'wallet',
 ] as const;
 
 export default function Dashboard() {
@@ -37,7 +41,10 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
-  const { data: profile } = useProfile();
+  const { data: profile, refetch: refetchProfile } = useProfile();
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [trialConfigDays, setTrialConfigDays] = useState(14);
+  const [verificationFeeAmount, setVerificationFeeAmount] = useState(1.00);
   const logout = useLogout();
   const [showFirstWelcome, setShowFirstWelcome] = useState(() => {
     return localStorage.getItem('firstDashboardLogin') === 'true';
@@ -45,10 +52,34 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Fetch active programme trial access settings
+    apiClient.get('/programme/settings')
+      .then((res: any) => {
+        if (res?.data?.data) {
+          if (res.data.data.trialAccessDays) setTrialConfigDays(res.data.data.trialAccessDays);
+          if (res.data.data.verificationFeeAmount) setVerificationFeeAmount(res.data.data.verificationFeeAmount);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     // Check if token exists, redirect if not
     const token = localStorage.getItem('auth_token');
     if (!token) {
       navigate('/login');
+      return;
+    }
+    const storedUserRaw = localStorage.getItem('business_user');
+    if (storedUserRaw) {
+      try {
+        const u = JSON.parse(storedUserRaw);
+        if (u?.role === 'CUSTOMER') {
+          navigate('/customer', { replace: true });
+        }
+      } catch {
+        // ignore
+      }
     }
   }, [navigate]);
 
@@ -62,6 +93,18 @@ export default function Dashboard() {
     setUserMenuOpen(false);
     logout();
   };
+
+  
+  const membershipLevel = profile?.membershipLevel;
+  const hasActiveMembership = (membershipLevel && membershipLevel !== 'Bronze' && profile?.membershipStatus === 'active') || 
+    (profile?.membershipExpiresAt && new Date(profile.membershipExpiresAt) > new Date());
+  
+  const hasPaidVerification = Boolean(profile?.hasPaidVerificationFee);
+  const trialExpiresAt = profile?.trialAccessExpiresAt ? new Date(profile.trialAccessExpiresAt) : null;
+  const isTrialActive = !hasActiveMembership && hasPaidVerification && trialExpiresAt && trialExpiresAt > new Date();
+  const daysRemaining = trialExpiresAt ? Math.max(0, Math.ceil((trialExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+  const isTrialExpired = !hasActiveMembership && hasPaidVerification && trialExpiresAt && trialExpiresAt <= new Date();
+  const isUnverified = Boolean(profile && !hasActiveMembership && !hasPaidVerification);
 
   const displayName = profile?.businessName || 'Business Owner';
   const displayEmail = profile?.email || 'owner@mcomsolutions.co.uk';
@@ -101,17 +144,19 @@ export default function Dashboard() {
           <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => handleNav('all-products')} />
           <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => handleNav('access')} />
           <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
+          <NavItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
           <div className="pt-8 pb-4 px-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Billing & Plans</span>
           </div>
           <NavItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
-          <NavItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => handleNav('packages')} />
+
           <div className="pt-8 pb-4 px-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Account</span>
           </div>
           <NavItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
           <NavItem icon={Wallet} label="Wallet" active={activeTab === 'wallet'} onClick={() => handleNav('wallet')} />
           <NavItem icon={Building2} label="Business Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+          <NavItem icon={Users} label="Referrals" active={activeTab === 'referrals'} onClick={() => handleNav('referrals')} />
           <NavItem icon={HelpCircle} label="Support Center" active={activeTab === 'support'} onClick={() => handleNav('support')} />
           <NavItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
         </nav>
@@ -216,6 +261,99 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {/* Trial Countdown Banner */}
+        {isTrialActive && !hasActiveMembership && (
+          <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-4 sm:px-8 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+              <span className="text-base">✨</span>
+              <span>
+                You have <strong className="font-bold underline decoration-white/40">{daysRemaining} {daysRemaining === 1 ? 'day' : 'days'}</strong> remaining of your full platform access.
+              </span>
+            </div>
+            <button
+              onClick={() => handleNav('memberships')}
+              className="px-3.5 py-1.5 rounded-lg bg-white text-emerald-800 hover:bg-emerald-50 text-xs font-bold transition-all shrink-0 self-start sm:self-auto shadow-sm cursor-pointer"
+            >
+              Choose a Membership Plan →
+            </button>
+          </div>
+        )}
+
+        {/* Unverified Account Gating Modal */}
+        {isUnverified && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 text-center space-y-4 shadow-2xl border border-gray-100">
+              <div className="w-16 h-16 rounded-3xl bg-orange-50 text-orange-600 border border-orange-200 flex items-center justify-center mx-auto text-2xl font-bold">
+                <ShieldCheck className="w-8 h-8 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Account Verification Required</h3>
+                <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
+                  To complete your business setup and unlock your full {trialConfigDays}-day platform trial, please complete your £{verificationFeeAmount.toFixed(2)} business verification fee.
+                </p>
+              </div>
+              <div className="pt-2 space-y-2">
+                <button
+                  onClick={() => setShowVerificationModal(true)}
+                  className="w-full py-3.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-orange-500/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Pay £{verificationFeeAmount.toFixed(2)} Verification Fee
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full py-2.5 px-4 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                >
+                  Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <VerificationPaymentModal
+          open={showVerificationModal}
+          trialDays={trialConfigDays}
+          amount={verificationFeeAmount}
+          onClose={() => setShowVerificationModal(false)}
+          onSuccess={() => {
+            setShowVerificationModal(false);
+            refetchProfile();
+          }}
+        />
+
+        {/* Trial Expired Gating Modal */}
+        {isTrialExpired && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 text-center space-y-4 shadow-2xl border border-gray-100">
+              <div className="w-16 h-16 rounded-3xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto text-2xl font-bold">
+                ⏳
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Your Access Period Has Expired</h3>
+                <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
+                  Your trial access has ended. To continue managing your business storefront, products, and campaign tools, please activate an ongoing membership plan.
+                </p>
+              </div>
+              <div className="pt-2 space-y-2">
+                <button
+                  onClick={() => handleNav('memberships')}
+                  className="w-full py-3.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-orange-500/20 transition-all cursor-pointer"
+                >
+                  View & Activate Membership
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full py-2.5 px-4 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors cursor-pointer"
+                >
+                  Log Out
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+
         <div className="p-2.5 sm:p-5 lg:p-8 min-w-0 max-w-full">
           {activeTab === 'overview' && (
             showFirstWelcome ? (
@@ -232,11 +370,13 @@ export default function Dashboard() {
           {activeTab === 'all-products' && <DashboardAllProducts />}
           {activeTab === 'access' && <DashboardAccess />}
           {activeTab === 'notifications' && <DashboardNotifications />}
+          {activeTab === 'messages' && <DashboardMessages />}
           {activeTab === 'memberships' && <DashboardMemberships />}
-          {activeTab === 'packages' && <DashboardPackages />}
+
           {activeTab === 'billing' && <DashboardBilling />}
           {activeTab === 'wallet' && <DashboardWallet />}
           {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+          {activeTab === 'referrals' && <DashboardReferrals />}
           {activeTab === 'support' && <DashboardSupport />}
           {activeTab === 'settings' && <DashboardSettings />}
         </div>
@@ -303,6 +443,7 @@ export default function Dashboard() {
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={ShieldCheck} label="Access" active={activeTab === 'access'} onClick={() => handleNav('access')} />
                     <SheetItem icon={Bell} label="Alerts" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
+                    <SheetItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
                     <SheetItem icon={HelpCircle} label="Support" active={activeTab === 'support'} onClick={() => handleNav('support')} />
                   </div>
                 </div>
@@ -310,7 +451,7 @@ export default function Dashboard() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Billing & Plans</p>
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
-                    <SheetItem icon={PackageOpen} label="Packages" active={activeTab === 'packages'} onClick={() => handleNav('packages')} />
+
                     <SheetItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />
                     <SheetItem icon={Wallet} label="Wallet" active={activeTab === 'wallet'} onClick={() => handleNav('wallet')} />
                   </div>
@@ -319,6 +460,7 @@ export default function Dashboard() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Account</p>
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={Building2} label="Profile" active={activeTab === 'business-profile'} onClick={() => handleNav('business-profile')} />
+                    <SheetItem icon={Users} label="Referrals" active={activeTab === 'referrals'} onClick={() => handleNav('referrals')} />
                     <SheetItem icon={Settings} label="Settings" active={activeTab === 'settings'} onClick={() => handleNav('settings')} />
                     <SheetItem icon={LogOut} label="Sign Out" onClick={handleLogout} danger />
                   </div>

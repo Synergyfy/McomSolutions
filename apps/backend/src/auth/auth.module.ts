@@ -9,6 +9,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { SsoController } from './sso.controller';
 import { SsoService } from './sso.service';
 import { GoogleOAuthService } from './google-oauth.service';
+import { SsoUserGuard } from './guards/sso-user.guard';
+
 @Module({
   imports: [
     PassportModule,
@@ -31,7 +33,8 @@ import { GoogleOAuthService } from './google-oauth.service';
     }),
   ],
   controllers: [AuthController, SsoController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, SsoService, GoogleOAuthService],
-  exports: [AuthService, SsoService, GoogleOAuthService],
+  providers: [AuthService, LocalStrategy, JwtStrategy, SsoService, GoogleOAuthService, SsoUserGuard],
+  exports: [AuthService, SsoService, GoogleOAuthService, SsoUserGuard, JwtModule],
 })
 export class AuthModule {}
+

@@ -3,11 +3,15 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ArrayMaxSize,
 } from 'class-validator';
@@ -90,4 +94,71 @@ export class RegisterAppDto {
   @IsOptional()
   @IsBoolean()
   isSystemApp?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0.029,
+    description: 'MCOM Pay fee percentage per charge (0.029 = 2.9%). Omit to use the platform default.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(0.5)
+  feePercent?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'MCOM Pay fixed fee per charge in minor units (pence). Omit to use the platform default.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  feeFixedMinor?: number;
+
+  // ─── Ecosystem service-to-service (M2M) identity ────────────────────────────
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Enable this app backend to call other registered app backends directly (service tokens).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  serviceEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'https://api.vcard.mcom.com',
+    description: 'Base URL peers call for direct app-to-app requests. Defaults to billingApiUrl.',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  serviceBaseUrl?: string;
+
+  @ApiPropertyOptional({
+    example: ['rewards:read', 'rewards:write'],
+    description: 'Scopes this app may request in a service token (subset enforced at issuance).',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(30)
+  serviceScopes?: string[];
+
+  @ApiPropertyOptional({
+    example: ['mcom-rewards', 'mcom-mall'],
+    description: 'Peers this app is permitted to call. Empty = any registered app.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(30)
+  allowedAudiences?: string[];
+
+  @ApiPropertyOptional({
+    example: ['mcom-rewards'],
+    description: 'Apps permitted to call this app (informational; enforced by the receiving app). Empty = any registered app.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(30)
+  allowedCallers?: string[];
 }

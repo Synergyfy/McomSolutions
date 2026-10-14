@@ -1,15 +1,24 @@
-import { Injectable, NotFoundException, ConflictException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { MembershipLevel, MembershipTier, MembershipStatus, Prisma } from '@prisma/client';
+import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
+  addDaysUtc,
   calculateTierExpiry,
   normalizeTier,
   getTierDurationDays,
   TierType,
 } from './tier-duration.util';
+import {
+  allowedSplit,
+  normalizePaymentPlan,
+  normalizePlanTier,
+  planTierDisplay,
+  planTierLabel,
+  resolveOptionPrice,
+} from './payment-option.util';
 
 /**
  * Phase 2: provider linkage for payment idempotency. Trials were removed —
@@ -18,6 +27,8 @@ import {
 export interface MembershipActivationOpts {
   provider?: string;
   providerPaymentId?: string;
+  /** Non-full plans activate pay-as-you-go: each charge extends access by the option's slice. */
+  paymentPlan?: string;
 }
 
 /**
@@ -116,10 +127,112 @@ export class PricingService {
     return Math.round(baseMonthly);
   }
 
+  /**
+   * Quote a membership payment option from the relational tables.
+   * Falls back to the legacy single-charge price when a plan has no tier
+   * rows yet (e.g. created before the relational remodel), so quotes never
+   * break on old data. Checkout must display these numbers — never recompute.
+   */
+  async resolvePaymentQuote(
+    level: string,
+    tier: string = 'Standard',
+    paymentPlan: string = 'full',
+  ) {
+    const plan = await this.getPlan(level);
+    const canonical = normalizeTier(tier);
+    const planTier = normalizePlanTier(tier);
+    const tierKey = planTierLabel(planTier);
+    const wanted = normalizePaymentPlan(paymentPlan);
+    const split = allowedSplit(tierKey, wanted);
+    if (!split) {
+      throw new BadRequestException(
+        `The ${paymentPlan} payment option is not available for the ${canonical} tier.`,
+      );
+    }
+
+    const tierRow = await this.prisma.membershipPlanTier.findFirst({
+      where: { planId: plan.id, tier: planTier },
+      include: { paymentOptions: { where: { isActive: true } } },
+    });
+
+    if (tierRow) {
+      const option = tierRow.paymentOptions.find((o) => o.paymentPlan === wanted);
+      if (!option) {
+        throw new BadRequestException(
+          `The ${paymentPlan} payment option is not available for the ${canonical} tier right now. Please choose another option.`,
+        );
+      }
+      return {
+        planId: plan.id,
+        planName: plan.name,
+        tier: canonical,
+        paymentPlan: wanted,
+        perChargePrice: Number(option.perChargePrice),
+        totalPrice: Number(option.totalPrice),
+        installments: option.installments,
+        sliceDays: option.sliceDays,
+        mode: option.mode,
+        currency: 'GBP',
+      };
+    }
+
+    // Legacy fallback: today's single charge grants the whole term, so the
+    // legacy price IS the outright (full) price; splits divide it, no surcharge.
+    const full = await this.resolveMembershipPrice(plan.name, canonical, 'monthly');
+    if (wanted === MembershipPaymentPlan.full) {
+      return {
+        planId: plan.id,
+        planName: plan.name,
+        tier: canonical,
+        paymentPlan: wanted,
+        perChargePrice: full,
+        totalPrice: full,
+        installments: 1,
+        sliceDays: getTierDurationDays(canonical),
+        mode: PaymentPriceMode.manual,
+        currency: 'GBP',
+      };
+    }
+    const { perChargePrice, totalPrice } = resolveOptionPrice(
+      full,
+      split.installments,
+      PaymentPriceMode.auto,
+      null,
+      0,
+    );
+    return {
+      planId: plan.id,
+      planName: plan.name,
+      tier: canonical,
+      paymentPlan: wanted,
+      perChargePrice,
+      totalPrice,
+      installments: split.installments,
+      sliceDays:
+        split.sliceDays === 'duration' ? getTierDurationDays(canonical) : split.sliceDays,
+      mode: PaymentPriceMode.auto,
+      currency: 'GBP',
+    };
+  }
+
   async getPlans() {
     const plans = await this.prisma.membershipPlan.findMany({
       where: { archived: false },
       orderBy: { price: 'asc' },
+      include: {
+        tiers: {
+          orderBy: { sortOrder: 'asc' },
+          include: {
+            paymentOptions: {
+              where: { isActive: true },
+              orderBy: { sortOrder: 'asc' },
+            },
+            features: { orderBy: { sortOrder: 'asc' } },
+            entitlements: true,
+          },
+        },
+        appBundles: true,
+      },
     });
 
     return plans.map((p) => {
@@ -153,6 +266,29 @@ export class PricingService {
         includedApps: Array.isArray(p.includedApps) ? p.includedApps : [],
         billingCycle: p.billingCycle,
         platformAccess: p.platformAccess || [],
+        tiers: (p.tiers ?? []).map((t) => ({
+          tier: planTierDisplay(t.tier),
+          durationDays: t.durationDays,
+          fullPrice: Number(t.fullPrice),
+          features: (t.features ?? []).map((f) => f.feature),
+          entitlements: (t.entitlements ?? []).map((e) => ({
+            resourceKey: e.resourceKey,
+            quotaValue: e.quotaValue,
+          })),
+          paymentOptions: (t.paymentOptions ?? []).map((o) => ({
+            paymentPlan: o.paymentPlan,
+            installments: o.installments,
+            mode: o.mode,
+            perChargePrice: Number(o.perChargePrice),
+            totalPrice: Number(o.totalPrice),
+            sliceDays: o.sliceDays,
+          })),
+        })),
+        appBundles: (p.appBundles ?? []).map((b) => ({
+          platform: b.platform,
+          externalPlanId: b.externalPlanId,
+          packageName: b.packageName,
+        })),
       };
     });
   }
@@ -203,6 +339,22 @@ export class PricingService {
       if (existing) {
         return this.resolveMembershipReplay(existing, businessId, price);
       }
+    }
+
+    // Partitioned payment: each charge extends access by the option's slice
+    // instead of unlocking the whole term (see subscribeMembershipInstallment).
+    const wantedPlan = normalizePaymentPlan(opts.paymentPlan ?? 'full');
+    if (wantedPlan !== MembershipPaymentPlan.full) {
+      return this.subscribeMembershipInstallment(
+        business,
+        plan,
+        canonicalTier,
+        validLevel,
+        validTier,
+        wantedPlan,
+        billing,
+        opts,
+      );
     }
 
     let updated;
@@ -262,12 +414,66 @@ export class PricingService {
       throw err;
     }
 
-    if (this.taskEventQueue && updated?.userId) {
+    const tierQuotas = await this.finalizeMembershipActivation({
+      updatedUserId: updated?.userId ?? null,
+      businessId,
+      planName: plan.name,
+      tierEntitlements: plan.tierEntitlements,
+      includedApps: plan.includedApps,
+      canonicalTier,
+      validLevel,
+      billing,
+      price,
+      expiresAt,
+    });
+
+    return {
+      ...updated,
+      billing,
+      price,
+      planName: plan.name,
+      tier: canonicalTier,
+      expiresAt,
+      durationDays: getTierDurationDays(canonicalTier),
+      entitlements: tierQuotas,
+    };
+  }
+
+  /**
+   * Shared tail for both activation paths: task-engine event, tier quota
+   * extraction and bundled platform-package provisioning. Returns the
+   * tier quotas for the response envelope.
+   */
+  private async finalizeMembershipActivation(input: {
+    updatedUserId?: string | null;
+    businessId: string;
+    planName: string;
+    tierEntitlements: unknown;
+    includedApps: unknown;
+    canonicalTier: TierType;
+    validLevel: MembershipLevel;
+    billing: string;
+    price: number;
+    expiresAt: Date;
+  }): Promise<Record<string, any>> {
+    const {
+      updatedUserId,
+      businessId,
+      planName,
+      tierEntitlements,
+      includedApps: rawApps,
+      canonicalTier,
+      validLevel,
+      billing,
+      expiresAt,
+    } = input;
+
+    if (this.taskEventQueue && updatedUserId) {
       this.taskEventQueue
         .add(
           'evaluate-task',
           {
-            userId: updated.userId,
+            userId: updatedUserId,
             userType: 'BUSINESS',
             featureKey: 'business.membership_purchased',
             meta: {
@@ -278,7 +484,7 @@ export class PricingService {
             },
           },
           {
-            jobId: `task-event-membership-${updated.userId}-${Date.now()}`,
+            jobId: `task-event-membership-${updatedUserId}-${Date.now()}`,
             attempts: 3,
             backoff: { type: 'exponential', delay: 1000 },
           },
@@ -288,8 +494,8 @@ export class PricingService {
 
     // Extract tier-specific quotas from tierEntitlements
     const tierQuotas: Record<string, any> = {};
-    if (Array.isArray(plan.tierEntitlements)) {
-      for (const ent of plan.tierEntitlements as any[]) {
+    if (Array.isArray(tierEntitlements)) {
+      for (const ent of tierEntitlements as any[]) {
         const key = ent.resourceKey || ent.name;
         if (!key) continue;
         const val = canonicalTier === 'Pro+' ? (ent.proPlus ?? ent.pro ?? ent.standard) : canonicalTier === 'Pro' ? (ent.pro ?? ent.standard) : ent.standard;
@@ -298,11 +504,11 @@ export class PricingService {
     }
 
     // Cross-Platform Multi-App Package Auto-Provisioning
-    const includedApps = Array.isArray(plan.includedApps) ? (plan.includedApps as any[]) : [];
+    const includedApps = Array.isArray(rawApps) ? (rawApps as any[]) : [];
 
     for (const app of includedApps) {
       const platformName = app.platform || app.platformName || 'MCOM Solutions';
-      const packageName = app.planName || app.name || `${plan.name} (${canonicalTier})`;
+      const packageName = app.planName || app.name || `${planName} (${canonicalTier})`;
       let externalPlanId = app.planId || app.id || null;
 
       // Extract tier-specific app quotas & feature flags if the app has 3-tier variant configuration
@@ -359,15 +565,198 @@ export class PricingService {
       });
     }
 
+    return tierQuotas;
+  }
+
+  /**
+   * Pay-as-you-go activation for one instalment step. Each successful charge
+   * extends `membershipExpiresAt` by the option's slice; the final step tops
+   * up to the exact full-term expiry. Runs in an interactive transaction with
+   * a row lock on the business so concurrent steps can never lose an extension.
+   */
+  private async subscribeMembershipInstallment(
+    business: { id: string; businessName: string },
+    plan: { id: string; name: string; tierEntitlements: unknown; includedApps: unknown },
+    canonicalTier: TierType,
+    validLevel: MembershipLevel,
+    validTier: MembershipTier,
+    wantedPlan: MembershipPaymentPlan,
+    billing: 'monthly' | 'quarterly' | 'yearly',
+    opts: MembershipActivationOpts,
+  ) {
+    const planTier = normalizePlanTier(canonicalTier);
+    const option = await this.prisma.membershipPaymentOption.findFirst({
+      where: {
+        paymentPlan: wantedPlan,
+        isActive: true,
+        tier: { planId: plan.id, tier: planTier },
+      },
+    });
+    if (!option) {
+      throw new BadRequestException(
+        `The selected payment option is not available for the ${canonicalTier} tier right now. Please choose another option.`,
+      );
+    }
+    const price = Number(option.perChargePrice);
+    const planLabel =
+      wantedPlan === MembershipPaymentPlan.monthly
+        ? 'Monthly'
+        : wantedPlan === MembershipPaymentPlan.quarterly
+          ? 'Quarterly'
+          : 'Half-yearly';
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent steps for this business (no lost extensions).
+      await tx.$queryRaw`SELECT "id" FROM "BusinessProfile" WHERE "id" = ${business.id} FOR UPDATE`;
+
+      if (opts.providerPaymentId) {
+        const existing = await tx.billingTransaction.findUnique({
+          where: { providerPaymentId: opts.providerPaymentId },
+        });
+        if (existing) {
+          return { replay: await this.resolveMembershipReplay(existing, business.id, price) };
+        }
+      }
+
+      const fresh = await tx.businessProfile.findFirst({
+        where: { id: business.id, deletedAt: null },
+      });
+      if (!fresh) {
+        throw new NotFoundException('Business profile not found');
+      }
+
+      const openSub = await tx.membershipInstallmentSubscription.findFirst({
+        where: {
+          businessId: business.id,
+          paymentOptionId: option.id,
+          status: { in: ['active', 'past_due'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const now = new Date();
+      let installmentNo: number;
+      let termStart: Date;
+      let base: Date;
+      let continuedSubId: string | null = null;
+      if (openSub && openSub.installmentsPaid < openSub.installmentsTotal) {
+        installmentNo = openSub.installmentsPaid + 1;
+        termStart = openSub.createdAt;
+        continuedSubId = openSub.id;
+        base =
+          fresh.membershipExpiresAt && fresh.membershipExpiresAt > now
+            ? fresh.membershipExpiresAt
+            : now;
+      } else {
+        if (openSub) {
+          await tx.membershipInstallmentSubscription.update({
+            where: { id: openSub.id },
+            data: { status: 'completed' },
+          });
+        }
+        installmentNo = 1;
+        termStart = now;
+        base = now;
+      }
+
+      const isFinal = installmentNo >= option.installments;
+      let expiresAt = isFinal
+        ? calculateTierExpiry(canonicalTier, termStart)
+        : addDaysUtc(base, option.sliceDays);
+      if (expiresAt.getTime() < base.getTime()) {
+        // Safety: access never moves backwards.
+        expiresAt = base;
+      }
+
+      const updated = await tx.businessProfile.update({
+        where: { id: business.id },
+        data: {
+          membershipLevel: validLevel,
+          membershipPlanName: plan.name,
+          membershipTier: validTier,
+          membershipStatus: 'active' as MembershipStatus,
+          membershipExpiresAt: expiresAt,
+        },
+      });
+      await tx.ecosystemSubscription.create({
+        data: {
+          businessId: business.id,
+          businessName: business.businessName,
+          type: 'Membership',
+          itemName: `${plan.name} (${canonicalTier})`,
+          status: 'Active',
+          startDate: new Date(),
+          endDate: expiresAt,
+          amount: price,
+          billingCycle: `${planLabel} instalment ${installmentNo} of ${option.installments}`,
+        },
+      });
+      await tx.billingTransaction.create({
+        data: {
+          businessId: business.id,
+          amount: price,
+          description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, ${planLabel.toLowerCase()} instalment ${installmentNo} of ${option.installments}, access until ${expiresAt.toISOString().split('T')[0]})`,
+          status: 'paid',
+          provider: opts.provider ?? null,
+          providerPaymentId: opts.providerPaymentId ?? null,
+        },
+      });
+      if (continuedSubId) {
+        await tx.membershipInstallmentSubscription.update({
+          where: { id: continuedSubId },
+          data: {
+            installmentsPaid: installmentNo,
+            status: isFinal ? 'completed' : 'active',
+            currentPeriodEnd: expiresAt,
+            nextDueAt: isFinal ? null : expiresAt,
+          },
+        });
+      } else {
+        await tx.membershipInstallmentSubscription.create({
+          data: {
+            businessId: business.id,
+            tierId: option.tierId,
+            paymentOptionId: option.id,
+            installmentsTotal: option.installments,
+            installmentsPaid: 1,
+            status: isFinal ? 'completed' : 'active',
+            currentPeriodEnd: expiresAt,
+            nextDueAt: isFinal ? null : expiresAt,
+          },
+        });
+      }
+      return { updated, installmentNo, expiresAt };
+    });
+
+    if ('replay' in result) {
+      return result.replay;
+    }
+
+    const tierQuotas = await this.finalizeMembershipActivation({
+      updatedUserId: result.updated.userId ?? null,
+      businessId: business.id,
+      planName: plan.name,
+      tierEntitlements: plan.tierEntitlements,
+      includedApps: plan.includedApps,
+      canonicalTier,
+      validLevel,
+      billing: `${planLabel} ${result.installmentNo}/${option.installments}`,
+      price,
+      expiresAt: result.expiresAt,
+    });
+
     return {
-      ...updated,
+      ...result.updated,
       billing,
       price,
       planName: plan.name,
       tier: canonicalTier,
-      expiresAt,
+      expiresAt: result.expiresAt,
       durationDays: getTierDurationDays(canonicalTier),
       entitlements: tierQuotas,
+      paymentPlan: wantedPlan,
+      installmentNo: result.installmentNo,
+      installmentsTotal: option.installments,
     };
   }
 
@@ -399,136 +788,14 @@ export class PricingService {
     return { ...(current ?? { id: businessId }), replayed: true, price: existing.amount };
   }
 
-  async purchasePackage(businessId: string, platform: string, packageName: string, tier: string = 'Standard') {
-    const business = await this.prisma.businessProfile.findFirst({
-      where: { id: businessId, deletedAt: null },
-    });
-
-    if (!business) {
-      throw new NotFoundException('Business profile not found');
-    }
-
-    const template = await this.prisma.packageTemplate.findFirst({
-      where: { platform, name: { equals: packageName, mode: 'insensitive' }, archived: false },
-    });
-
-    if (!template) {
-      throw new NotFoundException(`No package template found for "${packageName}" on platform "${platform}"`);
-    }
-
-    const canonicalTier = normalizeTier(tier);
-    const expiresAt = calculateTierExpiry(canonicalTier);
-
-    // Resolve tier price
-    let price = Number(template.price);
-    if (template.tierPrices && typeof template.tierPrices === 'object') {
-      const tp = template.tierPrices as Record<string, any>;
-      const directPrice = tp[canonicalTier] ?? (canonicalTier === 'Standard' ? tp['Normal'] : undefined) ?? tp[tier];
-      if (directPrice != null && typeof directPrice === 'number') {
-        price = directPrice;
-      }
-    }
-
-    // Resolve tier limits
-    let limits = (template?.usageLimits as any) ?? {};
-    if (Array.isArray(template.tierEntitlements)) {
-      for (const ent of template.tierEntitlements as any[]) {
-        const key = ent.resourceKey || ent.name;
-        if (!key) continue;
-        const val = canonicalTier === 'Pro+' ? (ent.proPlus ?? ent.pro ?? ent.standard) : canonicalTier === 'Pro' ? (ent.pro ?? ent.standard) : ent.standard;
-        limits[key] = val;
-      }
-    }
-
-    const billingCycle = canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days';
-
-    const platformPackage = await this.prisma.platformPackage.upsert({
-      where: {
-        businessId_platform: {
-          businessId,
-          platform,
-        },
-      },
-      update: {
-        packageName: template.name,
-        limits,
-        status: 'active',
-        amount: price,
-        currency: 'GBP',
-        billingCycle,
-        expiresAt,
-      },
-      create: {
-        businessId,
-        platform,
-        packageName: template.name,
-        limits,
-        status: 'active',
-        amount: price,
-        currency: 'GBP',
-        billingCycle,
-        expiresAt,
-      },
-    });
-
-    // Record in ecosystem subscriptions
-    await this.prisma.ecosystemSubscription.create({
-      data: {
-        businessId,
-        businessName: business.businessName,
-        type: 'Package',
-        itemName: `${platform} - ${packageName} (${canonicalTier})`,
-        status: 'Active',
-        startDate: new Date(),
-        endDate: expiresAt,
-        amount: price,
-        billingCycle,
-      },
-    });
-
-    // Create billing transaction
-    await this.prisma.billingTransaction.create({
-      data: {
-        businessId,
-        amount: price,
-        description: `Platform Package purchase: ${platform} - ${packageName} (${canonicalTier})`,
-        status: 'paid',
-      },
-    });
-
-    if (this.taskEventQueue && business?.userId) {
-      this.taskEventQueue
-        .add(
-          'evaluate-task',
-          {
-            userId: business.userId,
-            userType: 'BUSINESS',
-            featureKey: 'business.package_purchased',
-            meta: { platform, packageName, timestamp: new Date().toISOString() },
-          },
-          {
-            jobId: `task-event-package-${business.userId}-${platform}-${Date.now()}`,
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 1000 },
-          },
-        )
-        .catch((err) => this.logger.warn('Failed to emit task event for package:', err));
-    }
-
-    return platformPackage;
-  }
+  // purchasePackage + getPackageTemplates — REMOVED (memberships-only model).
+  // Standalone packages are bought on the console-registered external platforms
+  // themselves, not here. Membership purchase/activation below is unchanged.
 
   async getTransactions(businessId: string) {
     return this.prisma.billingTransaction.findMany({
       where: { businessId },
       orderBy: { createdAt: 'desc' },
-    });
-  }
-
-  async getPackageTemplates() {
-    return this.prisma.packageTemplate.findMany({
-      where: { archived: false },
-      orderBy: { price: 'asc' },
     });
   }
 

@@ -24,6 +24,8 @@ interface SsoSeedDescriptor {
 }
 
 const SSO_SEED_CLIENTS: SsoSeedDescriptor[] = [
+  // NOTE: '247gbs' seed retired — do not re-add; it is deleted from staging
+  // and must not be recreated on boot. Re-register via Console if ever needed.
   {
     clientId: 'mcom-mall',
     name: 'MCOM Mall',
@@ -44,21 +46,6 @@ const SSO_SEED_CLIENTS: SsoSeedDescriptor[] = [
     apiKeyEnv: 'SSO_SEED_MALL_API_KEY',
     hmacEnv: 'SSO_SEED_MALL_HMAC_SECRET',
     webhookEnv: 'SSO_SEED_MALL_WEBHOOK_SECRET',
-  },
-  {
-    clientId: '247gbs',
-    name: '247GBS',
-    platformSlug: 'audit',
-    redirectUris: [
-      'https://247gbs.vercel.app/auth/callback',
-      'http://localhost:3010/auth/callback',
-    ],
-    scopes: ['profile', 'email', 'business', 'membership'],
-    appUrl: 'https://247gbs.vercel.app',
-    billingApiUrl: null,
-    corsOrigins: ['https://247gbs.vercel.app'],
-    secretEnv: 'SSO_SEED_247GBS_CLIENT_SECRET',
-    apiKeyEnv: 'SSO_SEED_247GBS_API_KEY',
   },
   {
     clientId: '247gbs-affiliate',
@@ -84,9 +71,9 @@ function randomHex(bytes: number): string {
 
 // ─── Phase 5: soft-delete query extension ──────────────────────────────
 // `$use` middleware was removed in Prisma 6 — this client extension is its
-// replacement. Applies to the nine models carrying `deletedAt` (User,
+// replacement. Applies to the eight models carrying `deletedAt` (User,
 // BusinessProfile, the four affiliate profile tables, plus G5 catalogue /
-// programme tables: MembershipPlan, PackageTemplate, BusinessProgramme):
+// programme tables: MembershipPlan, BusinessProgramme):
 // - findFirst / findMany / findFirstOrThrow / count (and deleteMany): inject
 //   `deletedAt: null` unless the caller set deletedAt explicitly (so a future
 //   trash-view can pass `deletedAt: { not: null }` to opt out).
@@ -106,17 +93,38 @@ type SoftDeleteModel =
   | 'consultantProfile'
   | 'accountManagerProfile'
   | 'membershipPlan'
-  | 'packageTemplate'
-  | 'businessProgramme';
+  | 'businessProgramme'
+  | 'conversation'
+  | 'message';
 
 function callerSetDeletedAt(where: unknown): boolean {
   return !!where && typeof where === 'object' && 'deletedAt' in (where as Record<string, unknown>);
 }
 
+function flattenCompoundUniqueWhere(where: unknown): Record<string, any> {
+  if (!where || typeof where !== 'object') return {};
+  const flat: Record<string, any> = {};
+  for (const [key, val] of Object.entries(where as Record<string, any>)) {
+    if (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof Date)) {
+      // Prisma compound unique keys are structured like: conversationId_idempotencyKey: { conversationId, idempotencyKey }
+      const isOperator = Object.keys(val).some((k) =>
+        ['equals', 'in', 'not', 'contains', 'is', 'isNot', 'every', 'some', 'none', 'lt', 'lte', 'gt', 'gte'].includes(k),
+      );
+      if (!isOperator && key.includes('_')) {
+        Object.assign(flat, val);
+        continue;
+      }
+    }
+    flat[key] = val;
+  }
+  return flat;
+}
+
 function withDeletedAt<T extends { where?: unknown }>(args: T): T {
   if (!args) return { ...(args as object), where: { deletedAt: null } } as T;
-  if (callerSetDeletedAt((args as { where?: unknown }).where)) return args;
-  return { ...args, where: { ...(args.where as object), deletedAt: null } };
+  const flatWhere = flattenCompoundUniqueWhere(args.where);
+  if (callerSetDeletedAt(flatWhere)) return { ...args, where: flatWhere };
+  return { ...args, where: { ...flatWhere, deletedAt: null } };
 }
 
 // Prisma 6.19 only honors the OBJECT form of `$extends` (callback-form
@@ -169,8 +177,9 @@ const softDeleteExtension: any = {
     consultantProfile: softDeleteModelHooks('consultantProfile'),
     accountManagerProfile: softDeleteModelHooks('accountManagerProfile'),
     membershipPlan: softDeleteModelHooks('membershipPlan'),
-    packageTemplate: softDeleteModelHooks('packageTemplate'),
     businessProgramme: softDeleteModelHooks('businessProgramme'),
+    conversation: softDeleteModelHooks('conversation'),
+    message: softDeleteModelHooks('message'),
   },
 };
 
@@ -228,8 +237,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'consultantProfile',
       'accountManagerProfile',
       'membershipPlan',
-      'packageTemplate',
       'businessProgramme',
+      'conversation',
+      'message',
     ] as const) {
       (this as any)[delegate] = (extended as any)[delegate];
     }

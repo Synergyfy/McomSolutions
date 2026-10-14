@@ -39,78 +39,96 @@ enum MembershipStatus {
 }
 
 model User {
-  id                 String              @id @default(uuid())
-  email              String              @unique
-  password           String
-  role               Role                @default(BUSINESS)
-  firstName          String?
-  lastName           String?
-  jobTitle           String?             @default("Managing Director")
-  twoFactorEnabled   Boolean             @default(false)
-  emailNotifications Boolean             @default(true)
-  smsNotifications   Boolean             @default(false)
-  registrationSource String?             @default("direct")
-  adminRole          String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  deletedAt          DateTime?           @map("deleted_at")
+  id                      String                    @id @default(uuid())
+  email                   String                    @unique
+  password                String
+  role                    Role                      @default(BUSINESS)
+  firstName               String?
+  lastName                String?
+  jobTitle                String?                   @default("Managing Director")
+  twoFactorEnabled        Boolean                   @default(false)
+  emailNotifications      Boolean                   @default(true)
+  smsNotifications        Boolean                   @default(false)
+  registrationSource      String?                   @default("direct")
+  adminRole               String?
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  deletedAt               DateTime?                 @map("deleted_at")
   // Phase 3: session version — bumped on password reset / role change / ban-deactivate.
   // Outstanding access tokens carry `tv` and are rejected when it mismatches.
-  tokenVersion       Int                 @default(0) @map("token_version")
-  businessProfile    BusinessProfile?
-  customerProfile    CustomerProfile?
-  agentProfile       AgentProfile?
-  consultantProfile  ConsultantProfile?
-  accountManagerProfile AccountManagerProfile?
-  ssoSessions        SsoSession[]
-  refreshSessions    RefreshSession[]
-  resetCodes         PasswordResetCode[]
-  wallet             Wallet?
-  walletTopUps       WalletTopUpRequest[]
-  taskAssignments    UserTaskAssignment[]
+  tokenVersion            Int                       @default(0) @map("token_version")
+  referralCode            String?                   @unique @map("referral_code")
+  referredById            String?                   @map("referred_by_id")
+  referredBy              User?                     @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals               User[]                    @relation("Referrals")
+  businessProfile         BusinessProfile?
+  customerProfile         CustomerProfile?
+  agentProfile            AgentProfile?
+  consultantProfile       ConsultantProfile?
+  accountManagerProfile   AccountManagerProfile?
+  ssoSessions             SsoSession[]
+  refreshSessions         RefreshSession[]
+  resetCodes              PasswordResetCode[]
+  wallet                  Wallet?
+  walletTopUps            WalletTopUpRequest[]
+  taskAssignments         UserTaskAssignment[]
+  conversationsCreated    Conversation[]            @relation("ConversationCreator")
+  conversationMemberships ConversationParticipant[]
+  sentMessages            Message[]                 @relation("MessageSender")
+  messageReadReceipts     MessageReadReceipt[]
+  pushSubscriptions       PushSubscription[]
+  notificationPreference  NotificationPreference?
+  messageRequestsSent     ChatMessageRequest[]      @relation("MessageRequestsSent")
+  messageRequestsReceived ChatMessageRequest[]      @relation("MessageRequestsReceived")
+  blocksSent              ChatBlock[]               @relation("UserBlocksSent")
+  blocksReceived          ChatBlock[]               @relation("UserBlocksReceived")
 
   @@index([deletedAt])
   @@index([role])
+  @@index([referredById])
 }
 
 model BusinessProfile {
-  id               String            @id @default(uuid())
-  userId           String            @unique
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  businessName     String
-  businessType     String
-  country          String
-  phone            String
-  email            String
-  isOnGoogle       Boolean           @default(false)
-  googlePlaceId    String?
-  address          String?
-  postcode         String?
-  industry         String?
-  category         String?
-  subCategory      String?
-  description      String?
-  website          String?
-  logoUrl          String?
-  openingHours     String?
-  socialMedia      String?
-  membershipLevel  MembershipLevel   @default(Bronze)
-  membershipTier   MembershipTier    @default(Normal)
-  membershipStatus MembershipStatus  @default(active)
-  membershipPlanName String?         @map("membership_plan_name")
-  membershipExpiresAt DateTime?      @map("membership_expires_at")
-  apiKey           String?           @unique
-  localMallName    String?
-  localMallId      String?
-  proximityTier    String?           @default("national") // high_street, national
-  packages         PlatformPackage[]
-  transactions     BillingTransaction[]
-  notifications    Notification[]
-  subscriptions    Subscription[]
-  supportTickets   SupportTicket[]
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  deletedAt        DateTime?         @map("deleted_at")
+  id                     String               @id @default(uuid())
+  userId                 String               @unique
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName           String
+  businessType           String
+  country                String
+  phone                  String
+  email                  String
+  isOnGoogle             Boolean              @default(false)
+  googlePlaceId          String?
+  address                String?
+  postcode               String?
+  industry               String?
+  category               String?
+  subCategory            String?
+  description            String?
+  website                String?
+  logoUrl                String?
+  openingHours           String?
+  socialMedia            String?
+  membershipLevel        MembershipLevel      @default(Bronze)
+  membershipTier         MembershipTier       @default(Normal)
+  membershipStatus       MembershipStatus     @default(active)
+  membershipPlanName     String?              @map("membership_plan_name")
+  membershipExpiresAt    DateTime?            @map("membership_expires_at")
+  hasPaidVerificationFee Boolean              @default(false) @map("has_paid_verification_fee")
+  verificationFeePaidAt  DateTime?            @map("verification_fee_paid_at")
+  trialAccessDays        Int                  @default(14) @map("trial_access_days")
+  trialAccessExpiresAt   DateTime?            @map("trial_access_expires_at")
+  apiKey                 String?              @unique
+  localMallName          String?
+  localMallId            String?
+  proximityTier          String?              @default("national") // high_street, national
+  packages               PlatformPackage[]
+  transactions           BillingTransaction[]
+  notifications          Notification[]
+  supportTickets         SupportTicket[]
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  deletedAt              DateTime?            @map("deleted_at")
 
   @@index([deletedAt])
   @@index([membershipExpiresAt])
@@ -119,42 +137,43 @@ model BusinessProfile {
 }
 
 model Notification {
-  id          String          @id @default(uuid())
-  businessId  String?
-  business    BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id         String           @id @default(uuid())
+  businessId String?
+  business   BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   // Phase 4: user-scoped delivery. Plain (non-FK) string on purpose — deleting
   // a user must not cascade-delete their notification history (audit trail).
-  userId      String?         @map("user_id")
-  type        String          // membership, package, update, payment, announcement
-  title       String
-  message     String
-  read        Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  userId     String?          @map("user_id")
+  type       String // membership, package, update, payment, announcement
+  title      String
+  message    String
+  read       Boolean          @default(false)
+  data       Json?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   @@index([userId])
   @@index([businessId, read, createdAt])
 }
 
 model PlatformPackage {
-  id                      String          @id @default(uuid())
-  businessId              String
-  business                BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  platform                String          // MCOM Mall, MCOM Rewards, MCOM Spin, GBS Audit, GBS Expo
-  packageName             String          // Starter, Standard, Enterprise, or plan name from external service
-  status                  String          @default("active") // active, inactive, expired
-  limits                  Json?           // JSON holding keys like rewardsLimit, campaignsLimit, etc.
-  externalPlanId          String?         // Plan ID from external service (Mall/Rewards)
-  planName                String?         // Display name from external plan
-  planType                String?         // STANDARD, TRIAL, SEASONAL
-  expiresAt               DateTime?       // When the subscription expires (null = no expiry)
-  provider                String?         // 'stripe' or 'paypal'
-  providerSubscriptionId  String?         // Stripe subscription ID or PayPal subscription ID
-  amount                  Float?          // Amount paid
-  currency                String          @default("GBP")
-  billingCycle            String?         // monthly, quarterly, annual
-  createdAt               DateTime        @default(now())
-  updatedAt               DateTime        @updatedAt
+  id                     String          @id @default(uuid())
+  businessId             String
+  business               BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  platform               String // MCOM Mall, MCOM Rewards, MCOM Spin, GBS Audit, GBS Expo
+  packageName            String // Starter, Standard, Enterprise, or plan name from external service
+  status                 String          @default("active") // active, inactive, expired
+  limits                 Json? // JSON holding keys like rewardsLimit, campaignsLimit, etc.
+  externalPlanId         String? // Plan ID from external service (Mall/Rewards)
+  planName               String? // Display name from external plan
+  planType               String? // STANDARD, TRIAL, SEASONAL
+  expiresAt              DateTime? // When the subscription expires (null = no expiry)
+  provider               String? // 'stripe' or 'paypal'
+  providerSubscriptionId String? // Stripe subscription ID or PayPal subscription ID
+  amount                 Float? // Amount paid
+  currency               String          @default("GBP")
+  billingCycle           String? // monthly, quarterly, annual
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
   @@unique([businessId, platform])
   @@index([externalPlanId])
@@ -162,16 +181,16 @@ model PlatformPackage {
 }
 
 model BillingTransaction {
-  id                  String          @id @default(uuid())
-  businessId          String
-  business            BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  amount              Float
-  description         String
-  status              String          @default("paid") // paid, pending, failed, refunded
-  platformPackageId   String?         // Link to platform package purchased
-  provider            String?         // 'stripe' or 'paypal'
-  providerPaymentId   String?         @unique // Stripe payment intent ID or PayPal order ID (idempotency key)
-  createdAt           DateTime        @default(now())
+  id                String          @id @default(uuid())
+  businessId        String
+  business          BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  amount            Float
+  description       String
+  status            String          @default("paid") // paid, pending, failed, refunded
+  platformPackageId String? // Link to platform package purchased
+  provider          String? // 'stripe' or 'paypal'
+  providerPaymentId String?         @unique // Stripe payment intent ID or PayPal order ID (idempotency key)
+  createdAt         DateTime        @default(now())
 
   @@index([platformPackageId])
   @@index([businessId, status])
@@ -186,9 +205,9 @@ model PaymentOutbox {
   id                String   @id @default(uuid())
   provider          String   @default("paypal")
   providerPaymentId String   @unique
-  kind              String   // 'membership' | 'platform'
+  kind              String // 'membership' | 'platform'
   businessId        String
-  payload           Json     // level/tier/billing or platform/externalPlanId/billingCycle + expected amount
+  payload           Json // level/tier/billing or platform/externalPlanId/billingCycle + expected amount
   status            String   @default("PENDING") // PENDING | DONE | FAILED
   attempts          Int      @default(0)
   lastError         String?
@@ -197,6 +216,95 @@ model PaymentOutbox {
 
   @@index([status, createdAt])
   @@map("payment_outbox")
+}
+
+// ─── MCOM PAY — GENERIC APP PAYMENTS LEDGER ─────────────────────────────────
+// Any Console-registered app (SsoClient) can charge its customers for anything
+// it sells, and MCOM processes the payment (Stripe / PayPal / MCOM wallet).
+// Amounts are stored in MINOR units (pence) as BigInt — never floats — so money
+// is exact. AppCharge is the header row (attribution + gross/fee/net); the
+// double-entry rows live in AppPaymentLedgerEntry (append-only).
+
+enum AppChargeMethod {
+  stripe
+  paypal
+  wallet
+}
+
+enum AppChargeStatus {
+  pending
+  paid
+  failed
+  refunded
+  cancelled
+}
+
+enum LedgerDirection {
+  debit
+  credit
+}
+
+enum LedgerAccount {
+  gateway_clearing
+  wallet_clearing
+  app_payable
+  mcom_revenue
+  refund
+}
+
+model AppCharge {
+  id                 String          @id @default(cuid())
+  appClientId        String          @map("app_client_id") // SsoClient.clientId (natural key)
+  amountMinor        BigInt          @map("amount_minor") // gross charge, pence
+  currency           String          @default("GBP")
+  feeMinor           BigInt          @default(0) @map("fee_minor")
+  netMinor           BigInt          @map("net_minor") // amountMinor - feeMinor (owed to app)
+  method             AppChargeMethod @map("method")
+  status             AppChargeStatus @default(pending)
+  reference          String? // app's order/invoice id
+  description        String?
+  mcomUserId         String?         @map("mcom_user_id") // payer's MCOM identity
+  externalCustomerId String?         @map("external_customer_id") // app's own customer id
+  provider           String? // stripe | paypal (card methods only)
+  providerRef        String?         @unique @map("provider_ref") // PaymentIntent/order id
+  walletDebitAmount  Decimal?        @map("wallet_debit_amount") @db.Decimal(18, 4) // MCOM credits debited (wallet method)
+  idempotencyKey     String          @unique @map("idempotency_key")
+  metadata           Json?
+  failureReason      String?         @map("failure_reason")
+  paidAt             DateTime?       @map("paid_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  ledgerEntries AppPaymentLedgerEntry[]
+
+  @@index([appClientId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([mcomUserId])
+  @@index([reference])
+  @@map("app_charges")
+}
+
+model AppPaymentLedgerEntry {
+  id             String          @id @default(cuid())
+  chargeId       String          @map("charge_id")
+  charge         AppCharge       @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  appClientId    String          @map("app_client_id")
+  account        LedgerAccount   @map("account")
+  direction      LedgerDirection @map("direction")
+  amountMinor    BigInt          @map("amount_minor")
+  currency       String          @default("GBP")
+  mcomUserId     String?         @map("mcom_user_id")
+  provider       String?
+  providerRef    String?         @map("provider_ref")
+  reference      String?
+  metadata       Json?
+  idempotencyKey String          @unique @map("idempotency_key")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@index([chargeId])
+  @@index([appClientId, createdAt(sort: Desc)])
+  @@index([account])
+  @@map("app_payment_ledger_entries")
 }
 
 model SsoClient {
@@ -215,24 +323,57 @@ model SsoClient {
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
   // ── MCOM CONSOLE FIELDS (additive — safe migration) ─────────────────────
-  description     String?   @map("description")
-  appUrl          String?   @map("app_url")
-  billingApiUrl   String?   @map("billing_api_url")
-  hmacSecret      String?   @map("hmac_secret")
-  webhookSecret   String?   @map("webhook_secret")
-  webhookUrl      String?   @map("webhook_url")
-  platformSlug    String?   @unique @map("platform_slug")
-  corsOrigins     String[]  @default([]) @map("cors_origins")
-  isSystemApp     Boolean   @default(false) @map("is_system_app")
-  metadata        Json?     @map("metadata")
-  lastWebhookAt   DateTime? @map("last_webhook_at")
-  webhookFailCount Int      @default(0) @map("webhook_fail_count")
+  description      String?   @map("description")
+  appUrl           String?   @map("app_url")
+  billingApiUrl    String?   @map("billing_api_url")
+  hmacSecret       String?   @map("hmac_secret")
+  webhookSecret    String?   @map("webhook_secret")
+  webhookUrl       String?   @map("webhook_url")
+  platformSlug     String?   @unique @map("platform_slug")
+  corsOrigins      String[]  @default([]) @map("cors_origins")
+  isSystemApp      Boolean   @default(false) @map("is_system_app")
+  metadata         Json?     @map("metadata")
+  lastWebhookAt    DateTime? @map("last_webhook_at")
+  webhookFailCount Int       @default(0) @map("webhook_fail_count")
+
+  // ── MCOM PAY fee config (per-app override; falls back to ProgrammeSetting) ─
+  feePercent    Decimal? @map("fee_percent") @db.Decimal(5, 4)
+  feeFixedMinor BigInt?  @map("fee_fixed_minor")
+
+  // ── Ecosystem service-to-service identity (M2M, additive) ────────────────
+  // Enables a registered app's backend to call another registered app's
+  // backend directly (peer-to-peer). MCOM is only the credential issuer and
+  // registry; requests never transit MCOM.
+  serviceEnabled   Boolean  @default(true) @map("service_enabled")
+  serviceBaseUrl   String?  @map("service_base_url")
+  serviceScopes    String[] @default([]) @map("service_scopes")
+  allowedAudiences String[] @default([]) @map("allowed_audiences")
+  allowedCallers   String[] @default([]) @map("allowed_callers")
 
   @@index([clientId])
   @@index([apiKey])
   @@index([platformSlug])
   @@index([isActive])
   @@map("sso_clients")
+}
+
+// Audit trail for issued ecosystem service tokens (control-plane traceability).
+// FK-free by design: tokens outlive/relate to clients by natural key and must
+// survive client deletion. Append-only.
+model ServiceTokenAudit {
+  id        String   @id @default(cuid())
+  jti       String   @unique @map("jti")
+  tokenType String   @map("token_type") // "service" | "delegated"
+  clientId  String   @map("client_id")  // caller app (sub for service, act.sub for delegated)
+  subject   String?  @map("subject")    // end-user id for delegated tokens
+  audience  String?  @map("audience")
+  scopes    String[] @default([])
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("service_token_audit")
 }
 
 model AppWebhookLog {
@@ -292,15 +433,15 @@ model SsoAuthCode {
 }
 
 model SsoSession {
-  id           String   @id @default(cuid())
-  userId       String   @map("user_id")
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId     String   @map("client_id")
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId     String    @map("client_id")
   client       SsoClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  accessToken  String   @unique @map("access_token")
-  refreshToken String   @unique @map("refresh_token")
-  expiresAt    DateTime @map("expires_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  accessToken  String    @unique @map("access_token")
+  refreshToken String    @unique @map("refresh_token")
+  expiresAt    DateTime  @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
   @@index([clientId])
@@ -356,17 +497,17 @@ model PasswordResetCode {
 // ─── ADMIN DASHBOARD PROFILE TABLES ──────────────────────────────────────────
 
 model CustomerProfile {
-  id               String   @id @default(cuid())
-  userId           String   @unique @map("user_id")
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone            String?  @map("phone")
-  loyaltyPoints    Int      @default(0) @map("loyalty_points")
-  platformUsage    String[] @map("platform_usage")
-  membershipStatus String   @default("None") @map("membership_status")
-  status           String   @default("Active") @map("status")
+  id               String    @id @default(cuid())
+  userId           String    @unique @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone            String?   @map("phone")
+  loyaltyPoints    Int       @default(0) @map("loyalty_points")
+  platformUsage    String[]  @map("platform_usage")
+  membershipStatus String    @default("None") @map("membership_status")
+  status           String    @default("Active") @map("status")
   deletedAt        DateTime? @map("deleted_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
@@ -374,15 +515,15 @@ model CustomerProfile {
 }
 
 model AgentProfile {
-  id          String   @id @default(cuid())
-  userId      String   @unique @map("user_id")
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone       String?  @map("phone")
-  permissions String[] @map("permissions")
-  status      String   @default("Active") @map("status")
+  id          String    @id @default(cuid())
+  userId      String    @unique @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone       String?   @map("phone")
+  permissions String[]  @map("permissions")
+  status      String    @default("Active") @map("status")
   deletedAt   DateTime? @map("deleted_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
@@ -390,15 +531,15 @@ model AgentProfile {
 }
 
 model ConsultantProfile {
-  id             String   @id @default(cuid())
-  userId         String   @unique @map("user_id")
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone          String?  @map("phone")
-  specialisation String   @map("specialisation")
-  status         String   @default("Active") @map("status")
+  id             String    @id @default(cuid())
+  userId         String    @unique @map("user_id")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone          String?   @map("phone")
+  specialisation String    @map("specialisation")
+  status         String    @default("Active") @map("status")
   deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
@@ -406,15 +547,15 @@ model ConsultantProfile {
 }
 
 model AccountManagerProfile {
-  id                 String   @id @default(cuid())
-  userId             String   @unique @map("user_id")
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone              String?  @map("phone")
-  assignedBusinesses Int      @default(0) @map("assigned_businesses")
-  status             String   @default("Active") @map("status")
+  id                 String    @id @default(cuid())
+  userId             String    @unique @map("user_id")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone              String?   @map("phone")
+  assignedBusinesses Int       @default(0) @map("assigned_businesses")
+  status             String    @default("Active") @map("status")
   deletedAt          DateTime? @map("deleted_at")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
@@ -424,23 +565,27 @@ model AccountManagerProfile {
 // ─── ADMIN DASHBOARD CONFIG & ENTITY TABLES ──────────────────────────────────
 
 model MembershipPlan {
-  id             String   @id @default(cuid())
-  name           String   @map("name")
-  description    String   @map("description")
-  price          Float    @map("price")
-  billingCycle   String   @map("billing_cycle")
-  monthlyPrice   Float?   @map("monthly_price")
-  quarterlyPrice Float?   @map("quarterly_price")
-  annualPrice    Float?   @map("annual_price")
-  platformAccess String[] @map("platform_access")
-  usageLimits    Json     @map("usage_limits")
-  permissions    String[] @map("permissions")
-  archived       Boolean  @default(false) @map("archived")
+  id             String    @id @default(cuid())
+  name           String    @map("name")
+  description    String    @map("description")
+  price          Float     @map("price")
+  billingCycle   String    @map("billing_cycle")
+  monthlyPrice   Float?    @map("monthly_price")
+  quarterlyPrice Float?    @map("quarterly_price")
+  annualPrice    Float?    @map("annual_price")
+  platformAccess String[]  @map("platform_access")
+  usageLimits    Json      @map("usage_limits")
+  permissions    String[]  @map("permissions")
+  archived       Boolean   @default(false) @map("archived")
   deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   // Multi-App Bundle & Dynamic Presentation Extensions
+  // NOTE: tier_* / includedApps JSON columns are legacy mirrors (kept for
+  // backwards compatibility). The relational tables below
+  // (MembershipPlanTier + children) are the source of truth for pricing,
+  // durations, features, entitlements and bundles.
   includedApps     Json?    @map("included_apps")
   tierPrices       Json?    @map("tier_prices")
   tierFeatures     Json?    @map("tier_features")
@@ -451,42 +596,152 @@ model MembershipPlan {
   color            String?  @map("color")
   features         String[] @default([]) @map("features")
 
+  tiers      MembershipPlanTier[]
+  appBundles MembershipPlanAppBundle[]
+
   @@index([archived])
   @@index([deletedAt])
   @@map("membership_plans")
 }
 
-model PackageTemplate {
-  id               String   @id @default(cuid())
-  name             String   @map("name")
-  platform         String   @map("platform")
-  description      String   @map("description")
-  price            Float    @map("price")
-  billingCycle     String   @map("billing_cycle")
-  monthlyPrice     Float?   @map("monthly_price")
-  quarterlyPrice   Float?   @map("quarterly_price")
-  annualPrice      Float?   @map("annual_price")
-  tierPrices       Json?    @map("tier_prices")
-  tierFeatures     Json?    @map("tier_features")
-  tierEntitlements Json?    @map("tier_entitlements")
-  tierDurations    Json?    @map("tier_durations")
-  features         String[] @map("features")
-  usageLimits      Json     @map("usage_limits")
-  accessRights     String[] @map("access_rights")
-  archived         Boolean  @default(false) @map("archived")
-  isDefault        Boolean  @default(false) @map("is_default")
-  type             String?  @default("STANDARD") @map("type")
-  trialDuration    Int?     @map("trial_duration")
-  deletedAt        DateTime? @map("deleted_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+// ─── MEMBERSHIP TIERS & FLEXIBLE PAYMENT OPTIONS (relational) ────────────────
+// Replaces the tier_* JSON blobs on MembershipPlan with queryable rows.
+// One row per (plan, tier); payment splits are rows on
+// MembershipPaymentOption. Backfilled from JSON by migration
+// 20261008000000_membership_tier_payment_options (idempotent, ON CONFLICT
+// DO NOTHING) — the JSON columns are left untouched.
 
-  @@index([archived])
-  @@index([platform])
-  @@index([platform, archived])
-  @@index([deletedAt])
-  @@map("package_templates")
+enum PlanTier {
+  Standard
+  Pro
+  ProPlus  @map("Pro+")
 }
+
+enum MembershipPaymentPlan {
+  full
+  monthly
+  quarterly
+  halfYearly @map("half_yearly")
+}
+
+enum PaymentPriceMode {
+  manual
+  auto
+}
+
+model MembershipPlanTier {
+  id           String         @id @default(cuid())
+  planId       String         @map("plan_id")
+  plan         MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tier         PlanTier       @map("tier")
+  durationDays Int            @map("duration_days")
+  fullPrice    Float          @map("full_price")
+  sortOrder    Int            @default(0) @map("sort_order")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  features       MembershipTierFeature[]
+  entitlements   MembershipTierEntitlement[]
+  paymentOptions MembershipPaymentOption[]
+
+  @@unique([planId, tier])
+  @@index([planId])
+  @@map("membership_plan_tiers")
+}
+
+model MembershipPaymentOption {
+  id                                 String                              @id @default(cuid())
+  tierId                             String                              @map("tier_id")
+  tier                               MembershipPlanTier                  @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  paymentPlan                        MembershipPaymentPlan               @map("payment_plan")
+  installments                       Int                                 @map("installments")
+  mode                               PaymentPriceMode                    @map("mode")
+  manualPrice                        Float?                              @map("manual_price")
+  surchargePct                       Float?                              @map("surcharge_pct")
+  perChargePrice                     Float                               @map("per_charge_price")
+  totalPrice                         Float                               @map("total_price")
+  sliceDays                          Int                                 @map("slice_days")
+  isActive                           Boolean                             @default(true) @map("is_active")
+  stripePriceId                      String?                             @map("stripe_price_id")
+  paypalPlanId                       String?                             @map("paypal_plan_id")
+  sortOrder                          Int                                 @default(0) @map("sort_order")
+  createdAt                          DateTime                            @default(now()) @map("created_at")
+  updatedAt                          DateTime                            @updatedAt @map("updated_at")
+  membershipInstallmentSubscriptions MembershipInstallmentSubscription[]
+
+  @@unique([tierId, paymentPlan])
+  @@index([tierId, isActive])
+  @@map("membership_payment_options")
+}
+
+model MembershipTierFeature {
+  id        String             @id @default(cuid())
+  tierId    String             @map("tier_id")
+  tier      MembershipPlanTier @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  feature   String             @map("feature")
+  sortOrder Int                @default(0) @map("sort_order")
+
+  @@unique([tierId, sortOrder])
+  @@index([tierId])
+  @@map("membership_tier_features")
+}
+
+model MembershipTierEntitlement {
+  id          String             @id @default(cuid())
+  tierId      String             @map("tier_id")
+  tier        MembershipPlanTier @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  resourceKey String             @map("resource_key")
+  quotaValue  String             @map("quota_value")
+
+  @@unique([tierId, resourceKey])
+  @@index([tierId])
+  @@map("membership_tier_entitlements")
+}
+
+model MembershipPlanAppBundle {
+  id             String         @id @default(cuid())
+  planId         String         @map("plan_id")
+  plan           MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  platform       String         @map("platform")
+  externalPlanId String?        @map("external_plan_id")
+  packageName    String         @map("package_name")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@index([planId])
+  @@index([platform])
+  @@map("membership_plan_app_bundles")
+}
+
+model MembershipInstallmentSubscription {
+  // Recurring (pay-as-you-go, auto-charged) membership state.
+  // businessId is intentionally FK-free (same precedent as
+  // EcosystemSubscription) — legacy/dashboard rows may carry non-FK ids.
+  businessId           String                  @map("business_id")
+  tierId               String                  @map("tier_id")
+  paymentOptionId      String                  @map("payment_option_id")
+  paymentOption        MembershipPaymentOption @relation(fields: [paymentOptionId], references: [id])
+  id                   String                  @id @default(cuid())
+  installmentsTotal    Int                     @map("installments_total")
+  installmentsPaid     Int                     @default(0) @map("installments_paid")
+  status               String                  @default("active") @map("status")
+  stripeSubscriptionId String?                 @unique @map("stripe_subscription_id")
+  paypalSubscriptionId String?                 @unique @map("paypal_subscription_id")
+  currentPeriodEnd     DateTime?               @map("current_period_end")
+  nextDueAt            DateTime?               @map("next_due_at")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+
+  @@index([businessId, status])
+  @@index([status, nextDueAt])
+  @@map("membership_installment_subscriptions")
+}
+
+// ─── PACKAGE TEMPLATES — REMOVED ─────────────────────────────────────────────
+// MCOM holds no plans of its own (memberships-only model). Standalone plans
+// live on console-registered external platforms (see admin/console +
+// external_plans mirror). Dropped in migration
+// 20261006030000_drop_tier_plan_package_tables.
 
 model ExternalPlan {
   id                     String   @id @default(cuid())
@@ -536,17 +791,17 @@ model Sector {
 }
 
 model Category {
-  id            String                @id @default(cuid())
-  sectorId      String                @map("sector_id")
-  sector        Sector                @relation(fields: [sectorId], references: [id], onDelete: Cascade)
-  name          String                @map("name")
-  slug          String                @unique @map("slug")
-  sortOrder     Int                   @default(0) @map("sort_order")
-  imageUrl      String?               @map("image_url")
-  subCategories SubCategory[]
+  id             String                  @id @default(cuid())
+  sectorId       String                  @map("sector_id")
+  sector         Sector                  @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  name           String                  @map("name")
+  slug           String                  @unique @map("slug")
+  sortOrder      Int                     @default(0) @map("sort_order")
+  imageUrl       String?                 @map("image_url")
+  subCategories  SubCategory[]
   googleMappings GoogleCategoryMapping[]
-  createdAt     DateTime              @default(now()) @map("created_at")
-  updatedAt     DateTime              @updatedAt @map("updated_at")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
 
   @@index([sectorId])
   @@index([sortOrder])
@@ -658,28 +913,28 @@ model BroadcastNotification {
   scheduledDate DateTime? @map("scheduled_date")
   status        String    @default("Sent") @map("status") // Sent, Scheduled, Draft
   sentCount     Int       @default(0) @map("sent_count")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
   @@map("broadcast_notifications")
 }
 
 model SupportTicket {
-  id         String   @id @default(cuid())
+  id         String           @id @default(cuid())
   // Phase 4: FK-scoped ownership. Nullable so pre-existing name-matched rows
   // survive the migration; backfilled from fromName → BusinessProfile.
-  businessId String?  @map("business_id")
+  businessId String?          @map("business_id")
   business   BusinessProfile? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  subject    String   @map("subject")
-  message    String   @map("message")
-  fromName   String   @map("from_name")
-  fromType   String   @map("from_type") // Business, Customer
-  status     String   @default("Open") @map("status") // Open, Resolved, Escalated
-  priority   String   @default("Medium") @map("priority") // Low, Medium, High
-  assignedTo String?  @map("assigned_to")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  subject    String           @map("subject")
+  message    String           @map("message")
+  fromName   String           @map("from_name")
+  fromType   String           @map("from_type") // Business, Customer
+  status     String           @default("Open") @map("status") // Open, Resolved, Escalated
+  priority   String           @default("Medium") @map("priority") // Low, Medium, High
+  assignedTo String?          @map("assigned_to")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
 
   @@index([businessId])
   @@index([status])
@@ -712,8 +967,8 @@ model SystemSettings {
   emailEnabled          Boolean  @default(true) @map("email_enabled")
   smsEnabled            Boolean  @default(false) @map("sms_enabled")
   paymentGateway        String   @default("Stripe") @map("payment_gateway")
-  maintenanceMode      Boolean  @default(false) @map("maintenance_mode")
-  allowRegistration    Boolean  @default(true) @map("allow_registration")
+  maintenanceMode       Boolean  @default(false) @map("maintenance_mode")
+  allowRegistration     Boolean  @default(true) @map("allow_registration")
   authConfig            Json?    @map("auth_config")
   registrationFlow      Json?    @map("registration_flow")
   businessProfileConfig Json?    @map("business_profile_config")
@@ -778,21 +1033,21 @@ model RevenueRecord {
 }
 
 model Borough {
-  id                   String   @id @default(cuid())
-  name                 String   @unique @map("name")
-  populationActivity   String   @map("population_activity")
-  businessCount        Int      @default(0) @map("business_count")
-  activeCampaigns      Int      @default(0) @map("active_campaigns")
-  rewardsParticipation String   @map("rewards_participation")
-  healthScore          Int      @map("health_score")
-  manager              String   @map("manager")
-  area                 String   @map("area")
-  region               String   @map("region")
-  engagement           String   @map("engagement")
-  health               String   @map("health")
-  activity             String   @map("activity")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                   String          @id @default(cuid())
+  name                 String          @unique @map("name")
+  populationActivity   String          @map("population_activity")
+  businessCount        Int             @default(0) @map("business_count")
+  activeCampaigns      Int             @default(0) @map("active_campaigns")
+  rewardsParticipation String          @map("rewards_participation")
+  healthScore          Int             @map("health_score")
+  manager              String          @map("manager")
+  area                 String          @map("area")
+  region               String          @map("region")
+  engagement           String          @map("engagement")
+  health               String          @map("health")
+  activity             String          @map("activity")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
   metrics              BoroughMetric[]
 
   @@map("boroughs")
@@ -810,102 +1065,102 @@ model HighStreet {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  activities    ActivityFeed[]
+  activities ActivityFeed[]
 
   @@map("high_streets")
 }
 
 model LocalMall {
-  id                                  String   @id @default(cuid())
-  name                                String   @map("name")
-  postcodes                           String[] @map("postcodes")
-  borough                             String   @map("borough")
-  primaryHighStreet                   String   @map("primary_high_street")
-  additionalHighStreets               String[] @map("additional_high_streets")
-  businesses                          Int      @default(0) @map("businesses")
-  customers                           Int      @default(0) @map("customers")
-  campaigns                           Int      @default(0) @map("campaigns")
-  events                              Int      @default(0) @map("events")
-  status                              String   @default("Active") @map("status") // Active, Draft, Disabled, Archived
-  createdDate                         DateTime @default(now()) @map("created_date")
-  description                         String   @map("description")
-  longDescription                     String   @map("long_description")
-  slug                                String   @unique @map("slug")
-  logo                                String?  @map("logo")
-  coverBanner                         String?  @map("cover_banner")
-  mobileBanner                        String?  @map("mobile_banner")
-  primaryColour                       String   @map("primary_colour")
-  secondaryColour                     String   @map("secondary_colour")
-  welcomeMessage                      String   @map("welcome_message")
-  tagline                             String   @map("tagline")
-  radiusCoverage                      String   @map("radius_coverage")
-  allowBusinessesOutsidePostcode      Boolean  @default(false) @map("allow_businesses_outside_postcode")
-  allowVirtualBusinesses              Boolean  @default(true) @map("allow_virtual_businesses")
-  allowHomeBusinesses                 Boolean  @default(true) @map("allow_home_businesses")
-  requireVerification                 Boolean  @default(true) @map("require_verification")
-  requireAuditCompletion              Boolean  @default(false) @map("require_audit_completion")
-  requireMembershipApproval           Boolean  @default(true) @map("require_membership_approval")
-  leadConsultant                      String?  @map("lead_consultant")
-  leadConsultantId                    String?  @map("lead_consultant_id")
-  assignedAccountManagers             String[] @map("assigned_account_managers")
-  assignedAccountManagerIds           String[] @map("assigned_account_manager_ids")
-  assignedAgents                      String[] @map("assigned_agents")
-  assignedAgentIds                    String[] @map("assigned_agent_ids")
-  supportTeam                         String[] @map("support_team")
-  enableAudit                         Boolean  @default(true) @map("enable_audit")
-  enableRewards                       Boolean  @default(true) @map("enable_rewards")
-  enableLoyalty                       Boolean  @default(true) @map("enable_loyalty")
-  enableQLinks                        Boolean  @default(true) @map("enable_q_links")
-  enableSpin                          Boolean  @default(true) @map("enable_spin")
-  enableEvents                        Boolean  @default(true) @map("enable_events")
-  enableCampaigns                     Boolean  @default(true) @map("enable_campaigns")
-  enablePushNotifications             Boolean  @default(true) @map("enable_push_notifications")
-  enableMarketplace                   Boolean  @default(false) @map("enable_marketplace")
-  allowGuestBrowsing                  Boolean  @default(true) @map("allow_guest_browsing")
-  requireRegistrationForRewards       Boolean  @default(true) @map("require_registration_for_rewards")
-  requireRegistrationForSpin          Boolean  @default(true) @map("require_registration_for_spin")
-  enableAutoLocationDetection         Boolean  @default(true) @map("enable_auto_location_detection")
-  allowManualLocalMallSwitching       Boolean  @default(true) @map("allow_manual_local_mall_switching")
-  autoApproveBusinesses               Boolean  @default(false) @map("auto_approve_businesses")
-  manualApprovalRequired              Boolean  @default(true) @map("manual_approval_required")
-  requireDocumentVerification         Boolean  @default(true) @map("require_document_verification")
-  requireGoogleBusinessMatch          Boolean  @default(false) @map("require_google_business_match")
-  requireAuditCompletionForBusiness   Boolean  @default(true) @map("require_audit_completion_for_business")
-  defaultMembershipPackage            String?  @map("default_membership_package")
-  featuredBusinesses                  String[] @map("featured_businesses")
-  featuredCategories                  String[] @map("featured_categories")
-  featuredCampaigns                   String[] @map("featured_campaigns")
-  featuredEvents                      String[] @map("featured_events")
-  featuredRewards                     String[] @map("featured_rewards")
-  featuredSpinCampaigns               String[] @map("featured_spin_campaigns")
-  featuredHighStreets                 String[] @map("featured_high_streets")
-  categoryPriorities                  Json?    @map("category_priorities")
-  allowBoroughCampaigns               Boolean  @default(true) @map("allow_borough_campaigns")
-  allowHighStreetCampaigns            Boolean  @default(true) @map("allow_high_street_campaigns")
-  allowJointCampaigns                 Boolean  @default(false) @map("allow_joint_campaigns")
-  allowSeasonalCampaigns              Boolean  @default(true) @map("allow_seasonal_campaigns")
-  campaignApprovalRequired            Boolean  @default(true) @map("campaign_approval_required")
-  enableEventsModule                  Boolean  @default(true) @map("enable_events_module")
-  requireEventApproval                Boolean  @default(true) @map("require_event_approval")
-  maxEventsPerBusiness                Int      @default(5) @map("max_events_per_business")
-  allowCommunityEvents                Boolean  @default(true) @map("allow_community_events")
-  allowBusinessEvents                 Boolean  @default(true) @map("allow_business_events")
-  enableRewardsModule                 Boolean  @default(true) @map("enable_rewards_module")
-  enableLoyaltyModule                 Boolean  @default(true) @map("enable_loyalty_module")
-  enableBonusCampaigns                Boolean  @default(false) @map("enable_bonus_campaigns")
-  enableDoublePointDays               Boolean  @default(true) @map("enable_double_point_days")
-  enableSeasonalRewards               Boolean  @default(true) @map("enable_seasonal_rewards")
-  enableSpinModule                    Boolean  @default(true) @map("enable_spin_module")
-  allowBusinessSponsoredSpins         Boolean  @default(true) @map("allow_business_sponsored_spins")
-  allowBoroughSpins                   Boolean  @default(false) @map("allow_borough_spins")
-  allowSeasonalSpins                  Boolean  @default(true) @map("allow_seasonal_spins")
-  maxSpinsPerCustomer                 Int      @default(3) @map("max_spins_per_customer")
-  enableRotator                       Boolean  @default(true) @map("enable_rotator")
-  enableLocalFeedDistribution         Boolean  @default(true) @map("enable_local_feed_distribution")
-  enableBoroughFeedDistribution       Boolean  @default(false) @map("enable_borough_feed_distribution")
-  enableFeaturedPlacement             Boolean  @default(true) @map("enable_featured_placement")
-  createdAt                           DateTime @default(now()) @map("created_at")
-  updatedAt                           DateTime @updatedAt @map("updated_at")
+  id                                String   @id @default(cuid())
+  name                              String   @map("name")
+  postcodes                         String[] @map("postcodes")
+  borough                           String   @map("borough")
+  primaryHighStreet                 String   @map("primary_high_street")
+  additionalHighStreets             String[] @map("additional_high_streets")
+  businesses                        Int      @default(0) @map("businesses")
+  customers                         Int      @default(0) @map("customers")
+  campaigns                         Int      @default(0) @map("campaigns")
+  events                            Int      @default(0) @map("events")
+  status                            String   @default("Active") @map("status") // Active, Draft, Disabled, Archived
+  createdDate                       DateTime @default(now()) @map("created_date")
+  description                       String   @map("description")
+  longDescription                   String   @map("long_description")
+  slug                              String   @unique @map("slug")
+  logo                              String?  @map("logo")
+  coverBanner                       String?  @map("cover_banner")
+  mobileBanner                      String?  @map("mobile_banner")
+  primaryColour                     String   @map("primary_colour")
+  secondaryColour                   String   @map("secondary_colour")
+  welcomeMessage                    String   @map("welcome_message")
+  tagline                           String   @map("tagline")
+  radiusCoverage                    String   @map("radius_coverage")
+  allowBusinessesOutsidePostcode    Boolean  @default(false) @map("allow_businesses_outside_postcode")
+  allowVirtualBusinesses            Boolean  @default(true) @map("allow_virtual_businesses")
+  allowHomeBusinesses               Boolean  @default(true) @map("allow_home_businesses")
+  requireVerification               Boolean  @default(true) @map("require_verification")
+  requireAuditCompletion            Boolean  @default(false) @map("require_audit_completion")
+  requireMembershipApproval         Boolean  @default(true) @map("require_membership_approval")
+  leadConsultant                    String?  @map("lead_consultant")
+  leadConsultantId                  String?  @map("lead_consultant_id")
+  assignedAccountManagers           String[] @map("assigned_account_managers")
+  assignedAccountManagerIds         String[] @map("assigned_account_manager_ids")
+  assignedAgents                    String[] @map("assigned_agents")
+  assignedAgentIds                  String[] @map("assigned_agent_ids")
+  supportTeam                       String[] @map("support_team")
+  enableAudit                       Boolean  @default(true) @map("enable_audit")
+  enableRewards                     Boolean  @default(true) @map("enable_rewards")
+  enableLoyalty                     Boolean  @default(true) @map("enable_loyalty")
+  enableQLinks                      Boolean  @default(true) @map("enable_q_links")
+  enableSpin                        Boolean  @default(true) @map("enable_spin")
+  enableEvents                      Boolean  @default(true) @map("enable_events")
+  enableCampaigns                   Boolean  @default(true) @map("enable_campaigns")
+  enablePushNotifications           Boolean  @default(true) @map("enable_push_notifications")
+  enableMarketplace                 Boolean  @default(false) @map("enable_marketplace")
+  allowGuestBrowsing                Boolean  @default(true) @map("allow_guest_browsing")
+  requireRegistrationForRewards     Boolean  @default(true) @map("require_registration_for_rewards")
+  requireRegistrationForSpin        Boolean  @default(true) @map("require_registration_for_spin")
+  enableAutoLocationDetection       Boolean  @default(true) @map("enable_auto_location_detection")
+  allowManualLocalMallSwitching     Boolean  @default(true) @map("allow_manual_local_mall_switching")
+  autoApproveBusinesses             Boolean  @default(false) @map("auto_approve_businesses")
+  manualApprovalRequired            Boolean  @default(true) @map("manual_approval_required")
+  requireDocumentVerification       Boolean  @default(true) @map("require_document_verification")
+  requireGoogleBusinessMatch        Boolean  @default(false) @map("require_google_business_match")
+  requireAuditCompletionForBusiness Boolean  @default(true) @map("require_audit_completion_for_business")
+  defaultMembershipPackage          String?  @map("default_membership_package")
+  featuredBusinesses                String[] @map("featured_businesses")
+  featuredCategories                String[] @map("featured_categories")
+  featuredCampaigns                 String[] @map("featured_campaigns")
+  featuredEvents                    String[] @map("featured_events")
+  featuredRewards                   String[] @map("featured_rewards")
+  featuredSpinCampaigns             String[] @map("featured_spin_campaigns")
+  featuredHighStreets               String[] @map("featured_high_streets")
+  categoryPriorities                Json?    @map("category_priorities")
+  allowBoroughCampaigns             Boolean  @default(true) @map("allow_borough_campaigns")
+  allowHighStreetCampaigns          Boolean  @default(true) @map("allow_high_street_campaigns")
+  allowJointCampaigns               Boolean  @default(false) @map("allow_joint_campaigns")
+  allowSeasonalCampaigns            Boolean  @default(true) @map("allow_seasonal_campaigns")
+  campaignApprovalRequired          Boolean  @default(true) @map("campaign_approval_required")
+  enableEventsModule                Boolean  @default(true) @map("enable_events_module")
+  requireEventApproval              Boolean  @default(true) @map("require_event_approval")
+  maxEventsPerBusiness              Int      @default(5) @map("max_events_per_business")
+  allowCommunityEvents              Boolean  @default(true) @map("allow_community_events")
+  allowBusinessEvents               Boolean  @default(true) @map("allow_business_events")
+  enableRewardsModule               Boolean  @default(true) @map("enable_rewards_module")
+  enableLoyaltyModule               Boolean  @default(true) @map("enable_loyalty_module")
+  enableBonusCampaigns              Boolean  @default(false) @map("enable_bonus_campaigns")
+  enableDoublePointDays             Boolean  @default(true) @map("enable_double_point_days")
+  enableSeasonalRewards             Boolean  @default(true) @map("enable_seasonal_rewards")
+  enableSpinModule                  Boolean  @default(true) @map("enable_spin_module")
+  allowBusinessSponsoredSpins       Boolean  @default(true) @map("allow_business_sponsored_spins")
+  allowBoroughSpins                 Boolean  @default(false) @map("allow_borough_spins")
+  allowSeasonalSpins                Boolean  @default(true) @map("allow_seasonal_spins")
+  maxSpinsPerCustomer               Int      @default(3) @map("max_spins_per_customer")
+  enableRotator                     Boolean  @default(true) @map("enable_rotator")
+  enableLocalFeedDistribution       Boolean  @default(true) @map("enable_local_feed_distribution")
+  enableBoroughFeedDistribution     Boolean  @default(false) @map("enable_borough_feed_distribution")
+  enableFeaturedPlacement           Boolean  @default(true) @map("enable_featured_placement")
+  createdAt                         DateTime @default(now()) @map("created_at")
+  updatedAt                         DateTime @updatedAt @map("updated_at")
 
   @@map("local_malls")
 }
@@ -934,16 +1189,16 @@ enum TaskStatus {
 }
 
 model ProgrammePhase {
-  id          String            @id @default(cuid())
-  name        String            @map("name")
-  dayStart    Int               @map("day_start")
-  dayEnd      Int               @map("day_end")
-  description String            @map("description")
-  color       String            @default("sky") @map("color")
-  order       Int               @default(0) @map("order")
-  missions    Json              @map("missions")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  id          String              @id @default(cuid())
+  name        String              @map("name")
+  dayStart    Int                 @map("day_start")
+  dayEnd      Int                 @map("day_end")
+  description String              @map("description")
+  color       String              @default("sky") @map("color")
+  order       Int                 @default(0) @map("order")
+  missions    Json                @map("missions")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
   businesses  BusinessProgramme[]
 
   @@index([order])
@@ -951,41 +1206,41 @@ model ProgrammePhase {
 }
 
 model ReadinessGate {
-  id                String   @id @default(cuid())
-  name              String   @map("name")
-  minProgressPercent Int     @map("min_progress_percent")
-  isEnabled         Boolean  @default(true) @map("is_enabled")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(cuid())
+  name               String   @map("name")
+  minProgressPercent Int      @map("min_progress_percent")
+  isEnabled          Boolean  @default(true) @map("is_enabled")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("readiness_gates")
 }
 
 model BusinessProgramme {
-  id                  String            @id @default(cuid())
+  id                 String                @id @default(cuid())
   // Phase 5: intentionally FK-free. Enrolments snapshot business/agent names
   // and tolerate dangling ids when a business is soft-deleted (the programme
   // history must outlive the profile). Resolved in code with null-tolerance.
-  businessId          String?           @map("business_id")
-  businessName        String            @map("business_name")
-  sector              String            @map("sector")
-  currentDay          Int               @default(1) @map("current_day")
-  status              ProgrammeStatus   @default(active) @map("status")
-  agentId             String?           @map("agent_id")
-  agentName           String            @map("agent_name")
-  accountManagerId    String?           @map("account_manager_id")
-  accountManagerName  String            @map("account_manager_name")
-  consultantId        String?           @map("consultant_id")
-  consultantName      String            @map("consultant_name")
-  completedMissions   String[]          @map("completed_missions")
-  startedAt           DateTime          @default(now()) @map("started_at")
-  extendedBy          Int               @default(0) @map("extended_by")
-  phaseId             String?           @map("phase_id")
-  phase               ProgrammePhase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
-  taskStatuses        ProgrammeTaskStatus[]
-  deletedAt           DateTime?         @map("deleted_at")
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
+  businessId         String?               @map("business_id")
+  businessName       String                @map("business_name")
+  sector             String                @map("sector")
+  currentDay         Int                   @default(1) @map("current_day")
+  status             ProgrammeStatus       @default(active) @map("status")
+  agentId            String?               @map("agent_id")
+  agentName          String                @map("agent_name")
+  accountManagerId   String?               @map("account_manager_id")
+  accountManagerName String                @map("account_manager_name")
+  consultantId       String?               @map("consultant_id")
+  consultantName     String                @map("consultant_name")
+  completedMissions  String[]              @map("completed_missions")
+  startedAt          DateTime              @default(now()) @map("started_at")
+  extendedBy         Int                   @default(0) @map("extended_by")
+  phaseId            String?               @map("phase_id")
+  phase              ProgrammePhase?       @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  taskStatuses       ProgrammeTaskStatus[]
+  deletedAt          DateTime?             @map("deleted_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   @@index([businessId])
   @@index([agentId])
@@ -996,13 +1251,13 @@ model BusinessProgramme {
 }
 
 model ProgrammeTaskStatus {
-  id                   String          @id @default(cuid())
-  businessProgrammeId  String          @map("business_programme_id")
-  businessProgramme    BusinessProgramme @relation(fields: [businessProgrammeId], references: [id], onDelete: Cascade)
-  missionId            String          @map("mission_id")
-  status               TaskStatus      @default(not_started) @map("status")
-  createdAt            DateTime        @default(now()) @map("created_at")
-  updatedAt            DateTime        @updatedAt @map("updated_at")
+  id                  String            @id @default(cuid())
+  businessProgrammeId String            @map("business_programme_id")
+  businessProgramme   BusinessProgramme @relation(fields: [businessProgrammeId], references: [id], onDelete: Cascade)
+  missionId           String            @map("mission_id")
+  status              TaskStatus        @default(not_started) @map("status")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
 
   @@unique([businessProgrammeId, missionId])
   @@index([businessProgrammeId])
@@ -1016,12 +1271,12 @@ enum SupportAgentRole {
 }
 
 model SupportAgent {
-  id        String          @id @default(cuid())
-  name      String          @map("name")
+  id        String           @id @default(cuid())
+  name      String           @map("name")
   role      SupportAgentRole @map("role")
-  email     String          @unique @map("email")
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  email     String           @unique @map("email")
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
 
   @@index([role])
   @@map("support_agents")
@@ -1042,22 +1297,34 @@ enum TaskAssignmentStatus {
   EXPIRED
 }
 
+enum TaskSource {
+  INTERNAL
+  EXTERNAL
+}
+
 model TaskDefinition {
-  id             String               @id @default(cuid())
-  title          String               @map("title")
-  description    String               @map("description")
-  targetAudience TaskAudience         @default(BOTH) @map("target_audience")
-  featureKey     String               @map("feature_key")
-  deadlineDays   Int                  @default(7) @map("deadline_days")
-  rewardPoints   Int                  @default(50) @map("reward_points")
-  isActive       Boolean              @default(true) @map("is_active")
-  platform       String               @default("mcom_central") @map("platform")
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
-  assignments    UserTaskAssignment[]
+  id                   String               @id @default(cuid())
+  title                String               @map("title")
+  description          String               @map("description")
+  targetAudience       TaskAudience         @default(BOTH) @map("target_audience")
+  featureKey           String?              @map("feature_key")
+  taskSource           TaskSource           @default(INTERNAL) @map("task_source")
+  externalClientId     String?              @map("external_client_id")
+  externalAppName      String?              @map("external_app_name")
+  externalPlatformSlug String?              @map("external_platform_slug")
+  externalAppUrl       String?              @map("external_app_url")
+  deadlineDays         Int                  @default(7) @map("deadline_days")
+  rewardPoints         Int                  @default(50) @map("reward_points")
+  isActive             Boolean              @default(true) @map("is_active")
+  platform             String               @default("mcom_central") @map("platform")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  assignments          UserTaskAssignment[]
 
   @@index([featureKey])
   @@index([isActive])
+  @@index([taskSource])
+  @@index([externalClientId])
   @@map("task_definitions")
 }
 
@@ -1125,17 +1392,17 @@ enum ActivitySeverity {
 }
 
 model ActivityFeed {
-  id          String           @id @default(cuid())
-  type        String           @map("type")
-  title       String           @map("title")
-  details     String?          @map("details")
-  location    String?          @map("location")
-  severity    ActivitySeverity @default(info) @map("severity")
-  source      String?          @map("source")
-  highStreetId String?         @map("high_street_id")
-  highStreet  HighStreet?      @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  id           String           @id @default(cuid())
+  type         String           @map("type")
+  title        String           @map("title")
+  details      String?          @map("details")
+  location     String?          @map("location")
+  severity     ActivitySeverity @default(info) @map("severity")
+  source       String?          @map("source")
+  highStreetId String?          @map("high_street_id")
+  highStreet   HighStreet?      @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
 
   @@index([highStreetId])
   @@index([type])
@@ -1146,16 +1413,16 @@ model ActivityFeed {
 // ─── BOROUGH METRICS (BoroughsPanel detail stats) ────────────────────────────
 
 model BoroughMetric {
-  id             String   @id @default(cuid())
-  boroughId      String   @map("borough_id")
-  borough        Borough  @relation(fields: [boroughId], references: [id], onDelete: Cascade)
-  month          String   @map("month") // YYYY-MM
-  footfall       Int      @default(0) @map("footfall")
-  revenue        Float    @default(0) @map("revenue")
-  activeCustomers Int     @default(0) @map("active_customers")
-  businesses     Int      @default(0) @map("businesses")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(cuid())
+  boroughId       String   @map("borough_id")
+  borough         Borough  @relation(fields: [boroughId], references: [id], onDelete: Cascade)
+  month           String   @map("month") // YYYY-MM
+  footfall        Int      @default(0) @map("footfall")
+  revenue         Float    @default(0) @map("revenue")
+  activeCustomers Int      @default(0) @map("active_customers")
+  businesses      Int      @default(0) @map("businesses")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@unique([boroughId, month])
   @@index([boroughId])
@@ -1166,15 +1433,15 @@ model BoroughMetric {
 // ─── SYSTEM DEVELOPER CENTER (SystemPanel) ───────────────────────────────────
 
 model BackgroundJob {
-  id          String   @id @default(cuid())
-  name        String   @map("name")
-  status      String   @default("pending") @map("status") // pending, running, completed, failed
-  progress    Int      @default(0) @map("progress")
+  id          String    @id @default(cuid())
+  name        String    @map("name")
+  status      String    @default("pending") @map("status") // pending, running, completed, failed
+  progress    Int       @default(0) @map("progress")
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
-  error       String?  @map("error")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  error       String?   @map("error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
   @@map("background_jobs")
@@ -1273,25 +1540,25 @@ enum TopUpStatus {
 }
 
 model Wallet {
-  id                 String        @id @default(cuid())
-  userId             String        @unique @map("user_id")
-  balance            Decimal       @default(0) @db.Decimal(18, 4) @map("balance")
-  currency           String        @default("MCOM") @map("currency")
-  status             WalletStatus  @default(ACTIVE) @map("status")
+  id       String       @id @default(cuid())
+  userId   String       @unique @map("user_id")
+  balance  Decimal      @default(0) @map("balance") @db.Decimal(18, 4)
+  currency String       @default("MCOM") @map("currency")
+  status   WalletStatus @default(ACTIVE) @map("status")
 
-  dailyDebitLimit    Decimal?      @db.Decimal(18, 4) @map("daily_debit_limit")
-  monthlyDebitLimit  Decimal?      @db.Decimal(18, 4) @map("monthly_debit_limit")
-  maxBalance         Decimal?      @db.Decimal(18, 4) @map("max_balance")
+  dailyDebitLimit   Decimal? @map("daily_debit_limit") @db.Decimal(18, 4)
+  monthlyDebitLimit Decimal? @map("monthly_debit_limit") @db.Decimal(18, 4)
+  maxBalance        Decimal? @map("max_balance") @db.Decimal(18, 4)
 
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
-  lastTransactionAt  DateTime?     @map("last_transaction_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  lastTransactionAt DateTime? @map("last_transaction_at")
 
-  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions       WalletTransaction[]
-  holds              WalletHold[]
-  topUpRequests      WalletTopUpRequest[]
-  auditLogs          WalletAuditLog[]
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  WalletTransaction[]
+  holds         WalletHold[]
+  topUpRequests WalletTopUpRequest[]
+  auditLogs     WalletAuditLog[]
 
   @@index([userId])
   @@index([status])
@@ -1299,36 +1566,36 @@ model Wallet {
 }
 
 model WalletTransaction {
-  id                String              @id @default(cuid())
-  walletId          String              @map("wallet_id")
+  id       String @id @default(cuid())
+  walletId String @map("wallet_id")
 
-  type              TransactionType     @map("type")
-  amount            Decimal             @db.Decimal(18, 4) @map("amount")
-  balanceBefore     Decimal             @db.Decimal(18, 4) @map("balance_before")
-  balanceAfter      Decimal             @db.Decimal(18, 4) @map("balance_after")
-  currency          String              @default("MCOM") @map("currency")
+  type          TransactionType @map("type")
+  amount        Decimal         @map("amount") @db.Decimal(18, 4)
+  balanceBefore Decimal         @map("balance_before") @db.Decimal(18, 4)
+  balanceAfter  Decimal         @map("balance_after") @db.Decimal(18, 4)
+  currency      String          @default("MCOM") @map("currency")
 
-  platformClientId  String?             @map("platform_client_id")
-  platformName      String?             @map("platform_name")
-  platformSlug      String?             @map("platform_slug")
+  platformClientId String? @map("platform_client_id")
+  platformName     String? @map("platform_name")
+  platformSlug     String? @map("platform_slug")
 
-  category          TransactionCategory @map("category")
-  reference         String?             @map("reference")
-  description       String?             @map("description")
-  metadata          Json?               @map("metadata")
+  category    TransactionCategory @map("category")
+  reference   String?             @map("reference")
+  description String?             @map("description")
+  metadata    Json?               @map("metadata")
 
-  idempotencyKey    String?             @unique @map("idempotency_key")
+  idempotencyKey String? @unique @map("idempotency_key")
 
-  status            TransactionStatus   @default(COMPLETED) @map("status")
-  failureReason     String?             @map("failure_reason")
-  holdId            String?             @map("hold_id")
-  initiatedBy       String?             @map("initiated_by")
-  ipAddress         String?             @map("ip_address")
+  status        TransactionStatus @default(COMPLETED) @map("status")
+  failureReason String?           @map("failure_reason")
+  holdId        String?           @map("hold_id")
+  initiatedBy   String?           @map("initiated_by")
+  ipAddress     String?           @map("ip_address")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  wallet            Wallet              @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  hold              WalletHold?         @relation(fields: [holdId], references: [id], onDelete: SetNull)
+  wallet Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  hold   WalletHold? @relation(fields: [holdId], references: [id], onDelete: SetNull)
 
   @@index([walletId])
   @@index([walletId, createdAt(sort: Desc)])
@@ -1347,7 +1614,7 @@ model WalletTransaction {
 model WalletHold {
   id               String     @id @default(cuid())
   walletId         String     @map("wallet_id")
-  amount           Decimal    @db.Decimal(18, 4) @map("amount")
+  amount           Decimal    @map("amount") @db.Decimal(18, 4)
   platformClientId String     @map("platform_client_id")
   platformName     String     @map("platform_name")
   reference        String?    @map("reference")
@@ -1381,7 +1648,7 @@ model WalletAuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
-  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId])
   @@index([adminId])
@@ -1390,26 +1657,26 @@ model WalletAuditLog {
 }
 
 model WalletTopUpRequest {
-  id             String     @id @default(cuid())
-  walletId       String     @map("wallet_id")
-  userId         String     @map("user_id")
-  amount         Decimal    @db.Decimal(18, 4) @map("amount")
-  currency       String     @default("GBP") @map("currency")
-  walletCurrency String     @default("MCOM") @map("wallet_currency")
-  exchangeRate   Decimal    @default(1) @db.Decimal(10, 6) @map("exchange_rate")
+  id             String  @id @default(cuid())
+  walletId       String  @map("wallet_id")
+  userId         String  @map("user_id")
+  amount         Decimal @map("amount") @db.Decimal(18, 4)
+  currency       String  @default("GBP") @map("currency")
+  walletCurrency String  @default("MCOM") @map("wallet_currency")
+  exchangeRate   Decimal @default(1) @map("exchange_rate") @db.Decimal(10, 6)
 
-  provider       String     @map("provider")
-  providerRef    String?    @unique @map("provider_ref")
-  providerStatus String?    @map("provider_status")
+  provider       String  @map("provider")
+  providerRef    String? @unique @map("provider_ref")
+  providerStatus String? @map("provider_status")
 
-  status         TopUpStatus @default(PENDING) @map("status")
-  transactionId  String?    @map("transaction_id")
+  status        TopUpStatus @default(PENDING) @map("status")
+  transactionId String?     @map("transaction_id")
 
-  createdAt      DateTime   @default(now()) @map("created_at")
-  completedAt    DateTime?  @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
 
-  wallet         Wallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([walletId])
   @@index([userId])
@@ -1423,9 +1690,9 @@ model WalletTopUpRequest {
 
 model FxRate {
   id        String   @id @default(cuid())
-  base      String   @map("base")     // e.g. 'GBP'
-  quote     String   @map("quote")    // e.g. 'MCOM'
-  rate      Decimal  @db.Decimal(10, 6) @map("rate")
+  base      String   @map("base") // e.g. 'GBP'
+  quote     String   @map("quote") // e.g. 'MCOM'
+  rate      Decimal  @map("rate") @db.Decimal(10, 6)
   updatedAt DateTime @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1433,109 +1700,199 @@ model FxRate {
   @@map("fx_rates")
 }
 
-// ─── RELATIONAL PLAN FAMILY & TIER ARCHITECTURE ──────────────────────────────
-// Decouples the Plan Family (Bronze/Silver/Gold/Packages) from the Tier (Standard/Pro/Pro+)
+// ─── PROGRAMME & SYSTEM SETTINGS ────────────────────────────────────────────
 
-enum PlanType {
-  MEMBERSHIP
-  PACKAGE
+model ProgrammeSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("programme_settings")
 }
 
-model Tier {
-  id           String        @id @default(cuid())
-  name         String        @unique @map("name") // Standard, Pro, Pro+
-  slug         String        @unique @map("slug")
-  durationDays Int?          @map("duration_days") // 90 for Standard, 180 for Pro, null for Pro+ (leap year aware)
-  isAnnual     Boolean       @default(false) @map("is_annual")
-  sortOrder    Int           @default(0) @map("sort_order")
-  variants     PlanVariant[]
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+// ─── RELATIONAL PLAN FAMILY & TIER ARCHITECTURE — REMOVED ──────────────────────
+// MCOM holds no plans of its own (memberships-only model). Memberships
+// (membership_plans) bundle plans/packages that live on console-registered
+// external platforms (see admin/console + external_plans mirror). The former
+// Tier/Plan/PlanVariant/PlanPrice/Subscription tables were dropped in
+// migration 20261006030000_drop_tier_plan_package_tables; tiers survive as
+// Standard/Pro/Pro+ values in tier* JSON columns and tier-duration utils.
 
-  @@index([sortOrder])
-  @@map("tiers")
+// ─── ENTERPRISE REAL-TIME CHAT & MESSAGING SYSTEM ────────────────────────────
+
+enum ConversationType {
+  DIRECT
+  GROUP
 }
 
-model Plan {
-  id           String        @id @default(cuid())
-  name         String        @map("name") // e.g. Bronze, Silver, MCOM Solutions Suite
-  slug         String        @unique @map("slug")
-  type         PlanType      @default(MEMBERSHIP) @map("type")
-  platform     String?       @map("platform") // Null for global memberships, platform name for packages
-  description  String?       @map("description")
-  badge        String?       @map("badge") // e.g. MOST POPULAR, BEST VALUE
-  color        String?       @map("color")
-  whoItIsFor   String?       @map("who_it_is_for")
-  includedApps Json?         // Bundled platform apps (for memberships)
-  isActive     Boolean       @default(true) @map("is_active")
-  variants     PlanVariant[]
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
-
-  @@index([type])
-  @@index([platform])
-  @@index([isActive])
-  @@map("plans")
+enum ParticipantRole {
+  ADMIN
+  MEMBER
 }
 
-model PlanVariant {
-  id            String         @id @default(cuid())
-  planId        String         @map("plan_id")
-  plan          Plan           @relation(fields: [planId], references: [id], onDelete: Cascade)
-  tierId        String         @map("tier_id")
-  tier          Tier           @relation(fields: [tierId], references: [id], onDelete: Cascade)
-  isActive      Boolean        @default(true) @map("is_active")
-  features      String[]       @default([]) @map("features")
-  entitlements  Json?          @map("entitlements") // Resource limits: vcards, cards, face value, qr rules
-  prices        PlanPrice[]
-  subscriptions Subscription[]
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
+model Conversation {
+  id                  String           @id @default(uuid())
+  type                ConversationType @default(DIRECT)
+  title               String? // For group conversations
+  avatarUrl           String?          @map("avatar_url")
+  directKey           String?          @unique @map("direct_key") // canonical sorted "userIdA:userIdB"
+  createdById         String?          @map("created_by_id")
+  createdBy           User?            @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessageAt       DateTime         @default(now()) @map("last_message_at")
+  lastMessageText     String?          @map("last_message_text")
+  lastMessageSenderId String?          @map("last_message_sender_id")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  deletedAt           DateTime?        @map("deleted_at")
 
-  @@unique([planId, tierId])
-  @@index([planId])
-  @@index([tierId])
-  @@map("plan_variants")
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt(sort: Desc)])
+  @@index([deletedAt])
+  @@map("conversations")
 }
 
-model PlanPrice {
-  id              String         @id @default(cuid())
-  planVariantId   String         @map("plan_variant_id")
-  planVariant     PlanVariant    @relation(fields: [planVariantId], references: [id], onDelete: Cascade)
-  currency        String         @default("GBP") @map("currency")
-  billingInterval String         @map("billing_interval") // '90_days', '180_days', 'annually'
-  amount          Float          @map("amount") // In GBP
-  isActive        Boolean        @default(true) @map("is_active")
-  effectiveFrom   DateTime       @default(now()) @map("effective_from")
-  effectiveTo     DateTime?      @map("effective_to")
-  subscriptions   Subscription[]
-  createdAt     DateTime       @default(now()) @map("created_at")
+model ConversationParticipant {
+  id                String          @id @default(uuid())
+  conversationId    String          @map("conversation_id")
+  conversation      Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId            String          @map("user_id")
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role              ParticipantRole @default(MEMBER)
+  isMuted           Boolean         @default(false) @map("is_muted")
+  lastReadMessageId String?         @map("last_read_message_id")
+  lastReadAt        DateTime?       @map("last_read_at")
+  joinedAt          DateTime        @default(now()) @map("joined_at")
+  leftAt            DateTime?       @map("left_at")
 
-  @@index([planVariantId])
-  @@index([isActive])
-  @@map("plan_prices")
+  @@unique([conversationId, userId])
+  @@index([userId, isMuted])
+  @@index([conversationId])
+  @@map("conversation_participants")
 }
 
-model Subscription {
-  id            String          @id @default(cuid())
-  businessId    String          @map("business_id")
-  business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  planVariantId String          @map("plan_variant_id")
-  planVariant     PlanVariant     @relation(fields: [planVariantId], references: [id], onDelete: Restrict)
-  priceId       String          @map("price_id")
-  price         PlanPrice       @relation(fields: [priceId], references: [id], onDelete: Restrict)
-  status        String          @default("active") @map("status") // active, trial, expired, cancelled
-  startDate     DateTime        @default(now()) @map("start_date")
-  endDate       DateTime        @map("end_date")
-  amountPaid    Float           @map("amount_paid")
-  createdAt     DateTime        @default(now()) @map("created_at")
-  updatedAt     DateTime        @updatedAt @map("updated_at")
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String       @map("conversation_id")
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String       @map("sender_id")
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  idempotencyKey String?      @map("idempotency_key")
+  type           String       @default("TEXT") // TEXT, SYSTEM, IMAGE, FILE
+  content        String       @db.Text
+  metadata       Json?
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  @@index([businessId])
-  @@index([planVariantId])
-  @@index([priceId])
-  @@index([status])
-  @@index([businessId, status])
-  @@index([status, endDate])
-  @@map("subscriptions")
+  readReceipts MessageReadReceipt[]
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model MessageReadReceipt {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now()) @map("read_at")
+
+  @@unique([messageId, userId])
+  @@index([messageId, readAt])
+  @@index([userId])
+  @@map("message_read_receipts")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique @db.Text
+  p256dh    String   @db.Text
+  auth      String   @db.Text
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model NotificationPreference {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  directMessages Boolean  @default(true) @map("direct_messages")
+  groupMessages  Boolean  @default(true) @map("group_messages")
+  pushEnabled    Boolean  @default(true) @map("push_enabled")
+  emailEnabled   Boolean  @default(true) @map("email_enabled")
+  dndEnabled     Boolean  @default(false) @map("dnd_enabled")
+  dndStartTime   String?  @map("dnd_start_time")
+  dndEndTime     String?  @map("dnd_end_time")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
+model ChatOutbox {
+  id           String    @id @default(uuid())
+  eventType    String    @map("event_type") // NEW_MESSAGE, PUSH_DISPATCH, READ_SYNC
+  payload      Json
+  status       String    @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  retryCount   Int       @default(0) @map("retry_count")
+  errorMessage String?   @map("error_message")
+  processedAt  DateTime? @map("processed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@map("chat_outbox")
+}
+
+enum MessageRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model ChatMessageRequest {
+  id             String               @id @default(uuid())
+  senderId       String               @map("sender_id")
+  sender         User                 @relation("MessageRequestsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     String               @map("receiver_id")
+  receiver       User                 @relation("MessageRequestsReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+  status         MessageRequestStatus @default(PENDING)
+  message        String?              @db.Text
+  rejectionCount Int                  @default(0) @map("rejection_count")
+  respondedAt    DateTime?            @map("responded_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
+  @@map("chat_message_requests")
+}
+
+model ChatBlock {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blocker   User     @relation("UserBlocksSent", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String   @map("blocked_id")
+  blocked   User     @relation("UserBlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("chat_blocks")
 }

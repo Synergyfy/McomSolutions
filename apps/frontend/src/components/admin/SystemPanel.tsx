@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ClipboardList, Settings as SettingsIcon, Terminal, Crown, Search, Trash2, Download, RefreshCw, Eye, EyeOff, Shield, Save, Loader2, Activity, Plus, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminAuditLogs, useAdminSettings, useAdminPlans, useAdminPlatforms, useAdminPackages, useAdminPermissions, useClearAuditLogs, useUpdateSettings, useSystemHealth, useSystemJobs, useCreateSystemJob, useUpdateSystemJob, useDeleteSystemJob, useSystemErrorLogs } from '../../services/admin/hooks';
+import { useAdminAuditLogs, useAdminSettings, useAdminPlans, useAdminPlatforms, useAdminPermissions, useClearAuditLogs, useUpdateSettings, useSystemHealth, useSystemJobs, useCreateSystemJob, useUpdateSystemJob, useDeleteSystemJob, useSystemErrorLogs } from '../../services/admin/hooks';
 
 export default function SystemPanel() {
   const [tab, setTab] = useState<'audit' | 'settings' | 'developer' | 'super'>('audit');
@@ -308,15 +308,12 @@ function SuperAdminPanel() {
   const { data: permRes } = useAdminPermissions();
   const { data: plansRes } = useAdminPlans();
   const { data: platformsRes } = useAdminPlatforms();
-  const { data: packagesRes } = useAdminPackages();
   const permData = permRes?.data as any;
   const permissionRoles = Array.isArray(permData) ? permData : permData?.data ?? [];
   const planData = plansRes?.data as any;
   const membershipPlans = Array.isArray(planData) ? planData : planData?.data ?? [];
   const platData = platformsRes?.data as any;
   const platforms = Array.isArray(platData) ? platData : platData?.data?.platforms ?? [];
-  const pkgData = packagesRes?.data as any;
-  const packages = Array.isArray(pkgData) ? pkgData : pkgData?.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -327,10 +324,9 @@ function SuperAdminPanel() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <SuperStat label="All Admins" value={permissionRoles.length.toString()} />
         <SuperStat label="All Memberships" value={membershipPlans.length.toString()} />
-        <SuperStat label="All Packages" value={packages.length.toString()} />
         <SuperStat label="All Platforms" value={platforms.length.toString()} />
       </div>
 

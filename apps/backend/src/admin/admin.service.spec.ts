@@ -73,8 +73,19 @@ describe('AdminService', () => {
       const result = await service.getStats();
       expect(result.success).toBe(true);
       expect(result.data.ecosystemStats.totalBusinesses).toBe(5);
+      expect(result.data.ecosystemStats.totalPlatformUsers).toBe(5);
       expect(result.data.membershipStats.active).toBe(0);
       expect(result.data.revenueStats.todayRevenue).toBe(0);
+    });
+
+    it('serves cached stats within the TTL and recomputes after a write', async () => {
+      const first = await service.getStats();
+      await expect(service.getStats()).resolves.toBe(first);
+      // Any audited write clears the cache (via logAuditTx).
+      await service.logAuditTx(mockPrisma, 'Test', 'Test', 'test', 'test');
+      const third = await service.getStats();
+      expect(third).not.toBe(first);
+      expect(third).toEqual(first);
     });
   });
 
@@ -171,6 +182,140 @@ describe('AdminService', () => {
       await expect(service.updateUserRole('missing', Role.AGENT)).rejects.toThrow(
         'User not found',
       );
+    });
+  });
+
+  describe('createPlan/updatePlan with tiers (relational dual-write)', () => {
+    beforeEach(() => {
+      const p: any = mockPrisma;
+      p.membershipPlan = {
+        create: jest.fn(),
+        update: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      };
+      p.membershipPlanTier = { upsert: jest.fn() };
+      p.membershipPaymentOption = { deleteMany: jest.fn(), createMany: jest.fn() };
+      p.membershipTierFeature = { deleteMany: jest.fn(), createMany: jest.fn() };
+      p.membershipTierEntitlement = { deleteMany: jest.fn(), createMany: jest.fn() };
+      p.membershipPlanAppBundle = { deleteMany: jest.fn(), createMany: jest.fn() };
+      p.$transaction = jest.fn(async (fn: any) => {
+        if (typeof fn === 'function') {
+          return fn({ ...p, auditLog: { create: jest.fn().mockResolvedValue({ id: 'a' }) } });
+        }
+        return Promise.all(fn);
+      });
+    });
+
+    const tierDto = {
+      tier: 'Standard',
+      fullPrice: 90,
+      durationDays: 90,
+      features: ['Listing'],
+      entitlements: [{ resourceKey: 'campaigns', quotaValue: '20' }],
+      paymentOptions: [
+        { paymentPlan: 'full', mode: 'manual', manualPrice: 90 },
+        { paymentPlan: 'monthly', mode: 'auto', surchargePct: 2 },
+      ],
+    };
+
+    it('creates tier rows with server-computed prices and a JSON mirror', async () => {
+      const p: any = mockPrisma;
+      p.membershipPlan.create.mockResolvedValue({ id: 'plan-1', name: 'Gold' });
+      p.membershipPlan.update.mockImplementation(async (args: any) => ({ id: 'plan-1', ...args.data }));
+      p.membershipPlanTier.upsert.mockImplementation(async (args: any) => ({
+        id: `tier-${args.create.tier}`,
+        ...args.create,
+      }));
+
+      const result = await service.createPlan(
+        {
+          name: 'Gold',
+          description: 'Scale',
+          price: 350,
+          billingCycle: 'Monthly',
+          platformAccess: ['Mall'],
+          usageLimits: {},
+          permissions: [],
+          tiers: [tierDto],
+        } as any,
+        'admin',
+      );
+
+      expect(result.success).toBe(true);
+      expect(p.membershipPlanTier.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { planId_tier: { planId: 'plan-1', tier: 'Standard' } },
+        }),
+      );
+      expect(p.membershipPaymentOption.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.arrayContaining([
+            expect.objectContaining({
+              paymentPlan: 'full', perChargePrice: 90, totalPrice: 90, installments: 1, sliceDays: 90,
+            }),
+            expect.objectContaining({
+              paymentPlan: 'monthly', perChargePrice: 30.6, totalPrice: 91.8, installments: 3, sliceDays: 30,
+            }),
+          ]),
+        }),
+      );
+      expect(p.membershipTierEntitlement.createMany).toHaveBeenCalled();
+      expect(p.membershipPlan.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tierPrices: expect.objectContaining({ Standard: 90 }),
+            tierDurations: expect.objectContaining({ Standard: 90 }),
+          }),
+        }),
+      );
+    });
+
+    it('rejects a split the tier does not support, in plain language', async () => {
+      const p: any = mockPrisma;
+      p.membershipPlan.create.mockResolvedValue({ id: 'plan-1', name: 'Gold' });
+      p.membershipPlanTier.upsert.mockResolvedValue({ id: 'tier-1' });
+
+      await expect(
+        service.createPlan(
+          {
+            name: 'Gold',
+            description: 'Scale',
+            price: 350,
+            billingCycle: 'Monthly',
+            platformAccess: ['Mall'],
+            usageLimits: {},
+            permissions: [],
+            tiers: [
+              { tier: 'Standard', fullPrice: 90, paymentOptions: [{ paymentPlan: 'quarterly', mode: 'auto' }] },
+            ],
+          } as any,
+        ),
+      ).rejects.toThrow('The quarterly option is not available for the Standard tier.');
+    });
+
+    it('updatePlan never sends tiers to the plan row and merges the JSON mirror', async () => {
+      const p: any = mockPrisma;
+      p.membershipPlan.findUnique.mockResolvedValue({
+        id: 'p1', tierPrices: { Standard: 10 }, tierFeatures: {}, tierDurations: { Standard: 90 }, tierEntitlements: [],
+      });
+      p.membershipPlan.update.mockImplementation(async (args: any) => ({ id: 'p1', ...args.data }));
+      p.membershipPlanTier.upsert.mockResolvedValue({ id: 'tier-1' });
+
+      await service.updatePlan(
+        'p1',
+        {
+          description: 'New desc',
+          tiers: [{ tier: 'Standard', fullPrice: 20, paymentOptions: [{ paymentPlan: 'full', mode: 'manual', manualPrice: 20 }] }],
+        } as any,
+        'admin',
+      );
+
+      const planUpdates = p.membershipPlan.update.mock.calls.map((c: any[]) => c[0].data);
+      expect(planUpdates[0]).not.toHaveProperty('tiers');
+      expect(planUpdates[0]).toMatchObject({ description: 'New desc' });
+      const mirrorUpdate = planUpdates[planUpdates.length - 1];
+      expect(mirrorUpdate.tierPrices).toMatchObject({ Standard: 20 });
     });
   });
 

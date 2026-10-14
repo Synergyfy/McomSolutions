@@ -7,7 +7,6 @@ import {
   Calendar, 
   Activity,
   Search,
-  Filter,
   MoreVertical,
   ExternalLink,
   MapPin,
@@ -29,7 +28,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
+import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminCampaigns, useCreateCampaign, useAdminHighStreets } from '../../services/admin/hooks';
 import { Loader2 } from 'lucide-react';
 import type { Borough, AccountManager } from '../../services/admin/types';
 
@@ -41,6 +40,9 @@ export default function BoroughsPanel() {
   const managers = (managersRes?.data ?? []) as AccountManager[];
   const { data: campaignsRes } = useAdminCampaigns({ locationType: 'borough' });
   const boroughCampaigns = (campaignsRes?.data ?? []) as any[];
+  const activeBoroughCampaigns = boroughCampaigns.filter(c => c.status === 'active');
+  const { data: highStreetsRes } = useAdminHighStreets();
+  const allHighStreets: any[] = highStreetsRes?.data ?? [];
   const createCampaign = useCreateCampaign();
 
   const [selectedBoroughId, setSelectedBoroughId] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function BoroughsPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState('overview');
+  const [chartRange, setChartRange] = useState<'6M' | '30D'>('30D');
 
   // Modals for detail view
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -112,8 +115,12 @@ export default function BoroughsPanel() {
   const selectedBorough = boroughs.find(b => b.id === selectedBoroughId);
   const { data: boroughStatsRes } = useBoroughStats(selectedBoroughId ?? '');
   const chartData = boroughStatsRes?.data?.chart ?? { footfall: [], revenue: [], months: [] };
-  const chartValues: number[] = chartData.footfall?.length ? chartData.footfall : [];
-  const chartLabels: string[] = chartData.months?.length ? chartData.months : [];
+  const rawValues: number[] = chartData.footfall?.length ? chartData.footfall : [];
+  const rawLabels: string[] = chartData.months?.length ? chartData.months : [];
+  // Range toggle slices the live series (6M → up to 6 points, 30D → latest point).
+  const rangeSize = chartRange === '6M' ? 6 : 1;
+  const chartValues: number[] = rawValues.slice(-rangeSize);
+  const chartLabels: string[] = rawLabels.slice(-rangeSize);
   const chartMax = chartValues.length ? Math.max(...chartValues) : 1;
 
   const filteredBoroughs = boroughs.filter(b =>
@@ -121,11 +128,12 @@ export default function BoroughsPanel() {
     b.manager.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const healthScores = boroughs.map(b => b.healthScore ?? 0);
   const boroughStats = [
-    { title: 'Active Businesses', value: boroughs.reduce((s, b) => s + b.businessCount, 0).toLocaleString(), trend: `+${boroughs.length}`, icon: Store, trendType: 'up' as const },
-    { title: 'Total Boroughs', value: String(boroughs.length), trend: '0', icon: Users, trendType: 'up' as const },
-    { title: 'Borough Campaigns', value: String(boroughs.reduce((s, b) => s + b.activeCampaigns, 0)), trend: '+2', icon: Rocket, trendType: 'up' as const },
-    { title: 'Avg Health Score', value: boroughs.length > 0 ? `${Math.round(boroughs.reduce((s, b) => s + b.healthScore, 0) / boroughs.length)}%` : '0%', trend: '+5%', icon: Gift, trendType: 'up' as const },
+    { title: 'Active Businesses', value: boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0).toLocaleString(), trend: `across ${boroughs.length} boroughs`, icon: Store, trendType: 'up' as const },
+    { title: 'Total Boroughs', value: String(boroughs.length), trend: `${activeBoroughCampaigns.length} active campaigns`, icon: Users, trendType: 'up' as const },
+    { title: 'Borough Campaigns', value: String(boroughCampaigns.length), trend: `${activeBoroughCampaigns.length} active`, icon: Rocket, trendType: 'up' as const },
+    { title: 'Avg Health Score', value: boroughs.length > 0 ? `${Math.round(boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length)}%` : '0%', trend: healthScores.length > 0 ? `${Math.min(...healthScores)}–${Math.max(...healthScores)} range` : 'no data', icon: Gift, trendType: 'up' as const },
   ];
 
   if (isLoading) {
@@ -384,8 +392,8 @@ export default function BoroughsPanel() {
                       <p className="text-xs text-gray-400 font-semibold">Comparative analysis of business growth vs user engagement.</p>
                     </div>
                     <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
-                      <button className="px-2.5 py-1 text-[10px] font-bold text-gray-500 rounded hover:bg-white hover:shadow-sm transition-all">6M</button>
-                      <button className="px-2.5 py-1 text-[10px] font-bold text-gray-950 bg-white shadow-sm rounded transition-all">30D</button>
+                      <button onClick={() => setChartRange('6M')} className={cn("px-2.5 py-1 text-[10px] font-bold rounded transition-all", chartRange === '6M' ? "text-gray-950 bg-white shadow-sm" : "text-gray-500 hover:bg-white hover:shadow-sm")}>6M</button>
+                      <button onClick={() => setChartRange('30D')} className={cn("px-2.5 py-1 text-[10px] font-bold rounded transition-all", chartRange === '30D' ? "text-gray-950 bg-white shadow-sm" : "text-gray-500 hover:bg-white hover:shadow-sm")}>30D</button>
                     </div>
                   </div>
                   <div className="h-60 flex items-end gap-2.5 pt-4">
@@ -441,13 +449,32 @@ export default function BoroughsPanel() {
             </div>
           )}
 
-          {activeDetailTab === 'businesses' && (
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-in fade-in duration-300">
-              <Store className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-              <h4 className="font-bold text-sm text-gray-800">Business Registry</h4>
-              <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto mt-1">Total {selectedBorough.businessCount} active local businesses registered in this borough.</p>
+          {activeDetailTab === 'businesses' && (() => {
+            const streets = allHighStreets.filter(h => h.borough === selectedBorough.name);
+            return (
+            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-1">
+                <Store className="h-5 w-5 text-orange-500" />
+                <h4 className="font-bold text-sm text-gray-800">Business Registry</h4>
+                <span className="ml-auto text-xs font-bold text-gray-400">{selectedBorough.businessCount} businesses · {streets.length} high streets</span>
+              </div>
+              <p className="text-xs text-gray-400 font-semibold max-w-md">High streets registered in this borough. Per-business rows live in User Management.</p>
+              {streets.length > 0 ? (
+                <div className="mt-4 space-y-2 text-left">
+                  {streets.map((h: any) => (
+                    <div key={h.id} className="p-3 bg-gray-50 border border-gray-100 rounded-2xl flex items-center gap-3">
+                      <MapPin className="h-4 w-4 text-orange-500 shrink-0" />
+                      <p className="font-bold text-sm text-gray-900">{h.name}</p>
+                      <span className="ml-auto text-[10px] font-bold text-gray-500">{h.businessCount ?? 0} businesses · {h.status}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 font-semibold mt-4">No high streets registered in this borough yet.</p>
+              )}
             </div>
-          )}
+            );
+          })()}
 
           {activeDetailTab === 'campaigns' && (() => {
             const boroughCampaignsList = boroughCampaigns.filter(c => c.locationId === selectedBorough.id);
@@ -489,7 +516,7 @@ export default function BoroughsPanel() {
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-in fade-in duration-300">
               <Users className="h-10 w-10 text-gray-300 mx-auto mb-2" />
               <h4 className="font-bold text-sm text-gray-800">Community Control</h4>
-              <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto mt-1">Manage moderators, business owners, and resident dialogue groups.</p>
+              <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto mt-1">Community moderation tooling isn&apos;t available yet. Borough campaigns and high-street activity above are live.</p>
             </div>
           )}
         </div>
@@ -576,10 +603,6 @@ export default function BoroughsPanel() {
             <p className="text-xs text-gray-500 font-medium italic">Command center for local borough ecosystems and engagement systems.</p>
           </div>
           <div className="flex items-center gap-3">
-            <button className="flex items-center gap-2 py-2 px-3 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 hover:shadow transition-all">
-              <Filter className="h-4 w-4" />
-              District Filter
-            </button>
             <button 
               onClick={() => setIsOnboardOpen(true)}
               className="flex items-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-100 hover:shadow-xl hover:scale-[1.01] transition-all"
@@ -700,18 +723,48 @@ export default function BoroughsPanel() {
                             >
                               <ExternalLink className="h-4 w-4 text-gray-400" /> View Detailed Borough Profile
                             </button>
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
+                            <button
+                              onClick={() => {
+                                setSelectedBoroughId(b.id);
+                                setActiveDetailTab('campaigns');
+                                setIsNewCampaignOpen(true);
+                                setActiveActionsMenu(null);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
+                            >
                               <Rocket className="h-4 w-4 text-orange-500" /> Launch Activation Campaign
                             </button>
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
-                              <ShieldCheck className="h-4 w-4 text-blue-500" /> Reassign Borough Manager
+                            <button
+                              onClick={() => {
+                                setSelectedBoroughId(b.id);
+                                setActiveDetailTab('overview');
+                                setActiveActionsMenu(null);
+                                setTimeout(openEditProfile, 0);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
+                            >
+                              <ShieldCheck className="h-4 w-4 text-blue-500" /> Edit Borough Profile
                             </button>
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700">
-                              <BarChart3 className="h-4 w-4 text-emerald-500" /> Advanced Ecosystem Analytics
+                            <button
+                              onClick={() => {
+                                setSelectedBoroughId(b.id);
+                                setActiveDetailTab('overview');
+                                setActiveActionsMenu(null);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
+                            >
+                              <BarChart3 className="h-4 w-4 text-emerald-500" /> View Growth Analytics
                             </button>
                             <div className="h-px bg-gray-100 my-1" />
-                            <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors text-xs font-bold text-brand-blue">
-                              <MessageSquare className="h-4 w-4 text-brand-blue" /> Open Community Feedback
+                            <button
+                              onClick={() => {
+                                setSelectedBoroughId(b.id);
+                                setActiveDetailTab('campaigns');
+                                setActiveActionsMenu(null);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors text-xs font-bold text-brand-blue"
+                            >
+                              <MessageSquare className="h-4 w-4 text-brand-blue" /> View Campaigns
                             </button>
                           </div>
                         </>

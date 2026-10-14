@@ -55,13 +55,64 @@ export interface EntitlementPackage {
   [key: string]: unknown;
 }
 
+export interface PlatformEntitlement {
+  version: string;
+  targetPlatform: {
+    clientId: string | null;
+    platformSlug: string | null;
+    name: string | null;
+  };
+  access: {
+    hasAccess: boolean;
+    accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'NONE';
+    reason?: 'PLATFORM_NOT_IN_MEMBERSHIP' | 'TRIAL_NO_TASKS' | 'TRIAL_EXPIRED' | 'UNVERIFIED' | 'MEMBERSHIP_EXPIRED' | 'NO_ACTIVE_ENTITLEMENT';
+    upgradeUrl: string;
+  };
+  plan: {
+    planId: string;
+    planName: string;
+    source: 'membership' | 'trial' | 'direct';
+    status: string;
+    billingCycle?: string | null;
+    expiresAt?: Date | string | null;
+    quotas: Record<string, unknown>;
+    limits: Record<string, unknown>;
+    features: string[];
+  } | null;
+  membershipContext: {
+    membershipPlanName: string | null;
+    membershipLevel: string;
+    membershipStatus: string;
+    isIncludedInMembership: boolean;
+  };
+  trialContext: {
+    isInTrial: boolean;
+    hasPaidVerificationFee: boolean;
+    trialExpiresAt: Date | string | null;
+    daysRemaining: number;
+    programmeTasks: Array<{
+      taskId: string;
+      title: string;
+      description: string;
+      deadlineDays: number;
+      rewardPoints: number;
+      status: string;
+    }>;
+  };
+}
+
 export interface EntitlementBusinessProfile {
   id?: string | null;
   businessName?: string | null;
   membershipPlanName?: string | null;
+  membershipExpiresAt?: Date | string | null;
   membershipLevel?: string | null;
   membershipStatus?: string | null;
   membershipTier?: string | null;
+  hasPaidVerificationFee?: boolean | null;
+  verificationFeePaidAt?: Date | string | null;
+  trialAccessDays?: number | null;
+  trialAccessExpiresAt?: Date | string | null;
   packages?: EntitlementPackage[];
   phone?: string | null;
   address?: string | null;
@@ -229,6 +280,10 @@ export class SsoService {
             membershipStatus: true,
             membershipTier: true,
             membershipPlanName: true,
+            hasPaidVerificationFee: true,
+            verificationFeePaidAt: true,
+            trialAccessDays: true,
+            trialAccessExpiresAt: true,
             packages: {
               select: {
                 id: true,
@@ -304,14 +359,15 @@ export class SsoService {
       },
     });
 
-    // Resolve appPlan for the client during code exchange
-    const { appPlan } = await this.resolveEntitlements(user, authCode.client);
+    // Resolve appPlan and platform entitlement for the client during code exchange
+    const { appPlan, entitlement } = await this.resolveEntitlements(user, authCode.client);
 
     return {
       accessToken,
       refreshToken,
       expiresIn: parseInt(accessTokenTtl, 10),
       tokenType: 'Bearer',
+      entitlement,
       user: {
         id: user.id,
         email: user.email,
@@ -325,7 +381,10 @@ export class SsoService {
               membershipLevel: user.businessProfile.membershipLevel,
               membershipStatus: user.businessProfile.membershipStatus,
               membershipPlanName: user.businessProfile.membershipPlanName,
+              hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
+              trialAccessExpiresAt: user.businessProfile.trialAccessExpiresAt,
               appPlan,
+              entitlement,
             }
           : null,
       },
@@ -494,25 +553,34 @@ export class SsoService {
     const membershipLevel = businessProfile?.membershipLevel || 'Bronze';
     const membershipStatus = businessProfile?.membershipStatus || 'active';
     const membershipTier = businessProfile?.membershipTier || 'Normal';
-    const isMembershipActive = membershipStatus === 'active' || membershipStatus === 'trial';
+    const membershipExpiresAt = businessProfile?.membershipExpiresAt ? new Date(businessProfile.membershipExpiresAt) : null;
+    const now = new Date();
+    const isMembershipExpired = membershipExpiresAt ? membershipExpiresAt.getTime() <= now.getTime() : false;
+
+    // A paid membership plan is only active if:
+    // 1. membershipStatus is 'active' or 'trial'
+    // 2. An explicit membershipPlanName is recorded (subscribed plan)
+    // 3. The membership has not expired
+    const hasExplicitMembershipPlan = Boolean(businessProfile?.membershipPlanName);
+    const isMembershipActive =
+      (membershipStatus === 'active' || membershipStatus === 'trial') &&
+      hasExplicitMembershipPlan &&
+      !isMembershipExpired;
 
     let membershipPlan: {
       name: string;
       includedApps?: unknown;
       [key: string]: unknown;
     } | null = null;
-    if (isMembershipActive && businessProfile) {
-      const planName = businessProfile.membershipPlanName || businessProfile.membershipLevel;
-      if (planName) {
-        membershipPlan = await this.prisma.membershipPlan.findFirst({
-          where: {
-            name: { equals: planName, mode: 'insensitive' },
-            archived: false,
-          },
-          // G6: only the fields resolveEntitlements reads.
-          select: { name: true, includedApps: true },
-        });
-      }
+    if (isMembershipActive && businessProfile?.membershipPlanName) {
+      membershipPlan = await this.prisma.membershipPlan.findFirst({
+        where: {
+          name: { equals: businessProfile.membershipPlanName, mode: 'insensitive' },
+          archived: false,
+        },
+        // G6: only the fields resolveEntitlements reads.
+        select: { name: true, includedApps: true },
+      });
     }
 
     const membershipAppPlans: Array<{
@@ -592,98 +660,333 @@ export class SsoService {
       }
     }
 
+    // Resolve target client if explicit platform was passed without client object
+    let targetClient = client ?? null;
+    if (!targetClient && explicitPlatform) {
+      const foundClient = await this.prisma.ssoClient.findFirst({
+        where: {
+          OR: [
+            { clientId: { equals: explicitPlatform, mode: 'insensitive' } },
+            { platformSlug: { equals: explicitPlatform, mode: 'insensitive' } },
+            { name: { equals: explicitPlatform, mode: 'insensitive' } },
+          ],
+          isActive: true,
+        },
+        select: ssoEntitlementClientSelect,
+      });
+      if (foundClient) {
+        targetClient = foundClient;
+      }
+    }
+
     // Resolve appPlan for the specific calling client or explicit platform (if identified)
     let appPlan: AppPlanView | null = null;
-    if (client || explicitPlatform) {
-      // 1. Check for active direct package
-      const directPackageMatch = enrichedPackages.find(
-        (pkg) =>
-          pkg.source === 'direct' &&
-          this.matchesClientOrPlatform(pkg.platform, null, client, explicitPlatform) &&
-          pkg.status === 'active' &&
-          (!pkg.expiresAt || new Date(pkg.expiresAt) > new Date()),
-      );
+    const targetPlatformIdent = targetClient?.clientId || targetClient?.platformSlug || targetClient?.name || explicitPlatform;
 
-      // 2. Check for active membership plan
-      const membershipAppPlanMatch = isMembershipActive
-        ? membershipAppPlans.find((app) =>
-            this.matchesClientOrPlatform(app.platform, app.clientId, client, explicitPlatform),
-          )
-        : null;
+    // 1. Check for active direct package
+    const directPackageMatch = targetPlatformIdent
+      ? enrichedPackages.find(
+          (pkg) =>
+            pkg.source === 'direct' &&
+            this.matchesClientOrPlatform(pkg.platform, null, targetClient, explicitPlatform) &&
+            pkg.status === 'active' &&
+            (!pkg.expiresAt || new Date(pkg.expiresAt) > new Date()),
+        )
+      : null;
 
-      if (directPackageMatch && membershipAppPlanMatch) {
-        // User has both direct package and membership plan
-        const isPaidDirect = directPackageMatch.source === 'direct';
-        appPlan = {
-          source: isPaidDirect ? 'direct' : 'membership',
-          platform: directPackageMatch.platform || membershipAppPlanMatch.platform,
-          clientId: client?.clientId || membershipAppPlanMatch.clientId || null,
-          planId: directPackageMatch.externalPlanId || membershipAppPlanMatch.planId,
-          planName: directPackageMatch.planName || membershipAppPlanMatch.planName,
-          status: 'active',
-          quotas: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
-          limits: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
-          expiresAt: directPackageMatch.expiresAt || null,
-          membershipPlanName: membershipPlan?.name || null,
-          directPlan: {
-            planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
-            planName: directPackageMatch.planName || directPackageMatch.packageName,
-            limits: directPackageMatch.limits || {},
-            status: directPackageMatch.status,
-            expiresAt: directPackageMatch.expiresAt,
-          },
-          membershipPlan: {
-            planId: membershipAppPlanMatch.planId,
-            planName: membershipAppPlanMatch.planName,
-            quotas: membershipAppPlanMatch.quotas,
-            membershipPlanName: membershipPlan?.name || null,
-          },
-        };
-      } else if (directPackageMatch) {
-        // User has only direct platform package (the former system)
-        appPlan = {
-          source: directPackageMatch.source || 'direct',
-          platform: directPackageMatch.platform,
-          clientId: client?.clientId || null,
+    // 2. Check for active membership plan
+    const membershipAppPlanMatch = isMembershipActive && targetPlatformIdent
+      ? membershipAppPlans.find((app) =>
+          this.matchesClientOrPlatform(app.platform, app.clientId, targetClient, explicitPlatform),
+        )
+      : null;
+
+    if (directPackageMatch && membershipAppPlanMatch) {
+      // User has both direct package and membership plan
+      const isPaidDirect = directPackageMatch.source === 'direct';
+      appPlan = {
+        source: isPaidDirect ? 'direct' : 'membership',
+        platform: directPackageMatch.platform || membershipAppPlanMatch.platform,
+        clientId: targetClient?.clientId || membershipAppPlanMatch.clientId || null,
+        planId: directPackageMatch.externalPlanId || membershipAppPlanMatch.planId,
+        planName: directPackageMatch.planName || membershipAppPlanMatch.planName,
+        status: 'active',
+        quotas: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
+        limits: { ...(membershipAppPlanMatch.quotas || {}), ...(directPackageMatch.limits || {}) },
+        expiresAt: directPackageMatch.expiresAt || null,
+        membershipPlanName: membershipPlan?.name || null,
+        directPlan: {
           planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
           planName: directPackageMatch.planName || directPackageMatch.packageName,
-          status: directPackageMatch.status,
-          quotas: directPackageMatch.limits || {},
           limits: directPackageMatch.limits || {},
-          expiresAt: directPackageMatch.expiresAt || null,
-          membershipPlanName: null,
-          directPlan: {
-            planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
-            planName: directPackageMatch.planName || directPackageMatch.packageName,
-            limits: directPackageMatch.limits || {},
-            status: directPackageMatch.status,
-            expiresAt: directPackageMatch.expiresAt,
-          },
-          membershipPlan: null,
-        };
-      } else if (membershipAppPlanMatch) {
-        // User has only membership plan (bundle system)
-        appPlan = {
-          source: 'membership',
-          platform: membershipAppPlanMatch.platform,
-          clientId: client?.clientId || membershipAppPlanMatch.clientId || null,
+          status: directPackageMatch.status,
+          expiresAt: directPackageMatch.expiresAt,
+        },
+        membershipPlan: {
           planId: membershipAppPlanMatch.planId,
           planName: membershipAppPlanMatch.planName,
-          status: membershipStatus,
-          quotas: membershipAppPlanMatch.quotas || {},
-          limits: membershipAppPlanMatch.quotas || {},
-          expiresAt: null,
-          membershipPlanName: membershipPlan?.name || membershipLevel,
-          directPlan: null,
-          membershipPlan: {
-            planId: membershipAppPlanMatch.planId,
-            planName: membershipAppPlanMatch.planName,
-            quotas: membershipAppPlanMatch.quotas,
-            membershipPlanName: membershipPlan?.name || null,
+          quotas: membershipAppPlanMatch.quotas,
+          membershipPlanName: membershipPlan?.name || null,
+        },
+      };
+    } else if (directPackageMatch) {
+      // User has only direct platform package (the former system)
+      appPlan = {
+        source: directPackageMatch.source || 'direct',
+        platform: directPackageMatch.platform,
+        clientId: targetClient?.clientId || null,
+        planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+        planName: directPackageMatch.planName || directPackageMatch.packageName,
+        status: directPackageMatch.status,
+        quotas: directPackageMatch.limits || {},
+        limits: directPackageMatch.limits || {},
+        expiresAt: directPackageMatch.expiresAt || null,
+        membershipPlanName: null,
+        directPlan: {
+          planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+          planName: directPackageMatch.planName || directPackageMatch.packageName,
+          limits: directPackageMatch.limits || {},
+          status: directPackageMatch.status,
+          expiresAt: directPackageMatch.expiresAt,
+        },
+        membershipPlan: null,
+      };
+    } else if (membershipAppPlanMatch) {
+      // User has only membership plan (bundle system)
+      appPlan = {
+        source: 'membership',
+        platform: membershipAppPlanMatch.platform,
+        clientId: targetClient?.clientId || membershipAppPlanMatch.clientId || null,
+        planId: membershipAppPlanMatch.planId,
+        planName: membershipAppPlanMatch.planName,
+        status: membershipStatus,
+        quotas: membershipAppPlanMatch.quotas || {},
+        limits: membershipAppPlanMatch.quotas || {},
+        expiresAt: businessProfile?.membershipExpiresAt || null,
+        membershipPlanName: membershipPlan?.name || null,
+        directPlan: null,
+        membershipPlan: {
+          planId: membershipAppPlanMatch.planId,
+          planName: membershipAppPlanMatch.planName,
+          quotas: membershipAppPlanMatch.quotas,
+          membershipPlanName: membershipPlan?.name || null,
+        },
+      };
+    }
+
+    // 3. Programme Trial Access verification & task engine resolution
+    const hasPaidVerificationFee = Boolean(businessProfile?.hasPaidVerificationFee);
+    let trialAccessExpiresAt: Date | null = null;
+    if (businessProfile?.trialAccessExpiresAt) {
+      trialAccessExpiresAt = new Date(businessProfile.trialAccessExpiresAt);
+    } else if (hasPaidVerificationFee && businessProfile?.verificationFeePaidAt) {
+      const paidAt = new Date(businessProfile.verificationFeePaidAt);
+      const days = businessProfile.trialAccessDays || 14;
+      trialAccessExpiresAt = new Date(paidAt.getTime() + days * 24 * 60 * 60 * 1000);
+    }
+    const isTrialTimeValid = trialAccessExpiresAt ? trialAccessExpiresAt.getTime() > now.getTime() : false;
+    const isInTrial = hasPaidVerificationFee && isTrialTimeValid;
+    const daysRemaining = isInTrial && trialAccessExpiresAt
+      ? Math.max(0, Math.ceil((trialAccessExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
+    // Check if platform has an active task in /admin/programme (TaskDefinition)
+    const clientIdentifiers = [
+      targetClient?.clientId,
+      targetClient?.platformSlug,
+      targetClient?.name,
+      explicitPlatform,
+    ].filter((v): v is string => Boolean(v && v.trim()));
+
+    let programmeTasks: Array<{
+      taskId: string;
+      title: string;
+      description: string;
+      deadlineDays: number;
+      rewardPoints: number;
+      status: string;
+    }> = [];
+
+    if (clientIdentifiers.length > 0) {
+      try {
+        const matchingTaskDefs = await this.prisma.taskDefinition.findMany({
+          where: {
+            isActive: true,
+            taskSource: 'EXTERNAL',
+            targetAudience: { in: ['BUSINESS', 'BOTH'] },
+            OR: [
+              { externalClientId: { in: clientIdentifiers } },
+              { externalPlatformSlug: { in: clientIdentifiers } },
+              { externalAppName: { in: clientIdentifiers } },
+            ],
           },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            deadlineDays: true,
+            rewardPoints: true,
+            assignments: user?.id
+              ? {
+                  where: { userId: user.id },
+                  select: { status: true },
+                  take: 1,
+                }
+              : false,
+          },
+        });
+
+        programmeTasks = matchingTaskDefs.map((t) => ({
+          taskId: t.id,
+          title: t.title,
+          description: t.description,
+          deadlineDays: t.deadlineDays,
+          rewardPoints: t.rewardPoints,
+          status: (t.assignments && (t.assignments as any)[0]?.status) || 'PENDING',
+        }));
+      } catch (taskErr: unknown) {
+        this.logger.warn(`Failed to query trial tasks for client "${clientIdentifiers.join(',')}": ${taskErr}`);
+      }
+    }
+
+    const hasPlatformTrialTasks = programmeTasks.length > 0;
+    const isTrialAccessGranted = isInTrial && hasPlatformTrialTasks;
+
+    // Determine access verdict & build protocol PlatformEntitlement
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    let hasAccess = false;
+    let accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'NONE' = 'NONE';
+    let accessReason:
+      | 'PLATFORM_NOT_IN_MEMBERSHIP'
+      | 'TRIAL_NO_TASKS'
+      | 'TRIAL_EXPIRED'
+      | 'UNVERIFIED'
+      | 'MEMBERSHIP_EXPIRED'
+      | 'NO_ACTIVE_ENTITLEMENT'
+      | undefined;
+    let upgradeUrl = `${frontendUrl}/dashboard/memberships`;
+
+    if (membershipAppPlanMatch) {
+      hasAccess = true;
+      accessType = 'PAID_MEMBERSHIP';
+    } else if (directPackageMatch) {
+      hasAccess = true;
+      accessType = 'DIRECT_PACKAGE';
+    } else if (isTrialAccessGranted) {
+      hasAccess = true;
+      accessType = 'TRIAL_PROGRAMME';
+      if (!appPlan) {
+        appPlan = {
+          source: 'trial',
+          platform: targetClient?.name || explicitPlatform || 'External Platform',
+          clientId: targetClient?.clientId || null,
+          planId: `trial_${targetClient?.platformSlug || targetClient?.clientId || 'app'}`,
+          planName: 'Programme Trial Access',
+          status: 'trial',
+          quotas: { trialAccess: true, daysRemaining },
+          limits: { trialAccess: true, daysRemaining },
+          expiresAt: trialAccessExpiresAt,
+          membershipPlanName: null,
+          directPlan: null,
+          membershipPlan: null,
+        };
+      }
+    } else {
+      hasAccess = false;
+      accessType = 'NONE';
+      const hasActiveMembership = isMembershipActive && Boolean(membershipPlan);
+      if (hasActiveMembership) {
+        accessReason = 'PLATFORM_NOT_IN_MEMBERSHIP';
+        upgradeUrl = `${frontendUrl}/dashboard/memberships`;
+      } else if (isInTrial && !hasPlatformTrialTasks) {
+        accessReason = 'TRIAL_NO_TASKS';
+        upgradeUrl = `${frontendUrl}/dashboard/memberships`;
+      } else if (hasPaidVerificationFee && !isTrialTimeValid) {
+        accessReason = 'TRIAL_EXPIRED';
+        upgradeUrl = `${frontendUrl}/dashboard/memberships`;
+      } else if (!hasPaidVerificationFee) {
+        accessReason = 'UNVERIFIED';
+        upgradeUrl = `${frontendUrl}/dashboard?action=verify`;
+      } else {
+        accessReason = 'NO_ACTIVE_ENTITLEMENT';
+        upgradeUrl = `${frontendUrl}/dashboard/memberships`;
+      }
+    }
+
+    let planDetails: PlatformEntitlement['plan'] = null;
+    if (hasAccess) {
+      if (membershipAppPlanMatch) {
+        planDetails = {
+          planId: membershipAppPlanMatch.planId,
+          planName: membershipAppPlanMatch.planName,
+          source: 'membership',
+          status: 'active',
+          billingCycle: null,
+          expiresAt: null,
+          quotas: membershipAppPlanMatch.quotas || {},
+          limits: membershipAppPlanMatch.limits || {},
+          features: Array.isArray((membershipAppPlanMatch.quotas as any)?.features)
+            ? (membershipAppPlanMatch.quotas as any).features
+            : [],
+        };
+      } else if (directPackageMatch) {
+        planDetails = {
+          planId: directPackageMatch.externalPlanId || directPackageMatch.packageName,
+          planName: directPackageMatch.planName || directPackageMatch.packageName,
+          source: 'direct',
+          status: directPackageMatch.status,
+          billingCycle: directPackageMatch.billingCycle || null,
+          expiresAt: directPackageMatch.expiresAt || null,
+          quotas: (directPackageMatch.limits as Record<string, unknown>) || {},
+          limits: (directPackageMatch.limits as Record<string, unknown>) || {},
+          features: [],
+        };
+      } else if (isTrialAccessGranted) {
+        planDetails = {
+          planId: `trial_${targetClient?.platformSlug || targetClient?.clientId || 'app'}`,
+          planName: 'Programme Trial Access',
+          source: 'trial',
+          status: 'trial',
+          billingCycle: null,
+          expiresAt: trialAccessExpiresAt,
+          quotas: { trialAccess: true, daysRemaining },
+          limits: { trialAccess: true, daysRemaining },
+          features: ['trial_tasks_access'],
         };
       }
     }
+
+    const entitlement: PlatformEntitlement | null =
+      targetClient || explicitPlatform
+        ? {
+            version: '2026-10-01',
+            targetPlatform: {
+              clientId: targetClient?.clientId || null,
+              platformSlug: targetClient?.platformSlug || null,
+              name: targetClient?.name || explicitPlatform || null,
+            },
+            access: {
+              hasAccess,
+              accessType,
+              reason: hasAccess ? undefined : accessReason,
+              upgradeUrl,
+            },
+            plan: planDetails,
+            membershipContext: {
+              membershipPlanName: businessProfile?.membershipPlanName || (isMembershipActive ? membershipLevel : null),
+              membershipLevel,
+              membershipStatus,
+              isIncludedInMembership: Boolean(membershipAppPlanMatch),
+            },
+            trialContext: {
+              isInTrial,
+              hasPaidVerificationFee,
+              trialExpiresAt: trialAccessExpiresAt,
+              daysRemaining,
+              programmeTasks,
+            },
+          }
+        : null;
 
     const permissions = calculatePermissions(
       user?.role || 'BUSINESS',
@@ -693,7 +996,7 @@ export class SsoService {
     );
 
     const membership = {
-      planName: businessProfile?.membershipPlanName || (isMembershipActive ? membershipLevel : null),
+      planName: businessProfile?.membershipPlanName || (isMembershipActive ? membershipPlan?.name || membershipLevel : null),
       level: membershipLevel,
       tier: membershipTier,
       status: membershipStatus,
@@ -706,6 +1009,7 @@ export class SsoService {
       membership,
       enrichedPackages,
       permissions,
+      entitlement,
     };
   }
 
@@ -740,7 +1044,7 @@ export class SsoService {
       client = await this.getClientByClientId(requestedClientId);
     }
 
-    const { appPlan, membership, enrichedPackages, permissions } =
+    const { appPlan, membership, enrichedPackages, permissions, entitlement } =
       await this.resolveEntitlements(user, client);
 
     const name =
@@ -759,13 +1063,62 @@ export class SsoService {
       membershipLevel: user.businessProfile?.membershipLevel || 'Bronze',
       membershipTier: user.businessProfile?.membershipTier || 'Normal',
       membershipStatus: user.businessProfile?.membershipStatus || 'active',
+      hasPaidVerificationFee: Boolean(user.businessProfile?.hasPaidVerificationFee),
+      trialAccessExpiresAt: user.businessProfile?.trialAccessExpiresAt || null,
       phone: user.businessProfile?.phone || null,
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
       appPlan,
+      entitlement,
       membership,
       packages: enrichedPackages,
       permissions,
+    };
+  }
+
+  async getIntrospectedEntitlement(clientId: string, userIdOrBusinessId: string) {
+    const client = await this.getClientByClientId(clientId);
+    if (!client) {
+      throw new BadRequestException('Client not found');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: userIdOrBusinessId },
+          { businessProfile: { id: userIdOrBusinessId } },
+          { email: userIdOrBusinessId },
+        ],
+      },
+      select: ssoUserInfoSelect,
+    });
+
+    if (!user) {
+      throw new BadRequestException('User or business not found');
+    }
+
+    const { entitlement, appPlan, membership } = await this.resolveEntitlements(user, client);
+
+    return {
+      success: true,
+      entitlement,
+      appPlan,
+      membership,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        businessProfile: user.businessProfile
+          ? {
+              id: user.businessProfile.id,
+              businessName: user.businessProfile.businessName,
+              hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
+              trialAccessExpiresAt: user.businessProfile.trialAccessExpiresAt,
+            }
+          : null,
+      },
     };
   }
 

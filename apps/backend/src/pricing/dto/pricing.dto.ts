@@ -19,14 +19,24 @@ export class SubscribeMembershipDto {
   billing?: 'monthly' | 'quarterly' | 'yearly' = 'monthly';
 }
 
-export class PurchasePackageDto {
-  @ApiProperty({ example: 'MCOM Mall', description: 'Target platform' })
-  @IsString()
-  @IsNotEmpty()
-  platform: string;
+// PurchasePackageDto — REMOVED (memberships-only model). Standalone packages
+// are bought on the console-registered external platforms themselves.
 
-  @ApiProperty({ example: 'Standard Tier', description: 'Package name' })
+export class PaymentQuoteQueryDto {
+  @ApiProperty({ example: 'Gold', description: 'Membership plan name or ID' })
   @IsString()
-  @IsNotEmpty()
-  packageName: string;
+  @IsNotEmpty({ message: 'Please choose a membership plan.' })
+  level: string;
+
+  @ApiPropertyOptional({ example: 'Standard', enum: ['Standard', 'Pro', 'Pro+'] })
+  @IsString()
+  @IsOptional()
+  @IsIn(['Standard', 'Normal', 'Pro', 'Pro+', 'ProPlus'], { message: 'Tier must be Standard, Pro or Pro+.' })
+  tier?: string = 'Standard';
+
+  @ApiPropertyOptional({ example: 'monthly', enum: ['full', 'monthly', 'quarterly', 'halfYearly'] })
+  @IsString()
+  @IsOptional()
+  @IsIn(['full', 'monthly', 'quarterly', 'halfYearly', 'half_yearly'], { message: 'Payment plan must be full, monthly, quarterly or halfYearly.' })
+  paymentPlan?: string = 'full';
 }

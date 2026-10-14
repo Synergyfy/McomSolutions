@@ -108,9 +108,8 @@ export class BusinessController {
     return this.businessService.searchAddresses(postcode || '');
   }
 
-  // ─── File Uploads (authenticated, raster images only) ──
+  // ─── File Uploads (raster images only, accessible during onboarding) ──
   @Post(['upload', 'business/upload'])
-  @UseGuards(JwtAuthGuard)
   @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
     FileInterceptor('file', {

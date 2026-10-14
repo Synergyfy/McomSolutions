@@ -16,8 +16,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { Role, Prisma } from '@prisma/client';
+import { Role, Prisma, MembershipPaymentPlan } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service';
+import { normalizePaymentPlan } from '../pricing/payment-option.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
@@ -31,25 +32,35 @@ export interface PaymentCaller {
   role?: Role;
 }
 
-/** Parse a PayPal custom_id of `businessId|level|tier|billing`. */
+/**
+ * Parse a PayPal custom_id of `businessId|level|tier|billing` (outright) or
+ * `businessId|level|tier|billing|paymentPlan` (instalment step).
+ */
 function parseMembershipCustomId(customId: string): {
   businessId: string;
   level: string;
   tier: string;
   billing: 'monthly' | 'quarterly' | 'yearly';
+  paymentPlan: string;
 } {
   const parts = (customId || '').split('|');
-  if (parts.length === 5) {
-    // Legacy 5-segment references carried a trial flag — trials are discontinued.
-    throw new BadRequestException('Trial orders are no longer supported. Please create a new paid order.');
-  }
-  const [businessId, level, tier, billing] = parts;
+  const [businessId, level, tier, billing, fifth] = parts;
   if (!businessId || !level || !tier) {
     throw new BadRequestException('PayPal order metadata is missing. Cannot activate subscription.');
   }
+  let paymentPlan = 'full';
+  if (parts.length >= 5) {
+    const slug = (fifth || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (['full', 'monthly', 'quarterly', 'halfyearly'].includes(slug)) {
+      paymentPlan = slug === 'halfyearly' ? 'halfYearly' : slug;
+    } else {
+      // Legacy 5-segment references carried a trial flag — trials are discontinued.
+      throw new BadRequestException('Trial orders are no longer supported. Please create a new paid order.');
+    }
+  }
   const cycle = (['monthly', 'quarterly', 'yearly'].includes(billing) ? billing : 'monthly') as
     'monthly' | 'quarterly' | 'yearly';
-  return { businessId, level, tier, billing: cycle };
+  return { businessId, level, tier, billing: cycle, paymentPlan };
 }
 
 function parsePlatformCustomId(customId: string): {
@@ -176,6 +187,37 @@ export class PaymentService {
     return this.pricingService.resolveMembershipPrice(level, tier, billing);
   }
 
+  /**
+   * Amount to charge for one payment step. Outright (`full`) uses the legacy
+   * single-charge price; instalment steps use the server-computed per-charge
+   * price from the relational payment option (never client-supplied).
+   */
+  private async resolveChargePrice(
+    level: string,
+    tier: string,
+    billing: 'monthly' | 'quarterly' | 'yearly',
+    paymentPlan: string = 'full',
+  ): Promise<number> {
+    if (normalizePaymentPlan(paymentPlan) === MembershipPaymentPlan.full) {
+      return this.resolvePlanPrice(level, tier, billing);
+    }
+    const quote = await this.pricingService.resolvePaymentQuote(level, tier, paymentPlan);
+    return quote.perChargePrice;
+  }
+
+  private paymentPlanLabel(paymentPlan: string): string {
+    switch (normalizePaymentPlan(paymentPlan)) {
+      case MembershipPaymentPlan.monthly:
+        return 'monthly instalment';
+      case MembershipPaymentPlan.quarterly:
+        return 'quarterly instalment';
+      case MembershipPaymentPlan.halfYearly:
+        return 'half-yearly instalment';
+      default:
+        return 'outright payment';
+    }
+  }
+
   // ─── G1: PayPal capture outbox (PayPal-success/DB-fail reconciliation) ──
 
   /** True when PayPal refuses capture because the order was already captured. */
@@ -225,22 +267,30 @@ export class PaymentService {
     level: string,
     tier: string,
     billing: 'monthly' | 'quarterly' | 'yearly',
+    paymentPlan: string = 'full',
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
     }
 
     // Phase 2: trials removed — every initiation is a real charge.
-    const amountGBP = await this.resolvePlanPrice(level, tier, billing);
+    const plan = normalizePaymentPlan(paymentPlan);
+    const amountGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
     const amountPence = Math.round(amountGBP * 100);
 
-    // Full payment
+    // One charge per step: outright, or a single instalment (access extends per payment).
     const paymentIntent = await this.stripe.paymentIntents.create({
       amount: amountPence,
       currency: 'gbp',
       automatic_payment_methods: { enabled: true },
-      metadata: { businessId, level, tier, billing },
-      description: `MCOM ${level} ${tier} Membership (${billing})`,
+      metadata: {
+        businessId,
+        level,
+        tier,
+        billing,
+        paymentPlan: plan === MembershipPaymentPlan.halfYearly ? 'halfYearly' : plan,
+      },
+      description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})`,
     });
 
     return { clientSecret: paymentIntent.client_secret, type: 'payment' };
@@ -253,6 +303,7 @@ export class PaymentService {
     billing: 'monthly' | 'quarterly' | 'yearly',
     paymentIntentId: string,
     caller?: PaymentCaller,
+    paymentPlan: string = 'full',
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured.');
@@ -274,7 +325,11 @@ export class PaymentService {
     if (!intent.metadata?.businessId) {
       throw new BadRequestException('Payment is missing business metadata. Cannot activate subscription.');
     }
-    const expectedPence = Math.round((await this.resolvePlanPrice(level, tier, billing)) * 100);
+    // The intent's own metadata is authoritative for which step was charged.
+    const effectivePlan = intent.metadata?.paymentPlan ?? paymentPlan;
+    const expectedPence = Math.round(
+      (await this.resolveChargePrice(level, tier, billing, effectivePlan)) * 100,
+    );
     if (intent.currency?.toLowerCase() !== 'gbp' || intent.amount !== expectedPence) {
       this.logger.warn(
         `Stripe confirm amount mismatch: intent ${paymentIntentId} is ${intent.amount} ${intent.currency}, expected ${expectedPence} gbp`,
@@ -286,9 +341,11 @@ export class PaymentService {
     }
 
     // Activate subscription in database (idempotent on paymentIntentId)
+    const plan = normalizePaymentPlan(effectivePlan);
     return this.pricingService.subscribeMembership(businessId, level, tier, billing, {
       provider: 'stripe',
       providerPaymentId: paymentIntentId,
+      ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan: effectivePlan }),
     });
   }
 
@@ -301,10 +358,12 @@ export class PaymentService {
     billing: 'monthly' | 'quarterly' | 'yearly',
     returnUrl: string,
     cancelUrl: string,
+    paymentPlan: string = 'full',
   ) {
     const token = await this.getPayPalAccessToken();
-    // Phase 2: trials removed — always the full plan price.
-    const amountGBP = await this.resolvePlanPrice(level, tier, billing);
+    // Phase 2: trials removed — always a real charge (outright or one instalment).
+    const plan = normalizePaymentPlan(paymentPlan);
+    const amountGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
 
     const order = await axios.post(
       `${this.paypalBaseUrl}/v2/checkout/orders`,
@@ -316,8 +375,11 @@ export class PaymentService {
               currency_code: 'GBP',
               value: amountGBP.toFixed(2),
             },
-            description: `MCOM ${level} ${tier} Membership (${billing})`,
-            custom_id: `${businessId}|${level}|${tier}|${billing}`,
+            description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})`,
+            custom_id:
+              plan === MembershipPaymentPlan.full
+                ? `${businessId}|${level}|${tier}|${billing}`
+                : `${businessId}|${level}|${tier}|${billing}|${plan === MembershipPaymentPlan.halfYearly ? 'halfYearly' : plan}`,
           },
         ],
         application_context: {
@@ -373,11 +435,11 @@ export class PaymentService {
     }
 
     const unit = order.purchase_units?.[0];
-    const { businessId, level, tier, billing } = parseMembershipCustomId(unit?.custom_id || '');
+    const { businessId, level, tier, billing, paymentPlan } = parseMembershipCustomId(unit?.custom_id || '');
     this.assertCaptureOwnership(businessId, caller, orderId);
 
-    // Re-validate the approved amount against the server-side plan price.
-    const expectedGBP = await this.resolvePlanPrice(level, tier, billing);
+    // Re-validate the approved amount against the server-side step price.
+    const expectedGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
     const approvedValue = Number(unit?.amount?.value);
     const approvedCurrency = (unit?.amount?.currency_code || '').toUpperCase();
     if (approvedCurrency !== 'GBP' || !Number.isFinite(approvedValue) || Math.abs(approvedValue - expectedGBP) > 0.005) {
@@ -413,12 +475,14 @@ export class PaymentService {
       throw new BadRequestException('PayPal order metadata changed during capture. Cannot activate subscription.');
     }
 
-    const membershipPayload = { level, tier, billing, expectedGBP };
+    const membershipPayload = { level, tier, billing, paymentPlan, expectedGBP };
+    const plan = normalizePaymentPlan(paymentPlan);
     let result: Awaited<ReturnType<PricingService['subscribeMembership']>>;
     try {
       result = await this.pricingService.subscribeMembership(businessId, level, tier, billing, {
         provider: 'paypal',
         providerPaymentId: orderId,
+        ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan }),
       });
     } catch (dbErr) {
       await this.parkForReconcile('membership', orderId, businessId, membershipPayload, dbErr);
@@ -912,17 +976,23 @@ export class PaymentService {
     payload: Record<string, unknown>;
   }): Promise<void> {
     if (row.kind === 'membership') {
-      const { level, tier, billing } = row.payload as {
+      const { level, tier, billing, paymentPlan } = row.payload as {
         level: string;
         tier: string;
         billing: 'monthly' | 'quarterly' | 'yearly';
+        paymentPlan?: string;
       };
+      const rowPlan = normalizePaymentPlan(String(paymentPlan ?? 'full'));
       await this.pricingService.subscribeMembership(
         row.businessId,
         String(level),
         String(tier),
         String(billing) as 'monthly' | 'quarterly' | 'yearly',
-        { provider: 'paypal', providerPaymentId: row.providerPaymentId },
+        {
+          provider: 'paypal',
+          providerPaymentId: row.providerPaymentId,
+          ...(rowPlan === MembershipPaymentPlan.full ? {} : { paymentPlan: String(paymentPlan) }),
+        },
       );
       return;
     }
@@ -1184,11 +1254,13 @@ export class PaymentService {
     }
     const cycle = (['monthly', 'quarterly', 'yearly'].includes(billing) ? billing : 'monthly') as
       'monthly' | 'quarterly' | 'yearly';
-    const expectedGBP = await this.resolvePlanPrice(level, tier, cycle);
+    const webhookPlan = normalizePaymentPlan(String(meta.paymentPlan ?? 'full'));
+    const expectedGBP = await this.resolveChargePrice(level, tier, cycle, String(meta.paymentPlan ?? 'full'));
     this.assertStripeIntentAmount(intent, expectedGBP);
     await this.pricingService.subscribeMembership(businessId, level, tier, cycle, {
       provider: 'stripe',
       providerPaymentId: intent.id,
+      ...(webhookPlan === MembershipPaymentPlan.full ? {} : { paymentPlan: String(meta.paymentPlan) }),
     });
   }
 
@@ -1201,4 +1273,231 @@ export class PaymentService {
       throw new BadRequestException('Paid amount does not match the plan price.');
     }
   }
+
+  // ─── VERIFICATION FEE (£1.00) ─────────────────────────────────────────────
+
+  async verificationStripeInitiate(businessId: string) {
+    if (!this.stripe) {
+      throw new ServiceUnavailableException('Stripe is not configured');
+    }
+    const setting = await this.prisma.programmeSetting.findUnique({
+      where: { key: 'verification_fee_amount' },
+    });
+    const feeGBP = setting ? parseFloat(setting.value) : 1.00;
+    const amountPence = Math.round(feeGBP * 100);
+
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: amountPence,
+      currency: 'gbp',
+      metadata: {
+        type: 'VERIFICATION_FEE',
+        businessId,
+      },
+    });
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      amount: feeGBP,
+      currency: 'GBP',
+    };
+  }
+
+  async verificationStripeConfirm(businessId: string, paymentIntentId: string, caller?: PaymentCaller) {
+    if (!this.stripe) {
+      throw new ServiceUnavailableException('Stripe is not configured');
+    }
+    const intent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+    if (intent.status !== 'succeeded') {
+      throw new BadRequestException(`Payment has not succeeded (current status: ${intent.status})`);
+    }
+    if (intent.metadata?.businessId && intent.metadata.businessId !== businessId) {
+      throw new ForbiddenException('Payment intent does not belong to this business');
+    }
+
+    return this.applyVerificationSuccess(businessId, 'stripe', intent.id, (intent.amount || 100) / 100);
+  }
+
+  async verificationPaypalInitiate(businessId: string, returnUrl: string, cancelUrl: string) {
+    const token = await this.getPayPalAccessToken();
+    const setting = await this.prisma.programmeSetting.findUnique({
+      where: { key: 'verification_fee_amount' },
+    });
+    const feeGBP = setting ? parseFloat(setting.value) : 1.00;
+
+    const order = await axios.post(
+      `${this.paypalBaseUrl}/v2/checkout/orders`,
+      {
+        intent: 'CAPTURE',
+        purchase_units: [
+          {
+            amount: {
+              currency_code: 'GBP',
+              value: feeGBP.toFixed(2),
+            },
+            description: 'MCOM Business Verification Fee (£1.00)',
+            custom_id: `VERIFICATION_FEE|${businessId}`,
+          },
+        ],
+        application_context: {
+          return_url: returnUrl,
+          cancel_url: cancelUrl,
+          brand_name: 'MCOM Solutions',
+          landing_page: 'BILLING',
+          user_action: 'PAY_NOW',
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    const approveLink = order.data.links?.find((l: any) => l.rel === 'approve')?.href;
+
+    return {
+      orderId: order.data.id,
+      approvalUrl: approveLink,
+    };
+  }
+
+  async verificationPaypalCapture(orderId: string, caller?: PaymentCaller) {
+    const token = await this.getPayPalAccessToken();
+    let order: any;
+    try {
+      const res = await axios.get(`${this.paypalBaseUrl}/v2/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      order = res.data;
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        throw new BadRequestException(`PayPal order ${orderId} does not exist.`);
+      }
+      throw err;
+    }
+
+    const unit = order.purchase_units?.[0];
+    const customId = unit?.custom_id || '';
+    if (!customId.startsWith('VERIFICATION_FEE|')) {
+      throw new BadRequestException('Invalid PayPal order for verification fee');
+    }
+    const businessId = customId.split('|')[1];
+    this.assertCaptureOwnership(businessId, caller, orderId);
+
+    if (order.status !== 'COMPLETED') {
+      try {
+        await axios.post(
+          `${this.paypalBaseUrl}/v2/checkout/orders/${orderId}/capture`,
+          {},
+          { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
+        );
+      } catch (captureErr: any) {
+        if (!this.isAlreadyCapturedError(captureErr)) {
+          throw captureErr;
+        }
+      }
+    }
+
+    const value = parseFloat(unit?.amount?.value || '1.00');
+    return this.applyVerificationSuccess(businessId, 'paypal', orderId, value);
+  }
+
+  async applyVerificationSuccess(
+    businessId: string,
+    provider: 'stripe' | 'paypal',
+    providerPaymentId: string,
+    amountGBP: number,
+  ) {
+    const setting = await this.prisma.programmeSetting.findUnique({
+      where: { key: 'trial_access_days' },
+    });
+    const trialAccessDays = setting ? parseInt(setting.value, 10) : 14;
+    const days = isNaN(trialAccessDays) ? 14 : trialAccessDays;
+    const now = new Date();
+    const trialAccessExpiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const profile = await this.prisma.businessProfile.update({
+      where: { id: businessId },
+      data: {
+        hasPaidVerificationFee: true,
+        verificationFeePaidAt: now,
+        trialAccessDays: days,
+        trialAccessExpiresAt,
+      },
+      include: { user: true },
+    });
+
+    // Record billing transaction
+    try {
+      await this.prisma.billingTransaction.create({
+        data: {
+          businessId,
+          amount: amountGBP,
+          description: `Business Verification Fee (${provider.toUpperCase()}) - ${days} Days Access Granted`,
+          provider,
+          providerPaymentId,
+          status: 'paid',
+        },
+      });
+    } catch (txErr) {
+      this.logger.warn(`Failed to record verification fee billing transaction: ${txErr}`);
+    }
+
+    // Dispatch entitlement.trial_started to all console platforms with active tasks in programme
+    try {
+      const activeExternalTasks = await this.prisma.taskDefinition.findMany({
+        where: {
+          isActive: true,
+          taskSource: 'EXTERNAL',
+          targetAudience: { in: ['BUSINESS', 'BOTH'] },
+        },
+        select: {
+          id: true,
+          title: true,
+          externalClientId: true,
+          externalPlatformSlug: true,
+          externalAppName: true,
+        },
+      });
+
+      const targets = new Set<string>();
+      for (const t of activeExternalTasks) {
+        if (t.externalPlatformSlug) targets.add(t.externalPlatformSlug);
+        else if (t.externalClientId) targets.add(t.externalClientId);
+        else if (t.externalAppName) targets.add(t.externalAppName);
+      }
+
+      for (const target of targets) {
+        this.webhookDispatcher.dispatchAsync(target, 'entitlement.trial_started', {
+          businessId,
+          businessName: profile.businessName,
+          trialAccessDays: days,
+          trialAccessExpiresAt: trialAccessExpiresAt.toISOString(),
+          verifiedAt: now.toISOString(),
+          tasks: activeExternalTasks
+            .filter(
+              (t) =>
+                t.externalPlatformSlug === target ||
+                t.externalClientId === target ||
+                t.externalAppName === target,
+            )
+            .map((t) => ({ id: t.id, title: t.title })),
+        });
+      }
+    } catch (whErr: unknown) {
+      this.logger.warn(`Failed to dispatch trial entitlement webhooks: ${whErr}`);
+    }
+
+    return {
+      success: true,
+      hasPaidVerificationFee: true,
+      verificationFeePaidAt: now,
+      trialAccessDays: days,
+      trialAccessExpiresAt,
+      businessProfile: profile,
+    };
+  }
+
 }

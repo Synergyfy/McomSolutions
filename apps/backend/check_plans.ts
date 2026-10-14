@@ -13,9 +13,8 @@ async function main() {
   console.log('\n[ExternalPlan] count:', externalPlans.length);
   console.log(JSON.stringify(externalPlans, null, 2));
 
-  const packageTemplates = await prisma.packageTemplate.findMany();
-  console.log('\n[PackageTemplate] count:', packageTemplates.length);
-  console.log(JSON.stringify(packageTemplates, null, 2));
+  // package_templates removed (memberships-only model) — standalone plans live
+  // on console-registered external platforms (external_plans mirror).
 
   const ssoClients = await prisma.ssoClient.findMany({
     select: { id: true, clientId: true, name: true, platformSlug: true, billingApiUrl: true }

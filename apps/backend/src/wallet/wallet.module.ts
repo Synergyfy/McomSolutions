@@ -35,6 +35,6 @@ import { WalletHmacGuard } from './guards/wallet-hmac.guard';
     WalletLockUtil,
     WalletHmacGuard,
   ],
-  exports: [WalletService, WalletLedgerService],
+  exports: [WalletService, WalletLedgerService, WalletHmacGuard],
 })
 export class WalletModule {}

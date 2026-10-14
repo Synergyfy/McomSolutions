@@ -17,9 +17,11 @@ import { pricingApi } from '../../services/pricing';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/payment/MembershipPaymentModal';
+import VerificationPaymentModal from '../../components/payment/VerificationPaymentModal';
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
+import { persistReferralCodeFromSearchParams } from '../../lib/referral';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -70,12 +72,17 @@ function useCreateUser() {
     mutateAsync: async (data: any) => {
       console.log('Registering user during onboarding:', data);
       const res = await businessApi.register({
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
         email: data.email,
         password: data.password,
+        confirm_password: data.confirm_password || data.password,
         businessName: data.businessName || 'Business Owner',
         businessType: 'retail',
         country: 'United Kingdom',
-        phone: data.phone || '',
+        phone: data.phoneNumber || data.phone || '',
+        phoneNumber: data.phoneNumber || data.phone || '',
+        role: data.role || 'BUSINESS',
       });
       return { data: res };
     },
@@ -481,6 +488,7 @@ const BOROUGH_DATA: Record<string, {
 // Main Business Onboarding Component
 // ═══════════════════════════════════════════════════════════
 function BusinessOnboardingInner() {
+  const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
   const { plans } = usePricing();
   const [formData, setFormData] = useState({
     firstName: '',
@@ -524,6 +532,23 @@ function BusinessOnboardingInner() {
   });
 
   const [currentStep, setCurrentStep] = useState(0);
+
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [trialConfigDays, setTrialConfigDays] = useState(14);
+  const [verificationFeeAmount, setVerificationFeeAmount] = useState(1.00);
+
+  useEffect(() => {
+    // Fetch active programme trial access settings
+    apiClient.get('/programme/settings')
+      .then((res: any) => {
+        if (res?.data?.data) {
+          if (res.data.data.trialAccessDays) setTrialConfigDays(res.data.data.trialAccessDays);
+          if (res.data.data.verificationFeeAmount) setVerificationFeeAmount(res.data.data.verificationFeeAmount);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const exteriorInputRef = useRef<HTMLInputElement>(null);
@@ -635,6 +660,8 @@ function BusinessOnboardingInner() {
     const scope = searchParams.get('scope');
     const source = searchParams.get('source');
     const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl');
+    // Persist ?ref= alongside the SSO intent (register funnel merges it).
+    persistReferralCodeFromSearchParams(searchParams);
 
     if (clientId || redirectUri || source || redirect) {
       const intent: any = {};
@@ -830,6 +857,9 @@ function BusinessOnboardingInner() {
   const [googleBranches, setGoogleBranches] = useState<any[]>([]);
   const [selectedGoogleBranch, setSelectedGoogleBranch] = useState<any>(null);
   const [googleMapping, setGoogleMapping] = useState<any>(null);
+
+  const { data: currentUser } = useCurrentUser(typeof window !== 'undefined' && !!localStorage.getItem('auth_token'));
+
 
   // Prefill from login's "email not found" handoff (?email=). Skipped on a
   // Google-claim return, where ?email= is the verified claim email owned by
@@ -1386,6 +1416,21 @@ function BusinessOnboardingInner() {
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
   const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
 
+  // If user is already logged in with a completed business profile, redirect to dashboard only if verified or subscribed (unless claim return, claim flow, or external platform/SSO intent in flight)
+  useEffect(() => {
+    const hasExternalIntent = Boolean(searchParams.get('source') || searchParams.get('client_id') || searchParams.get('redirect_uri') || searchParams.get('redirect'));
+    if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
+    if (showProgrammeIntro || showChoosePlan || showVerificationModal || showInitialAssessment) return;
+    
+    const businessId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
+    const hasPaidVerif = Boolean((currentUser as any)?.hasPaidVerificationFee || (currentUser as any)?.businessProfile?.hasPaidVerificationFee);
+    const hasMembership = Boolean((currentUser as any)?.businessProfile?.membershipStatus === 'active' && (currentUser as any)?.businessProfile?.membershipLevel !== 'Bronze');
+    
+    if (currentUser?.role === 'BUSINESS' && businessId && (hasPaidVerif || hasMembership)) {
+      router.replace('/dashboard');
+    }
+  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal, showInitialAssessment]);
+
   // ─── Platform Plans (from external services) ──────────
   const sourceParam = searchParams.get('source');
   const platformMap: Record<string, string> = {
@@ -1394,8 +1439,6 @@ function BusinessOnboardingInner() {
   };
   const platformName = sourceParam ? platformMap[sourceParam] : null;
   const { data: externalPlansRes, isLoading: isLoadingPlans } = usePlatformPlans(platformName);
-  const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
-  const { data: currentUser } = useCurrentUser(hasToken);
 
   useEffect(() => {
     if (currentUser?.businessProfile?.id && platformName) {
@@ -4728,10 +4771,10 @@ function BusinessOnboardingInner() {
         </motion.div>
 
         <motion.button initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.9 }} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-          onClick={() => { setShowProgrammeIntro(false); setShowChoosePlan(true); }}
+          onClick={() => { setShowProgrammeIntro(false); setShowVerificationModal(true); }}
           className="px-8 sm:px-10 py-3.5 sm:py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-base sm:text-lg font-bold rounded-xl sm:rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2 cursor-pointer"
         >
-          Choose Membership Tier <ArrowRight className="w-5 h-5" />
+          Verify Business & Start Trial (£{verificationFeeAmount.toFixed(2)}) <ArrowRight className="w-5 h-5" />
         </motion.button>
       </div>
     );
@@ -5340,17 +5383,20 @@ function BusinessOnboardingInner() {
 
           <p className="text-center text-[11px] sm:text-xs text-gray-500 font-medium">All tiers include the 90-Day Business Success Programme and digital business storefront</p>
 
-          <div className="text-center mt-3">
+          <div className="mt-8 text-center flex flex-col items-center gap-2.5">
             <button
               onClick={() => {
                 localStorage.setItem('businessOnboardingState', 'assessment');
                 setShowChoosePlan(false);
                 setShowInitialAssessment(true);
               }}
-              className="text-xs text-gray-400 hover:text-gray-600 underline font-medium cursor-pointer"
+              className="px-6 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs sm:text-sm font-semibold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
             >
-              Skip to assessment questions for now
+              Skip for now &amp; Continue with {trialConfigDays}-Day Trial <ArrowRight className="w-4 h-4 text-gray-400" />
             </button>
+            <p className="text-[11px] text-gray-400">
+              You can choose or upgrade a membership plan at any time from your dashboard.
+            </p>
           </div>
 
           {/* Membership Payment Modal */}
@@ -5888,7 +5934,7 @@ function BusinessOnboardingInner() {
             if (localStorage.getItem('pendingPlatformPurchase')) {
               setShowPlatformPaymentModal(true);
             } else {
-              setShowWelcomeChecklistPage(true);
+              setShowProgrammeIntro(true);
             }
           } else {
             setShowBusinessTypePage(true);
@@ -7833,6 +7879,19 @@ function BusinessOnboardingInner() {
           } else {
             setShowWelcomeChecklistPage(true);
           }
+        }}
+      />
+
+      <VerificationPaymentModal
+        open={showVerificationModal}
+        trialDays={trialConfigDays}
+        amount={verificationFeeAmount}
+        onClose={() => setShowVerificationModal(false)}
+        onSuccess={() => {
+          setShowVerificationModal(false);
+          localStorage.setItem('onboardingVerificationFeePaid', 'true');
+          setShowInitialAssessment(false);
+          setShowChoosePlan(true);
         }}
       />
     </div>

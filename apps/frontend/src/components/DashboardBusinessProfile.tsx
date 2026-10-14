@@ -6,9 +6,12 @@ import {
   Edit2, Upload, ShieldCheck, Camera, Plus, ExternalLink, Loader2
 } from 'lucide-react';
 import { useProfile, useUpdateProfile, useGenerateApiKey, useUploadBusinessFile } from '../services/business/hooks';
+import { useReferralInfo } from '../services/referrals/hooks';
+import ReferralLinkCard from './ReferralLinkCard';
 
 export default function DashboardBusinessProfile() {
   const { data: profile, isLoading: loading } = useProfile();
+  const { data: referralInfo, isLoading: referralLoading } = useReferralInfo();
   const { mutateAsync: updateProfile } = useUpdateProfile();
   const { mutateAsync: generateApiKey } = useGenerateApiKey();
   const uploadLogoMutation = useUploadBusinessFile();
@@ -340,6 +343,13 @@ export default function DashboardBusinessProfile() {
           </div>
         </div>
       </div>
+
+      {/* Referral Link */}
+      <ReferralLinkCard
+        referralLink={referralInfo?.referralLink}
+        referralCode={referralInfo?.referralCode}
+        isLoading={referralLoading}
+      />
     </div>
   );
 }

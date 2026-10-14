@@ -27,6 +27,7 @@ import {
   Role,
   TaskAssignmentStatus,
   TaskAudience,
+  TaskSource,
 } from '@prisma/client';
 
 @Injectable()
@@ -167,17 +168,99 @@ export class TaskService {
     return { success: true, data: task };
   }
 
+  // ─── Task Source Helpers ──────────────────────────
+  // Strip HTML tags from admin-supplied text (stored + rendered to users).
+  private sanitizeText(value: string): string {
+    return value.replace(/<[^>]*>/g, '').trim();
+  }
+
+  private isKnownFeatureKey(key: string): boolean {
+    return CENTRAL_FEATURE_KEYS.some((f) => f.key === key);
+  }
+
+  // Resolve + validate a console-registered app for EXTERNAL tasks.
+  // Returns denormalized snapshot fields (no FK — tasks survive app deletion).
+  private async resolveExternalApp(externalClientId: string) {
+    const clientId = externalClientId.trim();
+    if (!clientId) {
+      throw new BadRequestException('External app clientId is required for external tasks');
+    }
+    const client = await this.prisma.ssoClient.findUnique({
+      where: { clientId },
+      select: { clientId: true, name: true, platformSlug: true, appUrl: true, isActive: true },
+    });
+    if (!client) {
+      throw new NotFoundException(`External app "${clientId}" is not registered in the console`);
+    }
+    if (!client.isActive) {
+      throw new BadRequestException(`External app "${client.name}" is deactivated in the console`);
+    }
+    return {
+      externalClientId: client.clientId,
+      externalAppName: client.name,
+      externalPlatformSlug: client.platformSlug ?? client.clientId,
+      externalAppUrl: client.appUrl ?? null,
+      platform: client.platformSlug ?? client.clientId,
+    };
+  }
+
   async createTaskDefinition(dto: CreateTaskDefinitionDto, adminName = 'Admin') {
+    const source = dto.taskSource ?? TaskSource.INTERNAL;
+    const title = this.sanitizeText(dto.title);
+    const description = this.sanitizeText(dto.description);
+    if (!title || !description) {
+      throw new BadRequestException('Task title and description are required');
+    }
+
+    let featureKey: string | null = null;
+    let external: {
+      externalClientId: string;
+      externalAppName: string;
+      externalPlatformSlug: string;
+      externalAppUrl: string | null;
+      platform: string;
+    } | null = null;
+    let platform = dto.platform?.trim() || 'mcom_central';
+
+    if (source === TaskSource.EXTERNAL) {
+      if (dto.featureKey !== undefined && dto.featureKey !== null && String(dto.featureKey).trim() !== '') {
+        throw new BadRequestException('External tasks do not use an event-worker trigger — omit the feature key');
+      }
+      if (!dto.externalClientId || !dto.externalClientId.trim()) {
+        throw new BadRequestException('Select an external app registered in the console for external tasks');
+      }
+      external = await this.resolveExternalApp(dto.externalClientId);
+      platform = external.platform;
+    } else {
+      if (dto.externalClientId !== undefined && dto.externalClientId !== null && String(dto.externalClientId).trim() !== '') {
+        throw new BadRequestException('Internal tasks run on MCOM Central — omit the external app selection');
+      }
+      const key = dto.featureKey?.trim();
+      if (!key) {
+        throw new BadRequestException('Select a platform trigger feature for internal tasks');
+      }
+      if (!this.isKnownFeatureKey(key)) {
+        throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
+      }
+      featureKey = key;
+      platform = 'mcom_central';
+    }
+
     const task = await this.prisma.taskDefinition.create({
       data: {
-        title: dto.title,
-        description: dto.description,
+        title,
+        description,
         targetAudience: dto.targetAudience,
-        featureKey: dto.featureKey,
+        taskSource: source,
+        featureKey,
+        externalClientId: external?.externalClientId ?? null,
+        externalAppName: external?.externalAppName ?? null,
+        externalPlatformSlug: external?.externalPlatformSlug ?? null,
+        externalAppUrl: external?.externalAppUrl ?? null,
         deadlineDays: dto.deadlineDays,
         rewardPoints: dto.rewardPoints,
         isActive: dto.isActive ?? true,
-        platform: dto.platform ?? 'mcom_central',
+        platform,
       },
     });
 
@@ -185,7 +268,9 @@ export class TaskService {
       'Task Definition Created',
       'TaskDefinition',
       task.title,
-      `Created task "${task.title}" with target=${task.targetAudience}, feature=${task.featureKey}, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`,
+      source === TaskSource.EXTERNAL
+        ? `Created EXTERNAL task "${task.title}" for app ${task.externalAppName} (${task.externalClientId}), manual completion, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`
+        : `Created task "${task.title}" with target=${task.targetAudience}, feature=${task.featureKey}, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`,
       adminName,
     );
 
@@ -198,19 +283,71 @@ export class TaskService {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
 
-    const task = await this.prisma.taskDefinition.update({
-      where: { id },
-      data: {
-        ...(dto.title !== undefined && { title: dto.title }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.targetAudience !== undefined && { targetAudience: dto.targetAudience }),
-        ...(dto.featureKey !== undefined && { featureKey: dto.featureKey }),
-        ...(dto.deadlineDays !== undefined && { deadlineDays: dto.deadlineDays }),
-        ...(dto.rewardPoints !== undefined && { rewardPoints: dto.rewardPoints }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-        ...(dto.platform !== undefined && { platform: dto.platform }),
-      },
-    });
+    const data: Prisma.TaskDefinitionUpdateInput = {};
+    if (dto.title !== undefined) {
+      const title = this.sanitizeText(dto.title);
+      if (!title) throw new BadRequestException('Task title is required');
+      data.title = title;
+    }
+    if (dto.description !== undefined) {
+      const description = this.sanitizeText(dto.description);
+      if (!description) throw new BadRequestException('Task description is required');
+      data.description = description;
+    }
+    if (dto.targetAudience !== undefined) data.targetAudience = dto.targetAudience;
+    if (dto.deadlineDays !== undefined) data.deadlineDays = dto.deadlineDays;
+    if (dto.rewardPoints !== undefined) data.rewardPoints = dto.rewardPoints;
+    if (dto.isActive !== undefined) data.isActive = dto.isActive;
+
+    // Source transitions: re-validate trigger/app pairing whenever touched.
+    const sourceTouched = dto.taskSource !== undefined;
+    const triggerTouched = dto.featureKey !== undefined;
+    const appTouched = dto.externalClientId !== undefined;
+    if (sourceTouched || triggerTouched || appTouched) {
+      const effectiveSource = dto.taskSource ?? existing.taskSource ?? TaskSource.INTERNAL;
+      data.taskSource = effectiveSource;
+      if (effectiveSource === TaskSource.EXTERNAL) {
+        const rawKey = dto.featureKey !== undefined ? dto.featureKey : existing.featureKey;
+        if (rawKey !== undefined && rawKey !== null && String(rawKey).trim() !== '') {
+          throw new BadRequestException('External tasks do not use an event-worker trigger — omit the feature key');
+        }
+        const rawApp = dto.externalClientId !== undefined ? dto.externalClientId : existing.externalClientId;
+        if (!rawApp || !String(rawApp).trim()) {
+          throw new BadRequestException('Select an external app registered in the console for external tasks');
+        }
+        const external = await this.resolveExternalApp(String(rawApp));
+        data.featureKey = null;
+        data.externalClientId = external.externalClientId;
+        data.externalAppName = external.externalAppName;
+        data.externalPlatformSlug = external.externalPlatformSlug;
+        data.externalAppUrl = external.externalAppUrl;
+        data.platform = external.platform;
+      } else {
+        const rawApp = dto.externalClientId !== undefined ? dto.externalClientId : existing.externalClientId;
+        if (rawApp !== undefined && rawApp !== null && String(rawApp).trim() !== '') {
+          throw new BadRequestException('Internal tasks run on MCOM Central — omit the external app selection');
+        }
+        const rawKey = dto.featureKey !== undefined ? dto.featureKey : existing.featureKey;
+        const key = rawKey?.trim();
+        if (!key) {
+          throw new BadRequestException('Select a platform trigger feature for internal tasks');
+        }
+        if (!this.isKnownFeatureKey(key)) {
+          throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
+        }
+        data.featureKey = key;
+        data.externalClientId = null;
+        data.externalAppName = null;
+        data.externalPlatformSlug = null;
+        data.externalAppUrl = null;
+        data.platform = 'mcom_central';
+      }
+    } else if (dto.platform !== undefined) {
+      // Platform is derived (mcom_central | console platformSlug) — ignore manual edits.
+      this.logger.warn(`Ignoring manual platform edit on task ${id}: platform is derived from task source`);
+    }
+
+    const task = await this.prisma.taskDefinition.update({ where: { id }, data });
 
     await this.logAudit(
       'Task Definition Updated',
@@ -548,6 +685,12 @@ export class TaskService {
           title: a.task.title,
           description: a.task.description,
           featureKey: a.task.featureKey,
+          taskSource: a.task.taskSource,
+          platform: a.task.platform,
+          externalAppName: a.task.externalAppName,
+          externalAppUrl: a.task.externalAppUrl,
+          externalClientId: a.task.externalClientId,
+          externalPlatformSlug: a.task.externalPlatformSlug,
           status: a.status,
           assignedAt: a.assignedAt,
           deadlineAt: a.deadlineAt,

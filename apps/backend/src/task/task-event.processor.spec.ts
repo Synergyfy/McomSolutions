@@ -59,6 +59,14 @@ describe('TaskEventProcessor', () => {
     } as any);
 
     expect(result.completed).toBe(1);
+    expect(mockPrisma.userTaskAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-1',
+          task: expect.objectContaining({ featureKey: 'business.logo_uploaded', taskSource: 'INTERNAL' }),
+        }),
+      }),
+    );
     expect(mockPrisma.userTaskAssignment.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'assign-1' },

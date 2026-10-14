@@ -11,6 +11,7 @@ import {
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { SsoUserGuard } from '../auth/guards/sso-user.guard';
 import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
 import { MembershipInitiateDto, PaypalInitiateDto, PlatformConfirmDto, StripeConfirmDto } from './dto/membership-payment.dto';
 
@@ -47,6 +48,7 @@ export class PaymentController {
       dto.level,
       dto.tier,
       dto.billing || 'monthly',
+      dto.paymentPlan || 'full',
     );
   }
 
@@ -67,6 +69,7 @@ export class PaymentController {
       dto.billing || 'monthly',
       dto.paymentIntentId,
       req.user,
+      dto.paymentPlan || 'full',
     );
   }
 
@@ -89,6 +92,7 @@ export class PaymentController {
       dto.billing || 'monthly',
       dto.returnUrl,
       dto.cancelUrl,
+      dto.paymentPlan || 'full',
     );
   }
 
@@ -109,7 +113,7 @@ export class PaymentController {
 
   // ─── PLATFORM PLAN PURCHASES (Stripe) ────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/stripe/initiate')
   @ApiOperation({ summary: 'Initiate Stripe payment for a platform plan (Mall/Rewards)' })
   async platformStripeInitiate(
@@ -126,7 +130,7 @@ export class PaymentController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/stripe/confirm')
   @ApiOperation({ summary: 'Confirm Stripe payment and activate platform plan' })
   @ApiBody({ type: PlatformConfirmDto })
@@ -143,7 +147,7 @@ export class PaymentController {
 
   // ─── PLATFORM PLAN PURCHASES (PayPal) ────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/paypal/initiate')
   @ApiOperation({ summary: 'Initiate PayPal payment for a platform plan (Mall/Rewards)' })
   async platformPaypalInitiate(
@@ -160,7 +164,7 @@ export class PaymentController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(SsoUserGuard)
   @Post('platform/paypal/capture')
   @ApiOperation({ summary: 'Capture PayPal order and activate platform plan' })
   async platformPaypalCapture(@Request() req: any, @Body('orderId') orderId: string) {
@@ -187,4 +191,50 @@ export class PaymentController {
     }
     return this.paymentService.handleStripeWebhook(rawBody, signature);
   }
+
+  // ─── VERIFICATION FEE (£1.00) ─────────────────────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Post('verification-fee/stripe/initiate')
+  @ApiOperation({ summary: 'Initiate Stripe payment for £1 verification fee' })
+  async verificationStripeInitiate(@Request() req: any) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.verificationStripeInitiate(businessId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('verification-fee/stripe/confirm')
+  @ApiOperation({ summary: 'Confirm Stripe payment for £1 verification fee' })
+  async verificationStripeConfirm(
+    @Request() req: any,
+    @Body('paymentIntentId') paymentIntentId: string,
+  ) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.verificationStripeConfirm(businessId, paymentIntentId, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('verification-fee/paypal/initiate')
+  @ApiOperation({ summary: 'Initiate PayPal payment for £1 verification fee' })
+  async verificationPaypalInitiate(
+    @Request() req: any,
+    @Body('returnUrl') returnUrl: string,
+    @Body('cancelUrl') cancelUrl: string,
+  ) {
+    const businessId = await this.getBusinessId(req);
+    const ret = returnUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/paypal/return?type=verification`;
+    const can = cancelUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/paypal/cancel`;
+    return this.paymentService.verificationPaypalInitiate(businessId, ret, can);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('verification-fee/paypal/capture')
+  @ApiOperation({ summary: 'Capture PayPal payment for £1 verification fee' })
+  async verificationPaypalCapture(@Request() req: any, @Body('orderId') orderId: string) {
+    if (!orderId) {
+      throw new BadRequestException('orderId is required.');
+    }
+    return this.paymentService.verificationPaypalCapture(orderId, req.user);
+  }
+
 }

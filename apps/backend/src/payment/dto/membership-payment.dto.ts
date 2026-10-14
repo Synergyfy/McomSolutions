@@ -20,6 +20,12 @@ export class MembershipInitiateDto {
   @IsIn([...BILLING_CYCLES])
   billing: 'monthly' | 'quarterly' | 'yearly';
 
+  @ApiPropertyOptional({ example: 'full', enum: ['full', 'monthly', 'quarterly', 'halfYearly'], description: 'Payment plan: full = one outright charge; otherwise the per-instalment charge for this step (access extends per payment)' })
+  @IsOptional()
+  @IsString()
+  @IsIn(['full', 'monthly', 'quarterly', 'halfYearly', 'half_yearly'], { message: 'Payment plan must be full, monthly, quarterly or halfYearly.' })
+  paymentPlan?: string;
+
   @ApiPropertyOptional({ example: false, description: 'Legacy trial flag — tolerated but ignored (trials discontinued, Phase 2)' })
   @IsOptional()
   @IsBoolean()

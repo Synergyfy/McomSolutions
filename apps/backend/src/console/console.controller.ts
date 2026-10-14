@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -37,6 +38,7 @@ import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { RotateSecretDto } from './dto/rotate-secret.dto';
 import { ConsoleAuditQueryDto } from './dto/console-audit-query.dto';
+import { SetServicePolicyDto } from './dto/service-policy.dto';
 
 @ApiTags('Mcom Console')
 @ApiBearerAuth()
@@ -238,6 +240,30 @@ export class ConsoleController {
   @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
   listAuditLogs(@Query() query: ConsoleAuditQueryDto) {
     return this.consoleService.listAuditLogs(query);
+  }
+
+  // ─── Service Mesh Policy ───────────────────────────────
+  @Get('service-policy')
+  @ApiOperation({ summary: 'Get the service-to-service peer policy graph (egress + ingress)' })
+  @ApiOkResponse({ description: 'Per-app allowed audiences (egress) and allowed callers (ingress)' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  getServicePolicy() {
+    return this.consoleService.getServicePolicy();
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Put('service-policy')
+  @ApiOperation({ summary: 'Bulk-replace the service-to-service peer policy graph' })
+  @ApiBody({ type: SetServicePolicyDto })
+  @ApiOkResponse({ description: 'Policy updated' })
+  @ApiBadRequestResponse({ description: 'Unknown peer, self-reference, or duplicate entry' })
+  @ApiNotFoundResponse({ description: 'App not found' })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded (10 requests/minute)' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  setServicePolicy(@Body() dto: SetServicePolicyDto, @Req() req: Request) {
+    return this.consoleService.setServicePolicy(dto, (req.user as any).userId, req);
   }
 
   // ─── Webhook Dead-Letter Queue (DLQ) ───────────────────

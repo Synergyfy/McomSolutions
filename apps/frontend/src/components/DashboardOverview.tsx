@@ -211,12 +211,17 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           description: t.description,
           instructions: t.description,
           featureKey: t.featureKey,
+          taskSource: t.taskSource || 'INTERNAL',
+          platform: t.platform || 'mcom_central',
+          externalAppName: t.externalAppName || null,
+          externalAppUrl: t.externalAppUrl || null,
+          externalClientId: t.externalClientId || null,
           reward: `+${t.rewardPoints} points`,
           rewardPoints: t.rewardPoints,
           estimatedMinutes: t.daysRemaining !== undefined ? `${t.daysRemaining}d left` : '7d',
           deadlineDays: t.daysRemaining,
           status: st,
-          system: 'MCOM Central',
+          system: t.externalAppName || (t.platform && t.platform !== 'mcom_central' ? t.platform : 'MCOM Central'),
         };
       });
     }
@@ -248,6 +253,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   };
 
   const handleGoToAction = (mission: any) => {
+    // External platform tasks: open the console-registered app URL (frontend URL
+    // from /admin/console). Completion stays manual — no worker touches these.
+    if (mission.externalAppUrl) {
+      window.open(mission.externalAppUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const key = mission.featureKey || '';
     if (key.includes('membership')) {
       onNavigate?.('memberships');
@@ -271,7 +282,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     const toNav = activeMission;
     setModalOpen(false);
     setActiveMission(null);
-    if (toNav.featureKey) {
+    if (toNav.externalAppUrl || toNav.featureKey) {
       handleGoToAction(toNav);
     }
   };
@@ -435,6 +446,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               {allMissions.map((mission: any, i: number) => {
                 const st = hasApiTasks ? mission.status : status(mission.id);
                 const isExternalLink = mission.submissionType === 'external_link';
+                // API external tasks (console-registered platforms): manual completion only.
+                const isApiExternal = hasApiTasks && mission.taskSource === 'EXTERNAL';
                 const isInProgress = st === 'in_progress';
                 const isCompleted = st === 'completed';
                 const isExpired = st === 'expired';
@@ -490,9 +503,13 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                             onClick={() => handleGoToAction(mission)}
                             className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
                           >
-                            <span>Continue</span> <ArrowRight className="w-3 h-3" />
+                            {isApiExternal ? (
+                              <><span>Open {mission.externalAppName || 'App'}</span> <ExternalLink className="w-3 h-3" /></>
+                            ) : (
+                              <><span>Continue</span> <ArrowRight className="w-3 h-3" /></>
+                            )}
                           </button>
-                          {isExternalLink && (
+                          {(isExternalLink || isApiExternal) && (
                             <button onClick={() => markComplete(mission.id, hasApiTasks)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
                               <CheckCircle2 className="w-3 h-3" /> Complete
                             </button>

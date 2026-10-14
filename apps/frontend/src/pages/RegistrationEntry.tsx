@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Building2, User, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
 import { motion } from 'motion/react';
+import { persistReferralCodeFromSearchParams } from '../lib/referral';
 
 export default function RegistrationEntry() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
+
+  // Persist ?ref= so attribution survives the multi-step signup flows.
+  useEffect(() => {
+    persistReferralCodeFromSearchParams(searchParams);
+  }, [searchParams]);
 
   const roles = [
     { id: 'business', title: 'Business', description: 'Register your company and set up your storefront', icon: Building2 },

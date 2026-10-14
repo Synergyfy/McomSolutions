@@ -15,6 +15,7 @@ import {
   UpdateReadinessGateDto,
   UpdateSupportAgentDto,
   UpdateTaskStatusDto,
+  UpdateProgrammeSettingsDto,
 } from './dto/programme.dto';
 import { Prisma } from '@prisma/client';
 
@@ -430,8 +431,112 @@ export class ProgrammeService {
     });
   }
 
+  // ─── Settings & Trial Access Config ───────────────────
+  async getSettings() {
+    const settings = await this.prisma.programmeSetting.findMany();
+    const map = new Map(settings.map((s) => [s.key, s.value]));
+
+    const trialAccessDays = map.has('trial_access_days')
+      ? parseInt(map.get('trial_access_days') || '14', 10)
+      : 14;
+    const verificationFeeAmount = map.has('verification_fee_amount')
+      ? parseFloat(map.get('verification_fee_amount') || '1.00')
+      : 1.00;
+    const verificationRequired = map.has('verification_required')
+      ? map.get('verification_required') === 'true'
+      : true;
+
+    return {
+      success: true,
+      data: {
+        trialAccessDays: isNaN(trialAccessDays) ? 14 : trialAccessDays,
+        verificationFeeAmount: isNaN(verificationFeeAmount) ? 1.00 : verificationFeeAmount,
+        verificationRequired,
+      },
+    };
+  }
+
+  async getDefaultTrialDays(): Promise<number> {
+    const setting = await this.prisma.programmeSetting.findUnique({
+      where: { key: 'trial_access_days' },
+    });
+    if (!setting) return 14;
+    const parsed = parseInt(setting.value, 10);
+    return isNaN(parsed) ? 14 : parsed;
+  }
+
+  async updateSettings(dto: UpdateProgrammeSettingsDto, adminName = 'Admin') {
+    const updates: Promise<any>[] = [];
+
+    if (dto.trialAccessDays !== undefined) {
+      updates.push(
+        this.prisma.programmeSetting.upsert({
+          where: { key: 'trial_access_days' },
+          create: {
+            key: 'trial_access_days',
+            value: String(dto.trialAccessDays),
+            description: 'Default days of dashboard access granted upon £1 verification',
+            updatedBy: adminName,
+          },
+          update: {
+            value: String(dto.trialAccessDays),
+            updatedBy: adminName,
+          },
+        }),
+      );
+    }
+
+    if (dto.verificationFeeAmount !== undefined) {
+      updates.push(
+        this.prisma.programmeSetting.upsert({
+          where: { key: 'verification_fee_amount' },
+          create: {
+            key: 'verification_fee_amount',
+            value: String(dto.verificationFeeAmount),
+            description: 'Verification fee amount in GBP',
+            updatedBy: adminName,
+          },
+          update: {
+            value: String(dto.verificationFeeAmount),
+            updatedBy: adminName,
+          },
+        }),
+      );
+    }
+
+    if (dto.verificationRequired !== undefined) {
+      updates.push(
+        this.prisma.programmeSetting.upsert({
+          where: { key: 'verification_required' },
+          create: {
+            key: 'verification_required',
+            value: String(dto.verificationRequired),
+            description: 'Whether verification fee is required for platform access',
+            updatedBy: adminName,
+          },
+          update: {
+            value: String(dto.verificationRequired),
+            updatedBy: adminName,
+          },
+        }),
+      );
+    }
+
+    await Promise.all(updates);
+    await this.logAudit(
+      'Programme Settings Updated',
+      'ProgrammeSetting',
+      'trial_access_days',
+      `Updated programme settings: trialDays=${dto.trialAccessDays ?? 'unchanged'}, fee=${dto.verificationFeeAmount ?? 'unchanged'}`,
+      adminName,
+    );
+
+    return this.getSettings();
+  }
+
   // ─── Helpers ──────────────────────────────────────────
-  private async ensurePhase(id: string) {    const phase = await this.prisma.programmePhase.findUnique({ where: { id } });
+  private async ensurePhase(id: string) {
+    const phase = await this.prisma.programmePhase.findUnique({ where: { id } });
     if (!phase) throw new NotFoundException('Programme phase not found');
     return phase;
   }
@@ -454,3 +559,4 @@ export class ProgrammeService {
     return business;
   }
 }
+

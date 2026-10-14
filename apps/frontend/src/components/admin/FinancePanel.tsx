@@ -18,11 +18,27 @@ function PaymentsPanel({ paymentsData }: { paymentsData: any }) {
   const payments = paymentsData?.data ?? [];
   const updatePay = useUpdatePaymentStatus();
 
+  const handleExport = () => {
+    const rows = payments.map((p: any) => [
+      p.businessName, p.invoice, p.amount, p.currency, p.method, p.status, p.type, p.date,
+    ]);
+    const csv = [['Business', 'Invoice', 'Amount', 'Currency', 'Method', 'Status', 'Type', 'Date'], ...rows]
+      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2"><DollarSign className="w-4 h-4 text-brand-blue" />Payments</h3>
-        <button className="px-3 py-1.5 bg-gray-50 rounded-lg text-xs font-bold text-gray-500 hover:bg-gray-100 transition-all flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Export</button>
+        <button onClick={handleExport} className="px-3 py-1.5 bg-gray-50 rounded-lg text-xs font-bold text-gray-500 hover:bg-gray-100 transition-all flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />Export</button>
       </div>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">

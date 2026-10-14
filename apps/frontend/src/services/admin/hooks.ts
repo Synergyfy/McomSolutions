@@ -7,7 +7,6 @@ import type {
   ConsultantUser,
   AccountManager,
   MembershipPlan,
-  PackageTemplate,
   Platform,
   Subscription,
   LaunchRule,
@@ -24,7 +23,6 @@ import type {
   CreateAccountManagerInput,
   CreatePlanInput,
   UpdatePlanInput,
-  CreatePackageInput,
   CreateSubscriptionInput,
   CreateLaunchRuleInput,
   RecordPaymentInput,
@@ -241,7 +239,10 @@ export const useCreatePlan = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: CreatePlanInput) => adminApi.createPlan(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
@@ -250,7 +251,10 @@ export const useUpdatePlan = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdatePlanInput }) =>
       adminApi.updatePlan(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
@@ -258,43 +262,15 @@ export const useDeletePlan = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => adminApi.deletePlan(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
+      queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
   })
 }
 
-// ─── Packages ──────────────────────────────────────────
-export const useAdminPackages = () => {
-  return useQuery({
-    queryKey: ['admin', 'packages'],
-    queryFn: () => adminApi.getPackages(),
-    staleTime: 1000 * 60 * 10,
-  })
-}
-
-export const useCreatePackage = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: CreatePackageInput) => adminApi.createPackage(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'packages'] }),
-  })
-}
-
-export const useUpdatePackage = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreatePackageInput & { archived: boolean }> }) =>
-      adminApi.updatePackage(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'packages'] }),
-  })
-}
-
-export const useDeletePackage = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => adminApi.deletePackage(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'packages'] }),
-  })
-}
+// ─── Packages — REMOVED ──────────────────────────────────
+// MCOM holds no plans of its own (memberships-only model).
 
 // ─── Subscriptions ─────────────────────────────────────
 export const useAdminSubscriptions = (params?: { page?: number; limit?: number; search?: string }) => {
@@ -1385,5 +1361,25 @@ export const useDeleteSubCategory = () => {
 export const useUploadCatalogImage = () => {
   return useMutation({
     mutationFn: (file: File) => adminApi.uploadCatalogImage(file),
+  })
+}
+
+
+// ─── Programme Settings Hooks ──────────────────────────────────────────
+export const useProgrammeSettings = () => {
+  return useQuery({
+    queryKey: ['admin', 'programme', 'settings'],
+    queryFn: () => adminApi.getProgrammeSettings(),
+  })
+}
+
+export const useUpdateProgrammeSettings = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { trialAccessDays?: number; verificationFeeAmount?: number; verificationRequired?: boolean }) =>
+      adminApi.updateProgrammeSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'programme', 'settings'] })
+    },
   })
 }

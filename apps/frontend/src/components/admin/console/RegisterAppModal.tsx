@@ -27,7 +27,9 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { CONSOLE_ALLOWED_SCOPES } from '../../../services/admin/types';
-import { useRegisterApp } from './hooks/useConsoleApps';
+import { useRegisterApp, useConsoleApps } from './hooks/useConsoleApps';
+import AppPeerSelect from './AppPeerSelect';
+import TagInput from './TagInput';
 import type { RegisterAppResult } from '../../../services/admin/types';
 
 interface RegisterAppModalProps {
@@ -93,6 +95,10 @@ const SCOPE_DESCRIPTIONS: Record<string, { label: string; desc: string; icon: an
 
 export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppModalProps) {
   const registerApp = useRegisterApp();
+  const { data: registeredApps = [] } = useConsoleApps();
+  const scopeSuggestions = Array.from(
+    new Set(registeredApps.flatMap((a) => a.serviceScopes ?? [])),
+  );
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Form states
@@ -107,6 +113,12 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   const [corsOrigins, setCorsOrigins] = useState<string[]>(['']);
   const [scopes, setScopes] = useState<string[]>(['profile', 'email', 'business']);
   const [webhookUrl, setWebhookUrl] = useState('');
+  const [feePercent, setFeePercent] = useState('');
+  const [feeFixedMinor, setFeeFixedMinor] = useState('');
+  const [serviceEnabled, setServiceEnabled] = useState(true);
+  const [serviceScopes, setServiceScopes] = useState<string[]>([]);
+  const [allowedAudiences, setAllowedAudiences] = useState<string[]>([]);
+  const [allowedCallers, setAllowedCallers] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Auto-slugify helpers
@@ -155,6 +167,14 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
     if (currentStep === 3) {
       if (scopes.length === 0) return 'Please select at least one OAuth scope.';
       if (webhookUrl && !isValidUrl(webhookUrl)) return 'Webhook URL must be a valid URL.';
+      if (feePercent.trim()) {
+        const pct = Number(feePercent);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 0.5) return 'MCOM Pay fee percent must be between 0 and 0.5 (e.g. 0.029 for 2.9%).';
+      }
+      if (feeFixedMinor.trim()) {
+        const fixed = Number(feeFixedMinor);
+        if (!Number.isInteger(fixed) || fixed < 0) return 'MCOM Pay fixed fee must be a non-negative whole number of pence.';
+      }
     }
     return null;
   };
@@ -194,6 +214,12 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         corsOrigins: corsOrigins.map((u) => u.trim()).filter(Boolean),
         scopes,
         webhookUrl: webhookUrl.trim() || undefined,
+        feePercent: feePercent.trim() ? Number(feePercent) : undefined,
+        feeFixedMinor: feeFixedMinor.trim() ? Math.round(Number(feeFixedMinor)) : undefined,
+        serviceEnabled,
+        serviceScopes,
+        allowedAudiences,
+        allowedCallers,
       });
       onRegistered(result);
     } catch (err: any) {
@@ -496,6 +522,102 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                 <p className="text-[10px] text-gray-400 mt-1">
                   MCOM dispatches user registration and lifecycle event payloads to this URL with HMAC signatures.
                 </p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
+                <label className={labelCls}>MCOM Pay Fee (Optional)</label>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Commission MCOM takes per charge processed through this app. Leave blank to use the platform default.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelCls}>Fee Percent</label>
+                    <input
+                      value={feePercent}
+                      onChange={(e) => setFeePercent(e.target.value)}
+                      placeholder="0.029"
+                      className={cn(inputCls, 'font-mono')}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">e.g. 0.029 = 2.9% of the charge.</p>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Fixed Fee (pence)</label>
+                    <input
+                      value={feeFixedMinor}
+                      onChange={(e) => setFeeFixedMinor(e.target.value)}
+                      placeholder="20"
+                      className={cn(inputCls, 'font-mono')}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Added per charge, in minor units (e.g. 20 = £0.20).</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <label className={labelCls}>Service Access — Backend-to-Backend (Optional)</label>
+                    <p className="text-[11px] text-gray-500 mt-0.5 max-w-lg">
+                      Allow this app's backend to call other registered app backends directly using short-lived
+                      service tokens. Peers verify tokens offline via JWKS — MCOM is not in the request path.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setServiceEnabled((v) => !v)}
+                    className={cn(
+                      'relative w-11 h-6 rounded-full transition-colors flex-shrink-0 mt-0.5',
+                      serviceEnabled ? 'bg-brand-blue' : 'bg-gray-300',
+                    )}
+                    aria-label="Toggle service access"
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                        serviceEnabled && 'translate-x-5',
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {serviceEnabled && (
+                  <div className="space-y-4 mt-3">
+                    <div>
+                      <label className={labelCls}>Service Scopes</label>
+                      <TagInput
+                        value={serviceScopes}
+                        onChange={setServiceScopes}
+                        suggestions={scopeSuggestions}
+                        placeholder="e.g. rewards:read"
+                        hint="Scopes this app may request. Type and press Enter."
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelCls}>Allowed Audiences (peers it may call)</label>
+                        <AppPeerSelect
+                          value={allowedAudiences}
+                          onChange={setAllowedAudiences}
+                          apps={registeredApps}
+                          excludeClientId={clientId}
+                          placeholder="Select peers…"
+                          emptyHint="Empty = deny all. Pick “Anyone” for no restriction."
+                        />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Allowed Callers (may call this app)</label>
+                        <AppPeerSelect
+                          value={allowedCallers}
+                          onChange={setAllowedCallers}
+                          apps={registeredApps}
+                          excludeClientId={clientId}
+                          placeholder="Select peers…"
+                          emptyHint="Empty = deny all. Pick “Anyone” to accept all."
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

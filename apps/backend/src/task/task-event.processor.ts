@@ -8,7 +8,7 @@ import {
   TaskRewardJobData,
 } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
-import { TaskAssignmentStatus } from '@prisma/client';
+import { TaskAssignmentStatus, TaskSource } from '@prisma/client';
 
 @Processor(TASK_EVENT_QUEUE)
 export class TaskEventProcessor extends WorkerHost {
@@ -29,13 +29,16 @@ export class TaskEventProcessor extends WorkerHost {
 
     const now = new Date();
 
-    // Find all active assignments for this user matching this feature key
+    // Find all active INTERNAL assignments for this user matching this feature key.
+    // EXTERNAL tasks (featureKey NULL, console-registered platforms) are NEVER
+    // auto-completed here — users manually mark them done via my-tasks.
     const assignments = await this.prisma.userTaskAssignment.findMany({
       where: {
         userId,
         task: {
           featureKey,
           isActive: true,
+          taskSource: TaskSource.INTERNAL,
         },
         status: {
           in: [TaskAssignmentStatus.PENDING, TaskAssignmentStatus.IN_PROGRESS],

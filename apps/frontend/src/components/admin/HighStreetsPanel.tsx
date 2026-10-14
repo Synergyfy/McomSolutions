@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import { 
   Plus, 
   Search, 
-  Filter, 
   MoreVertical, 
   Users, 
   Activity,
@@ -17,7 +16,6 @@ import {
   X,
   Save,
   User,
-  Info,
   AlertTriangle
 } from 'lucide-react';
 import HighStreetActivationWizard from './HighStreetActivationWizard';
@@ -116,12 +114,12 @@ export default function HighStreetsPanel() {
         </button>
       </div>
 
-      {/* Overview Stats */}
+      {/* Overview Stats (live counts with real context labels) */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        <StatCard title="Total High Streets" value={String(allHighStreets.length)} trend="0" icon={MapIcon} />
-        <StatCard title="Active" value={String(allHighStreets.filter(h => h.status === 'Active').length)} trend="+2" icon={CheckCircle2} />
-        <StatCard title="Pending" value={String(allHighStreets.filter(h => h.status === 'Pending').length)} trend="-1" icon={Clock} />
-        <StatCard title="Total Businesses" value={allHighStreets.reduce((s, h) => s + h.businessCount, 0).toLocaleString()} trend="+12%" icon={Store} />
+        <StatCard title="Total High Streets" value={String(allHighStreets.length)} trend={`${allHighStreets.filter(h => h.status === 'Active').length} active`} icon={MapIcon} />
+        <StatCard title="Active" value={String(allHighStreets.filter(h => h.status === 'Active').length)} trend={`${allHighStreets.filter(h => h.status !== 'Active').length} not active`} icon={CheckCircle2} />
+        <StatCard title="Pending" value={String(allHighStreets.filter(h => h.status === 'Pending').length)} trend="awaiting activation" icon={Clock} />
+        <StatCard title="Total Businesses" value={allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0), 0).toLocaleString()} trend={`across ${boroughNames.length - 1} boroughs`} icon={Store} />
       </div>
 
       {/* Main Content Area */}
@@ -250,10 +248,7 @@ export default function HighStreetsPanel() {
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-visible">
         <div className="p-6 border-b border-gray-50 flex items-center justify-between">
           <h3 className="font-bold text-gray-950 text-base">High Street Inventory</h3>
-          <button className="flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 hover:shadow transition-all">
-            <Filter className="h-4 w-4" />
-            Advanced Filters
-          </button>
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{filteredHighStreets.length} shown</span>
         </div>
         
         <div className="overflow-x-auto">
@@ -338,7 +333,10 @@ export default function HighStreetsPanel() {
       />
 
       {/* Manage Ecosystem Modal */}
-      {ecosystemModal && (
+      {ecosystemModal && (() => {
+        const ecoCampaigns = campaigns.filter(c => c.locationId === ecosystemModal.id);
+        const ecoActivities = activities.filter(a => a.highStreetId === ecosystemModal.id);
+        return (
         <Modal onClose={() => setEcosystemModal(null)} title="Manage Ecosystem" icon={Activity}>
           <div className="space-y-4">
             <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
@@ -358,14 +356,33 @@ export default function HighStreetsPanel() {
                 <span className="text-gray-500 font-semibold">Businesses</span>
                 <span className="font-bold text-gray-900">{ecosystemModal.businessCount}</span>
               </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Campaigns</span>
+                <span className="font-bold text-gray-900">{ecoCampaigns.filter(c => c.status === 'active').length} active · {ecoCampaigns.length} total</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500 font-semibold">Feed Items</span>
+                <span className="font-bold text-gray-900">{ecoActivities.length}</span>
+              </div>
             </div>
-            <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-3">
-              <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-700 font-semibold">Ecosystem management allows you to configure platform access, view business registrations, and manage local integrations for this high street.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setCampaignModal(ecosystemModal); setEcosystemModal(null); }}
+                className="py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white transition-all flex items-center justify-center gap-2"
+              >
+                <Rocket className="h-4 w-4" /> Launch Campaign
+              </button>
+              <button
+                onClick={() => { setAnalyticsModal(ecosystemModal); setEcosystemModal(null); }}
+                className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
+              >
+                <BarChart3 className="h-4 w-4" /> View Analytics
+              </button>
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {/* Assign Manager Modal */}
       {assignModal && (
@@ -553,20 +570,23 @@ function FeedItem({ icon: Icon, iconColor, bgColor, title, details, time, locati
   );
 }
 
-function StatCard({ title, value, trend, icon: Icon }: { title: string, value: string, trend: string, icon: any }) {
-  const isPositive = trend.startsWith('+');
+function StatCard({ title, value, trend, icon: Icon }: { title: string, value: string, trend?: string, icon: any }) {
+  const isPositive = (trend ?? '').startsWith('+');
+  const isNegative = (trend ?? '').startsWith('-');
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-2.5">
       <div className="flex items-center justify-between">
         <div className="p-2 bg-gray-50 rounded-xl text-gray-500">
           <Icon className="h-4 w-4" />
         </div>
-        <span className={cn(
-          "text-[9px] font-bold px-2 py-0.5 rounded-full border",
-          isPositive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-amber-50 text-amber-700 border-amber-100"
-        )}>
-          {trend}
-        </span>
+        {trend ? (
+          <span className={cn(
+            "text-[9px] font-bold px-2 py-0.5 rounded-full border",
+            isPositive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : isNegative ? "bg-red-50 text-red-600 border-red-100" : "bg-gray-50 text-gray-500 border-gray-200"
+          )}>
+            {trend}
+          </span>
+        ) : null}
       </div>
       <div>
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{title}</p>

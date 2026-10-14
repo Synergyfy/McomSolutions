@@ -10,7 +10,6 @@ import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
 import PricingPage from './pages/PricingPage';
 import MembershipPage from './pages/MembershipPage';
-import PackagesPage from './pages/PackagesPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
@@ -31,6 +30,10 @@ import AffiliateSignup from './pages/AffiliateSignup';
 import { useAdminAuth } from './context/AdminAuthContext';
 import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
 import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
+import ProtectedBusinessRoute from './components/auth/ProtectedBusinessRoute';
+import ProtectedCustomerRoute from './components/auth/ProtectedCustomerRoute';
+import ChatWidget from './components/chat/ChatWidget';
+import ChatToastNotifications from './components/chat/ChatToastNotifications';
 
 const queryClient = new QueryClient();
 
@@ -111,9 +114,11 @@ function AnimatedRoutes() {
           <Route 
             path="/dashboard/*" 
             element={
-              <PageWrapper>
-                <Dashboard />
-              </PageWrapper>
+              <ProtectedBusinessRoute>
+                <PageWrapper>
+                  <Dashboard />
+                </PageWrapper>
+              </ProtectedBusinessRoute>
             } 
           />
           <Route 
@@ -158,14 +163,8 @@ function AnimatedRoutes() {
               </PageWrapper>
             } 
           />
-          <Route 
-            path="/packages" 
-            element={
-              <PageWrapper>
-                <PackagesPage />
-              </PageWrapper>
-            } 
-          />
+          {/* /packages retired (memberships-only model): standalone packages are
+              bought on the console-registered external platforms themselves. */}
           <Route 
             path="/login" 
             element={
@@ -201,9 +200,11 @@ function AnimatedRoutes() {
           <Route 
             path="/customer" 
             element={
-              <PageWrapper>
-                <CustomerLandingPage />
-              </PageWrapper>
+              <ProtectedCustomerRoute>
+                <PageWrapper>
+                  <CustomerLandingPage />
+                </PageWrapper>
+              </ProtectedCustomerRoute>
             } 
           />
           <Route 
@@ -289,6 +290,8 @@ function AnimatedRoutes() {
         </Routes>
       </AnimatePresence>
       {!hideNavFooter && <Footer />}
+      <ChatToastNotifications />
+      <ChatWidget />
     </>
   );
 }
