@@ -8,10 +8,10 @@
   "scripts": {
     "dev:frontend": "npm run dev --workspace=apps/frontend",
     "dev:backend": "npm run start:dev --workspace=apps/backend",
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev": "node api.js && concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "build:frontend": "npm run build --workspace=apps/frontend",
     "build:backend": "npm run build --workspace=apps/backend",
-    "build": "npm run build:frontend && npm run build:backend"
+    "build": "node api.js && npm run build:frontend && npm run build:backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
