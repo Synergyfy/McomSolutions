@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Info, Loader2, Save, Shield, Star } from 'lucide-react';
+import { ArrowLeft, Bot, Check, Info, Loader2, Save, Shield, Sparkles, Star } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useServicePolicy, useUpdateServicePolicy } from './hooks/useConsoleApps';
 import type { SetServicePolicyInput } from '../../../services/admin/types';
+import ServiceMeshSkillModal from './ServiceMeshSkillModal';
 
 const WILDCARD = '*';
 
@@ -34,6 +35,7 @@ export default function ServiceMeshPolicyPanel({ onBack }: { onBack: () => void 
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSkillModal, setShowSkillModal] = useState(false);
 
   useEffect(() => {
     if (!data || dirty) return;
@@ -122,7 +124,14 @@ export default function ServiceMeshPolicyPanel({ onBack }: { onBack: () => void 
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Apps
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowSkillModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm border border-gray-800"
+          >
+            <Bot className="w-3.5 h-3.5 text-brand-blue" />
+            <span>🤖 Mesh AI Skill & Tester</span>
+          </button>
           {saved && (
             <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold animate-in fade-in">
               <Check className="w-3.5 h-3.5" /> Policy Saved
@@ -299,6 +308,14 @@ export default function ServiceMeshPolicyPanel({ onBack }: { onBack: () => void 
           </div>
         )}
       </div>
+
+      {showSkillModal && (
+        <ServiceMeshSkillModal
+          apps={apps}
+          policy={policy}
+          onClose={() => setShowSkillModal(false)}
+        />
+      )}
     </div>
   );
 }

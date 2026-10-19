@@ -537,6 +537,91 @@ Content-Type: application/json
         />
       </Section>
 
+      <Section title="⚠️ Frontend Gateway Handling & Sandbox Rules (Crucial)">
+        <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 text-xs text-amber-900 space-y-2">
+          <p className="font-bold flex items-center gap-1.5 text-amber-950">
+            <ShieldAlert className="w-4 h-4 text-amber-600" />
+            DO NOT build custom dummy card forms or mock PayPal login dialogs!
+          </p>
+          <p className="leading-relaxed">
+            In development and staging, <b>"Sandbox"</b> means Central Hub connects directly to the <b>live Stripe Test API</b> and <b>official PayPal Sandbox API</b>. MCOM Pay returns authentic test credentials (<code className="font-mono text-amber-800">clientSecret</code> and <code className="font-mono text-amber-800">approvalUrl</code>).
+          </p>
+          <p className="leading-relaxed">
+            Partner frontend apps must <b>never</b> render custom HTML forms with fake card inputs or mock login modals simulating payments with <code className="font-mono text-amber-800">setTimeout()</code>. All payments must be handled via the official gateway interfaces.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
+            <p className="font-bold text-xs text-gray-900 mb-1">Stripe Frontend Requirement</p>
+            <p className="text-[11px] text-gray-600 mb-2 leading-relaxed">
+              Mount official <b>Stripe Elements</b> with <code className="font-mono text-indigo-600">clientSecret</code>. Stripe's PCI-compliant iframe securely inputs test cards (e.g. <code className="font-mono">4242 4242 4242 4242</code>). Confirm with <code className="font-mono text-indigo-600">stripe.confirmPayment()</code>.
+            </p>
+          </div>
+          <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200">
+            <p className="font-bold text-xs text-gray-900 mb-1">PayPal Frontend Requirement</p>
+            <p className="text-[11px] text-gray-600 mb-2 leading-relaxed">
+              Redirect the customer directly to <code className="font-mono text-indigo-600">approvalUrl</code> (<code className="font-mono">window.location.href = approvalUrl</code>) or use the official PayPal Buttons SDK. The customer logs into the authentic PayPal Sandbox portal.
+            </p>
+          </div>
+        </div>
+
+        <CodeBlock
+          label="frontend-gateway-handling.tsx"
+          code={`import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
+
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+// 1. Stripe: Mount official Stripe Elements with the clientSecret returned by MCOM Pay
+export function StripeCheckoutModal({ clientSecret, onConfirmed }) {
+  return (
+    <Elements stripe={stripePromise} options={{ clientSecret }}>
+      <StripeCardForm onConfirmed={onConfirmed} />
+    </Elements>
+  );
+}
+
+function StripeCardForm({ onConfirmed }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [processing, setProcessing] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+    setProcessing(true);
+
+    const { paymentIntent, error } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required', // In-modal completion without full page redirect
+    });
+
+    if (error) {
+      alert(error.message);
+      setProcessing(false);
+    } else {
+      // Notify backend to call POST /app-payments/charges/:id/confirm
+      await onConfirmed(paymentIntent.id);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <PaymentElement />
+      <button disabled={processing || !stripe}>Pay with Card</button>
+    </form>
+  );
+}
+
+// 2. PayPal: Directly redirect to PayPal's official Sandbox approval URL
+export function handlePayPalCheckout(approvalUrl) {
+  window.location.href = approvalUrl; // Customer logs in on sandbox.paypal.com
+}`}
+        />
+      </Section>
+
+
       <Section title="Confirm & refund">
         <CodeBlock
           label="confirm then refund"
@@ -874,9 +959,13 @@ export class McomWalletService {
           <li>409/429/5xx retried with backoff, same key</li>
           <li>Captured holds are captured or released; rely on 24h auto-expiry as backstop</li>
           <li><b>MCOM Pay:</b> charges created server-side only (amount never from the browser), sent as integer minor-unit strings</li>
-          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">clientSecret</code>/<code className="text-emerald-600 font-mono">approvalUrl</code> handled per method; <code className="text-emerald-600 font-mono">confirm</code> called after payment</li>
+          <li><b>MCOM Pay:</b> mount official <b>Stripe Elements</b> (<code className="text-emerald-600 font-mono">&lt;PaymentElement /&gt;</code>) with <code className="text-emerald-600 font-mono">clientSecret</code> — <b>no custom mock card forms</b></li>
+          <li><b>MCOM Pay:</b> redirect to authentic <b>PayPal Sandbox</b> (<code className="text-emerald-600 font-mono">approvalUrl</code>) or use official PayPal Buttons SDK — <b>no mock login forms</b></li>
+          <li><b>MCOM Pay:</b> wallet method displays user balance and gracefully handles 422 <code className="text-emerald-600 font-mono">INSUFFICIENT_BALANCE</code> with top-up link</li>
+          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">confirm</code> called after payment completion</li>
           <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">payment.succeeded</code>/<code className="text-emerald-600 font-mono">payment.refunded</code> webhooks verified (signature + idempotent)</li>
           <li><b>MCOM Pay:</b> refunds go through <code className="text-emerald-600 font-mono">/refund</code>; fee config reviewed in the Console (default 2.9% + 20p)</li>
+          <li><b>Sandbox Testing:</b> verify with Stripe test cards (<code className="text-emerald-600 font-mono">4242 4242 4242 4242</code>) in Elements and sandbox buyer accounts in PayPal</li>
         </ul>
       </Section>
     </div>

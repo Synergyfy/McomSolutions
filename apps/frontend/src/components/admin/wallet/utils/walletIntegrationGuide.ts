@@ -233,6 +233,84 @@ MCOM Pay turns any Console-registered app into a merchant. Your **backend** (nev
 
 **Trust model:** the amount always comes from your authenticated backend — the customer's browser can never set or alter it.
 
+## B1.1 Sandbox vs Production & Client-Side Handling (Critical)
+
+> ⚠️ **CRITICAL: DO NOT build custom dummy card forms or mock PayPal login dialogs!**
+> "Sandbox" does **NOT** mean partner platforms should write simulated HTML forms with fake card inputs or \`setTimeout()\` mock timers.
+
+### What "Sandbox" Means in MCOM Pay:
+- **Official Gateway Test Environments:** In development and staging, Central Hub connects directly to the **real Stripe Test Mode API** (\`sk_test_...\`) and **real PayPal Sandbox API** (\`https://api-m.sandbox.paypal.com\`).
+- **Authentic Test Credentials:** MCOM returns genuine, cryptographically valid Stripe \`clientSecret\` (PaymentIntent) and genuine PayPal Sandbox \`approvalUrl\` (Orders API).
+
+### How Partner Clients MUST Handle Each Method:
+
+#### 1. Stripe (\`method: "stripe"\`)
+- **Backend:** Calls \`POST /app-payments/charges\` with \`method: "stripe"\`. Receives \`{ charge, clientSecret }\`. Sends \`clientSecret\` to frontend.
+- **Frontend:** Mounts the official **Stripe Elements** SDK (\`@stripe/react-stripe-js\` and \`@stripe/stripe-js\`).
+  \`\`\`tsx
+  import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+  import { loadStripe } from '@stripe/stripe-js';
+
+  const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
+  export function StripeCheckout({ clientSecret, onDone }) {
+    return (
+      <Elements stripe={stripePromise} options={{ clientSecret }}>
+        <StripeForm onDone={onDone} />
+      </Elements>
+    );
+  }
+
+  function StripeForm({ onDone }) {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!stripe || !elements) return;
+      setSubmitting(true);
+      const { paymentIntent, error } = await stripe.confirmPayment({
+        elements,
+        redirect: 'if_required',
+      });
+      if (error) {
+        alert(error.message);
+        setSubmitting(false);
+      } else {
+        onDone(paymentIntent.id);
+      }
+    };
+
+    return (
+      <form onSubmit={handleSubmit}>
+        <PaymentElement />
+        <button disabled={submitting || !stripe}>Pay Now</button>
+      </form>
+    );
+  }
+  \`\`\`
+  - In Sandbox mode, Stripe's official PCI-compliant iframe accepts standard test cards (e.g. \`4242 4242 4242 4242\`, any future expiry date, any 3-digit CVC).
+- **Confirm:** On payment success, frontend notifies your backend, which calls \`POST /app-payments/charges/:id/confirm\` with \`{ "paymentIntentId": paymentIntent.id }\`.
+
+#### 2. PayPal (\`method: "paypal"\`)
+- **Backend:** Calls \`POST /app-payments/charges\` with \`method: "paypal"\`. Receives \`{ charge, approvalUrl }\`.
+- **Frontend:** Redirect the customer directly to the official PayPal sandbox portal:
+  \`\`\`ts
+  // Redirect directly to PayPal Sandbox checkout
+  window.location.href = approvalUrl;
+  \`\`\`
+  *(Or mount the official \`@paypal/react-paypal-js\` Button component using the order token).*
+  - The customer logs in using their PayPal Sandbox buyer test account on the real PayPal domain.
+- **Confirm:** When PayPal redirects back to your \`returnUrl\` with \`?token=...\`, your backend calls \`POST /app-payments/charges/:id/confirm\` with \`{ "orderId": token }\`.
+
+#### 3. MCOM Wallet (\`method: "wallet"\`)
+- **No Third-Party Gateway:** Handled entirely within the MCOM ecosystem.
+- **Frontend:** Displays the user's available MCOM Credit balance (\`1 MCOM = £1.00 GBP\`).
+- **Backend:** Calls \`POST /app-payments/charges\` with \`method: "wallet"\` and \`mcomUserId\`.
+- **Insufficient Funds (422):** If balance is lower than \`amountMinor\`, MCOM returns \`422 INSUFFICIENT_BALANCE\`. Display a top-up button linking the user to Central Hub's wallet top-up page (\`${baseUrl}/dashboard/wallet\`).
+
+
 ## B2. Amounts — Minor Units (Pence)
 
 - Send \`amountMinor\` as a **positive integer string** in the smallest currency unit.
@@ -525,14 +603,16 @@ export class McomPaymentsService {
 **MCOM Pay**
 - [ ] Charges are created **server-side** only (amount never comes from the browser)
 - [ ] Amounts sent as integer minor-unit strings (pence)
-- [ ] \`clientSecret\` / \`approvalUrl\` handled for the chosen method; \`wallet\` path handles 422
+- [ ] **Frontend mounts official Stripe Elements (\`<PaymentElement />\`)** with \`clientSecret\` — no custom dummy card forms
+- [ ] **Frontend redirects to official PayPal Sandbox \`approvalUrl\`** (or uses official PayPal Buttons SDK) — no mock login forms
+- [ ] \`wallet\` path displays user balance and gracefully handles 422 \`INSUFFICIENT_BALANCE\` with top-up link
 - [ ] \`confirm\` called after payment, and the \`payment.succeeded\` webhook verified (signature + idempotent)
 - [ ] Refunds go through \`/refund\` (never a manual ledger edit)
 - [ ] Fee config reviewed in the Console (default 2.9% + 20p) if you need a custom split
 
 **Both**
 - [ ] Transient errors (409/429/5xx) retried with backoff, same idempotency key
-- [ ] Test with a sandbox Stripe/PayPal account and a real MCOM user before launch
+- [ ] Test with a sandbox Stripe/PayPal account and a real MCOM user before launch (test cards in Stripe Elements; sandbox buyer accounts in PayPal)
 
 Questions? Support: MCOM Console → Wallet Management → Wallet Admin.
 `;

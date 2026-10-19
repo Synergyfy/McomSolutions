@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { generateAiIntegrationPrompt } from './utils/aiPromptGenerator';
+import { generateServiceMeshSkillPrompt } from './utils/meshSkillGenerator';
 
 interface ConsoleArchitectureModalProps {
   onClose: () => void;
@@ -216,6 +217,11 @@ function AiSkillTab() {
     corsOrigins: ['https://sample.mcom.com'],
     billingApiUrl: 'https://api.sample.mcom.com',
     webhookUrl: 'https://api.sample.mcom.com/webhooks',
+    serviceEnabled: true,
+    serviceBaseUrl: 'https://api.sample.mcom.com',
+    serviceScopes: ['service:read', 'service:write', 'cards:issue'],
+    allowedAudiences: ['mcom-rewards', 'mcom-mall'],
+    allowedCallers: ['mcom-rewards', 'mcom-mall'],
   });
 
   const handleCopy = () => {
@@ -410,8 +416,104 @@ function HmacTab() {
 }
 
 function ServiceMeshTab() {
+  const [copied, setCopied] = useState(false);
+
+  const skillPrompt = generateServiceMeshSkillPrompt(
+    [
+      {
+        id: '1',
+        clientId: 'mcom-mall',
+        name: 'MCOM Mall',
+        platformSlug: 'mall',
+        isActive: true,
+        isSystemApp: true,
+        serviceScopes: ['service:read', 'mall:order:read'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: '2',
+        clientId: 'mcom-rewards',
+        name: 'MCOM Rewards',
+        platformSlug: 'rewards',
+        isActive: true,
+        isSystemApp: true,
+        serviceScopes: ['service:read', 'rewards:grant'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+    {
+      'mcom-mall': { allowedAudiences: ['mcom-rewards'], allowedCallers: [] },
+      'mcom-rewards': { allowedAudiences: [], allowedCallers: ['mcom-mall'] },
+    },
+  );
+
+  const handleCopySkill = () => {
+    navigator.clipboard?.writeText(skillPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadSkill = () => {
+    const blob = new Blob([skillPrompt], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'MCOM_BACKEND_TO_BACKEND_M2M_SKILL.md';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
+      {/* Skill Banner & Action Header */}
+      <div className="p-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 rounded-2xl border border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md flex-shrink-0">
+            <Bot className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="font-bold text-gray-900 text-sm font-display flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              Backend-to-Backend (M2M) AI Agent Skill
+            </h4>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Specialized executable directive explaining direct peer communication, offline JWKS validation, and credential protocols.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={handleDownloadSkill}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" /> Download SKILL.md
+          </button>
+          <button
+            onClick={handleCopySkill}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-md"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied M2M Skill' : 'Copy M2M Skill'}
+          </button>
+        </div>
+      </div>
+
+      {/* Webhook Keys FAQ Clarification Card */}
+      <div className="p-4 bg-amber-50/80 rounded-2xl border border-amber-200/80 space-y-2">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-amber-700" />
+          <h4 className="font-bold text-gray-900 text-xs">Do Apps Need Webhook Keys to Talk to Each Other?</h4>
+        </div>
+        <p className="text-xs text-gray-700 leading-relaxed">
+          <b>NO. Webhook keys are strictly for Central Hub → App push events</b> (e.g. Stripe subscription updates). Apps <b>never</b> exchange webhook keys or shared API secrets with each other. Instead, peer calls use short-lived <b>RS256 Service Tokens</b> minted using Console credentials (<code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-amber-200">clientId</code> + <code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-amber-200">clientSecret</code>) and verified offline against Central's public JWKS.
+        </p>
+      </div>
+
       <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
         <h4 className="font-bold text-gray-900 text-xs flex items-center gap-2">
           <Radio className="w-4 h-4 text-emerald-600" />

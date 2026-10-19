@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   AppWindow,
   BookOpen,
+  Bot,
   HelpCircle,
   Lock,
   Network,
@@ -20,7 +21,8 @@ import CredentialsSuccess from './CredentialsSuccess';
 import ConsoleMetrics from './ConsoleMetrics';
 import ConsoleArchitectureModal from './ConsoleArchitectureModal';
 import ServiceMeshPolicyPanel from './ServiceMeshPolicyPanel';
-import { useConsoleApps } from './hooks/useConsoleApps';
+import ServiceMeshSkillModal from './ServiceMeshSkillModal';
+import { useConsoleApps, useServicePolicy } from './hooks/useConsoleApps';
 import type { RegisterAppResult } from '../../../services/admin/types';
 
 type View = { kind: 'list' } | { kind: 'detail'; clientId: string } | { kind: 'policy' };
@@ -30,9 +32,24 @@ export default function ConsolePanel() {
   const [view, setView] = useState<View>({ kind: 'list' });
   const [showRegister, setShowRegister] = useState(false);
   const [showArchGuide, setShowArchGuide] = useState(false);
+  const [showMeshSkill, setShowMeshSkill] = useState(false);
   const [registered, setRegistered] = useState<RegisterAppResult | null>(null);
 
   const { data: apps = [], refetch, isFetching } = useConsoleApps();
+  const { data: policyData } = useServicePolicy();
+
+  const meshPolicy = useMemo(() => {
+    const map: Record<string, { allowedAudiences: string[]; allowedCallers: string[] }> = {};
+    if (policyData?.apps) {
+      for (const a of policyData.apps) {
+        map[a.clientId] = {
+          allowedAudiences: [...a.allowedAudiences],
+          allowedCallers: [...a.allowedCallers],
+        };
+      }
+    }
+    return map;
+  }, [policyData]);
 
   if (admin?.role !== 'ADMIN') {
     return (
@@ -80,6 +97,15 @@ export default function ConsolePanel() {
               <span>Service Mesh Policy</span>
             </button>
           )}
+
+          <button
+            onClick={() => setShowMeshSkill(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-emerald-500/30 shadow-xs"
+            title="Download or copy the Backend-to-Backend Inter-App Communication Skill (SKILL.md)"
+          >
+            <Bot className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Backend-to-Backend Skill</span>
+          </button>
 
           <button
             onClick={() => setShowArchGuide(true)}
@@ -151,6 +177,15 @@ export default function ConsolePanel() {
       {/* Interactive Architecture Guide Modal */}
       {showArchGuide && (
         <ConsoleArchitectureModal onClose={() => setShowArchGuide(false)} />
+      )}
+
+      {/* Backend-to-Backend Inter-App Communication Skill Modal */}
+      {showMeshSkill && (
+        <ServiceMeshSkillModal
+          apps={apps}
+          policy={meshPolicy}
+          onClose={() => setShowMeshSkill(false)}
+        />
       )}
 
       {/* Footer Assurance Banner */}
