@@ -1096,8 +1096,10 @@ curl -X GET ${mcomBaseUrl}/api/v1/auth/sso/userinfo \\
             1
           </span>
           <div>
-            <p className="text-xs font-bold text-gray-900">Copy AI Prompt</p>
-            <p className="text-[11px] text-gray-500">Click the button above to copy the prompt with all variables embedded.</p>
+            <p className="text-xs font-bold text-gray-900">Copy AI Skill</p>
+            <p className="text-[11px] text-gray-500">
+              Includes pre-configured credentials and an <b>immediate 30s smoke test</b> to verify peer connectivity.
+            </p>
           </div>
         </div>
 
@@ -1107,7 +1109,9 @@ curl -X GET ${mcomBaseUrl}/api/v1/auth/sso/userinfo \\
           </span>
           <div>
             <p className="text-xs font-bold text-gray-900">Open Target Repository</p>
-            <p className="text-[11px] text-gray-500">Open Cursor, Copilot, or Claude in the codebase of <b>{detail.name}</b>.</p>
+            <p className="text-[11px] text-gray-500">
+              Open Cursor, Claude, Antigravity, or Copilot in the repository of <b>{detail.name}</b>.
+            </p>
           </div>
         </div>
 
@@ -1116,8 +1120,10 @@ curl -X GET ${mcomBaseUrl}/api/v1/auth/sso/userinfo \\
             3
           </span>
           <div>
-            <p className="text-xs font-bold text-gray-900">Automated Integration</p>
-            <p className="text-[11px] text-gray-500">The AI writes the SSO redirect, callback routes, and permission guards.</p>
+            <p className="text-xs font-bold text-gray-900">Autonomous Execution</p>
+            <p className="text-[11px] text-gray-500">
+              The agent runs the smoke test, sets up peer-to-peer token exchange, and wires offline JWKS verification.
+            </p>
           </div>
         </div>
       </div>

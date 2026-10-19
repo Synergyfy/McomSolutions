@@ -246,15 +246,19 @@ export class ServiceTokenService {
     const payload = {
       iss: this.keys.getIssuer(),
       iat: now,
-      exp,
       jti,
       ...claims,
     };
 
+    // The shared JwtModule injects `signOptions.expiresIn`; jsonwebtoken throws
+    // when a payload already carries `exp` and `expiresIn` is also supplied.
+    // So `exp` is intentionally omitted here and the service-token TTL is passed
+    // explicitly (overriding the module default) instead.
     const token = this.jwt.sign(payload, {
       algorithm: 'RS256',
       keyid: this.keys.getKid(),
       secret: this.keys.getPrivateKey(),
+      expiresIn: ttlSeconds,
     });
 
     return { token, jti, expiresAt: new Date(exp * 1000) };
