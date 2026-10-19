@@ -18,7 +18,7 @@ export default function FeatureShowcase() {
               Core Product
             </div>
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 md:mb-8 leading-tight">
-              GBS Loyalty: <br />
+              GBS Rewards: <br />
               <span className="text-brand-blue">Retain at Scale.</span>
             </h2>
             <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 md:mb-8 leading-relaxed">
@@ -40,7 +40,7 @@ export default function FeatureShowcase() {
               ))}
             </ul>
             <button className="flex items-center gap-2 text-lg font-bold text-gray-900 group">
-              Explore GBS Loyalty <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              Explore GBS Rewards <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </motion.div>
           
@@ -54,7 +54,7 @@ export default function FeatureShowcase() {
               <div className="rounded-[1.5rem] sm:rounded-[2.5rem] overflow-hidden shadow-xl aspect-square lg:aspect-[4/3]">
                 <img 
                   src="/loyalty_app_mockup.webp" 
-                  alt="GBS Loyalty Interface" 
+                  alt="GBS Rewards Interface"
                   loading="lazy"
                   decoding="async"
                   className="w-full h-full object-cover"

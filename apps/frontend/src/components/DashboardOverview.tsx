@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Crown, CheckCircle2, ArrowRight, Clock, Target, X,
-  Building2, Gift, Users, FileSearch, Shield, Dices,
+  CheckCircle2, ArrowRight, Clock, Target, X,
+  Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
   BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink
 } from 'lucide-react';
 import {
-  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay, getTotalMissions,
+  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay,
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
@@ -331,86 +331,60 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         )}
       </AnimatePresence>
 
-      {/* ═══ Programme Header ═══ */}
+      {/* ═══ Programme Summary ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 text-white relative shadow-xl shadow-orange-500/20 overflow-hidden sm:overflow-hidden"
+        className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm sm:rounded-3xl"
       >
-        <div className="absolute -right-10 -top-10 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute -right-4 bottom-0 w-32 h-32 bg-white/5 rounded-full pointer-events-none" />
-        <div className="relative z-[1]">
-          <div className="flex items-start justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
-            <div className="min-w-0 flex-1">
-              <p className="text-orange-200 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1.5 sm:mb-2 leading-tight">90-Day Business Success Programme</p>
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-black mb-1 leading-tight">Day {currentDay} of 90</h2>
-              <p className="text-orange-100 sm:text-orange-200 text-xs sm:text-sm font-medium truncate">{currentPhase?.name || 'Foundation'}</p>
+        <div className="h-1.5 bg-orange-500" />
+        <div className="p-4 sm:p-6 md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">90-day business success programme</p>
+              <h2 className="mt-1 text-xl font-bold leading-tight text-gray-900 sm:text-2xl">Welcome, {businessName}</h2>
+              <p className="mt-1 text-sm text-gray-500">Your guided plan to strengthen and grow your business.</p>
             </div>
-            <div className="text-right shrink-0">
-              <div className="bg-white/20 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl backdrop-blur-sm inline-block">
-                <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-              </div>
-              <p className="text-orange-200 text-[10px] sm:text-xs font-bold mt-1.5 sm:mt-2 leading-tight">{membership}<br className="sm:hidden" /> <span className="hidden sm:inline"> </span>{membershipSub}</p>
+            <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700">
+              <span className="h-2 w-2 rounded-full bg-orange-500" />
+              {membership} {membershipSub}
+            </span>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tasks completed</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">{completedTasksCount} <span className="font-medium text-gray-500">of {totalTasksCount}</span></p>
+            </div>
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Current phase</p>
+              <p className="mt-1 truncate text-sm font-bold text-gray-900">{currentPhase?.name || 'Foundation'}</p>
+            </div>
+            <div className="col-span-2 rounded-xl bg-gray-50 px-3 py-2.5 sm:col-span-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Programme day</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of 90</span></p>
             </div>
           </div>
 
-          {/* Progress Bar */}
-          <div className="mb-4">
-            <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold mb-1.5">
-              <span className="text-orange-200">Overall Progress</span>
-              <span className="text-white">{computedProgress}%</span>
+          <div className="mt-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-semibold text-gray-600">Programme progress</span>
+              <span className="font-bold text-orange-600">{computedProgress}%</span>
             </div>
-            <div className="h-2.5 sm:h-3 bg-white/20 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${computedProgress}%` }}
-                transition={{ delay: 0.3, duration: 0.8 }}
-                className="h-full bg-white rounded-full"
-              />
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+              <motion.div initial={{ width: 0 }} animate={{ width: `${computedProgress}%` }} transition={{ delay: 0.3, duration: 0.7 }} className="h-full rounded-full bg-orange-500" />
             </div>
-            <p className="text-orange-200 text-[10px] font-bold mt-1">{completedTasksCount} of {totalTasksCount} tasks completed</p>
-          </div>
-
-          {/* Phase Progress Dots - labels hidden on mobile to prevent cramming */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {activePhases.map((phase, i) => {
-              const isCompleted = i < currentPhaseIndex;
-              const isCurrent = i === currentPhaseIndex;
-              return (
-                <div key={phase.id} className="flex-1 min-w-0">
-                  <div className={`h-1.5 rounded-full ${
-                    isCompleted ? 'bg-white' : isCurrent ? 'bg-white/60' : 'bg-white/20'
-                  }`} />
-                  <p className={`hidden sm:block text-[9px] font-bold mt-1 text-center truncate leading-tight ${
-                    isCurrent ? 'text-white' : 'text-orange-200'
-                  }`}>{phase.name.split(' ')[0]}</p>
-                  {/* Mobile: only show dot, no label - keep header compact */}
-                </div>
-              );
-            })}
-          </div>
-          {/* Mobile phase labels - wrap to 2 rows to avoid any clipping */}
-          <div className="sm:hidden mt-3 flex flex-wrap gap-1.5">
-            {activePhases.map((phase, i) => {
-              const isCurrent = i === currentPhaseIndex;
-              const isCompleted = i < currentPhaseIndex;
-              return (
-                <span key={`m-${phase.id}`} className={`text-[10px] font-bold whitespace-nowrap px-2.5 py-1 rounded-full shrink-0 leading-none ${isCurrent ? 'bg-white text-orange-600 shadow-sm' : isCompleted ? 'bg-white/30 text-white' : 'bg-white/15 text-orange-100 border border-white/10'}`}>
-                  {phase.name}
-                </span>
-              );
-            })}
           </div>
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 min-w-0">
+      <div className="grid grid-cols-1 items-start gap-4 sm:gap-6 lg:grid-cols-3 min-w-0">
         {/* ═══ Today's Mission ═══ */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 border border-gray-200 shadow-sm min-w-0 overflow-hidden"
+          className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-7 border border-gray-200 shadow-sm min-w-0 overflow-hidden"
         >
           <div className="flex items-center justify-between gap-3 mb-4 sm:mb-5">
             <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -418,7 +392,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
               <div className="min-w-0">
-                <h3 className="font-bold text-gray-900 text-sm sm:text-base leading-tight">Today's Mission</h3>
+                <h3 className="font-bold text-gray-900 text-sm sm:text-base leading-tight">Your Programme Tasks</h3>
                 <p className="text-[11px] sm:text-xs text-gray-400 truncate">
                   {hasApiTasks ? 'Active Programme Tasks & Rewards' : currentPhase?.name}
                 </p>
@@ -545,10 +519,14 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           <div className="space-y-2">
             {activePhases.map((phase, i) => {
               const Icon = phase.icon;
-              const isCompleted = i < currentPhaseIndex;
-              const isCurrent = i === currentPhaseIndex;
+              const phaseMissions = Array.isArray(phase.missions) ? phase.missions : [];
+              const completedInPhase = phaseMissions.filter((mission: any) =>
+                completedMissionIds.includes(mission.id) || status(mission.id) === 'completed'
+              ).length;
+              const isCompleted = phaseMissions.length > 0 && completedInPhase === phaseMissions.length;
+              const isCurrent = i === currentPhaseIndex && !isCompleted;
               const isLocked = i > currentPhaseIndex;
-              const phaseProgress = isCompleted ? 100 : isCurrent ? Math.round(((currentDay - phase.dayStart + 1) / (phase.dayEnd - phase.dayStart + 1)) * 100) : 0;
+              const phaseProgress = isCompleted ? 100 : phaseMissions.length > 0 ? Math.round((completedInPhase / phaseMissions.length) * 100) : 0;
               return (
                 <div key={phase.id} className={`flex items-center gap-3 p-3 rounded-xl ${
                   isCompleted ? 'bg-green-50 text-green-700' :

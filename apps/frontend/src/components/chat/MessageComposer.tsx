@@ -59,7 +59,7 @@ export default function MessageComposer({
           placeholder="Type a message... (Enter to send)"
           rows={1}
           disabled={disabled}
-          className="flex-1 bg-transparent text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none max-h-28 min-h-[24px]"
+          className="min-w-0 flex-1 bg-transparent text-base sm:text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none max-h-28 min-h-[24px]"
         />
         <button
           type="submit"

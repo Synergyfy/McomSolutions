@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowUpRight,
@@ -193,18 +193,28 @@ function resolveAppMeta(app: SsoClientListItem): PlatformMeta {
   };
 }
 
-export default function DashboardAllProducts() {
+export default function DashboardAllProducts({
+  initialFilter = 'all',
+  initialSearch = '',
+}: {
+  initialFilter?: EcoFilter;
+  initialSearch?: string;
+} = {}) {
   const { data: dbApps = [], isLoading, isError, refetch, isFetching } = useEcosystemApps();
   const { data: currentUser } = useCurrentUser();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
 
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<EcoFilter>('all');
+  const [search, setSearch] = useState(initialSearch);
+  const [filter, setFilter] = useState<EcoFilter>(initialFilter);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [launchingId, setLaunchingId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSearch(initialSearch);
+  }, [initialSearch]);
 
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -391,7 +401,7 @@ export default function DashboardAllProducts() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, slug or ID..."
-              className="w-full pl-8 pr-6 py-1.5 bg-gray-50/80 border border-gray-200/80 rounded-lg text-xs font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
+              className="min-h-10 w-full pl-8 pr-6 py-1.5 bg-gray-50/80 border border-gray-200/80 rounded-lg text-base sm:text-xs font-medium text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
             />
             {search && (
               <button
@@ -409,7 +419,7 @@ export default function DashboardAllProducts() {
               onClick={() => setViewMode('grid')}
               title="Grid View"
               className={cn(
-                'p-1.5 rounded-md transition-colors',
+                'min-h-9 min-w-9 rounded-md transition-colors sm:min-h-8 sm:min-w-8',
                 viewMode === 'grid'
                   ? 'bg-white text-orange-600 shadow-xs font-bold'
                   : 'text-gray-400 hover:text-gray-600'
@@ -421,7 +431,7 @@ export default function DashboardAllProducts() {
               onClick={() => setViewMode('table')}
               title="List View"
               className={cn(
-                'p-1.5 rounded-md transition-colors',
+                'min-h-9 min-w-9 rounded-md transition-colors sm:min-h-8 sm:min-w-8',
                 viewMode === 'table'
                   ? 'bg-white text-orange-600 shadow-xs font-bold'
                   : 'text-gray-400 hover:text-gray-600'
@@ -470,7 +480,7 @@ export default function DashboardAllProducts() {
 
       {/* Loading Skeleton */}
       {isLoading ? (
-        <div className="grid grid-cols-2 min-[480px]:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-3 w-full min-w-0">
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-3 w-full min-w-0">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
             <div
               key={n}
@@ -521,7 +531,7 @@ export default function DashboardAllProducts() {
         </div>
       ) : viewMode === 'grid' ? (
         /* MULTI-COLUMN RESPONSIVE GRID (2 cols on phones, 3 cols on larger phones / tablets, 4-5 on desktop) */
-        <div className="grid grid-cols-2 min-[480px]:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-3 w-full min-w-0">
+        <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2 sm:gap-3 w-full min-w-0">
           {filteredApps.map((app) => {
             const meta = resolveAppMeta(app);
             const Icon = meta.icon;
@@ -537,9 +547,7 @@ export default function DashboardAllProducts() {
                   <div className="flex items-start justify-between gap-1.5 mb-1.5">
                     <div
                       className={cn(
-                        'w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-xs border',
-                        meta.theme.bg,
-                        meta.theme.border,
+                        'flex h-8 w-8 flex-shrink-0 items-center justify-center',
                         meta.theme.text
                       )}
                     >
@@ -617,7 +625,7 @@ export default function DashboardAllProducts() {
                         target="_blank"
                         rel="noopener noreferrer"
                         title={`Direct link (${app.appUrl})`}
-                        className="h-6.5 w-6.5 sm:h-7 sm:w-7 rounded-md border border-gray-200/80 hover:bg-gray-50 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors"
+                        className="h-9 w-9 sm:h-7 sm:w-7 rounded-md border border-gray-200/80 hover:bg-gray-50 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors"
                       >
                         <ArrowUpRight className="w-3 h-3" />
                       </a>
@@ -627,7 +635,7 @@ export default function DashboardAllProducts() {
                       onClick={() => handleLaunch(app)}
                       disabled={isLaunching}
                       className={cn(
-                        'h-6.5 sm:h-7 px-2 sm:px-2.5 rounded-md font-bold text-[10px] sm:text-[11px] transition-all flex items-center justify-center gap-1 shadow-xs',
+                        'min-h-9 sm:min-h-7 px-2 sm:px-2.5 rounded-md font-bold text-[10px] sm:text-[11px] transition-all flex items-center justify-center gap-1 shadow-xs',
                         'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-500/10 active:scale-95',
                         isLaunching && 'opacity-75 cursor-wait'
                       )}
@@ -647,7 +655,41 @@ export default function DashboardAllProducts() {
         </div>
       ) : (
         /* DENSE TABLE / LIST VIEW */
-        <div className="w-full max-w-full overflow-x-auto rounded-xl border border-gray-200/80 bg-white shadow-xs">
+        <>
+        <div className="space-y-3 xl:hidden">
+          {filteredApps.map((app) => {
+            const meta = resolveAppMeta(app);
+            const Icon = meta.icon;
+            const isLaunching = launchingId === app.clientId;
+            return (
+              <article key={app.clientId} className="rounded-xl border border-gray-200/80 bg-white p-4 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', meta.theme.text)} aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-gray-900">{app.name}</h3>
+                      {app.isSystemApp && <span className="rounded border border-amber-200/60 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">System</span>}
+                    </div>
+                    <p className="mt-1 text-sm leading-5 text-gray-600">{app.description || meta.tagline}</p>
+                    <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">{meta.ecosystem}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-3">
+                  <button onClick={(e) => handleCopyId(app.clientId, e)} className="min-h-9 max-w-full break-all font-mono text-[10px] text-gray-500 hover:text-orange-600" aria-label={`Copy client ID ${app.clientId}`}>
+                    {copiedId === app.clientId ? 'Copied' : `ID: ${app.clientId}`}
+                  </button>
+                  <div className="flex items-center gap-3">
+                    {app.appUrl && <a href={app.appUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${app.name}`} className="text-gray-500 hover:text-gray-800"><ExternalLink className="h-4 w-4" /></a>}
+                    <button onClick={() => handleLaunch(app)} disabled={isLaunching} className="inline-flex min-h-10 items-center gap-2 rounded-md bg-orange-500 px-3 text-xs font-bold text-white hover:bg-orange-600 disabled:opacity-60">
+                      {isLaunching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}Launch
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="hidden w-full max-w-full overflow-x-auto rounded-xl border border-gray-200/80 bg-white shadow-xs xl:block">
           <table className="w-full min-w-[460px] text-left text-xs">
             <thead>
               <tr className="bg-gray-50/70 border-b border-gray-200/80 text-[10px] text-gray-400 uppercase tracking-wider font-bold">
@@ -669,9 +711,7 @@ export default function DashboardAllProducts() {
                       <div className="flex items-center gap-2 min-w-0">
                         <div
                           className={cn(
-                            'w-6.5 h-6.5 rounded-md flex items-center justify-center flex-shrink-0 border',
-                            meta.theme.bg,
-                            meta.theme.border,
+                            'flex h-7 w-7 flex-shrink-0 items-center justify-center',
                             meta.theme.text
                           )}
                         >
@@ -724,7 +764,7 @@ export default function DashboardAllProducts() {
                         <button
                           onClick={() => handleLaunch(app)}
                           disabled={isLaunching}
-                          className="h-6.5 px-2 rounded-md font-bold text-[10px] bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition-all flex items-center gap-1"
+                          className="min-h-9 px-2 rounded-md font-bold text-[10px] bg-orange-500 hover:bg-orange-600 text-white shadow-xs transition-all flex items-center gap-1 sm:min-h-7"
                         >
                           {isLaunching ? (
                             <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -751,6 +791,7 @@ export default function DashboardAllProducts() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Footer Info */}

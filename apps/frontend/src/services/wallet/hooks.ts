@@ -11,17 +11,19 @@ export const walletQueryKeys = {
   topUpHistory: () => [...walletQueryKeys.all, 'topup'] as const,
 };
 
-export const useMyWallet = () =>
+export const useMyWallet = (enabled = true) =>
   useQuery({
     queryKey: walletQueryKeys.wallet(),
     queryFn: () => walletApi.getMyWallet(),
     staleTime: 30 * 1000, // balance cached server-side 30s
+    enabled,
   });
 
-export const useWalletTransactions = (filters?: Record<string, any>) =>
+export const useWalletTransactions = (filters?: Record<string, any>, enabled = true) =>
   useQuery({
     queryKey: walletQueryKeys.transactions(filters),
     queryFn: () => walletApi.getTransactions(filters),
+    enabled,
   });
 
 export const useWalletTransaction = (id: string) =>

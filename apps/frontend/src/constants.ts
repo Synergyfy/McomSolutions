@@ -12,6 +12,7 @@ export type ProductType = 'GBS' | 'Mcom';
 
 export interface Product {
   id: string;
+  url: string;
   name: string;
   tagline: string;
   description: string;
@@ -25,7 +26,8 @@ export interface Product {
 export const PRODUCTS: Product[] = [
   {
     id: 'gbs-loyalty',
-    name: '24/7 GBS Loyalty',
+    url: 'https://247gbsrewards.centralhubsolution.com',
+    name: '24/7 GBS Rewards',
     tagline: 'Retain and reward your best customers.',
     description: 'A comprehensive loyalty management system designed for enterprise-scale customer engagement and retention strategies.',
     type: 'GBS',
@@ -45,6 +47,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'gbs-audit',
+    url: 'https://247gbsaudit.centralhubsolution.com',
     name: '24/7 GBS Audit',
     tagline: 'Precision compliance and financial oversight.',
     description: 'Advanced auditing tools that provide real-time visibility into business operations, ensuring compliance and financial integrity.',
@@ -65,6 +68,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'gbs-expo',
+    url: 'https://247gbsexpo.centralhubsolution.com',
     name: '24/7 GBS Expo',
     tagline: 'Seamless event and exhibition management.',
     description: 'The ultimate platform for managing large-scale exhibitions, trade shows, and corporate events with ease.',
@@ -85,6 +89,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'mcom-mall',
+    url: 'https://mcommall.centralhubsolution.com',
     name: 'Mcom Mall',
     tagline: 'The future of digital marketplaces.',
     description: 'A multi-vendor marketplace solution that connects brands with consumers in a unified, high-performance shopping environment.',
@@ -105,6 +110,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'mcom-rewards',
+    url: 'https://mcomreward.centralhubsolution.com',
     name: 'Mcom Rewards',
     tagline: 'Incentivize every interaction.',
     description: 'A flexible rewards engine that powers micro-incentives and gamified experiences across the Mcom ecosystem.',
@@ -125,6 +131,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'mcomq-link',
+    url: 'https://mcomlinks.centralhubsolution.com',
     name: 'McomQ Link',
     tagline: 'Connect your business to the world.',
     description: 'A powerful integration layer that bridges disparate systems and enables seamless data flow across business units.',

@@ -47,14 +47,14 @@ export default function Hero() {
         >
 
 
-          <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight text-gray-900 mb-6 md:mb-8 leading-[1.05]">
+          <h1 className="text-[2.75rem] sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-[-0.04em] text-gray-900 mb-5 sm:mb-6 md:mb-8 leading-[1.05]">
 
             One Membership. <br />
             <span className="text-gradient">One Ecosystem.</span>
           </h1>
 
-          <p className="text-lg sm:text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-8 md:mb-12 leading-relaxed font-medium">
-            MCOM Mall, MCOM Rewards, MCOM Spin, MCOMQ Link — plus 24/7 GBS Loyalty,
+          <p className="text-[0.75rem] sm:text-xl md:text-2xl text-gray-600 max-w-4xl mx-auto mb-7 sm:mb-8 md:mb-12 leading-[1.65] sm:leading-relaxed font-medium">
+            MCOM Mall, MCOM Rewards, MCOM Spin, MCOMQ Link — plus 24/7 GBS Rewards,
             24/7 GBS Audit, 24/7 GBS Expo — and future MCOM &amp; 24/7 GBS platforms,
             all from one central account.
           </p>
@@ -130,7 +130,7 @@ export default function Hero() {
           </motion.div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <Link to="/register">
+            <Link to="/getstarted/business?entry=signup">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -139,9 +139,6 @@ export default function Hero() {
                 Get Started Now
                 <ArrowRight className="ml-2 w-5 h-5" />
               </motion.button>
-            </Link>
-            <Link to="/login" className="w-full sm:w-auto bg-white text-gray-900 px-8 sm:px-12 py-3 sm:py-6 rounded-full font-semibold text-base sm:text-xl shadow-lg border border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-gray-50">
-              Login
             </Link>
             <a href="#platforms" className="w-full sm:w-auto text-orange-500 px-8 sm:px-12 py-3 sm:py-6 rounded-full font-semibold text-base sm:text-xl flex items-center justify-center gap-2 hover:bg-orange-50 transition-all active:scale-95">
               View Platforms

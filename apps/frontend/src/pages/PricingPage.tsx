@@ -86,7 +86,7 @@ export default function PricingPage() {
             animate={{ opacity: 1, y: 0 }}
           >
             <h1 className="text-3xl sm:text-5xl md:text-7xl font-bold text-gray-900 mb-4 sm:mb-6 tracking-tight">
-              Join the <span className="text-brand-blue font-serif font-medium">MCOM</span> Business Network
+              Join the <span className="text-brand-blue font-display font-medium">MCOM</span> Business Network
             </h1>
             <p className="text-base sm:text-xl text-gray-600 font-medium">
               Get visibility, tools, and support to grow your business at any scale.

@@ -4,8 +4,8 @@ import { Globe2, Zap, ShieldCheck } from 'lucide-react';
 
 export default function GlobalNetwork() {
   return (
-    <section className="py-20 md:py-32 bg-brand-dark relative overflow-hidden section-visibility-auto">
-      <div className="absolute inset-0 bg-mesh opacity-10" />
+    <section className="py-20 md:py-32 bg-white relative overflow-hidden section-visibility-auto">
+      <div className="absolute inset-0 bg-mesh opacity-10 pointer-events-none" />
       
       <div className="max-w-7xl mx-auto px-6 relative z-10">
         <div className="grid lg:grid-cols-2 gap-12 md:gap-20 items-center">
@@ -15,11 +15,11 @@ export default function GlobalNetwork() {
             viewport={{ once: true }}
           >
             <h2 className="text-sm font-bold text-brand-blue uppercase tracking-[0.3em] mb-6">Global Infrastructure</h2>
-            <h3 className="text-3xl sm:text-4xl md:text-6xl font-bold text-white mb-6 md:mb-8 leading-tight">
+            <h3 className="text-3xl sm:text-4xl md:text-6xl font-bold text-gray-900 mb-6 md:mb-8 leading-tight">
               Scale without <br />
               <span className="text-gradient">Boundaries.</span>
             </h3>
-            <p className="text-base sm:text-lg md:text-xl text-gray-400 mb-8 md:mb-12 leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-8 md:mb-12 leading-relaxed">
               Our edge network spans across 6 continents and 190+ countries, 
               ensuring sub-50ms latency for your global operations. Wherever 
               your business grows, we're already there.
@@ -44,31 +44,15 @@ export default function GlobalNetwork() {
             </div>
           </motion.div>
 
-          <div className="relative">
-            {/* Stylized Map Visualization */}
-            <div className="aspect-square relative flex items-center justify-center">
-              <div className="absolute inset-0 bg-brand-blue/20 blur-[60px] md:blur-[100px] rounded-full pointer-events-none" />
-              <div className="relative w-full h-full border border-white/10 rounded-full flex items-center justify-center">
-                <div className="w-3/4 h-3/4 border border-white/10 rounded-full flex items-center justify-center">
-                  <div className="w-1/2 h-1/2 border border-white/10 rounded-full" />
-                </div>
-                
-                {/* Floating Nodes - GPU-accelerated pure CSS animation */}
-                {[...Array(12)].map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute w-2 h-2 bg-brand-blue rounded-full shadow-glow animate-pulse-node pointer-events-none"
-                    style={{
-                      top: `${50 + 40 * Math.sin(i * (Math.PI / 6))}%`,
-                      left: `${50 + 40 * Math.cos(i * (Math.PI / 6))}%`,
-                      animationDelay: `${(i * 0.35) % 3}s`,
-                    }}
-                  />
-                ))}
-                
-                <Globe2 className="w-32 h-32 text-white/20 animate-pulse pointer-events-none" />
-              </div>
-            </div>
+          <div className="relative flex items-center justify-center">
+            <div className="absolute inset-[15%] rounded-full bg-orange-500/20 blur-3xl pointer-events-none" />
+            <img
+              src="/globe.png"
+              alt="Golden globe showing connected regions around the world"
+              loading="lazy"
+              decoding="async"
+              className="relative block h-auto w-full max-w-[510px] object-contain drop-shadow-[0_0_32px_rgba(245,158,11,0.24)]"
+            />
           </div>
         </div>
       </div>
@@ -79,12 +63,12 @@ export default function GlobalNetwork() {
 function FeatureItem({ icon: Icon, title, desc }: { icon: any, title: string, desc: string }) {
   return (
     <div className="flex gap-6 group">
-      <div className="w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center text-brand-blue border border-white/10 group-hover:bg-brand-blue group-hover:text-white transition-all duration-500">
+      <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600 border border-orange-100 group-hover:bg-brand-blue group-hover:text-white transition-all duration-500">
         <Icon className="w-6 h-6" />
       </div>
       <div>
-        <h4 className="text-xl font-bold text-white mb-2">{title}</h4>
-        <p className="text-gray-500">{desc}</p>
+        <h4 className="text-xl font-bold text-gray-900 mb-2">{title}</h4>
+        <p className="text-gray-600">{desc}</p>
       </div>
     </div>
   );

@@ -244,6 +244,28 @@ export class BusinessService {
     }
   }
 
+  // ─── Device Coordinates to Address ────────────────────
+  async reverseGeocode(latitude: number, longitude: number) {
+    try {
+      const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+        params: { lat: latitude, lon: longitude, format: 'jsonv2', addressdetails: 1, zoom: 18 },
+        headers: { 'User-Agent': 'McomSolutions/1.0 (contact@mcomsolutions.co.uk)' },
+      });
+
+      const result = response.data;
+      const address = result?.address || {};
+      return {
+        postcode: address.postcode || '',
+        address: result?.display_name || '',
+        city: address.city || address.town || address.village || address.suburb || '',
+        area: address.borough || address.city_district || address.county || '',
+      };
+    } catch (err) {
+      this.logger.error('Error reverse geocoding device coordinates:', err);
+      throw new ServiceUnavailableException('We could not find an address for your current location. Enter your business postcode instead.');
+    }
+  }
+
   // ─── Proximity Check ──────────────────────────────────
   async checkLocationProximity(postcode: string) {
     const clean = postcode.toUpperCase().replace(/\s+/g, '');
@@ -256,7 +278,18 @@ export class BusinessService {
         resolvedArea = response.data.result.admin_district || '';
       }
     } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return {
+          resolvedArea: '',
+          status: 'inactive',
+          localMallName: null,
+          localMallId: null,
+          proximityTier: 'national',
+          message: 'We could not find that UK postcode. Check it or choose an address suggestion.',
+        };
+      }
       this.logger.error('Error fetching postcode info from postcodes.io:', err);
+      throw new ServiceUnavailableException('We could not check this postcode right now. Please try again.');
     }
 
     // Match against LocalMall postcode areas (DB-backed — no fabricated malls).

@@ -1,6 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Source+Sans+3:wght@400;600&family=Geist:wght@400;500;600&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
 
 @import "tailwindcss";
@@ -57,6 +56,7 @@
   --color-on-background: var(--on-background, #261812);
 
   /* Typography configurations */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --text-display-lg: 2.25rem;
   --text-headline-lg: 2rem;
   --text-headline-lg-mobile: 1.5rem;
@@ -90,11 +90,81 @@ html {
 
 body {
   @apply bg-white text-gray-900;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   overflow-x: hidden;
   max-width: 100vw;
   width: 100%;
   position: relative;
+}
+
+body :is(h1, h2, h3, h4, h5, h6) {
+  font-family: 'Outfit', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+body :is(button, input, select, textarea) {
+  font-family: inherit;
+}
+
+/* Keep the public landing page on a deliberate type system, independent of
+   the default typography used by the authenticated app. */
+.landing-page {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.landing-page :is(h1, h2, h3) {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+.landing-page :is(button, a) {
+  font-family: inherit;
+}
+
+.landing-page :is(a[href], button:not(:disabled), [role='button']) {
+  cursor: pointer;
+}
+
+.about-page {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.about-page :is(h1, h2, h3, h4) {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+.about-page :is(a[href], button:not(:disabled), [role='button']) {
+  cursor: pointer;
+}
+
+.registration-page {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.registration-page :is(h1, h2, h3, h4) {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+.registration-page :is(a, button) {
+  font-family: inherit;
+}
+
+.registration-page .text-gray-500 {
+  color: #475569;
+}
+
+.registration-page .text-gray-400 {
+  color: #64748b;
+}
+
+.site-chrome {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.site-chrome :is(h1, h2, h3, h4) {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+.site-chrome :is(a, button) {
+  font-family: inherit;
 }
 
 #root {
@@ -114,6 +184,80 @@ main {
 .section-visibility-auto {
   content-visibility: auto;
   contain-intrinsic-size: 0 600px;
+}
+
+/* Product rows loop in opposite directions. Duplicate groups keep the loop
+   seamless; pause while a visitor hovers or tabs into a product card. */
+.product-marquee {
+  position: relative;
+  overflow: hidden;
+  /* Fade the moving cards into the section background at both edges. */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 5%, #000 95%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 5%, #000 95%, transparent 100%);
+}
+
+.product-marquee-track,
+.product-marquee-group {
+  display: flex;
+  width: max-content;
+}
+
+.product-marquee-track {
+  gap: 0;
+  will-change: transform;
+}
+
+.product-marquee-group {
+  gap: 1rem;
+  padding-right: 1rem;
+}
+
+.product-marquee-left {
+  animation: product-marquee-left 42s linear infinite;
+}
+
+.product-marquee-right {
+  animation: product-marquee-right 42s linear infinite;
+}
+
+.product-marquee:hover .product-marquee-track,
+.product-marquee:focus-within .product-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes product-marquee-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes product-marquee-right {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-marquee {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 3%, #000 97%, transparent 100%);
+  }
+
+  .product-marquee-track {
+    animation: none;
+    will-change: auto;
+  }
+
+  .product-marquee-group[aria-hidden='true'] {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .product-marquee {
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
+  }
 }
 
 @keyframes pulse-node {
@@ -216,10 +360,10 @@ main {
 }
 
 /* Material Typography Helper Classes */
-.font-display-lg { font-family: 'Inter', sans-serif !important; }
-.font-headline-lg { font-family: 'Inter', sans-serif !important; }
-.font-headline-lg-mobile { font-family: 'Inter', sans-serif !important; }
-.font-title-md { font-family: 'Inter', sans-serif !important; }
+.font-display-lg { font-family: 'Outfit', 'Inter', sans-serif !important; }
+.font-headline-lg { font-family: 'Outfit', 'Inter', sans-serif !important; }
+.font-headline-lg-mobile { font-family: 'Outfit', 'Inter', sans-serif !important; }
+.font-title-md { font-family: 'Outfit', 'Inter', sans-serif !important; }
 .font-body-lg { font-family: 'Inter', sans-serif !important; }
 .font-body-sm { font-family: 'Inter', sans-serif !important; }
 .font-label-md { font-family: 'Inter', sans-serif !important; }

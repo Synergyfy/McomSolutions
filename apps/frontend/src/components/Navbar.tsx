@@ -31,7 +31,7 @@ export default function Navbar() {
 
   return (
     <nav className={cn(
-      "fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6 py-4",
+      "site-chrome fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6 py-4",
       scrolled ? "bg-white/80 backdrop-blur-lg shadow-sm py-3" : "bg-transparent"
     )}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -98,7 +98,7 @@ export default function Navbar() {
                onMouseEnter={() => setActiveDropdown('pricing')}
                onMouseLeave={() => setActiveDropdown(null)}>
             <button className="flex items-center gap-1 font-medium text-gray-600 hover:text-brand-blue transition-colors py-2">
-              Pricing <ChevronDown className={cn("w-4 h-4 transition-transform", activeDropdown === 'pricing' && "rotate-180")} />
+              Plans <ChevronDown className={cn("w-4 h-4 transition-transform", activeDropdown === 'pricing' && "rotate-180")} />
             </button>
             <AnimatePresence>
               {activeDropdown === 'pricing' && (
@@ -108,13 +108,13 @@ export default function Navbar() {
                   exit={{ opacity: 0, y: 10 }}
                   className="absolute top-full left-1/2 -translate-x-1/2 w-56 glass rounded-2xl shadow-2xl p-3 mt-2"
                 >
-                  <Link to="/membership" className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
+                  <Link to={isLoggedIn ? "/membership" : "/getstarted/business?entry=signup"} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
                     <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
                       <LayoutGrid className="w-4 h-4" />
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">Membership</div>
-                      <div className="text-xs text-gray-500">Plans & subscriptions</div>
+                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">{isLoggedIn ? 'Membership' : 'Join and choose a plan'}</div>
+                      <div className="text-xs text-gray-500">{isLoggedIn ? 'Plans & subscriptions' : 'Sign up, then select a tier'}</div>
                     </div>
                   </Link>
                 </motion.div>
@@ -132,7 +132,7 @@ export default function Navbar() {
           ) : (
             <>
               <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
-              <Link to="/register" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+              <Link to="/getstarted/business?entry=signup" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
                 Get Started
               </Link>
             </>
@@ -164,9 +164,9 @@ export default function Navbar() {
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Products</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {PRODUCTS.map(product => (
-                    <Link 
+                    <Link
                       key={product.id} 
-                      to={`/product/${product.id}`} 
+                      to={`/product/${product.id}`}
                       onClick={() => setIsOpen(false)}
                       className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors"
                     >
@@ -200,17 +200,17 @@ export default function Navbar() {
               </div>
               <hr className="border-gray-100" />
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Pricing</h3>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Plans</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Link 
-                    to="/membership" 
+                    to={isLoggedIn ? "/membership" : "/getstarted/business?entry=signup"}
                     onClick={() => setIsOpen(false)}
                     className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
                   >
                     <div className="p-2 rounded-lg bg-purple-100 text-purple-600 shrink-0"><LayoutGrid className="w-4 h-4" /></div>
                     <div>
-                      <span className="text-gray-900 block">Membership</span>
-                      <span className="text-xs text-gray-500 block">Plans & subscriptions</span>
+                      <span className="text-gray-900 block">{isLoggedIn ? 'Membership' : 'Join and choose a plan'}</span>
+                      <span className="text-xs text-gray-500 block">{isLoggedIn ? 'Plans & subscriptions' : 'Sign up, then select a tier'}</span>
                     </div>
                   </Link>
                 </div>
@@ -234,7 +234,7 @@ export default function Navbar() {
                       Sign In
                     </Link>
                     <Link 
-                      to="/register" 
+                      to="/getstarted/business?entry=signup"
                       onClick={() => setIsOpen(false)}
                       className="block w-full bg-brand-blue text-white py-3 rounded-xl font-semibold text-center hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
                     >

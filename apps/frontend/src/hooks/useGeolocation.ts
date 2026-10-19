@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface GeolocationState {
   latitude: number | null;
@@ -8,66 +8,55 @@ interface GeolocationState {
   permissionDenied: boolean;
 }
 
-export function useGeolocation() {
+export function useGeolocation({ autoRequest = true }: { autoRequest?: boolean } = {}) {
   const [state, setState] = useState<GeolocationState>({
     latitude: null,
     longitude: null,
     error: null,
-    loading: true,
+    loading: false,
     permissionDenied: false,
   });
 
-  useEffect(() => {
+  const requestLocation = useCallback(() => new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
     if (!navigator.geolocation) {
-      setState(prev => ({
-        ...prev,
-        error: 'Geolocation is not supported by this browser.',
-        loading: false,
-        permissionDenied: true,
-      }));
+      const error = new Error('Location is not supported by this browser. Enter your postcode instead.');
+      setState(prev => ({ ...prev, error: error.message, loading: false, permissionDenied: true }));
+      reject(error);
       return;
     }
 
+    setState(prev => ({ ...prev, loading: true, error: null, permissionDenied: false }));
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setState({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          error: null,
-          loading: false,
-          permissionDenied: false,
-        });
+        const location = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        setState({ ...location, error: null, loading: false, permissionDenied: false });
+        resolve(location);
       },
       (error) => {
-        let message = 'Failed to get your location.';
+        let message = 'We could not get your location. Enter your postcode instead.';
         let denied = false;
         switch (error.code) {
           case error.PERMISSION_DENIED:
-            message = 'Location permission denied. Please enter your location manually.';
+            message = 'Location access was not allowed. Enter your postcode instead.';
             denied = true;
             break;
           case error.POSITION_UNAVAILABLE:
-            message = 'Location information is unavailable.';
+            message = 'Your device could not determine its location. Enter your postcode instead.';
             break;
           case error.TIMEOUT:
-            message = 'The request to get your location timed out.';
+            message = 'Finding your location took too long. Enter your postcode instead.';
             break;
         }
-        setState({
-          latitude: null,
-          longitude: null,
-          error: message,
-          loading: false,
-          permissionDenied: denied,
-        });
+        setState({ latitude: null, longitude: null, error: message, loading: false, permissionDenied: denied });
+        reject(new Error(message));
       },
-      {
-        enableHighAccuracy: false,
-        timeout: 10000,
-        maximumAge: 300000,
-      }
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
     );
-  }, []);
+  }), []);
 
-  return state;
+  useEffect(() => {
+    if (autoRequest) requestLocation().catch(() => undefined);
+  }, [autoRequest, requestLocation]);
+
+  return { ...state, requestLocation };
 }

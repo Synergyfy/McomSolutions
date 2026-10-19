@@ -1,10 +1,9 @@
 import { motion } from 'motion/react';
 import {
-  Crown, Shield, Lock, CheckCircle2, ArrowRight, Sparkles,
-  Building2, Gift, Users, BarChart3, FileSearch, Clock,
-  User, ChevronRight, HeadphonesIcon, Calendar, Target
+  Lock, CheckCircle2, ArrowRight, Sparkles, Clock,
+  Users, User, HeadphonesIcon, Target
 } from 'lucide-react';
-import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay, getTotalMissions } from '../lib/programmeData';
+import { PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay, getTaskStatus, getTotalMissions } from '../lib/programmeData';
 import { useProfile } from '../services/business/hooks';
 
 export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => void }) {
@@ -46,102 +45,85 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
   if (!membershipSub) membershipSub = 'Standard';
 
   const currentDay = getProgrammeDay();
-  const progress = getProgressForDay(currentDay);
-  const currentPhase = getPhaseForDay(currentDay);
-  const firstMission = PROGRAMME_PHASES[0].missions[0];
+  const allMissions = PROGRAMME_PHASES.flatMap((phase) => phase.missions);
+  const completedMissionCount = allMissions.filter((mission) => getTaskStatus(mission.id) === 'completed').length;
+  const progress = Math.round((completedMissionCount / allMissions.length) * 100);
+  const currentPhase = getPhaseForDay(currentDay) || PROGRAMME_PHASES[PROGRAMME_PHASES.length - 1];
+  const firstMission = currentPhase.missions.find((mission) => getTaskStatus(mission.id) !== 'completed')
+    || allMissions.find((mission) => getTaskStatus(mission.id) !== 'completed')
+    || allMissions[0];
   const totalMissions = getTotalMissions();
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* ═══ Welcome Card (per screens.md) ═══ */}
+      {/* ═══ Programme summary ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 text-white relative overflow-hidden shadow-xl shadow-orange-500/20"
+        className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm sm:rounded-3xl"
       >
-        <div className="absolute -right-10 -top-10 w-48 h-48 bg-white/10 rounded-full blur-2xl" />
-        <div className="absolute -right-4 bottom-0 w-32 h-32 bg-white/5 rounded-full" />
-        <div className="relative z-[1]">
-          <div className="flex items-start justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
-            <div className="min-w-0 flex-1">
-              <p className="text-orange-200 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1.5 sm:mb-2 leading-tight">Welcome to Your</p>
-              <h2 className="text-xl sm:text-2xl md:text-3xl font-black mb-1 leading-tight">90-Day Business Success Programme</h2>
+        <div className="h-1.5 bg-orange-500" />
+        <div className="p-4 sm:p-6 md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">90-day business success programme</p>
+              <h2 className="mt-1 text-xl font-bold leading-tight text-gray-900 sm:text-2xl">Welcome, {businessName}</h2>
+              {(sector || category) && <p className="mt-1 text-sm text-gray-500">{sector}{sector && category ? ' · ' : ''}{category}</p>}
             </div>
-            <div className="bg-white/20 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl backdrop-blur-sm shrink-0">
-              <Crown className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+            <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              {membershipStatus.charAt(0).toUpperCase() + membershipStatus.slice(1).toLowerCase()}
+            </span>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Membership</p>
+              <p className="mt-1 truncate text-sm font-bold text-gray-900">{membership} {membershipSub}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Programme day</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of 90</span></p>
+            </div>
+            <div className="col-span-2 rounded-xl bg-gray-50 px-3 py-2.5 sm:col-span-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tasks completed</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">{completedMissionCount} <span className="font-medium text-gray-500">of {totalMissions}</span></p>
             </div>
           </div>
 
-          {/* Business Name + Sector */}
-          <div className="mb-5 sm:mb-6">
-            <p className="text-lg sm:text-xl font-black leading-tight break-words">{businessName}</p>
-            {(sector || category) && (
-              <p className="text-orange-200 text-xs sm:text-sm font-medium mt-1 leading-tight break-words">
-                {sector}{sector && category ? ' / ' : ''}{category}
-              </p>
-            )}
-          </div>
-
-          {/* Status Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-            <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">
-              <p className="text-orange-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest leading-none">Membership</p>
-              <p className="font-bold text-xs sm:text-sm mt-1 leading-tight truncate">{membership} {membershipSub}</p>
+          <div className="mt-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-semibold text-gray-600">Programme progress</span>
+              <span className="font-bold text-orange-600">{progress}%</span>
             </div>
-            <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">
-              <p className="text-orange-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest leading-none">Status</p>
-              <p className="font-bold text-xs sm:text-sm mt-1 flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-400 rounded-full shrink-0" /> {membershipStatus.charAt(0).toUpperCase() + membershipStatus.slice(1).toLowerCase()}
-              </p>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+              <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} transition={{ delay: 0.3, duration: 0.7 }} className="h-full rounded-full bg-orange-500" />
             </div>
-            <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">
-              <p className="text-orange-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest leading-none">Readiness</p>
-              <p className="font-bold text-xs sm:text-sm mt-1">{progress}%</p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-2.5 sm:p-3 backdrop-blur-sm min-w-0">
-              <p className="text-orange-200 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest leading-none">Programme</p>
-              <p className="font-bold text-xs sm:text-sm mt-1">Day {currentDay} of 90</p>
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="mt-4 sm:mt-5">
-            <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold mb-1.5">
-              <span className="text-orange-200">Overall Progress</span>
-              <span className="text-white">{progress}%</span>
-            </div>
-            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ delay: 0.5, duration: 0.8 }}
-                className="h-full bg-white rounded-full"
-              />
-            </div>
-            <p className="text-orange-200 text-[10px] font-bold mt-1">0 of {totalMissions} tasks completed</p>
           </div>
         </div>
       </motion.div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 items-start gap-4 sm:gap-6 lg:grid-cols-3">
         {/* ═══ Your First Mission (per screens.md) ═══ */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-gray-200 shadow-sm"
+          className="lg:col-span-2 bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-7 border border-gray-200 shadow-sm"
         >
-          <div className="flex items-start gap-3 sm:gap-4 mb-5 sm:mb-6">
+          <div className="flex items-start gap-3 sm:gap-4 mb-4">
             <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shrink-0">
               <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-white" />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Your First Mission</h3>
+              <h3 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Your Next Mission</h3>
               <p className="text-xs sm:text-sm text-gray-500 mt-1 leading-tight break-words">{firstMission.title}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4 mb-5 sm:mb-6 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl">
+          <p className="mb-4 text-sm leading-6 text-gray-600">{firstMission.description}</p>
+
+          <div className="flex items-center gap-3 sm:gap-4 mb-4 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl">
             <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-500">
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span className="font-bold text-gray-900 whitespace-nowrap">{firstMission.estimatedMinutes} min</span>
@@ -171,11 +153,11 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
         >
           <h3 className="font-bold text-gray-900 mb-4">Programme Overview</h3>
           <div className="space-y-2">
-            {PROGRAMME_PHASES.map((phase, i) => {
+            {PROGRAMME_PHASES.map((phase) => {
               const Icon = phase.icon;
-              const isCompleted = i === 0;
-              const isActive = i === 1;
-              const isLocked = i > 1;
+              const isCompleted = phase.missions.every((mission) => getTaskStatus(mission.id) === 'completed');
+              const isActive = !isCompleted && currentDay >= phase.dayStart && currentDay <= phase.dayEnd;
+              const isLocked = !isCompleted && !isActive;
               return (
                 <div key={phase.id} className={`flex items-center gap-3 p-3 rounded-xl ${
                   isCompleted ? 'bg-green-50 text-green-700' :
@@ -204,6 +186,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
         </motion.div>
       </div>
 
+      <div className="grid grid-cols-1 items-start gap-4 sm:gap-6 lg:grid-cols-2">
       {/* ═══ Today's Tasks ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -216,48 +199,23 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
           <span className="text-[11px] sm:text-xs font-bold text-gray-400 whitespace-nowrap shrink-0">Day {currentDay}</span>
         </div>
         <div className="space-y-3">
-          {PROGRAMME_PHASES[0].missions.slice(0, 3).map((mission, i) => (
-            <div key={mission.id} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl hover:bg-orange-50 transition-colors cursor-pointer group">
+          {currentPhase.missions.slice(0, 3).map((mission, i) => {
+            const isCompleted = getTaskStatus(mission.id) === 'completed';
+            const isCurrent = mission.id === firstMission.id;
+            return (
+            <div key={mission.id} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                i === 0 ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
+                isCompleted ? 'bg-green-100 text-green-600' : isCurrent ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
               }`}>
-                {i === 0 ? <CheckCircle2 className="w-5 h-5" /> : <span className="text-sm font-bold">{i + 1}</span>}
+                {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : <span className="text-sm font-bold">{i + 1}</span>}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-gray-900 text-sm leading-tight break-words">{mission.title}</p>
                 <p className="text-xs text-gray-400 mt-0.5 leading-tight">{mission.estimatedMinutes} min · {mission.reward}</p>
               </div>
-              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 transition-colors shrink-0" />
             </div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* ═══ Upcoming ═══ */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-gray-200 shadow-sm"
-      >
-        <h3 className="font-bold text-gray-900 text-sm sm:text-base mb-4 sm:mb-5">Upcoming</h3>
-        <div className="space-y-3">
-          {[
-            { label: 'Tomorrow', task: 'Upload logo & brand assets', time: '5 min' },
-            { label: 'This week', task: 'Confirm sector & opening hours', time: '5 min' },
-            { label: 'Next week', task: 'Activate referral profile & generate QR links', time: '7 min' },
-          ].map((item, i) => (
-            <div key={i} className="flex items-center gap-2.5 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl">
-              <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center shrink-0">
-                <Calendar className="w-5 h-5 text-gray-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] sm:text-xs font-bold text-orange-500 uppercase tracking-wider leading-none">{item.label}</p>
-                <p className="font-bold text-gray-900 text-sm mt-1 leading-tight break-words line-clamp-2">{item.task}</p>
-              </div>
-              <span className="text-xs text-gray-400 font-medium shrink-0 whitespace-nowrap">{item.time}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </motion.div>
 
@@ -269,7 +227,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
         className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-gray-200 shadow-sm"
       >
         <h3 className="font-bold text-gray-900 text-sm sm:text-base mb-4 sm:mb-5">Support</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <button className="flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
             <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
               <User className="w-5 h-5 text-white" />
@@ -299,6 +257,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
           </button>
         </div>
       </motion.div>
+      </div>
     </div>
   );
 }

@@ -322,7 +322,7 @@ export default function CheckoutPage() {
       )}
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
-        <Link to="/pricing" className="inline-flex items-center gap-2 text-gray-500 hover:text-brand-blue transition-colors font-bold text-sm mb-6 sm:mb-8">
+        <Link to="/membership" className="inline-flex items-center gap-2 text-gray-500 hover:text-brand-blue transition-colors font-bold text-sm mb-6 sm:mb-8">
           <ArrowLeft className="w-4 h-4" /> Back to plans
         </Link>
 
