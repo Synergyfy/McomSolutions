@@ -108,6 +108,19 @@ export class BusinessController {
     return this.businessService.searchAddresses(postcode || '');
   }
 
+  @Get('business/reverse-geocode')
+  async reverseGeocode(@Query('lat') lat: string, @Query('lon') lon: string) {
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (
+      !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    ) {
+      throw new BadRequestException('A valid latitude and longitude are required.');
+    }
+    return this.businessService.reverseGeocode(latitude, longitude);
+  }
+
   // ─── File Uploads (raster images only, accessible during onboarding) ──
   @Post(['upload', 'business/upload'])
   @UseFilters(MulterExceptionFilter)

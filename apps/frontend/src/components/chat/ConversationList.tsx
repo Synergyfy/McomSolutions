@@ -104,7 +104,7 @@ export default function ConversationList({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search conversations..."
-            className="w-full pl-8 pr-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 transition-all"
+            className="min-h-10 w-full pl-8 pr-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 transition-all"
           />
         </div>
       </div>

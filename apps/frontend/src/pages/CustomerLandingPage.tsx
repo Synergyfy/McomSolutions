@@ -156,7 +156,7 @@ function BenefitCard({ icon, title, description }: { icon: React.ReactNode, titl
             transition={{ duration: 0.5 }}
             className="p-8 rounded-3xl bg-white border border-slate-100 shadow-xl shadow-slate-200/40 hover:shadow-2xl hover:border-orange-500/30 transition-all hover:-translate-y-1 group"
         >
-            <div className="w-16 h-16 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+            <div className="mb-6 w-fit transition-transform duration-300 group-hover:-translate-y-1">
                 {icon}
             </div>
             <h3 className="text-2xl font-bold mb-3 text-slate-900 tracking-tight">{title}</h3>

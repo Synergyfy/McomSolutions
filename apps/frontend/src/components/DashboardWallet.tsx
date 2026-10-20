@@ -89,9 +89,9 @@ export default function DashboardWallet() {
               <div className="text-4xl font-black mt-2 font-display animate-pulse">...</div>
             ) : (
               <>
-                <div className="text-4xl md:text-5xl font-black mt-2 font-display">
+                <div className="text-3xl sm:text-4xl md:text-5xl font-black mt-2 font-display break-all leading-tight">
                   {(wallet?.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  <span className="text-lg font-bold ml-2 opacity-80">MCOM</span>
+                  <span className="block sm:inline text-sm sm:text-lg font-bold sm:ml-2 opacity-80">MCOM</span>
                 </div>
                 <div className="mt-2 text-xs font-bold text-orange-100">
                   Available: {(wallet?.availableBalance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} MCOM
@@ -151,12 +151,9 @@ export default function DashboardWallet() {
         ) : (
           <div className="divide-y divide-gray-50">
             {txns.data.map((t) => (
-              <div key={t.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/60 transition-colors">
-                <div className={cn(
-                  'w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0',
-                  t.type === 'CREDIT' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
-                )}>
-                  {t.type === 'CREDIT' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
+              <div key={t.id} className="flex items-center gap-3 px-3 py-4 hover:bg-gray-50/60 transition-colors sm:gap-4 sm:px-5">
+                <div className={cn('flex-shrink-0', t.type === 'CREDIT' ? 'text-emerald-600' : 'text-red-500')} aria-hidden="true">
+                  {t.type === 'CREDIT' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-gray-900 truncate">{t.description || t.reference || t.id}</div>
@@ -164,7 +161,7 @@ export default function DashboardWallet() {
                     {t.platformName || t.platformClientId || 'MCOM Central'} · {new Date(t.createdAt).toLocaleDateString()} · {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-                <div className={cn('text-sm font-black', t.type === 'CREDIT' ? 'text-emerald-600' : 'text-red-500')}>
+                <div className={cn('max-w-[38%] shrink-0 break-words text-right text-xs font-black sm:max-w-none sm:text-sm', t.type === 'CREDIT' ? 'text-emerald-600' : 'text-red-500')}>
                   {t.type === 'CREDIT' ? '+' : '−'}{t.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </div>
               </div>
@@ -329,9 +326,9 @@ function TopUpModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center overflow-y-auto p-3 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-3xl w-full max-w-md p-6 sm:p-7 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200"
+        className="my-auto max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200 sm:max-h-[calc(100dvh-2rem)] sm:p-7"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -344,7 +341,7 @@ function TopUpModal({ onClose }: { onClose: () => void }) {
         {step === 'amount' && (
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
+              <div className="text-orange-600">
                 <CreditCard className="w-5 h-5" />
               </div>
               <div>

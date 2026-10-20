@@ -655,7 +655,7 @@ export default function CustomerRegistration() {
         Back
       </button>
 
-      <div className="w-full max-w-md h-fit p-8 space-y-6 bg-white rounded-3xl shadow-2xl border border-gray-100 transition-all duration-300 relative z-10">
+      <div className="w-full max-w-md h-fit p-5 space-y-6 bg-white rounded-3xl shadow-2xl border border-gray-100 transition-all duration-300 relative z-10 sm:p-8">
         
         <div className="text-center">
           <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-600/20 transform rotate-45">

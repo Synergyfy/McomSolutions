@@ -25,4 +25,7 @@ yarn-error.log*
 .vscode/
 .idea/
 
+# Developer-local project notes (never add to the repository)
+/LOCAL_PROJECT_NOTES.md
+
 

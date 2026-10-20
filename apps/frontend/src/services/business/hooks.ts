@@ -176,11 +176,12 @@ export const useUploadBusinessFile = () => {
   });
 };
 
-export const useEcosystemApps = () => {
+export const useEcosystemApps = (enabled = true) => {
   return useQuery({
     queryKey: ['ecosystem-apps'],
     queryFn: () => businessApi.getEcosystemApps(),
     staleTime: 1000 * 60, // 1 minute
+    enabled,
   });
 };
 

@@ -7,6 +7,7 @@ import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 import CHSLogo from '../components/CHSLogo';
+import ChsLogoPattern from '../components/ChsLogoPattern';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -207,6 +208,10 @@ export default function LoginPage() {
       await performRedirect(res?.user?.role);
     } catch (err: any) {
       const status = err.response?.status;
+      if (!err.response) {
+        setError('We could not reach the sign-in service. Please check that the backend is running and try again.');
+        return;
+      }
       const attemptedEmail = email.trim();
       // Unknown email → offer registration instead of a dead-end error.
       // check-email is throttled server-side; failure falls back to the
@@ -431,12 +436,24 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
+    <div className="registration-page relative flex min-h-[100dvh] items-start justify-center overflow-x-hidden bg-gray-50 px-2.5 py-2.5 sm:min-h-screen sm:items-center sm:px-6 sm:py-5">
+      <ChsLogoPattern />
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md w-full glass rounded-[2.5rem] p-10 shadow-2xl"
+        className="relative z-10 grid min-h-[calc(100dvh-1.25rem)] w-full max-w-5xl overflow-hidden rounded-[1.25rem] border border-white/80 bg-white/95 shadow-lg shadow-slate-900/10 sm:min-h-0 sm:rounded-[1.5rem] sm:border-white/80 sm:shadow-2xl sm:shadow-slate-900/10 md:grid-cols-[0.78fr_1.22fr]"
       >
+        <section className="flex items-center gap-3 border-b border-orange-100 bg-orange-50 px-5 py-4 sm:gap-4 sm:border-0 sm:px-8 sm:py-5 md:flex-col md:items-start md:justify-center md:gap-14 md:px-10 md:py-10" aria-label="Welcome">
+          <div className="shrink-0 md:shrink">
+            <CHSLogo variant="full" size="xl" imageClassName="h-9 sm:h-12 md:h-14" />
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-orange-600 sm:text-[10px] md:mb-2 md:text-xs md:tracking-[0.16em]">One connected ecosystem</p>
+            <h1 className="text-xl font-bold leading-tight text-slate-900 sm:text-xl md:max-w-xs md:text-3xl">Your business, all connected.</h1>
+            <p className="mt-1.5 hidden max-w-xs text-sm leading-6 text-slate-600 sm:block md:mt-3 md:text-base">Sign in to manage your storefront, reach customers, and access your Central Hub tools.</p>
+          </div>
+        </section>
+        <section className="min-w-0 bg-white px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-7 md:px-10 md:py-8" aria-label="Sign in">
         <AnimatePresence>
           {shouldCheckSession && sessionLoading ? (
             <motion.div
@@ -464,12 +481,9 @@ export default function LoginPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <div className="text-center mb-10">
-                <div className="flex justify-center mb-6">
-                  <CHSLogo variant="full" size="xl" imageClassName="h-16" />
-                </div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-                <p className="text-gray-500">You're already signed in to Central Hub Solution (CHS)</p>
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold text-gray-900 mb-1">Welcome back</h2>
+                <p className="text-gray-500">You're already signed in to Central Hub Solution.</p>
               </div>
 
               {clientId && (
@@ -532,29 +546,26 @@ export default function LoginPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
             >
-              <div className="text-center mb-10">
-                <div className="flex justify-center mb-6">
-                  <CHSLogo variant="full" size="xl" imageClassName="h-16" />
-                </div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-                <p className="text-gray-500">Sign in to your Central Hub Solution (CHS) account</p>
+              <div className="mb-5">
+                <h2 className="text-2xl font-bold text-gray-900 mb-1 sm:text-3xl">Sign in to your account</h2>
+                <p className="text-sm leading-5 text-gray-500">Enter your details to continue to Central Hub Solution.</p>
               </div>
 
               {clientId && (
-                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-800 text-sm font-semibold rounded-xl flex items-center gap-2.5">
                   <Lock className="w-5 h-5 shrink-0 text-blue-600" />
                   <span>Signing in to access <strong>{getClientName(clientId)}</strong></span>
                 </div>
               )}
 
               {error && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-2xl flex items-start gap-2.5">
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl flex items-start gap-2.5">
                   <AlertCircle className="w-5 h-5 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
 
-              <form className="space-y-6" onSubmit={handleLogin}>
+              <form className="space-y-4" onSubmit={handleLogin}>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label>
                   <input 
@@ -563,7 +574,7 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="name@company.com"
-                    className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
+                    className="min-h-12 w-full px-4 py-3 text-base bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
                   />
                 </div>
                 <div>
@@ -575,7 +586,7 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full px-5 py-4 pr-12 bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
+                      className="min-h-12 w-full px-4 py-3 pr-12 text-base bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
                     />
                     <button
                       type="button"
@@ -599,27 +610,27 @@ export default function LoginPage() {
 
                 <button 
                   disabled={loading}
-                  className="w-full bg-brand-blue text-white py-4 rounded-2xl font-bold text-lg hover:bg-blue-600 transition-all shadow-xl shadow-blue-500/20 flex items-center justify-center gap-2 group disabled:opacity-50"
+                  className="min-h-12 w-full bg-brand-blue text-white py-3.5 rounded-xl font-bold text-base hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 group disabled:opacity-50"
                 >
                   {loading ? 'Signing In...' : 'Sign In'}
                   {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                 </button>
               </form>
 
-              <p className="text-center text-sm text-gray-600 mt-6">
+              <p className="text-center text-sm text-gray-600 mt-4">
                 Don't have an account?{' '}
                 <Link to={searchParams.toString() ? `/register?${searchParams.toString()}` : "/register"} className="text-brand-blue font-bold hover:underline">
                   Create Account
                 </Link>
               </p>
 
-              <div className="mt-10 pt-8 border-t border-gray-100 text-center">
-                <p className="text-gray-500 mb-6">Or sign in with</p>
+              <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+                <p className="text-sm text-gray-500 mb-3">Or sign in with</p>
                 <div className="flex justify-center">
                   <button 
                     type="button"
                     onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-3 py-4 border border-gray-200 rounded-2xl hover:bg-gray-50 transition-all font-bold text-gray-700 shadow-sm hover:shadow cursor-pointer"
+                    className="w-full flex items-center justify-center gap-3 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-all font-bold text-gray-700 shadow-sm hover:shadow cursor-pointer"
                   >
                     <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
                     Google
@@ -627,13 +638,14 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="mt-10 flex items-center justify-center gap-2 text-xs text-gray-400">
+              <div className="mt-5 flex items-center justify-center gap-2 text-xs text-gray-400">
                 <Shield className="w-3 h-3" />
                 <span>Secure SSO by Central Hub Solution (CHS)</span>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+        </section>
       </motion.div>
 
       {/* Email-not-found modal: mobile-first, bottom-sheet on small screens */}

@@ -28,6 +28,22 @@ import { useGeolocation } from '../../hooks/useGeolocation';
 import GoogleMapSection from '../../components/GoogleMapSection';
 import WizardProgressBar from '../../components/WizardProgressBar';
 import ImageCropModal from '../../components/ImageCropModal';
+import ChsLogoPattern from '../../components/ChsLogoPattern';
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const BUSINESS_IMAGE_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp';
+const BUSINESS_IMAGE_HELP = 'PNG, JPG/JPEG, GIF or WEBP · max 5 MB';
+const BUSINESS_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+function getBusinessImageError(file: File) {
+  if (file.size > MAX_UPLOAD_BYTES) return 'Choose an image that is 5 MB or smaller.';
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  const allowedExtensions = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+  if (!extension || !allowedExtensions.has(extension) || !BUSINESS_IMAGE_TYPES.has(file.type.toLowerCase())) {
+    return 'Choose a PNG, JPG/JPEG, GIF or WEBP image.';
+  }
+  return null;
+}
 
 
 // ═══════════════════════════════════════════════════════════
@@ -65,6 +81,29 @@ const UserRole = {
   AGENT: 'AGENT' as const,
   OWNER: 'OWNER' as const,
 };
+
+const DEFAULT_MCOM_MEMBERSHIP_PLANS: Array<Partial<PricingPlan> & Pick<PricingPlan, 'id' | 'name' | 'description' | 'price' | 'monthlyPrice' | 'features' | 'iconName' | 'color' | 'whoItIsFor'>> = [
+  {
+    id: 'Bronze', name: 'Bronze', description: 'Perfect for local brands and new startups.',
+    whoItIsFor: 'New businesses', iconName: 'Building2', color: 'border-orange-200 text-orange-700 bg-orange-50',
+    price: 10, monthlyPrice: 10, features: ['Basic Dashboard', 'Local Directory Listing', 'Ecosystem Access'],
+  },
+  {
+    id: 'Silver', name: 'Silver', description: 'Advanced tools for growing teams.',
+    whoItIsFor: 'Growing businesses', iconName: 'Zap', color: 'border-blue-200 text-blue-700 bg-blue-50',
+    price: 75, monthlyPrice: 75, features: ['Standard Dashboard', 'Campaign Priority', 'Multi-Territory'],
+  },
+  {
+    id: 'Gold', name: 'Gold', description: 'Scale your operations with priority access.',
+    whoItIsFor: 'Scaling businesses', iconName: 'Star', color: 'border-amber-200 text-amber-700 bg-amber-50',
+    price: 350, monthlyPrice: 350, features: ['Full Dashboard', 'Cross-Platform Priority', 'AI Business Copilot'],
+  },
+];
+
+const formatMembershipPrice = (value: number) => value.toLocaleString('en-GB', {
+  minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  maximumFractionDigits: 2,
+});
 
 function useCreateUser() {
   const { mutateAsync, isPending } = useRegister();
@@ -218,11 +257,11 @@ const QUESTS = [
   },
   {
     id: 'borough_detected',
-    title: 'Borough Detected',
-    flavor: 'Review and confirm your local business district.',
-    label: 'Borough',
-    color: '#7c3aed',
-    colorLight: '#f5f3ff',
+    title: 'Your Local Area',
+    flavor: 'We use your postcode to identify the area your business belongs to.',
+    label: 'Area',
+    color: '#ea580c',
+    colorLight: '#fff7ed',
     Icon: Building2,
   },
   {
@@ -239,8 +278,8 @@ const QUESTS = [
     title: 'Add Your Storefront',
     flavor: 'Set up your business storefront with images and description.',
     label: 'Storefront',
-    color: '#0891b2',
-    colorLight: '#ecfeff',
+    color: '#ea580c',
+    colorLight: '#fff7ed',
     Icon: Image,
   },
   {
@@ -383,7 +422,7 @@ function HighStreetActivationModal({ open, onClose }: { open: boolean; onClose: 
                 <Info className="w-6 h-6" />
               </div>
               <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-2 tracking-tight text-center">High Street Activation</h3>
-              <p className="text-gray-500 text-sm text-center mb-6">By validating your postcode, your store is integrated into your local borough's digital business network.</p>
+              <p className="text-gray-500 text-sm text-center mb-6">Your postcode helps us place your store in the right local business area.</p>
               <div className="w-full space-y-4 mb-6 text-left">
                 <div className="flex gap-3">
                   <div className="w-5 h-5 rounded-full bg-orange-50 flex items-center justify-center shrink-0 mt-0.5">
@@ -391,7 +430,7 @@ function HighStreetActivationModal({ open, onClose }: { open: boolean; onClose: 
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-gray-800">Active High Street Listing</h4>
-                    <p className="text-xs text-gray-500">Your store will appear in the local borough's active directory, making you easily discoverable to nearby shoppers.</p>
+                    <p className="text-xs text-gray-500">Your store can appear in the local business directory, helping nearby shoppers find you.</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
@@ -558,6 +597,13 @@ function BusinessOnboardingInner() {
   const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const fileError = getBusinessImageError(file);
+      if (fileError) {
+        setSubmitError(fileError);
+        e.target.value = '';
+        return;
+      }
+      setSubmitError(null);
       setCoverFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -785,7 +831,7 @@ function BusinessOnboardingInner() {
     { label: 'Account', description: 'Create your business account' },
     { label: 'Verify', description: 'Verify your email' },
     { label: 'Location', description: 'Set your business location' },
-    { label: 'Borough', description: 'Confirm your local borough' },
+    { label: 'Area', description: 'Review the area linked to your postcode' },
     { label: 'High Street', description: 'Activate high street presence' },
     { label: 'Storefront', description: 'Set up your storefront' },
     { label: 'Categories', description: 'Select business categories' },
@@ -803,8 +849,21 @@ function BusinessOnboardingInner() {
   const { mutateAsync: addListing } = useAddListing();
 
   const { data: sectors, isLoading: sectorsLoading, error: sectorsError } = useGetSectors();
-  const { data: categories, isLoading: categoriesLoading } = useGetCategoriesBySector(formData.sectorId);
-  const { data: subcategories, isLoading: subcategoriesLoading } = useGetSubCategoriesByCategory(formData.categoryId);
+  const { data: categories, isLoading: categoriesLoading, error: categoriesError } = useGetCategoriesBySector(formData.sectorId);
+  const { data: subcategories, isLoading: subcategoriesLoading, error: subcategoriesError } = useGetSubCategoriesByCategory(formData.categoryId);
+  const preferLocalCatalog = import.meta.env.DEV;
+  const onboardingSectors = !preferLocalCatalog && sectors?.length ? sectors : SECTORS;
+  const onboardingCategories = !preferLocalCatalog && categories?.length
+    ? categories
+    : CATEGORIES.filter((category) => category.sectorId === formData.sectorId);
+  const onboardingSubcategories = !preferLocalCatalog && subcategories?.length
+    ? subcategories
+    : SUBCATEGORIES.filter((subcategory) => subcategory.categoryId === formData.categoryId);
+  const isUsingLocalCatalog = Boolean(
+    preferLocalCatalog || sectorsError || (!sectorsLoading && !sectors?.length) ||
+    (formData.sectorId && (categoriesError || (!categoriesLoading && !categories?.length))) ||
+    (formData.categoryId && (subcategoriesError || (!subcategoriesLoading && !subcategories?.length))),
+  );
 
   // --- Google Onboarding State ---
   const getSafeParam = (params: URLSearchParams | null, key: string): string => {
@@ -1379,6 +1438,13 @@ function BusinessOnboardingInner() {
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const fileError = getBusinessImageError(file);
+      if (fileError) {
+        setSubmitError(fileError);
+        e.target.value = '';
+        return;
+      }
+      setSubmitError(null);
       setLogoFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -1414,7 +1480,6 @@ function BusinessOnboardingInner() {
   const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
   const [assessmentStep, setAssessmentStep] = useState(0);
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
-  const [subscribingPlanId, setSubscribingPlanId] = useState<string | null>(null);
 
   // If user is already logged in with a completed business profile, redirect to dashboard only if verified or subscribed (unless claim return, claim flow, or external platform/SSO intent in flight)
   useEffect(() => {
@@ -1464,8 +1529,11 @@ function BusinessOnboardingInner() {
 
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [addressSearchStatus, setAddressSearchStatus] = useState<'idle' | 'empty' | 'error'>('idle');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isCheckingProximity, setIsCheckingProximity] = useState(false);
+  const [locationLookupSkipped, setLocationLookupSkipped] = useState(false);
+  const [locationCheckError, setLocationCheckError] = useState<string | null>(null);
   const [proximityResult, setProximityResult] = useState<{
     status: 'active' | 'inactive';
     resolvedArea?: string;
@@ -1474,8 +1542,9 @@ function BusinessOnboardingInner() {
     businessCount?: number;
     activeCampaignsCount?: number;
     consumerCount?: number;
-    message: string;
+    message?: string;
   } | null>(null);
+  const [isFindingDeviceAddress, setIsFindingDeviceAddress] = useState(false);
   const [showProximityModal, setShowProximityModal] = useState(false);
   const [showLearnMoreModal, setShowLearnMoreModal] = useState(false);
   const [showInitialPrompt, setShowInitialPrompt] = useState(!isClaimReturn);
@@ -1656,7 +1725,41 @@ function BusinessOnboardingInner() {
   const [selectedBorough, setSelectedBorough] = useState<string>('Camden Borough');
   const [boroughSearchQuery, setBoroughSearchQuery] = useState<string>('');
 
-  const geo = useGeolocation();
+  const geo = useGeolocation({ autoRequest: false });
+
+  const handleUseDeviceLocation = async () => {
+    setSubmitError(null);
+    setLocationCheckError(null);
+    setProximityResult(null);
+    setLocationLookupSkipped(false);
+    setIsFindingDeviceAddress(true);
+    try {
+      const { latitude, longitude } = await geo.requestLocation();
+      const { data } = await apiClient.get('/business/reverse-geocode', {
+        params: { lat: latitude, lon: longitude },
+      });
+      if (!data?.postcode) {
+        throw new Error('We could not find a postcode for this location. Enter your business postcode instead.');
+      }
+      setFormData((previous: any) => ({
+        ...previous,
+        postcode: data.postcode.toUpperCase(),
+        address: data.address || previous.address,
+        city: data.city || previous.city,
+      }));
+      setSuggestions([]);
+      setShowSuggestions(false);
+    } catch (error: any) {
+      setSubmitError(
+        error?.response?.data?.message ||
+        (!error?.response
+          ? 'We could not look up your current location. Enter your business postcode below instead.'
+          : 'We could not find an address here. Enter your business postcode instead.'),
+      );
+    } finally {
+      setIsFindingDeviceAddress(false);
+    }
+  };
 
 
   // ─── Debounced address suggestion lookup ──────────────
@@ -1664,6 +1767,8 @@ function BusinessOnboardingInner() {
     if (!formData.postcode || formData.postcode.trim().length < 3) {
       setSuggestions([]);
       setShowSuggestions(false);
+      setAddressSearchStatus('idle');
+      setLoadingSuggestions(false);
       return;
     }
 
@@ -1671,30 +1776,46 @@ function BusinessOnboardingInner() {
     if (formData.address && formData.address.trim().length > 5) {
       setSuggestions([]);
       setShowSuggestions(false);
+      setAddressSearchStatus('idle');
+      setLoadingSuggestions(false);
       return;
     }
 
+    let isCurrentSearch = true;
+    setAddressSearchStatus('idle');
+    setLoadingSuggestions(false);
     const delayDebounce = setTimeout(async () => {
       setLoadingSuggestions(true);
       try {
-        const res = await api.get(`business/search-address?postcode=${encodeURIComponent(formData.postcode)}`);
-        const list = Array.isArray(res?.data)
-          ? res.data
-          : Array.isArray(res?.data?.addresses)
-            ? res.data.addresses
-            : Array.isArray(res?.data?.suggestions)
-              ? res.data.suggestions
+        const response = await businessApi.searchAddress(formData.postcode);
+        const list = Array.isArray(response)
+          ? response
+          : Array.isArray(response?.addresses)
+            ? response.addresses
+            : Array.isArray(response?.suggestions)
+              ? response.suggestions
               : [];
-        setSuggestions(list);
-        setShowSuggestions(list.length > 0);
+        if (isCurrentSearch) {
+          setSuggestions(list);
+          setShowSuggestions(list.length > 0);
+          setAddressSearchStatus(list.length > 0 ? 'idle' : 'empty');
+        }
       } catch (err) {
         console.error('Error fetching suggestions:', err);
+        if (isCurrentSearch) {
+          setSuggestions([]);
+          setShowSuggestions(false);
+          setAddressSearchStatus('error');
+        }
       } finally {
-        setLoadingSuggestions(false);
+        if (isCurrentSearch) setLoadingSuggestions(false);
       }
     }, 450);
 
-    return () => clearTimeout(delayDebounce);
+    return () => {
+      isCurrentSearch = false;
+      clearTimeout(delayDebounce);
+    };
   }, [formData.postcode, formData.address]);
 
   // ─── Load from cache ─────────────────────────────────
@@ -1734,6 +1855,25 @@ function BusinessOnboardingInner() {
             }
           } catch { /* ignore parse error */ }
         }
+        return;
+      }
+
+      // A fresh role-selection signup must begin with the Google import/manual
+      // setup choice, even when this browser has an older onboarding draft.
+      if (urlParams.get('entry') === 'signup' || searchParams.get('entry') === 'signup') {
+        setCurrentStep(0);
+        setCompletedSteps(new Set());
+        setShowInitialPrompt(true);
+        setShowGoogleCategoryPage(false);
+        setShowFindClaimPage(false);
+        setShowBusinessPreviewPage(false);
+        setShowVerifyOwnershipPage(false);
+        setShowConnectGooglePage(false);
+        setShowBusinessTypePage(false);
+        setShowBusinessCategoryPage(false);
+        setShowProgrammeIntro(false);
+        setShowChoosePlan(false);
+        setShowInitialAssessment(false);
         return;
       }
 
@@ -1880,11 +2020,18 @@ function BusinessOnboardingInner() {
       (currentQuestId === 'borough_detected' || currentQuestId === 'high_street_activation') &&
       formData.postcode &&
       !proximityResult &&
+      !locationLookupSkipped &&
       !isCheckingProximity
     ) {
-      runLocationCheck(formData.postcode).catch((err) => console.error(err));
+      runLocationCheck(formData.postcode).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, isClient]);
+
+  useEffect(() => {
+    if (!isClient) return;
+    window.scrollTo(0, 0);
+    document.querySelector<HTMLElement>('.registration-page')?.scrollTo(0, 0);
   }, [currentStep, isClient]);
 
   // ─── Save to cache (Sanitized against sensitive credentials) ───────────
@@ -1936,17 +2083,27 @@ function BusinessOnboardingInner() {
   // ─── Derived ─────────────────────────────────────────
   const currentQuest = activeQuests[currentStep] || activeQuests[0];
   const QuestIcon = currentQuest.Icon;
+  const isEmailRegistrationStep = !isGoogleOnboarding && currentQuest.id === 'email';
 
   const runLocationCheck = async (postcode: string) => {
-    if (!postcode) {
-      console.error('runLocationCheck: no postcode provided, skipping');
-      setIsCheckingProximity(false);
-      return;
+    if (!postcode?.trim()) {
+      const message = 'No postcode is available to check. Go back and enter your business postcode.';
+      setLocationCheckError(message);
+      throw new Error(message);
     }
+    setLocationCheckError(null);
+    setProximityResult(null);
+    setLocationLookupSkipped(false);
     setIsCheckingProximity(true);
     try {
-      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode }, { timeout: 10000 });
+      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode: postcode.trim() }, { timeout: 10000 });
       const result = res.data;
+      if (!result || !['active', 'inactive'].includes(result.status) || typeof result.resolvedArea !== 'string') {
+        throw new Error('The postcode service returned an incomplete location result. Please try again.');
+      }
+      if (result.status === 'inactive' && result.message) {
+        throw new Error(result.message);
+      }
       setProximityResult(result);
       if (result.resolvedArea) {
         const key = result.resolvedArea.includes('Borough')
@@ -1955,19 +2112,27 @@ function BusinessOnboardingInner() {
         setSelectedBorough(key);
       }
 
-      // Persist to local storage for the dashboard
-      if (result.status === 'active') {
-        localStorage.setItem('businessProximityTier', 'high_street');
-        localStorage.setItem('businessArea', result.resolvedArea || '');
-        localStorage.setItem('localMallName', result.localMallName || '');
-        localStorage.setItem('localMallId', result.localMallId || '');
-      } else {
-        localStorage.setItem('businessProximityTier', 'national');
-        localStorage.setItem('businessArea', result.resolvedArea || 'Remote');
+      // Persist only a successfully resolved postcode result for the dashboard.
+      if (!result.message) {
+        if (result.status === 'active') {
+          localStorage.setItem('businessProximityTier', 'high_street');
+          localStorage.setItem('businessArea', result.resolvedArea || '');
+          localStorage.setItem('localMallName', result.localMallName || '');
+          localStorage.setItem('localMallId', result.localMallId || '');
+        } else {
+          localStorage.setItem('businessProximityTier', 'national');
+          localStorage.setItem('businessArea', result.resolvedArea || 'Remote');
+        }
       }
       return result;
     } catch (err: any) {
       console.error('Error checking proximity:', err);
+      setLocationCheckError(
+        !err?.response
+          ? 'We could not reach the postcode lookup service. Check your connection and try again.'
+          : err?.response?.data?.message || err?.message ||
+        'We could not reach the postcode lookup service. Please try again.',
+      );
       throw err;
     } finally {
       setIsCheckingProximity(false);
@@ -1976,12 +2141,15 @@ function BusinessOnboardingInner() {
 
   // ─── Handlers ────────────────────────────────────────
   const handleSelectSuggestion = async (suggestion: any) => {
+    setProximityResult(null);
+    setLocationCheckError(null);
     setFormData((prev: any) => ({
       ...prev,
       address: suggestion.displayName,
       postcode: suggestion.postcode,
     }));
     setShowSuggestions(false);
+    setAddressSearchStatus('idle');
 
     try {
       await runLocationCheck(suggestion.postcode);
@@ -1991,7 +2159,11 @@ function BusinessOnboardingInner() {
       setParticleTrigger((p) => p + 1);
       setTimeout(() => setCurrentStep(currentStep + 1), 300);
     } catch (err) {
-      console.error('Error in handleSelectSuggestion location check:', err);
+      const error = err as any;
+      setSubmitError(
+        error?.response?.data?.message ||
+        'We could not verify this postcode right now. Check your connection and try again.',
+      );
     }
   };
 
@@ -2006,6 +2178,16 @@ function BusinessOnboardingInner() {
     // ── Step 0: Send OTP to email ────────────────────────────
     if (currentStep === 0) {
       if (!formData.email) { setSubmitError('Please enter your email address.'); return; }
+      if (import.meta.env.DEV) {
+        // Keep the verification screen in the design flow without requiring a
+        // running API/Redis service in the local frontend preview.
+        const next = new Set(completedSteps);
+        next.add(0);
+        setCompletedSteps(next);
+        setParticleTrigger((p) => p + 1);
+        setTimeout(() => setCurrentStep(1), 300);
+        return;
+      }
       setIsSubmitting(true);
       try {
         await sendOtp({ email: formData.email, type: 'VERIFICATION' });
@@ -2026,6 +2208,18 @@ function BusinessOnboardingInner() {
     // ── Step 1: Validate OTP ───────────────────────────────
     if (currentStep === 1) {
       if (!otp || otp.length < 6) { setSubmitError('Please enter the full 6-digit code.'); return; }
+      if (import.meta.env.DEV) {
+        if (otp !== '123456') {
+          setSubmitError('For this local preview, enter the code 123456.');
+          return;
+        }
+        const next = new Set(completedSteps);
+        next.add(1);
+        setCompletedSteps(next);
+        setParticleTrigger((p) => p + 1);
+        setTimeout(() => setCurrentStep(2), 300);
+        return;
+      }
       setIsSubmitting(true);
       try {
         await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
@@ -2081,17 +2275,32 @@ function BusinessOnboardingInner() {
         }
         setTimeout(() => setCurrentStep((c) => c + 1), 300);
       } catch (err: any) {
-        setSubmitError(err?.response?.data?.message || err?.message || 'Failed to verify postcode location. Please try again.');
+        setSubmitError(
+          err?.response?.data?.message ||
+          (!err?.response ? 'We could not reach the postcode lookup service. Please try again.' : err?.message) ||
+          'We could not check this postcode. Please try again.'
+        );
       } finally {
         setIsSubmitting(false);
       }
       return;
     }
 
+    if (
+      currentQuest.id === 'borough_detected' &&
+      !proximityResult &&
+      !locationLookupSkipped
+    ) {
+      if (!isCheckingProximity) {
+        runLocationCheck(formData.postcode).catch(() => {});
+      }
+      return;
+    }
+
     // ── Category Step Validation ───────────────────────────
     if (currentQuest.id === 'category') {
-      if (!formData.sectorId || !formData.categoryId || !formData.subCategoryId) {
-        setSubmitError('Please select your sector, category, and subcategory.');
+      if (!formData.sectorId || !formData.categoryId) {
+        setSubmitError('Please select your sector and primary category.');
         return;
       }
     }
@@ -2130,10 +2339,34 @@ function BusinessOnboardingInner() {
 
     // ── Final step: register + auto-login + create profile ──────────────────
     if (currentStep === activeQuests.length - 1) {
-      if (!formData.sectorId || !formData.categoryId || !formData.subCategoryId) {
-        setSubmitError('Please select your business categories.');
+      if (!formData.sectorId || !formData.categoryId) {
+        setSubmitError('Please select your sector and primary category.');
         return;
       }
+
+      if (import.meta.env.DEV) {
+        // Let frontend review proceed without the unavailable account/profile APIs.
+        const next = new Set(completedSteps);
+        next.add(currentStep);
+        setCompletedSteps(next);
+        setParticleTrigger((p) => p + 1);
+        localStorage.setItem('businessOnboarding', JSON.stringify({
+          businessName: formData.businessName,
+          postcode: formData.postcode,
+          address: formData.address,
+          logo: formData.logo,
+          sectorId: formData.sectorId,
+          categoryId: formData.categoryId,
+          subCategoryId: formData.subCategoryId,
+        }));
+        localStorage.removeItem('businessOnboardingStep');
+        localStorage.removeItem('businessOnboardingCompleted');
+        localStorage.removeItem('business_onboarding_draft');
+        localStorage.setItem('businessOnboardingState', 'plan_selection');
+        setShowProgrammeIntro(true);
+        return;
+      }
+
       setIsSubmitting(true);
       try {
         if (!hasRegistered) {
@@ -2356,6 +2589,18 @@ function BusinessOnboardingInner() {
     }
   };
 
+  const handleSkipLocationStep = () => {
+    setSubmitError(null);
+    setLocationCheckError(null);
+    setLocationLookupSkipped(true);
+    if (currentQuest.id === 'postcode') setProximityResult(null);
+    const next = new Set(completedSteps);
+    next.add(currentStep);
+    setCompletedSteps(next);
+    setParticleTrigger((p) => p + 1);
+    setTimeout(() => setCurrentStep((step) => step + 1), 300);
+  };
+
   useEffect(() => {
     if (currentStep === 1 && otp.length === 6 && !isSubmitting && !submitError) {
       handleNext();
@@ -2370,50 +2615,34 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showInitialPrompt) {
     return (
-      <div className="min-h-screen bg-[#fafafa] flex flex-col relative overflow-y-auto overflow-x-hidden font-sans pt-6">
-        {/* Subtle dot grid background */}
-        <div
-          className="absolute inset-0 opacity-30 pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
-
-
-        {/* Main Content */}
-        <main className="flex-grow flex flex-col items-center px-4 sm:px-6 py-8 sm:py-12 relative z-10">
+      <div className="registration-page relative flex min-h-screen flex-col overflow-x-hidden overflow-y-auto bg-[#f7f8fa] pt-6">
+        <ChsLogoPattern />
+        <main className="relative z-10 flex flex-grow flex-col items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
-            className="w-full max-w-[500px] flex flex-col space-y-6 sm:space-y-8 bg-white p-6 sm:p-10 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 my-auto"
+            className="grid w-full max-w-6xl overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/95 shadow-[0_28px_90px_rgba(20,30,48,0.16)] backdrop-blur sm:rounded-[2rem] lg:grid-cols-2"
           >
-
-            {/* Hero Illustration/Icon */}
-            <div className="flex justify-center mb-2">
-              <div className="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center shadow-inner transform rotate-3 hover:rotate-0 transition-transform">
-                <svg className="w-10 h-10" viewBox="0 0 24 24">
+            <div className="order-2 flex flex-col justify-center p-5 sm:p-9 lg:order-1 lg:p-11">
+              <div className="mb-7 flex flex-col items-start text-left sm:mb-8">
+                <div className="mb-4 flex h-12 w-12 items-center justify-start">
+                  <svg className="h-9 w-9" viewBox="0 0 24 24" aria-label="Google" role="img">
                   <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.53-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-8.87z" />
                   <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.21v3.15C3.18 21.88 7.39 24 12 24z" />
                   <path fill="#FBBC05" d="M5.27 14.24A7.18 7.18 0 0 1 5 12c0-.79.13-1.57.38-2.32V6.53H1.21A11.94 11.94 0 0 0 0 12c0 1.92.45 3.74 1.21 5.37l4.06-3.13z" />
                   <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.22 0 12 0 7.39 0 3.18 2.12 1.21 5.37l4.06 3.15c.95-2.85 3.6-4.96 6.73-4.96z" />
-                </svg>
+                  </svg>
+                </div>
+                <h1 className="max-w-lg text-3xl font-semibold leading-[1.08] tracking-[-0.045em] text-slate-950 sm:text-4xl lg:text-[2.65rem]">
+                  Is your business<br className="hidden sm:block" /> on Google?
+                </h1>
+                <p className="mt-4 max-w-md text-base leading-7 text-slate-500">
+                  We’ll help you find your business on Google Maps and use its listing details to get your storefront started. If you can’t find it or prefer to start from scratch, enter your details manually.
+                </p>
               </div>
-            </div>
 
-            {/* Content Group */}
-            <div className="text-center space-y-2 sm:space-y-3">
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 tracking-tight leading-snug">
-                Is your business on Google?
-              </h1>
-              <p className="text-sm sm:text-base text-gray-500 max-w-sm mx-auto font-normal">
-                Importing your business from Google saves time and ensures your profile is accurate.
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col space-y-3 pt-2">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
               <button
                 onClick={() => {
                   setShowInitialPrompt(false);
@@ -2431,9 +2660,10 @@ function BusinessOnboardingInner() {
                   setShowFindClaimPage(false);
                   setShowGoogleCategoryPage(true);
                 }}
-                className="w-full h-12 sm:h-14 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 active:scale-[0.98] transition-all cursor-pointer"
+                className="group flex min-h-14 w-full cursor-pointer items-center justify-between gap-2 rounded-lg bg-[#ff6900] px-4 text-left text-sm font-semibold leading-5 text-white shadow-sm shadow-orange-500/20 transition-all hover:-translate-y-0.5 hover:bg-orange-600 active:translate-y-0 sm:min-h-16 sm:px-5"
               >
-                YES, IMPORT FROM GOOGLE
+                <span>Import from Google</span>
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </button>
               <button
                 onClick={() => {
@@ -2452,22 +2682,22 @@ function BusinessOnboardingInner() {
                   setShowReviewStorefrontPage(false);
                   setShowInitialPrompt(false);
                 }}
-                className="w-full h-12 sm:h-14 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center hover:bg-gray-50 hover:border-gray-300 active:scale-[0.98] transition-all cursor-pointer"
+                className="group flex min-h-14 w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-300 bg-white px-4 text-left text-sm font-semibold leading-5 text-slate-800 transition-all hover:border-slate-400 hover:bg-slate-50 active:scale-[0.99] sm:min-h-16 sm:px-5"
               >
-                NO, ENTER MANUALLY
+                <span>Enter details manually</span>
+                <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-1 group-hover:text-orange-600" />
               </button>
-            </div>
-
-            {/* Information Card */}
-            <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100 flex items-start gap-3">
-              <div className="bg-blue-100 p-1.5 rounded-lg shrink-0">
-                <Shield className="text-blue-600 w-4 h-4" />
               </div>
-              <p className="text-sm text-blue-900 font-medium leading-relaxed">
-                You can always manually enter your business details later if you choose "NO".
-              </p>
+
             </div>
 
+            <div className="relative order-1 aspect-[16/9] w-full overflow-hidden sm:mx-9 sm:mb-9 sm:w-auto sm:rounded-2xl lg:order-2 lg:mx-5 lg:my-5 lg:aspect-auto lg:min-h-[540px]">
+              <img
+                src="/buiz%20mockup.jpeg"
+                alt="Google business profile displayed on a phone with a map pin and business growth illustration"
+                className="relative h-full w-full object-contain"
+              />
+            </div>
           </motion.div>
         </main>
       </div>
@@ -2801,12 +3031,21 @@ function BusinessOnboardingInner() {
                           className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium"
                           placeholder={
                             geo.latitude && geo.longitude
-                              ? "Borough, postcode, or city (optional — near me)"
-                              : "Borough, postcode, or city"
+                              ? "Area, postcode, or city (optional — near me)"
+                              : "Area, postcode, or city"
                           }
                           type="text"
                         />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => geo.requestLocation().catch(() => undefined)}
+                        disabled={geo.loading}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-orange-700 hover:text-orange-800 disabled:opacity-60"
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        {geo.loading ? 'Finding your location…' : 'Use my current location'}
+                      </button>
                       {!searchLoc.trim() && geo.latitude && geo.longitude ? (
                         <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-emerald-700 bg-emerald-50/80 rounded-lg border border-emerald-200/60 font-medium">
                           <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -3636,7 +3875,7 @@ function BusinessOnboardingInner() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-                    <p className="text-xs font-bold text-gray-400 mb-1">Borough</p>
+                    <p className="text-xs font-bold text-gray-400 mb-1">Local area</p>
                     <p className="font-bold text-gray-900 text-sm">Birmingham B2</p>
                   </div>
                   <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
@@ -4279,7 +4518,7 @@ function BusinessOnboardingInner() {
               <div className="flex flex-col gap-3">
                 <div className="bg-orange-50/50 rounded-xl p-3 border border-orange-100/50">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Primary Hub</p>
-                  <p className="text-sm font-bold text-gray-900">{formData.city || 'Richmond Borough'} / {formData.postcode || 'High Street'}</p>
+                  <p className="text-sm font-bold text-gray-900">{(formData.city || 'Richmond').replace(/ Borough$/, '')} / {formData.postcode || 'High Street'}</p>
                 </div>
                 <div className="h-32 w-full rounded-xl overflow-hidden relative shadow-inner bg-[#f4f3f0] flex items-center justify-center">
                   <svg className="absolute inset-0 w-full h-full opacity-35" xmlns="http://www.w3.org/2000/svg">
@@ -4732,50 +4971,92 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showProgrammeIntro) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
-        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 180, damping: 14 }} className="mb-5 sm:mb-8">
-          <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-xl sm:shadow-2xl shadow-amber-400/40">
-            <Sparkles className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
+      <div className="registration-page relative flex min-h-dvh items-center overflow-x-hidden bg-[#fafafa] px-4 py-8 font-sans sm:px-6 sm:py-12 lg:px-8">
+        <ChsLogoPattern className="fixed !opacity-[0.055]" />
+        <main className="relative z-10 mx-auto w-full max-w-6xl">
+          <motion.header
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="mx-auto mb-8 max-w-3xl text-center sm:mb-10"
+          >
+            <img src="/chs-icon.png" alt="Central Hub Solutions" className="mx-auto mb-4 h-11 w-11 object-contain" />
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Your next 90 days</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Business Success Programme</h1>
+            <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
+              A practical programme to help you build your business presence, strengthen customer relationships and find new opportunities across MCOM.
+            </p>
+          </motion.header>
+
+          <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)] lg:gap-6">
+            <motion.section
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.4 }}
+              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+            >
+              <div className="mb-5 sm:mb-6">
+                <h2 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">What we’ll work on together</h2>
+                <p className="mt-1.5 text-sm leading-6 text-slate-500">Your dashboard will guide you through each part at a manageable pace.</p>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
+                {[
+                  'Build your digital business profile',
+                  'Strengthen your brand',
+                  'Increase customer loyalty',
+                  'Expand your business network',
+                  'Improve your online presence',
+                  'Prepare for a professional Business Audit',
+                  'Receive personalised recommendations for growth',
+                ].map((item, i) => (
+                  <motion.div
+                    key={item}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.16 + i * 0.045, duration: 0.25 }}
+                    className="flex min-h-[58px] items-center gap-3 rounded-2xl border border-orange-100/80 bg-orange-50/55 px-3.5 py-3 sm:px-4"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-orange-600 ring-1 ring-orange-100">
+                      <Check className="h-4 w-4" strokeWidth={2.5} />
+                    </span>
+                    <span className="text-sm font-medium leading-5 text-slate-700">{item}</span>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+
+            <motion.aside
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.18, duration: 0.4 }}
+              className="flex flex-col rounded-3xl border border-orange-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+            >
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-orange-700">
+                <span className="h-2 w-2 rounded-full bg-orange-500" />
+                Flexible timeframe
+              </div>
+              <div className="mt-5 border-b border-slate-100 pb-5">
+                <p className="text-5xl font-extrabold tracking-tight text-slate-950 sm:text-6xl">90</p>
+                <p className="mt-1 text-sm font-semibold text-slate-500">days to build momentum</p>
+              </div>
+              <p className="mt-5 text-sm leading-6 text-slate-600">
+                Most businesses complete the programme within 90 days. Some finish in as little as two weeks. Move at your own pace; your dashboard will guide you through each step.
+              </p>
+              <div className="mt-auto pt-7">
+                <motion.button
+                  whileHover={{ y: -1 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => { setShowProgrammeIntro(false); setShowVerificationModal(true); }}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-orange-600 px-5 py-4 text-center text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:text-base"
+                >
+                  <span>Verify Business &amp; Start Trial</span>
+                  <ArrowRight className="h-5 w-5 shrink-0" />
+                </motion.button>
+                <p className="mt-3 text-center text-xs font-medium text-slate-500">One-time verification fee: £{verificationFeeAmount.toFixed(2)}</p>
+              </div>
+            </motion.aside>
           </div>
-        </motion.div>
-
-        <motion.h1 initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.3 }} className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900 mb-3 sm:mb-4 text-center tracking-tight leading-snug">
-          Welcome to Your<br />Business Success Programme
-        </motion.h1>
-
-        <motion.p initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }} className="text-xs sm:text-sm md:text-base text-gray-500 mb-4 sm:mb-6 text-center max-w-lg">
-          Over the next 90 days, MCOM will help you:
-        </motion.p>
-
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.5 }} className="max-w-lg w-full space-y-2 sm:space-y-3 mb-6 sm:mb-8">
-          {[
-            'Build your digital business profile',
-            'Strengthen your brand',
-            'Increase customer loyalty',
-            'Expand your business network',
-            'Improve your online presence',
-            'Prepare for a professional Business Audit',
-            'Receive personalised recommendations for growth',
-          ].map((item, i) => (
-            <div key={i} className="flex items-center gap-2.5 sm:gap-3 bg-orange-50 rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 border border-orange-100/80">
-              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 shrink-0" />
-              <span className="text-xs sm:text-sm font-medium text-gray-700">{item}</span>
-            </div>
-          ))}
-        </motion.div>
-
-        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.7 }} className="bg-amber-50 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 max-w-lg w-full mb-6 sm:mb-8 border border-amber-200">
-          <p className="text-xs sm:text-sm text-amber-800 font-medium text-center leading-relaxed">
-            Most businesses complete the programme within 90 days. Some complete it in as little as 2 weeks. You can progress at your own pace. Your dashboard will guide you every step of the way.
-          </p>
-        </motion.div>
-
-        <motion.button initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.9 }} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-          onClick={() => { setShowProgrammeIntro(false); setShowVerificationModal(true); }}
-          className="px-8 sm:px-10 py-3.5 sm:py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white text-base sm:text-lg font-bold rounded-xl sm:rounded-2xl hover:from-orange-600 hover:to-red-600 transition-all shadow-xl shadow-orange-500/25 flex items-center gap-2 cursor-pointer"
-        >
-          Verify Business & Start Trial (£{verificationFeeAmount.toFixed(2)}) <ArrowRight className="w-5 h-5" />
-        </motion.button>
+        </main>
       </div>
     );
   }
@@ -5167,9 +5448,21 @@ function BusinessOnboardingInner() {
     }
 
     // ─── Default MCOM Solutions Membership Plans ────────────────────────────
+    const membershipPlans = DEFAULT_MCOM_MEMBERSHIP_PLANS.map((fallbackPlan) => {
+      const livePlan = plans.find((plan) => (plan.name || plan.id).toLowerCase() === fallbackPlan.name.toLowerCase());
+      return {
+        ...fallbackPlan,
+        ...(livePlan || {}),
+        id: livePlan?.id || fallbackPlan.id,
+        name: fallbackPlan.name,
+        description: livePlan?.description || fallbackPlan.description,
+        features: livePlan?.features?.length ? livePlan.features : fallbackPlan.features,
+      };
+    });
+
     return (
-      <div className="min-h-screen bg-gray-50/70 py-4 sm:py-8 md:py-12">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6">
+      <div className="min-h-screen bg-slate-50 px-3 py-5 sm:px-5 sm:py-8 md:px-6 md:py-10">
+        <div className="mx-auto max-w-6xl">
           {/* Top Bar Navigation */}
           <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
             <button
@@ -5187,7 +5480,7 @@ function BusinessOnboardingInner() {
           </div>
 
           {/* Heading & Subtitle */}
-          <div className="text-center max-w-3xl mx-auto mb-6 sm:mb-10">
+          <div className="mx-auto mb-7 max-w-3xl text-center sm:mb-9">
             <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }}>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full bg-orange-100/80 text-orange-700 text-xs sm:text-sm font-bold mb-2 sm:mb-3 border border-orange-200/60 shadow-2xs">
                 <Crown className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-600" />
@@ -5197,7 +5490,7 @@ function BusinessOnboardingInner() {
                 Select Your <span className="text-orange-600">Membership Tier</span>
               </h1>
               <p className="text-xs sm:text-sm md:text-base text-gray-600 font-medium max-w-xl mx-auto leading-relaxed px-2">
-                Your MCOM Membership provides full ecosystem access, entry into the 90-Day Business Success Programme, and bundled plans across our platform apps.
+                Choose the membership that fits your business. Each tier includes access to the MCOM ecosystem and the 90-Day Business Success Programme.
               </p>
 
               {/* Informational Callout Badge */}
@@ -5229,26 +5522,26 @@ function BusinessOnboardingInner() {
           </div>
 
           {/* Membership Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
-            {plans.map((plan, index) => {
+          <div className="mx-auto mb-8 grid max-w-5xl grid-cols-1 items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6 sm:mb-10">
+            {membershipPlans.map((plan, index) => {
               const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
-              const monthlyPrice = plan.monthlyPrice ?? (typeof plan.price === 'number' ? plan.price : 49);
-              const quarterlyPrice = plan.quarterlyPrice ?? Math.floor(monthlyPrice * (1 - QUARTERLY_DISCOUNT)) * 3;
-              const annualPrice = plan.annualPrice ?? Math.floor(monthlyPrice * (1 - YEARLY_DISCOUNT)) * 12;
+              const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
+              const calculatedQuarterlyPrice = Math.round(monthlyPrice * 3 * (1 - QUARTERLY_DISCOUNT) * 100) / 100;
+              const calculatedAnnualPrice = Math.round(monthlyPrice * 12 * (1 - YEARLY_DISCOUNT) * 100) / 100;
+              const quarterlyPrice = calculatedQuarterlyPrice;
+              const annualPrice = calculatedAnnualPrice;
 
               let displayPrice = monthlyPrice;
               let totalPerCycle = monthlyPrice;
 
               if (planBillingCycle === 'quarterly') {
-                displayPrice = Math.round(quarterlyPrice / 3);
+                displayPrice = quarterlyPrice / 3;
                 totalPerCycle = quarterlyPrice;
               } else if (planBillingCycle === 'yearly') {
-                displayPrice = Math.round(annualPrice / 12);
+                displayPrice = annualPrice / 12;
                 totalPerCycle = annualPrice;
               }
-              const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP] || Building2;
-              const isSubscribingThis = subscribingPlanId === plan.id;
-
+              const PlanIcon = ICON_MAP[(plan.iconName || 'Building2') as keyof typeof ICON_MAP] || Building2;
               return (
                 <motion.div
                   key={plan.id}
@@ -5256,18 +5549,18 @@ function BusinessOnboardingInner() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.06 }}
                   className={cn(
-                    "relative p-4 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl flex flex-col transition-all duration-300",
+                    "relative flex flex-col rounded-2xl border p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl sm:rounded-3xl sm:p-7",
                     isGold
-                      ? "bg-orange-500 text-white shadow-xl shadow-orange-500/25 ring-2 ring-orange-400 sm:ring-4 sm:ring-orange-300/40 z-10"
-                      : "bg-white border border-gray-200/80 hover:border-orange-300 hover:shadow-xl shadow-xs"
+                      ? "z-10 border-orange-300 bg-white shadow-lg shadow-orange-100/70 ring-2 ring-orange-100"
+                      : "border-slate-200 bg-white hover:border-blue-200"
                   )}
                 >
                   {plan.badge ? (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-950 font-extrabold px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs flex items-center gap-1 shadow-md whitespace-nowrap tracking-wide">
+                    <div className="absolute -top-3 left-1/2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full bg-orange-100 px-3 py-1 text-[10px] font-extrabold tracking-wide text-orange-900 shadow-sm sm:text-xs">
                       <Star className="w-3 h-3 fill-current" /> {plan.badge}
                     </div>
                   ) : isGold ? (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 text-amber-950 font-extrabold px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs flex items-center gap-1 shadow-md whitespace-nowrap tracking-wide">
+                    <div className="absolute -top-3 left-1/2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-full bg-orange-100 px-3 py-1 text-[10px] font-extrabold tracking-wide text-orange-900 shadow-sm sm:text-xs">
                       <Star className="w-3 h-3 fill-current" /> MOST POPULAR
                     </div>
                   ) : null}
@@ -5275,18 +5568,16 @@ function BusinessOnboardingInner() {
                   {/* Header: Icon, Name & Who It's For */}
                   <div className="flex items-start justify-between gap-3 mb-3 sm:mb-4">
                     <div className="flex items-center gap-2.5">
-                      <div className={cn("w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center p-2 sm:p-2.5 shadow-2xs shrink-0",
-                        isGold ? "bg-white/20 text-white" : plan.color
+                      <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl p-2 shadow-sm sm:h-12 sm:w-12 sm:rounded-2xl sm:p-2.5",
+                        isGold ? "bg-orange-100 text-orange-700" : plan.color
                       )}>
                         <PlanIcon className="w-full h-full" />
                       </div>
                       <div>
-                        <h3 className="text-base sm:text-lg font-black tracking-tight leading-tight">
-                          {plan.name} <span className={cn(isGold ? "text-orange-100" : "text-gray-500 font-semibold text-xs sm:text-sm")}>Membership</span>
+                        <h3 className="text-base font-black leading-tight tracking-tight text-slate-950 sm:text-lg">
+                          {plan.name} <span className="text-xs font-semibold text-slate-500 sm:text-sm">Membership</span>
                         </h3>
-                        <p className={cn("text-[10px] sm:text-xs font-semibold uppercase tracking-wider mt-0.5",
-                          isGold ? "text-orange-100/90" : "text-gray-500"
-                        )}>
+                        <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 sm:text-xs">
                           For {plan.whoItIsFor || 'Businesses'}
                         </p>
                       </div>
@@ -5294,32 +5585,34 @@ function BusinessOnboardingInner() {
                   </div>
 
                   {/* Price */}
-                  <div className="mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-dashed border-gray-200/80">
+                  <div className="mb-4 border-b border-dashed border-slate-200 pb-4">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight">£{displayPrice}</span>
-                      <span className={cn("text-xs sm:text-sm font-semibold", isGold ? "text-orange-100" : "text-gray-500")}>/mo</span>
+                      <span className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">£{formatMembershipPrice(displayPrice)}</span>
+                      <span className="text-sm font-semibold text-slate-500">/mo</span>
                     </div>
-                    {planBillingCycle !== 'monthly' && (
-                      <div className={cn("text-[11px] sm:text-xs font-bold mt-1 flex items-center gap-1", isGold ? "text-green-200" : "text-green-600")}>
-                        <span>£{totalPerCycle} billed {planBillingCycle === 'yearly' ? 'annually' : 'quarterly'}</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-green-100 text-green-800 font-extrabold uppercase">
-                          {planBillingCycle === 'yearly' ? 'Save 20%' : 'Save 10%'}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                      <span>
+                        {planBillingCycle === 'monthly'
+                          ? 'Billed monthly'
+                          : `£${formatMembershipPrice(totalPerCycle)} billed ${planBillingCycle === 'yearly' ? 'annually' : 'every 3 months'}`}
+                      </span>
+                      {planBillingCycle !== 'monthly' && (
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+                          Save {planBillingCycle === 'yearly' ? '20%' : '10%'}
                         </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* Description */}
-                  <p className={cn("text-xs sm:text-sm font-medium leading-relaxed mb-3 sm:mb-4",
-                    isGold ? "text-orange-50" : "text-gray-600"
-                  )}>
+                  <p className="mb-4 text-sm font-medium leading-relaxed text-slate-600">
                     {plan.description}
                   </p>
 
                   {/* Bundled Platform Plans */}
                   {plan.includedApps && plan.includedApps.length > 0 && (
-                    <div className={cn("p-2.5 sm:p-3 rounded-xl mb-3 sm:mb-4", isGold ? "bg-white/15" : "bg-orange-50/80 border border-orange-100")}>
-                      <div className={cn("text-[10px] sm:text-[11px] font-bold uppercase tracking-wider mb-2 flex items-center justify-between", isGold ? "text-orange-100" : "text-orange-900")}>
+                    <div className="mb-4 rounded-xl border border-orange-100 bg-orange-50/70 p-3">
+                      <div className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-orange-900 sm:text-[11px]">
                         <span className="flex items-center gap-1">
                           <Layers className="w-3 h-3 text-orange-500" /> Bundled Platform Plans
                         </span>
@@ -5327,10 +5620,10 @@ function BusinessOnboardingInner() {
                       </div>
                       <div className="space-y-1 sm:space-y-1.5">
                         {plan.includedApps.map((item, idx) => (
-                          <div key={idx} className={cn("flex items-center justify-between text-[11px] sm:text-xs font-semibold px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg", isGold ? "bg-white/10 text-white" : "bg-white text-gray-800 shadow-2xs border border-gray-100")}>
+                          <div key={idx} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm sm:px-2.5 sm:py-1.5 sm:text-xs">
                             <span className="truncate">{item.platform}: <span className="font-bold">{item.planName}</span></span>
                             {item.standalonePrice ? (
-                              <span className={cn("text-[10px] shrink-0 ml-1 font-normal", isGold ? "text-orange-200" : "text-gray-400")}>
+                              <span className="ml-1 shrink-0 text-[10px] font-normal text-slate-400">
                                 (£{item.standalonePrice}/mo val)
                               </span>
                             ) : null}
@@ -5342,15 +5635,13 @@ function BusinessOnboardingInner() {
 
                   {/* Included Membership Features */}
                   <div className="space-y-2 sm:space-y-2.5 mb-5 sm:mb-6 flex-1">
-                    <div className={cn("text-[10px] sm:text-[11px] font-bold uppercase tracking-wider",
-                      isGold ? "text-orange-100/80" : "text-gray-500"
-                    )}>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 sm:text-[11px]">
                       Membership Inclusions:
                     </div>
                     {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
                       <div key={i} className="flex items-start gap-2">
-                        <Check className={cn("w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 mt-0.5", isGold ? "text-orange-200" : "text-orange-600")} />
-                        <span className={cn("text-xs sm:text-sm font-medium leading-snug", isGold ? "text-white" : "text-gray-700")}>{f}</span>
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
+                        <span className="text-sm font-medium leading-snug text-slate-700">{f}</span>
                       </div>
                     ))}
                   </div>
@@ -5361,7 +5652,7 @@ function BusinessOnboardingInner() {
                       setSelectedMembershipForPayment({
                         id: plan.id,
                         name: plan.name,
-                        price: Number(plan.price),
+                        price: monthlyPrice,
                         billingCycle: planBillingCycle,
                         totalPerCycle: totalPerCycle,
                         description: plan.description,
@@ -5371,7 +5662,7 @@ function BusinessOnboardingInner() {
                     }}
                     className={cn(
                       "w-full py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm md:text-base transition-all active:scale-98 shadow-md flex items-center justify-center gap-1.5 cursor-pointer",
-                      isGold ? "bg-white text-orange-600 hover:bg-orange-50 shadow-orange-950/20" : "bg-orange-500 text-white hover:bg-orange-600 shadow-orange-500/20"
+                      isGold ? "bg-slate-950 text-white shadow-slate-900/15 hover:bg-slate-800" : "bg-orange-600 text-white shadow-orange-600/20 hover:bg-orange-700"
                     )}
                   >
                     Select {plan.name} Membership
@@ -5498,8 +5789,9 @@ function BusinessOnboardingInner() {
     };
 
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
+      <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#fafafa]">
+        <ChsLogoPattern className="fixed !opacity-[0.055]" />
+        <div className="relative z-10 flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
 
             {/* Top Bar with Restart, Skip, and Logout */}
@@ -6015,7 +6307,7 @@ function BusinessOnboardingInner() {
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500 shadow-lg shadow-orange-500/20 mb-4">
               <Compass className="w-7 h-7 text-white" />
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight">Select Your Borough</h1>
+            <h1 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight">Choose Your Local Area</h1>
             <p className="text-gray-500 text-sm mt-1.5 max-w-md mx-auto">
               Search or select a local business district to connect your storefront.
             </p>
@@ -6034,7 +6326,7 @@ function BusinessOnboardingInner() {
                 type="text"
                 value={boroughSearchQuery}
                 onChange={(e) => setBoroughSearchQuery(e.target.value)}
-                placeholder="Search boroughs, districts or postcodes..."
+                placeholder="Search areas, districts, or postcodes..."
                 className="w-full pl-12 pr-4 py-4 bg-transparent border-none rounded-xl text-gray-900 placeholder-gray-300 focus:ring-0 text-base"
               />
               {boroughSearchQuery && (
@@ -6104,7 +6396,7 @@ function BusinessOnboardingInner() {
                     </div>
                     {/* Borough name overlay */}
                     <div className="absolute bottom-3 left-3 right-3">
-                      <h3 className="text-base font-bold text-white drop-shadow-sm">{b.name}</h3>
+                      <h3 className="text-base font-bold text-white drop-shadow-sm">{b.name.replace(/ Borough$/, '')}</h3>
                       <p className="text-[11px] text-white/80 flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
                         {b.district}
@@ -6134,7 +6426,7 @@ function BusinessOnboardingInner() {
                     </div>
                     {/* CTA */}
                     <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-                      <span className="text-[11px] text-gray-400 font-medium">Select this borough</span>
+                      <span className="text-[11px] text-gray-400 font-medium">Choose this area</span>
                       <span className="bg-gradient-to-r from-orange-500 to-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg group-hover:shadow-md group-hover:shadow-orange-500/20 transition-shadow">
                         Choose
                       </span>
@@ -6155,7 +6447,7 @@ function BusinessOnboardingInner() {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                 <Search className="w-7 h-7 text-gray-400" />
               </div>
-              <p className="text-gray-500 text-sm font-medium">No boroughs match your search</p>
+              <p className="text-gray-500 text-sm font-medium">No areas match your search</p>
               <button
                 onClick={() => setBoroughSearchQuery('')}
                 className="mt-3 text-orange-600 font-bold text-sm hover:underline"
@@ -6176,15 +6468,8 @@ function BusinessOnboardingInner() {
   // Main Onboarding Flow
   // ═══════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-[#fafafa] relative overflow-x-hidden font-sans">
-      {/* Subtle dot grid background */}
-      <div
-        className="absolute inset-0 opacity-30"
-        style={{
-          backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
-          backgroundSize: '24px 24px',
-        }}
-      />
+    <div className="registration-page relative flex min-h-dvh flex-col overflow-x-hidden overflow-y-auto bg-[#fafafa] font-sans">
+      <ChsLogoPattern className={`opacity-[0.09] ${!isGoogleOnboarding && ['storefront', 'details'].includes(currentQuest.id) ? 'fixed' : ''}`} />
 
       {/* Colored accent strip — changes with each quest */}
       <motion.div
@@ -6193,9 +6478,9 @@ function BusinessOnboardingInner() {
         transition={{ duration: 0.4 }}
       />
 
-      <div className="relative z-10 max-w-2xl mx-auto px-4 sm:px-6 pt-8 pb-32 sm:pb-20">
-        {/* ─── Top Header Bar with Logout ─── */}
-        <div className="flex items-center justify-between mb-6">
+      <div className={`relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pb-3 pt-4 sm:px-6 sm:pb-4 ${isEmailRegistrationStep ? 'max-w-5xl' : 'max-w-2xl'}`}>
+        {/* ─── Onboarding Header ─── */}
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-orange-600 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
               <Building2 className="w-4 h-4" />
@@ -6204,13 +6489,22 @@ function BusinessOnboardingInner() {
               Business Onboarding
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-xs font-semibold text-gray-500 hover:text-red-600 bg-white border border-gray-200/80 hover:border-red-200 hover:bg-red-50/50 px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" /> Log Out
-          </button>
+          {!isGoogleOnboarding && currentQuest.id === 'storefront' && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = new Set(completedSteps);
+                next.add(currentStep);
+                setCompletedSteps(next);
+                setParticleTrigger((p) => p + 1);
+                setTimeout(() => setCurrentStep((c) => c + 1), 300);
+              }}
+              className="flex cursor-pointer items-center gap-1 rounded-xl px-3 py-2 text-sm font-semibold text-gray-500 transition-colors hover:bg-orange-50 hover:text-orange-700"
+            >
+              Skip
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
         </div>
 
         {/* ─── Restore Toast ─── */}
@@ -6237,7 +6531,7 @@ function BusinessOnboardingInner() {
         )}
 
         {/* ─── Step Card ───────────────────────────────── */}
-        <div className="relative">
+        <div className="relative flex min-h-0 flex-1 flex-col justify-center">
           <ParticleBurst color={isGoogleOnboarding ? '#ea580c' : currentQuest.color} trigger={particleTrigger} />
 
           <AnimatePresence mode="wait">
@@ -6247,31 +6541,50 @@ function BusinessOnboardingInner() {
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: -40, scale: 0.98 }}
               transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="bg-white rounded-2xl shadow-xl shadow-gray-200/40 border border-gray-100/80 overflow-hidden"
+              className={`relative flex w-full flex-none flex-col overflow-visible rounded-2xl border border-gray-100/80 bg-white shadow-xl shadow-gray-200/40 ${isEmailRegistrationStep ? 'lg:grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]' : ''}`}
             >
               {/* Colored top stripe */}
-              <div className="h-1" style={{ backgroundColor: isGoogleOnboarding ? '#ea580c' : currentQuest.color }} />
+              <div className="absolute inset-x-0 top-0 z-10 h-1" style={{ backgroundColor: isGoogleOnboarding ? '#ea580c' : currentQuest.color }} />
 
-              <div className="p-6 sm:p-8 lg:p-10">
-                {/* Quest header */}
-                <div className="flex items-start gap-4 mb-8 sm:mb-10">
-                  <div
-                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
-                    style={{ backgroundColor: isGoogleOnboarding ? '#fff7ed' : currentQuest.colorLight }}
-                  >
-                    {isGoogleOnboarding ? (
-                      <svg className="w-6 h-6" viewBox="0 0 24 24">
-                        <path fill="#ea580c" d="M21.35 11.1H12v2.7h5.38c-.24 1.28-.96 2.37-2.05 3.1l3.17 2.46c1.85-1.71 2.9-4.22 2.9-7.26c0-.62-.05-1.21-.15-2z" />
-                        <path fill="#f97316" d="M12 21c2.43 0 4.47-.8 5.96-2.2l-3.17-2.46c-.88.6-2.01.96-3.12.96c-2.4 0-4.44-1.63-5.17-3.82l-3.28 2.54C4.7 18.73 8.08 21 12 21z" />
-                        <path fill="#f59e0b" d="M6.83 13.48a5.35 5.35 0 0 1 0-2.96L3.55 7.98A9.9 9.9 0 0 0 2 12c0 1.48.33 2.89.92 4.16l3.91-3.08z" />
-                        <path fill="#ef4444" d="M12 5.7c1.32 0 2.5.45 3.44 1.35l2.58-2.58C16.46 3.03 14.42 2.3 12 2.3C8.08 2.3 4.7 4.57 2.92 8l3.28 2.54c.73-2.19 2.77-3.84 5.17-3.84z" />
-                      </svg>
-                    ) : (
-                      <QuestIcon className="w-5 h-5 sm:w-7 sm:h-7" style={{ color: currentQuest.color }} />
-                    )}
+              {isEmailRegistrationStep && (
+                <aside className="relative hidden min-h-0 min-w-0 flex-col justify-between overflow-hidden bg-[#fff4eb] lg:flex lg:min-h-[560px]">
+                  <img
+                    src="/values.jpeg"
+                    alt="People working together across connected business services"
+                    className="block min-h-0 w-full min-w-0 flex-1 object-cover object-center"
+                  />
+                  <div className="w-full min-w-0 shrink-0 px-7 pb-7 pt-4 sm:px-8">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-orange-700">One connected ecosystem</p>
+                    <h3 className="max-w-sm text-xl font-bold leading-snug text-slate-900">Set up once. Grow across your business.</h3>
+                    <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-slate-600">
+                      Your business account opens the door to connected storefront, loyalty, rewards and operations tools.
+                    </p>
                   </div>
+                </aside>
+              )}
+
+              <div className={`flex flex-col p-5 sm:p-6 ${isEmailRegistrationStep ? 'lg:flex-1 lg:justify-center lg:px-10 lg:py-9' : ''}`}>
+                {/* Quest header */}
+                <div className={`mb-5 flex items-start sm:mb-6 ${isEmailRegistrationStep ? '' : 'gap-4'}`}>
+                  {!isEmailRegistrationStep && (
+                    <div
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0 shadow-sm"
+                      style={{ backgroundColor: isGoogleOnboarding ? '#fff7ed' : currentQuest.colorLight }}
+                    >
+                      {isGoogleOnboarding ? (
+                        <svg className="w-6 h-6" viewBox="0 0 24 24">
+                          <path fill="#ea580c" d="M21.35 11.1H12v2.7h5.38c-.24 1.28-.96 2.37-2.05 3.1l3.17 2.46c1.85-1.71 2.9-4.22 2.9-7.26c0-.62-.05-1.21-.15-2z" />
+                          <path fill="#f97316" d="M12 21c2.43 0 4.47-.8 5.96-2.2l-3.17-2.46c-.88.6-2.01.96-3.12.96c-2.4 0-4.44-1.63-5.17-3.82l-3.28 2.54C4.7 18.73 8.08 21 12 21z" />
+                          <path fill="#f59e0b" d="M6.83 13.48a5.35 5.35 0 0 1 0-2.96L3.55 7.98A9.9 9.9 0 0 0 2 12c0 1.48.33 2.89.92 4.16l3.91-3.08z" />
+                          <path fill="#ef4444" d="M12 5.7c1.32 0 2.5.45 3.44 1.35l2.58-2.58C16.46 3.03 14.42 2.3 12 2.3C8.08 2.3 4.7 4.57 2.92 8l3.28 2.54c.73-2.19 2.77-3.84 5.17-3.84z" />
+                        </svg>
+                      ) : (
+                        <QuestIcon className="w-5 h-5 sm:w-7 sm:h-7" style={{ color: currentQuest.color }} />
+                      )}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-900 tracking-tight leading-snug">
+                    <h2 className="text-lg font-bold leading-snug tracking-tight text-gray-900 sm:text-xl lg:text-2xl">
                       {isGoogleOnboarding ? (
                         googleStep === 'branch_select' ? 'Select Your Branch' :
                           googleStep === 'fail_safe_form' ? 'Complete Profile Gaps' :
@@ -6516,33 +6829,44 @@ function BusinessOnboardingInner() {
                 )}
 
                 {/* ─── Step 0: Email (Normal flow) ────────────────── */}
-                {!isGoogleOnboarding && currentQuest.id === 'email' && (
-                  <div className="space-y-6">
-                    <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
-                      <p className="text-sm text-orange-900 font-medium leading-relaxed">
-                        We'll use this email to create your account, send verification codes, and keep you updated on your programme progress.
-                      </p>
-                    </div>
+                {isEmailRegistrationStep && (
+                  <div className="space-y-5">
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">
                         Business Email Address
                       </label>
-                      <p className="text-xs text-gray-500 -mt-1">This will be your login and primary contact email</p>
                       <div className="relative">
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                         <Input
                           type="email"
                           value={formData.email}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                          onChange={(e) => {
+                            setFormData({ ...formData, email: e.target.value });
+                            if (submitError) setSubmitError(null);
+                          }}
                           onKeyDown={(e) => e.key === 'Enter' && handleNext()}
                           className="h-12 pl-10 rounded-xl border-gray-200 bg-white text-base placeholder:text-gray-300 focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-0"
                           placeholder="you@yourbusiness.com"
                           autoFocus
                         />
                       </div>
+                      <p className="text-xs leading-relaxed text-gray-500">
+                        We’ll use this address for sign-in, verification codes and setup updates.
+                      </p>
+                      {submitError && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          role="alert"
+                          className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 px-4 py-3"
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                          <p className="text-sm font-medium text-red-700">{submitError}</p>
+                        </motion.div>
+                      )}
 
-                      <div className="text-center pt-4 border-t border-gray-100 mt-6">
-                        <p className="text-sm text-gray-500 font-medium">
+                      <div className="mt-6 border-t border-gray-100 pt-4">
+                        <p className="text-sm font-medium text-gray-600">
                           Already have an account?{' '}
                           <Link
                             to={`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
@@ -6556,16 +6880,6 @@ function BusinessOnboardingInner() {
 
 
 
-                    {submitError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3"
-                      >
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-sm text-red-700 font-medium">{submitError}</p>
-                      </motion.div>
-                    )}
                   </div>
                 )}
 
@@ -6574,12 +6888,14 @@ function BusinessOnboardingInner() {
                   <div className="space-y-6">
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
                       <p className="text-sm text-orange-900 font-medium leading-relaxed">
-                        Check your inbox for a 6-digit verification code. This confirms you own this email address and keeps your account secure.
+                        {import.meta.env.DEV
+                          ? 'Local preview: enter 123456 to continue. This keeps the verification screen in the signup flow without needing the backend.'
+                          : 'Check your inbox for a 6-digit verification code. This confirms you own this email address and keeps your account secure.'}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
                       <p className="text-sm text-gray-500 font-medium">
-                        Code sent to
+                        {import.meta.env.DEV ? 'Email being previewed' : 'Code sent to'}
                       </p>
                       <p className="text-base font-bold text-gray-900 mt-0.5">{formData.email}</p>
                     </div>
@@ -6602,7 +6918,7 @@ function BusinessOnboardingInner() {
                         autoFocus
                       />
                     </div>
-                    <button
+                    {!import.meta.env.DEV && <button
                       type="button"
                       onClick={async () => {
                         setOtpResending(true);
@@ -6613,17 +6929,7 @@ function BusinessOnboardingInner() {
                       className="w-full text-center text-sm text-gray-400 hover:text-orange-500 transition-colors"
                     >
                       {otpResending ? 'Sending...' : "Didn't receive it? Resend code"}
-                    </button>
-                    {submitError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3"
-                      >
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-sm text-red-700 font-medium">{submitError}</p>
-                      </motion.div>
-                    )}
+                    </button>}
                   </div>
                 )}
 
@@ -6640,12 +6946,29 @@ function BusinessOnboardingInner() {
                         Business Postcode
                       </label>
                       <p className="text-xs text-gray-500 -mt-1">Enter the postcode where your business operates from</p>
+                      <button
+                        type="button"
+                        onClick={handleUseDeviceLocation}
+                        disabled={isFindingDeviceAddress}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-800 transition-colors hover:bg-orange-100 disabled:cursor-wait disabled:opacity-70"
+                      >
+                        <MapPin className="h-4 w-4" />
+                        {isFindingDeviceAddress ? 'Finding your business address…' : 'Use my current location'}
+                      </button>
+                      <p className="text-xs text-gray-500">Use this if you’re at your business. You can also enter its postcode below.</p>
                       <div className="relative">
                         <Input
                           value={formData.postcode}
-                          onChange={(e) =>
-                            setFormData({ ...formData, postcode: e.target.value.toUpperCase() })
-                          }
+                          onChange={(e) => {
+                            setFormData({ ...formData, postcode: e.target.value.toUpperCase() });
+                            setProximityResult(null);
+                            setLocationCheckError(null);
+                            setLocationLookupSkipped(false);
+                            setSuggestions([]);
+                            setShowSuggestions(false);
+                            setAddressSearchStatus('idle');
+                            if (submitError) setSubmitError(null);
+                          }}
                           onKeyDown={(e) => e.key === 'Enter' && handleNext()}
                           className="h-14 rounded-xl border-gray-200 bg-white text-2xl text-center font-black tracking-[0.15em] uppercase placeholder:text-gray-300 placeholder:font-normal placeholder:tracking-normal focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-0"
                           placeholder="AB12 3CD"
@@ -6661,6 +6984,21 @@ function BusinessOnboardingInner() {
                           </div>
                         )}
                       </div>
+                      {formData.postcode.trim().length >= 3 && !loadingSuggestions && addressSearchStatus === 'empty' && (
+                        <p className="text-xs text-slate-500" role="status">
+                          No address suggestions were found. You can still continue to check this postcode.
+                        </p>
+                      )}
+                      {formData.postcode.trim().length >= 3 && loadingSuggestions && (
+                        <p className="text-xs text-slate-500" role="status">
+                          Searching for matching addresses…
+                        </p>
+                      )}
+                      {formData.postcode.trim().length >= 3 && !loadingSuggestions && addressSearchStatus === 'error' && (
+                        <p className="text-xs text-amber-700" role="status">
+                          Address suggestions are unavailable right now. You can still try to verify this postcode.
+                        </p>
+                      )}
                     </div>
                     {showSuggestions && suggestions.length > 0 && (
                       <motion.div
@@ -6716,44 +7054,75 @@ function BusinessOnboardingInner() {
                 {/* ─── Step 3: Borough Detected ─────── */}
                 {!isGoogleOnboarding && currentQuest.id === 'borough_detected' && (
                   <div className="space-y-6">
-                    {isCheckingProximity || !proximityResult ? (
+                    {locationLookupSkipped && !proximityResult ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center">
+                        <p className="text-sm font-bold text-slate-800">Area lookup skipped</p>
+                        <p className="mt-1 text-sm text-slate-600">We need a business postcode to identify your district. You can add it later from your profile.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocationLookupSkipped(false);
+                            setLocationCheckError(null);
+                            setCurrentStep(2);
+                          }}
+                          className="mt-3 text-sm font-semibold text-orange-700 hover:underline"
+                        >
+                          Enter postcode now
+                        </button>
+                      </div>
+                    ) : locationCheckError || (!formData.postcode.trim() && !proximityResult) ? (
+                      <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-center">
+                        <p className="text-sm font-semibold text-red-800">
+                          {locationCheckError || 'No postcode is available to identify your local area. Go back and enter your business postcode.'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!formData.postcode.trim()) {
+                              setLocationCheckError(null);
+                              setCurrentStep(2);
+                            } else {
+                              runLocationCheck(formData.postcode).catch(() => {});
+                            }
+                          }}
+                          disabled={isCheckingProximity}
+                          className="mt-3 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {formData.postcode.trim() ? 'Try postcode lookup again' : 'Enter postcode'}
+                        </button>
+                      </div>
+                    ) : isCheckingProximity || !proximityResult ? (
                       <div className="flex flex-col items-center justify-center py-12 gap-4">
                         <motion.div
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-                          className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full"
+                          className="w-10 h-10 border-4 border-orange-600 border-t-transparent rounded-full"
                         />
-                        <p className="text-sm font-bold text-gray-500 animate-pulse">Verifying your business location...</p>
-                        <p className="text-xs text-gray-400">Checking local merchant network in your area</p>
+                        <p className="text-sm font-bold text-gray-700">Finding your business district…</p>
+                        <p className="text-xs text-gray-500">Matching your postcode to the right part of the city.</p>
                       </div>
                     ) : (
                       <>
-                        <div className="bg-purple-50/60 border border-purple-100 rounded-xl p-4">
-                          <p className="text-sm text-purple-900 font-medium leading-relaxed">
-                            We've matched your postcode to a local business district. Review the details below and confirm your borough to continue.
+                        <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-4">
+                          <p className="text-sm font-medium leading-relaxed text-orange-950">
+                            {proximityResult.status === 'active'
+                              ? 'We matched your postcode to this local area. Review the area and business hub below before continuing.'
+                              : 'We checked your postcode, but no active local business hub matched it. Review the area information below before continuing.'}
                           </p>
                         </div>
 
                         {/* Borough card */}
                         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
-                          <div className="h-36 bg-gradient-to-br from-purple-500 to-indigo-600 flex items-end p-4">
+                          <div className="h-36 bg-gradient-to-br from-orange-600 to-amber-500 flex items-end p-4">
                             <div className="flex items-center gap-2">
                               <MapPin className="w-5 h-5 text-white" />
-                              <span className="text-white font-bold text-lg">{selectedBorough}</span>
+                              <span className="text-white font-bold text-lg">{selectedBorough.replace(/ Borough$/, '')}</span>
                             </div>
                           </div>
                           <div className="p-4 space-y-3">
                             <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-gray-700">Local Mall</span>
-                              <span className="text-sm text-gray-900 font-bold">{proximityResult?.localMallName || BOROUGH_DATA[selectedBorough]?.mallName || `${selectedBorough} Mall`}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-gray-700">Nearby Businesses</span>
-                              <span className="text-sm text-orange-600 font-bold">{proximityResult?.businessCount ?? '—'}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-gray-700">Active Shoppers</span>
-                              <span className="text-sm text-gray-900 font-bold">{proximityResult?.consumerCount ? (proximityResult.consumerCount >= 1000 ? `${(proximityResult.consumerCount / 1000).toFixed(1)}k` : String(proximityResult.consumerCount)) : '—'}</span>
+                              <span className="text-sm font-semibold text-gray-700">Local business hub</span>
+                              <span className="text-sm text-gray-900 font-bold">{proximityResult?.localMallName || 'No active hub in this area'}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-gray-700">Postcode</span>
@@ -6764,7 +7133,7 @@ function BusinessOnboardingInner() {
 
                         <div className="flex flex-col gap-2">
                           <p className="text-xs text-gray-400 text-center">
-                            Not your area? <button onClick={() => setShowBoroughBrowser(true)} className="text-purple-600 font-bold hover:underline cursor-pointer">Browse other boroughs</button>
+                            Not your area? <button onClick={() => setShowBoroughBrowser(true)} className="font-bold text-orange-700 hover:underline cursor-pointer">Choose a different area</button>
                           </p>
                         </div>
                       </>
@@ -6775,63 +7144,93 @@ function BusinessOnboardingInner() {
                 {/* ─── Step 4: High Street Activation ─────── */}
                 {!isGoogleOnboarding && currentQuest.id === 'high_street_activation' && (
                   <div className="space-y-6">
-                    <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
-                      <p className="text-sm text-orange-900 font-medium leading-relaxed">
-                        Your business is joining <strong>{selectedBorough}</strong>'s digital ecosystem. Here's what's available in your area.
-                      </p>
-                    </div>
+                    {locationLookupSkipped && !proximityResult ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                        <p className="text-sm font-bold text-amber-900">High Street coverage not checked</p>
+                        <p className="mt-1 text-sm leading-relaxed text-amber-800">Add your business postcode later to check whether your business can join a local High Street hub. You can continue setting up your storefront now.</p>
+                      </div>
+                    ) : locationCheckError ? (
+                      <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                        <p className="text-sm font-bold text-amber-900">We couldn’t check High Street coverage</p>
+                        <p className="mt-1 text-sm leading-relaxed text-amber-800">{locationCheckError} You can continue and add your postcode later.</p>
+                        {formData.postcode.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => runLocationCheck(formData.postcode).catch(() => {})}
+                            disabled={isCheckingProximity}
+                            className="mt-3 text-sm font-semibold text-orange-700 hover:underline disabled:cursor-wait disabled:opacity-60"
+                          >
+                            Try the lookup again
+                          </button>
+                        )}
+                      </div>
+                    ) : (!formData.postcode.trim() && !proximityResult) ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                        <p className="text-sm font-bold text-amber-900">High Street coverage not checked</p>
+                        <p className="mt-1 text-sm leading-relaxed text-amber-800">A business postcode is needed to check local coverage. You can continue now and add your postcode later.</p>
+                      </div>
+                    ) : isCheckingProximity || !proximityResult ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-4">
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                          className="w-10 h-10 border-4 border-orange-600 border-t-transparent rounded-full"
+                        />
+                        <p className="text-sm font-bold text-gray-700">Checking your postcode…</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
+                          <p className="text-sm text-orange-900 font-medium leading-relaxed">
+                            Your postcode has been checked for <strong>{selectedBorough.replace(/ Borough$/, '')}</strong>. Here is the local coverage returned for this area.
+                          </p>
+                        </div>
 
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
-                        <div className="flex items-center gap-3">
-                          <Store className="w-5 h-5 text-green-600" />
-                          <span className="text-sm font-bold text-gray-800">High Street Status</span>
+                        <div className="space-y-3">
+                          <div className={`flex items-center justify-between rounded-xl border p-4 ${proximityResult.status === 'active' ? 'border-green-200 bg-green-50/30' : 'border-gray-200 bg-gray-50/60'}`}>
+                            <div className="flex items-center gap-3">
+                              <Store className={`h-5 w-5 ${proximityResult.status === 'active' ? 'text-green-600' : 'text-gray-500'}`} />
+                              <span className="text-sm font-bold text-gray-800">Local High Street coverage</span>
+                            </div>
+                            <span className={`rounded-full px-3 py-1 text-xs font-bold ${proximityResult.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'}`}>
+                              {proximityResult.status === 'active' ? 'AVAILABLE' : 'NOT AVAILABLE'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-4">
+                            <div className="flex items-center gap-3">
+                              <MapPin className="h-5 w-5 text-orange-600" />
+                              <span className="text-sm font-bold text-gray-800">Local business hub</span>
+                            </div>
+                            <span className="text-right text-sm font-semibold text-gray-700">
+                              {proximityResult.localMallName || 'No active hub matched to this postcode'}
+                            </span>
+                          </div>
                         </div>
-                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">ACTIVE</span>
-                      </div>
-                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
-                        <div className="flex items-center gap-3">
-                          <Globe className="w-5 h-5 text-green-600" />
-                          <span className="text-sm font-bold text-gray-800">Virtual Hub</span>
-                        </div>
-                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">LIVE</span>
-                      </div>
-                      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50/30 opacity-70">
-                        <div className="flex items-center gap-3">
-                          <Building2 className="w-5 h-5 text-gray-400" />
-                          <span className="text-sm font-bold text-gray-500">Physical Hub</span>
-                        </div>
-                        <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-bold">COMING SOON</span>
-                      </div>
-                      <div className="flex items-center justify-between p-4 rounded-xl border border-green-200 bg-green-50/30">
-                        <div className="flex items-center gap-3">
-                          <Users className="w-5 h-5 text-green-600" />
-                          <span className="text-sm font-bold text-gray-800">Community Group</span>
-                        </div>
-                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">ACTIVE</span>
-                      </div>
-                    </div>
 
-                    <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-4">
-                      <p className="text-xs text-amber-800 font-medium">
-                        <strong>{proximityResult?.businessCount ?? '—'}</strong> active merchants in <strong>{selectedBorough}</strong>. Your store will be listed in the local directory.
-                      </p>
-                    </div>
+                        <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-4">
+                          <p className="text-xs text-amber-800 font-medium">
+                            {proximityResult.status === 'active'
+                              ? 'This postcode matches an active local business hub.'
+                              : 'No active local business hub matched this postcode. You can continue with your business setup.'}
+                          </p>
+                        </div>
 
-                    <button
-                      onClick={() => setShowLearnMoreModal(true)}
-                      className="text-sm text-orange-600 font-bold hover:underline cursor-pointer bg-transparent border-none mx-auto block"
-                    >
-                      Learn more about High Street Activation
-                    </button>
+                        <button
+                          onClick={() => setShowLearnMoreModal(true)}
+                          className="text-sm text-orange-600 font-bold hover:underline cursor-pointer bg-transparent border-none mx-auto block"
+                        >
+                          Learn more about High Street Activation
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
                 {/* ─── Step 5: Storefront Setup ─────── */}
                 {!isGoogleOnboarding && currentQuest.id === 'storefront' && (
                   <div className="space-y-6">
-                    <div className="bg-cyan-50/60 border border-cyan-100 rounded-xl p-4">
-                      <p className="text-sm text-cyan-900 font-medium leading-relaxed">
+                    <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-4">
+                      <p className="text-sm font-medium leading-relaxed text-orange-900">
                         Add photos and a description to make your storefront stand out. Don't worry about dimensions — auto-crop is active.
                       </p>
                     </div>
@@ -6849,13 +7248,19 @@ function BusinessOnboardingInner() {
 
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description</label>
-                      <textarea
-                        value={formData.shortDescription}
-                        onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
-                        rows={3}
-                        className="w-full rounded-xl border border-gray-200 bg-white text-base placeholder:text-gray-300 p-3 focus-visible:ring-2 focus-visible:ring-cyan-300 focus-visible:ring-offset-0 outline-none resize-none"
-                        placeholder="Tell customers what your business is about..."
-                      />
+                      <div className="relative">
+                        <textarea
+                          value={formData.shortDescription}
+                          onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
+                          maxLength={200}
+                          rows={3}
+                          className="w-full resize-none rounded-xl border border-gray-200 bg-white p-3 pb-8 text-base placeholder:text-gray-300 outline-none focus-visible:ring-2 focus-visible:ring-orange-300 focus-visible:ring-offset-0"
+                          placeholder="Tell customers what your business is about..."
+                        />
+                        <span aria-live="polite" className="pointer-events-none absolute bottom-3 right-3 text-xs text-slate-500">
+                          {formData.shortDescription.length}/200 characters
+                        </span>
+                      </div>
                     </div>
 
                     <div>
@@ -6870,7 +7275,8 @@ function BusinessOnboardingInner() {
                           <Image className="w-6 h-6 text-gray-400" />
                         )}
                       </div>
-                      <input type="file" ref={fileInputRef} onChange={handleLogoChange} accept="image/*" className="hidden" />
+                      <input type="file" ref={fileInputRef} onChange={handleLogoChange} accept={BUSINESS_IMAGE_ACCEPT} className="hidden" />
+                      <p className="mt-2 text-xs text-slate-500">{BUSINESS_IMAGE_HELP}</p>
                     </div>
 
                     <div>
@@ -6888,7 +7294,8 @@ function BusinessOnboardingInner() {
                           </div>
                         )}
                       </div>
-                      <input type="file" ref={coverInputRef} onChange={handleCoverChange} accept="image/*" className="hidden" />
+                      <input type="file" ref={coverInputRef} onChange={handleCoverChange} accept={BUSINESS_IMAGE_ACCEPT} className="hidden" />
+                      <p className="mt-2 text-xs text-slate-500">{BUSINESS_IMAGE_HELP}</p>
                     </div>
                   </div>
                 )}
@@ -7011,16 +7418,6 @@ function BusinessOnboardingInner() {
                       </label>
                     </div>
 
-                    {submitError && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3"
-                      >
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-sm text-red-700 font-medium">{submitError}</p>
-                      </motion.div>
-                    )}
                   </div>
                 )}
 
@@ -7048,9 +7445,11 @@ function BusinessOnboardingInner() {
                       <textarea
                         value={formData.shortDescription}
                         onChange={(e) => setFormData({ ...formData, shortDescription: e.target.value })}
+                        maxLength={200}
                         className="w-full min-h-[5.5rem] p-3 rounded-xl border border-gray-200 bg-white text-base placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-300"
                         placeholder="Describe your business in a few sentences..."
                       />
+                      <p className="mt-1 text-right text-xs text-slate-500">{formData.shortDescription.length}/200 characters</p>
                     </div>
 
                     <div>
@@ -7074,7 +7473,7 @@ function BusinessOnboardingInner() {
                         type="file"
                         ref={fileInputRef}
                         onChange={handleLogoChange}
-                        accept="image/*"
+                        accept={BUSINESS_IMAGE_ACCEPT}
                         className="hidden"
                         id="logo-file-input"
                       />
@@ -7105,10 +7504,11 @@ function BusinessOnboardingInner() {
                           <div className="flex flex-col items-center justify-center py-5 gap-1.5">
                             <Upload className="w-8 h-8 text-gray-300" />
                             <span className="font-semibold text-gray-400 text-xs">Click to select your logo</span>
-                            <span className="text-gray-300 text-[10px]">PNG, SVG, or JPG</span>
+                            <span className="text-gray-500 text-[10px]">{BUSINESS_IMAGE_HELP}</span>
                           </div>
                         )}
                       </motion.div>
+                      <p className="mt-2 text-xs text-slate-500">{BUSINESS_IMAGE_HELP}</p>
                     </div>
                   </div>
                 )}
@@ -7223,17 +7623,6 @@ function BusinessOnboardingInner() {
                       </button>
                     </div>
 
-                    {/* Additional Context Illustration Card */}
-                    <div className="w-full bg-[#fff1eb] rounded-2xl p-5 flex items-start sm:items-center gap-4 border border-[#e2bfb0]/30 shadow-sm">
-                      <div className="flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden shadow-inner border border-white">
-                        <img className="w-full h-full object-cover" alt="Merchant Tip Visual" src="https://lh3.googleusercontent.com/aida/AP1WRLuT-cyMk_5SJq4_a0IypGgxzxzf7ZCVGltAtELjippWSQEUd2rpwXQU_HINozI_SURzix0SJeEEH9T0LbAylYcLQ7BRkAg5ZQQp2cQ4ccljRzYxBERWKRaihouLxzvffrR7Tmv_welD8NB9nUgZuLnvMpq09tg7p_8CIlFL6iRRgryg1AEsc98zZoSfWJV-iBd1LIOaLJ8_AZUPcuYzNeTyV4AhUc10JNtLL3N9NHPZ26nmp5NQxWnYXWQ" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 leading-relaxed font-medium">
-                          <strong className="text-orange-950 font-bold">Tip:</strong> You can change this later in your profile settings. This selection helps us automate your tax and shipping defaults.
-                        </p>
-                      </div>
-                    </div>
                   </div>
                 )}
 
@@ -7246,17 +7635,21 @@ function BusinessOnboardingInner() {
                       </p>
                     </div>
 
-                    {sectorsError && (
-                      <div className="flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-sm text-red-700 font-medium">Failed to load categories. Using offline data.</p>
+                    {isUsingLocalCatalog && (
+                      <div className="flex items-start gap-2.5 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
+                        <p className="text-sm font-medium text-orange-900">
+                          {preferLocalCatalog
+                            ? 'Using the built-in sample categories for development.'
+                            : 'The category service is unavailable. Showing built-in sample categories so you can continue.'}
+                        </p>
                       </div>
                     )}
 
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Sector</label>
                       <p className="text-xs text-gray-500 -mt-1">Choose the broad industry your business belongs to</p>
-                      {sectorsLoading ? (
+                      {sectorsLoading && !preferLocalCatalog ? (
                         <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
                       ) : (
                         <select
@@ -7265,7 +7658,7 @@ function BusinessOnboardingInner() {
                           className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
                         >
                           <option value="">Select a Sector</option>
-                          {sectors?.map(s => (
+                          {onboardingSectors.map(s => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
@@ -7275,7 +7668,7 @@ function BusinessOnboardingInner() {
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Primary Category</label>
                       <p className="text-xs text-gray-500 -mt-1">Narrow down to the specific group within your sector</p>
-                      {categoriesLoading ? (
+                      {categoriesLoading && !preferLocalCatalog ? (
                         <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
                       ) : (
                         <select
@@ -7285,7 +7678,7 @@ function BusinessOnboardingInner() {
                           className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
                         >
                           <option value="">Select a Category</option>
-                          {categories?.map(c => (
+                          {onboardingCategories.map(c => (
                             <option key={c.id} value={c.id}>{c.name}</option>
                           ))}
                         </select>
@@ -7295,7 +7688,7 @@ function BusinessOnboardingInner() {
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Type</label>
                       <p className="text-xs text-gray-500 -mt-1">Pick the exact type that matches your operations (optional)</p>
-                      {subcategoriesLoading ? (
+                      {subcategoriesLoading && !preferLocalCatalog ? (
                         <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
                       ) : (
                         <select
@@ -7305,7 +7698,7 @@ function BusinessOnboardingInner() {
                           className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
                         >
                           <option value="">Select a Business Type</option>
-                          {subcategories?.map(sc => (
+                          {onboardingSubcategories.map(sc => (
                             <option key={sc.id} value={sc.id}>{sc.name}</option>
                           ))}
                         </select>
@@ -7631,8 +8024,8 @@ function BusinessOnboardingInner() {
         </div>
 
         {/* ─── Navigation ──────────────────────────────── */}
-        <div className="fixed bottom-4 left-4 right-4 p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-gray-200 shadow-2xl z-[55] sm:static sm:bg-transparent sm:border-none sm:shadow-none sm:p-0 sm:mt-8">
-          {submitError && !isGoogleOnboarding && (
+        <div className="z-[55] mt-6 shrink-0 rounded-2xl border border-gray-200 bg-white/95 p-2 pt-3 shadow-xl backdrop-blur-md sm:border-none sm:bg-transparent sm:p-0 sm:shadow-none">
+          {submitError && !isGoogleOnboarding && currentStep !== 0 && !isEmailRegistrationStep && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -7642,7 +8035,7 @@ function BusinessOnboardingInner() {
               <p className="text-sm text-red-700 font-medium">{submitError}</p>
             </motion.div>
           )}
-          <div className="max-w-2xl mx-auto flex items-center justify-between w-full">
+          <div className={`mx-auto flex w-full items-center justify-between ${isEmailRegistrationStep ? 'max-w-5xl' : 'max-w-2xl'}`}>
             <button
               onClick={isGoogleOnboarding ? handleGoogleBack : handleBack}
               aria-label="Go back"
@@ -7652,19 +8045,23 @@ function BusinessOnboardingInner() {
               Back
             </button>
 
-            {/* Skip button for optional steps */}
-            {!isGoogleOnboarding && ['hours', 'booking_prefs', 'appointment_struct', 'service_zones', 'fulfillment'].includes(currentQuest.id) && (
+            {/* Explicit skip for unavailable location details; optional-step skip for other pages. */}
+            {!isGoogleOnboarding && (
+              ['postcode', 'borough_detected', 'hours', 'booking_prefs', 'appointment_struct', 'service_zones', 'fulfillment'].includes(currentQuest.id)
+            ) && (
               <button
-                onClick={() => {
-                  const next = new Set(completedSteps);
-                  next.add(currentStep);
-                  setCompletedSteps(next);
-                  setParticleTrigger((p) => p + 1);
-                  setTimeout(() => setCurrentStep((c) => c + 1), 300);
-                }}
+                onClick={['postcode', 'borough_detected'].includes(currentQuest.id)
+                  ? handleSkipLocationStep
+                  : () => {
+                    const next = new Set(completedSteps);
+                    next.add(currentStep);
+                    setCompletedSteps(next);
+                    setParticleTrigger((p) => p + 1);
+                    setTimeout(() => setCurrentStep((c) => c + 1), 300);
+                  }}
                 className="flex items-center gap-1 text-sm font-semibold px-4 py-2.5 rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-all"
               >
-                Skip
+                {currentQuest.id === 'postcode' ? 'Skip location' : currentQuest.id === 'borough_detected' ? 'Skip area' : 'Skip'}
                 <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -7783,7 +8180,7 @@ function BusinessOnboardingInner() {
                             <Check className="w-3.5 h-3.5 text-orange-600" strokeWidth={3} />
                           </div>
                           <span className="text-sm font-semibold text-gray-600">
-                            Active in the {proximityResult.resolvedArea} Borough network
+                            Active in the {proximityResult.resolvedArea.replace(/ Borough$/, '')} local network
                           </span>
                         </li>
                       </>
@@ -7886,10 +8283,17 @@ function BusinessOnboardingInner() {
         open={showVerificationModal}
         trialDays={trialConfigDays}
         amount={verificationFeeAmount}
-        onClose={() => setShowVerificationModal(false)}
+        onClose={() => {
+          setShowVerificationModal(false);
+          setShowProgrammeIntro(true);
+        }}
         onSuccess={() => {
           setShowVerificationModal(false);
-          localStorage.setItem('onboardingVerificationFeePaid', 'true');
+          if (import.meta.env.DEV) {
+            localStorage.removeItem('onboardingVerificationFeePaid');
+          } else {
+            localStorage.setItem('onboardingVerificationFeePaid', 'true');
+          }
           setShowInitialAssessment(false);
           setShowChoosePlan(true);
         }}
@@ -7916,7 +8320,7 @@ const BUILDING_STEPS = [
   "Generating QR Links",
   "Configuring Rewards System",
   "Initializing Loyalty Engine",
-  "Connecting to Borough",
+  "Finding your local area",
   "Verifying High Street Connection",
   "Setting up Gamification"
 ];
