@@ -8,7 +8,6 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
-import PricingPage from './pages/PricingPage';
 import MembershipPage from './pages/MembershipPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
@@ -17,8 +16,7 @@ import PaymentSuccessPage from './pages/PaymentSuccessPage';
 import RegistrationEntry from './pages/RegistrationEntry';
 import CustomerRegistration from './pages/CustomerRegistration';
 import AffiliateRoleSelection from './pages/AffiliateRoleSelection';
-import CustomerLandingPage from './pages/CustomerLandingPage';
-import GetStartedRoleSelect from './pages/getstarted/GetStartedRoleSelect';
+import CustomerDashboard from './pages/CustomerDashboard';
 import BusinessOnboarding from './pages/getstarted/BusinessOnboarding';
 import HighStreetExplanationUX from './pages/section/ui/ux/high-street/page';
 import { AnimatePresence, motion } from 'motion/react';
@@ -58,6 +56,16 @@ function SignupRedirect() {
 
 import ErrorBoundary from './components/ErrorBoundary';
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  React.useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return null;
+}
+
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <ErrorBoundary>
@@ -84,11 +92,12 @@ function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
 function AnimatedRoutes() {
   const location = useLocation();
   const isDashboard = location.pathname.startsWith('/dashboard');
+  const isCustomerDashboard = location.pathname.startsWith('/customer');
   const isAdmin = location.pathname.startsWith('/admin');
   const isLogin = location.pathname === '/login';
   const isRegister = location.pathname.startsWith('/register');
   const isGetStarted = location.pathname.startsWith('/getstarted') || location.pathname.startsWith('/signup');
-  const hideNavFooter = isDashboard || isLogin || isAdmin || isRegister || isGetStarted;
+  const hideNavFooter = isDashboard || isCustomerDashboard || isLogin || isAdmin || isRegister || isGetStarted;
 
   return (
     <>
@@ -149,11 +158,7 @@ function AnimatedRoutes() {
           />
           <Route 
             path="/pricing" 
-            element={
-              <PageWrapper>
-                <PricingPage />
-              </PageWrapper>
-            } 
+            element={<Navigate to="/register" replace />}
           />
           <Route 
             path="/membership" 
@@ -198,11 +203,11 @@ function AnimatedRoutes() {
             } 
           />
           <Route 
-            path="/customer" 
+            path="/customer/*"
             element={
               <ProtectedCustomerRoute>
                 <PageWrapper>
-                  <CustomerLandingPage />
+                  <CustomerDashboard />
                 </PageWrapper>
               </ProtectedCustomerRoute>
             } 
@@ -267,7 +272,7 @@ function AnimatedRoutes() {
             path="/getstarted" 
             element={
               <PageWrapper>
-                <GetStartedRoleSelect />
+                <RegistrationEntry />
               </PageWrapper>
             } 
           />
@@ -303,6 +308,7 @@ export default function App() {
         <BusinessProvider>
           <AdminAuthProvider>
             <Router>
+                <ScrollToTop />
                 <AnimatedRoutes />
               </Router>
           </AdminAuthProvider>

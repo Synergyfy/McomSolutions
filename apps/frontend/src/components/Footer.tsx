@@ -9,7 +9,7 @@ export default function Footer() {
   const mcomProducts = PRODUCTS.filter(p => p.type === 'Mcom');
 
   return (
-    <footer className="bg-gray-50 border-t border-gray-100 pt-24 pb-12">
+    <footer className="site-chrome bg-gray-50 border-t border-gray-100 pt-24 pb-12">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 md:gap-12 mb-12 md:mb-20">
           <div className="col-span-2 lg:col-span-2 text-center md:text-left">
@@ -56,14 +56,14 @@ export default function Footer() {
             <h4 className="font-bold mb-8 text-gray-900">Resources</h4>
             <ul className="space-y-4 text-gray-500 font-medium">
               <li><Link to="/about" className="hover:text-brand-blue transition-colors">About Us</Link></li>
-              <li><Link to="/pricing" className="hover:text-brand-blue transition-colors">Pricing</Link></li>
+              <li><Link to="/register" className="hover:text-brand-blue transition-colors">Plans and signup</Link></li>
               <li><Link to="/blog" className="hover:text-brand-blue transition-colors">Insights</Link></li>
               <li><Link to="/contact" className="hover:text-brand-blue transition-colors">Contact</Link></li>
               <li><Link to="/support" className="hover:text-brand-blue transition-colors">Support</Link></li>
             </ul>
           </div>
 
-          <div>
+          <div className="col-span-2 md:col-span-1">
             <h4 className="font-bold mb-8 text-gray-900">Join the Suite</h4>
             <div className="space-y-6">
               <p className="text-sm text-gray-500 font-medium">Get the latest ecosystem updates delivered to your inbox.</p>
@@ -71,7 +71,7 @@ export default function Footer() {
                 <input 
                   type="email" 
                   placeholder="name@company.com" 
-                  className="w-full pl-4 pr-12 py-3 rounded-xl bg-white border border-gray-200 outline-none focus:border-brand-blue transition-all font-medium text-sm"
+                  className="w-full min-w-0 pl-4 pr-12 py-3 rounded-xl bg-white border border-gray-200 outline-none focus:border-brand-blue transition-all font-medium text-sm"
                 />
                 <button className="absolute right-2 top-1.5 w-9 h-9 flex items-center justify-center bg-brand-blue text-white rounded-lg hover:bg-blue-600 transition-colors shadow-lg active:scale-95">
                   <ArrowRight className="w-4 h-4" />

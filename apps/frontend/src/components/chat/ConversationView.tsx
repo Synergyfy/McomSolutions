@@ -75,7 +75,7 @@ export default function ConversationView({
     <div className="flex flex-col h-full bg-[#FAFAFA]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100 shadow-xs shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onBack}
@@ -97,7 +97,7 @@ export default function ConversationView({
             )}
           </div>
 
-          <div>
+          <div className="min-w-0 flex-1">
             <h4 className="font-bold text-xs sm:text-sm text-gray-900 line-clamp-1">
               {conversation.title}
             </h4>

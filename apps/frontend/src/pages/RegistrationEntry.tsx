@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Building2, User, Briefcase, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Building2, User, Briefcase, ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import { persistReferralCodeFromSearchParams } from '../lib/referral';
+import ChsLogoPattern from '../components/ChsLogoPattern';
 
 export default function RegistrationEntry() {
   const navigate = useNavigate();
@@ -23,7 +24,9 @@ export default function RegistrationEntry() {
   const handleContinue = () => {
     const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
     if (selectedRole === 'business') {
-      navigate(`/getstarted/business${searchStr}`);
+      const businessParams = new URLSearchParams(searchParams);
+      businessParams.set('entry', 'signup');
+      navigate(`/getstarted/business?${businessParams.toString()}`);
     } else if (selectedRole === 'customer') {
       navigate(`/register/customer${searchStr}`);
     } else if (selectedRole === 'affiliate') {
@@ -34,10 +37,8 @@ export default function RegistrationEntry() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
-      {/* Background glow effects */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-orange-200/50 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-orange-100/50 blur-[120px] pointer-events-none" />
+      <div className="registration-page relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-gray-50 p-4 sm:p-6 md:p-8">
+      <ChsLogoPattern />
 
       <motion.button 
         onClick={() => navigate('/')}
@@ -50,16 +51,17 @@ export default function RegistrationEntry() {
       </motion.button>
 
       <motion.div 
-        className="w-full max-w-2xl bg-white border border-gray-200 rounded-2xl sm:rounded-3xl p-5 sm:p-8 md:p-10 shadow-xl relative z-10"
+        className="w-full max-w-5xl rounded-[1.75rem] border border-white/80 bg-white/95 p-5 shadow-[0_28px_90px_rgba(20,30,48,0.16)] backdrop-blur sm:rounded-[2rem] sm:p-8 md:p-11 relative z-10"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <div className="text-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2 sm:mb-3 tracking-tight">Join the Ecosystem</h1>
-          <p className="text-gray-500 text-sm sm:text-base font-normal">Who are you registering as today?</p>
+        <div className="mx-auto mb-8 max-w-xl text-center sm:mb-10">
+          <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-orange-600">Create your account</p>
+          <h1 className="text-3xl font-semibold tracking-[-0.045em] text-slate-950 sm:text-4xl">Join the Ecosystem</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-500 sm:text-base">Choose the account type that best describes you.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
           {roles.map((role) => {
             const Icon = role.icon;
             const isSelected = selectedRole === role.id;
@@ -67,21 +69,27 @@ export default function RegistrationEntry() {
               <motion.button
                 key={role.id}
                 onClick={() => setSelectedRole(role.id)}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
-                className={`flex flex-col items-start p-4 sm:p-5 md:p-6 rounded-xl sm:rounded-2xl border text-left transition-all ${
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.99 }}
+                aria-pressed={isSelected}
+                className={`group relative flex min-h-[190px] cursor-pointer flex-col items-start rounded-2xl border p-5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-500/20 sm:min-h-[205px] sm:p-6 ${
                   isSelected 
-                    ? 'bg-orange-50 border-orange-500 shadow-[0_0_15px_rgba(255,105,0,0.15)] ring-1 ring-orange-500' 
-                    : 'bg-white border-gray-200 hover:border-orange-300 hover:shadow-md'
+                    ? 'border-orange-500 bg-orange-50/80 shadow-[0_12px_32px_rgba(255,105,0,0.12)] ring-1 ring-orange-500'
+                    : 'border-slate-200 bg-white hover:border-orange-300 hover:shadow-[0_12px_32px_rgba(20,30,48,0.08)]'
                 }`}
               >
-                <div className={`p-3 sm:p-3.5 rounded-xl mb-3 transition-colors ${isSelected ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-gray-100 text-gray-500'}`}>
-                  <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                <div className="mb-7 flex w-full items-center justify-between">
+                  <span className={`flex h-12 w-12 items-center justify-center rounded-2xl transition-colors ${isSelected ? 'bg-orange-500 text-white' : 'bg-orange-50 text-orange-600 group-hover:bg-orange-100'}`}>
+                    <Icon className="h-5 w-5" strokeWidth={1.8} />
+                  </span>
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full border transition-colors ${isSelected ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-200 bg-white text-transparent group-hover:border-orange-300'}`}>
+                    <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  </span>
                 </div>
-                <h3 className={`text-base sm:text-lg md:text-xl font-semibold mb-1 ${isSelected ? 'text-gray-900' : 'text-gray-800'}`}>
+                <h3 className={`text-lg font-semibold tracking-tight sm:text-xl ${isSelected ? 'text-slate-950' : 'text-slate-800'}`}>
                   {role.title}
                 </h3>
-                <p className={`text-xs sm:text-sm leading-relaxed ${isSelected ? 'text-orange-900' : 'text-gray-500'}`}>
+                <p className={`mt-1.5 max-w-[28ch] text-sm leading-6 ${isSelected ? 'text-orange-900/80' : 'text-slate-500'}`}>
                   {role.description}
                 </p>
               </motion.button>
@@ -89,20 +97,20 @@ export default function RegistrationEntry() {
           })}
         </div>
 
-        <div className="flex justify-center mt-4 sm:mt-6">
+        <div className="mt-7 flex flex-col gap-4 border-t border-slate-100 pt-5 sm:mt-8 sm:flex-row sm:items-center sm:justify-between sm:pt-6">
+          <p className={`text-center text-xs font-semibold sm:text-left ${selectedRole ? 'text-orange-600' : 'text-slate-400'}`}>{selectedRole ? `Selected: ${roles.find((role) => role.id === selectedRole)?.title}` : 'Select an account type to continue.'}</p>
           <motion.button
             onClick={handleContinue}
             disabled={!selectedRole}
-            className={`flex items-center justify-center w-full sm:w-auto px-8 sm:px-12 py-3.5 sm:py-4 rounded-full font-semibold text-base sm:text-lg transition-all ${
+            className={`flex w-full items-center justify-center gap-3 rounded-full px-8 py-3.5 text-sm font-semibold transition-all sm:w-auto sm:px-9 sm:py-4 sm:text-base ${
               selectedRole 
-                ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30' 
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20 hover:-translate-y-0.5 hover:bg-orange-700'
+                : 'cursor-not-allowed bg-slate-100 text-slate-400'
             }`}
-            whileHover={selectedRole ? { scale: 1.02 } : {}}
-            whileTap={selectedRole ? { scale: 0.98 } : {}}
+            whileHover={selectedRole ? { y: -1 } : {}}
+            whileTap={selectedRole ? { scale: 0.99 } : {}}
           >
-            Continue
-            <ChevronRight className="w-5 h-5 ml-1.5" />
+            Continue <ArrowRight className="h-4 w-4" />
           </motion.button>
         </div>
       </motion.div>

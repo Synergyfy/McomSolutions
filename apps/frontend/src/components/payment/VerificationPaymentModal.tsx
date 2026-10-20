@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Sparkles, Lock, ArrowRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Lock, ArrowRight } from 'lucide-react';
+import { motion } from 'motion/react';
 import { paymentApi } from '../../services/payment';
 import { cn } from '../../lib/utils';
 
@@ -12,12 +12,10 @@ function StripeVerificationForm({
   amount,
   trialDays,
   onSuccess,
-  onCancel,
 }: {
   amount: number;
   trialDays: number;
   onSuccess: () => void;
-  onCancel: () => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -82,7 +80,7 @@ function StripeVerificationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="p-4 border border-gray-200 rounded-xl bg-gray-50/50 min-h-[160px]">
+      <div className="min-h-[160px] rounded-2xl border border-slate-200 bg-white p-4">
         <PaymentElement
           onReady={() => setIsStripeReady(true)}
           options={{
@@ -90,16 +88,16 @@ function StripeVerificationForm({
           }}
         />
         {!isStripeReady && (
-          <div className="flex items-center justify-center py-8 text-gray-400 gap-2 text-sm">
-            <RefreshCw className="w-4 h-4 animate-spin text-brand-blue" />
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+            <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
             Loading secure payment form...
           </div>
         )}
       </div>
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start gap-2 font-medium">
-          <span className="shrink-0 mt-0.5">⚠️</span>
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700">
+          <span className="mt-0.5 shrink-0">⚠️</span>
           <span>{error}</span>
         </div>
       )}
@@ -108,10 +106,10 @@ function StripeVerificationForm({
         type="submit"
         disabled={!stripe || isProcessing || !isStripeReady}
         className={cn(
-          "w-full h-12 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2",
+          "flex h-12 w-full items-center justify-center gap-2 rounded-xl font-bold text-white shadow-md transition-all",
           isProcessing || !stripe || !isStripeReady
-            ? "bg-gray-300 cursor-not-allowed shadow-none"
-            : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 active:scale-[0.99] cursor-pointer"
+            ? "cursor-not-allowed bg-slate-300 shadow-none"
+            : "cursor-pointer bg-orange-600 hover:bg-orange-700 active:scale-[0.99]"
         )}
       >
         {isProcessing ? (
@@ -122,7 +120,7 @@ function StripeVerificationForm({
         ) : (
           <>
             <Lock className="w-4 h-4" />
-            Pay £{amount.toFixed(2)} & Start {trialDays}-Day Free Access
+            Pay £{amount.toFixed(2)} &amp; Start {trialDays}-Day Trial
           </>
         )}
       </button>
@@ -148,11 +146,15 @@ export default function VerificationPaymentModal({
   const [loading, setLoading] = useState(false);
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [isDemoPaymentComplete, setIsDemoPaymentComplete] = useState(false);
+  const isDevelopmentPreview = import.meta.env.DEV;
 
   useEffect(() => {
-    if (!open) {
+    if (open) setIsDemoPaymentComplete(false);
+    if (!open || isDevelopmentPreview) {
       setClientSecret(null);
       setInitError(null);
+      setLoading(false);
       return;
     }
 
@@ -179,7 +181,7 @@ export default function VerificationPaymentModal({
     return () => {
       isMounted = false;
     };
-  }, [open]);
+  }, [open, isDevelopmentPreview]);
 
   const handlePaypalSubmit = async () => {
     setPaypalLoading(true);
@@ -204,174 +206,219 @@ export default function VerificationPaymentModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col max-h-[92vh]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="verification-modal-title"
+        className="my-auto flex max-h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white shadow-[0_32px_100px_rgba(2,6,23,0.38)]"
       >
-        {/* Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-gray-900 to-slate-800 p-6 text-white relative">
+        <div className="relative overflow-hidden bg-slate-950 px-5 py-6 text-white sm:px-8 sm:py-7">
+          <div className="absolute -right-12 -top-20 h-52 w-52 rounded-full border-[28px] border-blue-500/10" />
+          <div className="absolute -right-3 -top-12 h-40 w-40 rounded-full border-[18px] border-orange-500/15" />
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+            aria-label="Close verification"
+            className="absolute right-4 top-4 z-10 rounded-xl border border-white/10 bg-white/10 p-2 text-white transition-colors hover:bg-white/20 sm:right-6 sm:top-6"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
 
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
+          <div className="relative z-[1] flex items-start gap-3 pr-10 sm:gap-4">
+            <img src="/chs-icon.png" alt="" className="h-11 w-11 shrink-0 object-contain" />
             <div>
-              <span className="text-xs uppercase tracking-widest text-emerald-400 font-bold">Step 1: Security & Identity</span>
-              <h2 className="text-xl font-bold text-white leading-tight">Account Verification Fee</h2>
-            </div>
-          </div>
-
-          <p className="text-sm text-gray-300 mt-2 leading-relaxed">
-            Pay a nominal <strong className="text-white">£{amount.toFixed(2)}</strong> verification fee to validate your business profile and unlock <strong className="text-emerald-400">{trialDays} days of full platform access</strong>.
-          </p>
-        </div>
-
-        {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-5">
-          {/* Why £1 Badge */}
-          <div className="p-3.5 bg-emerald-50/70 border border-emerald-100 rounded-2xl flex items-start gap-3">
-            <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-emerald-950 space-y-1">
-              <p className="font-bold">What is this fee for?</p>
-              <p className="text-emerald-800 leading-normal">
-                This £1.00 charge protects our merchant network from fraudulent listings and bots. Once verified, you immediately get <strong>{trialDays} days free access</strong> to explore and customize your storefront.
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-300">Business onboarding · Verification</p>
+              <h2 id="verification-modal-title" className="mt-1 text-xl font-extrabold tracking-tight sm:text-2xl">Verify your business</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                Confirm your business before setting up your trial access and choosing a plan.
               </p>
             </div>
           </div>
+        </div>
 
-          {/* Provider Selection */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setProvider('stripe')}
-              className={cn(
-                "p-3.5 rounded-2xl border-2 font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer",
-                provider === 'stripe'
-                  ? "border-emerald-600 bg-emerald-50/40 text-emerald-900 shadow-sm"
-                  : "border-gray-200 hover:border-gray-300 text-gray-600 bg-white"
-              )}
-            >
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              Debit / Credit Card
-            </button>
-            <button
-              type="button"
-              onClick={() => setProvider('paypal')}
-              className={cn(
-                "p-3.5 rounded-2xl border-2 font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer",
-                provider === 'paypal'
-                  ? "border-blue-600 bg-blue-50/40 text-blue-900 shadow-sm"
-                  : "border-gray-200 hover:border-gray-300 text-gray-600 bg-white"
-              )}
-            >
-              <span className="font-extrabold text-blue-600">P</span>
-              PayPal
-            </button>
-          </div>
-
-          {initError && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start gap-2">
-              <span>⚠️</span>
-              <span>{initError}</span>
-            </div>
-          )}
-
-          {/* Provider Form */}
-          {provider === 'stripe' && (
-            <div>
-              {loading ? (
-                <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-400">
-                  <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
-                  <span className="text-xs font-semibold">Initializing secure card session...</span>
-                </div>
-              ) : clientSecret ? (
-                <Elements
-                  stripe={stripePromise}
-                  options={{
-                    clientSecret,
-                    appearance: {
-                      theme: 'stripe',
-                      variables: {
-                        colorPrimary: '#059669',
-                        borderRadius: '12px',
-                        fontFamily: 'Outfit, system-ui, sans-serif',
-                      },
-                    },
-                  }}
-                >
-                  <StripeVerificationForm
-                    amount={amount}
-                    trialDays={trialDays}
-                    onSuccess={onSuccess}
-                    onCancel={onClose}
-                  />
-                </Elements>
-              ) : (
-                <div className="py-8 text-center text-xs text-gray-500">
-                  Could not load Stripe payment elements. Please try PayPal or reload.
-                </div>
-              )}
-            </div>
-          )}
-
-          {provider === 'paypal' && (
-            <div className="space-y-4 pt-2">
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl text-center space-y-2">
-                <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto font-black text-xl">
-                  P
-                </div>
-                <h4 className="font-bold text-gray-900 text-sm">PayPal Checkout</h4>
-                <p className="text-xs text-gray-500 max-w-xs mx-auto">
-                  You will be redirected to PayPal to securely approve the £{amount.toFixed(2)} verification charge.
-                </p>
+        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[0.88fr_1.12fr]">
+          <section className="flex flex-col justify-center border-b border-slate-100 bg-slate-50/70 p-5 sm:p-7 lg:border-b-0 lg:border-r lg:p-8">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Business profile</p>
+            <div className="mt-4 flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                <CheckCircle2 className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-950">Your details are ready</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">Complete the one-time verification to continue to membership options.</p>
               </div>
+            </div>
+            <div className="mt-7 rounded-2xl border border-blue-100 bg-white p-4 sm:p-5">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                <ShieldCheck className="h-4 w-4 text-blue-700" />
+                One-time verification
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                A single £{amount.toFixed(2)} fee is required to complete this step. It is not a subscription and will not recur.
+              </p>
+            </div>
+          </section>
 
-              <button
-                type="button"
-                onClick={handlePaypalSubmit}
-                disabled={paypalLoading}
-                className={cn(
-                  "w-full h-12 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-2",
-                  paypalLoading
-                    ? "bg-gray-300 cursor-not-allowed shadow-none"
-                    : "bg-[#0070ba] hover:bg-[#005ea6] shadow-blue-500/20 active:scale-[0.99] cursor-pointer"
-                )}
-              >
-                {paypalLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Connecting to PayPal...
-                  </>
+          <section className="p-5 sm:p-7 lg:p-8">
+            {isDevelopmentPreview ? (
+              <div className="flex h-full flex-col">
+                {isDemoPaymentComplete ? (
+                  <div className="my-auto">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-700">
+                      <CheckCircle2 className="h-7 w-7" />
+                    </span>
+                    <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-slate-950">Verification complete</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Your verification step is complete. Continue to membership options to review the available tiers.</p>
+                    <div className="mt-6 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                      <span className="font-medium text-slate-600">Verification fee</span>
+                      <span className="font-bold text-slate-950">£{amount.toFixed(2)}</span>
+                    </div>
+                  </div>
                 ) : (
                   <>
-                    <span>Pay £{amount.toFixed(2)} with PayPal</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.15em] text-orange-700">One-time verification</p>
+                        <h3 className="mt-2 text-xl font-extrabold tracking-tight text-slate-950">Complete verification</h3>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">Review the one-time fee before continuing.</p>
+                      </div>
+                      <CreditCard className="mt-1 h-6 w-6 shrink-0 text-blue-700" />
+                    </div>
+                    <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                      <div className="flex items-center justify-between px-4 py-4 sm:px-5">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Business verification</p>
+                          <p className="mt-1 text-xs text-slate-500">One-time fee · no recurring charge</p>
+                        </div>
+                        <p className="text-base font-bold text-slate-950">£{amount.toFixed(2)}</p>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
+                        <span className="text-sm font-semibold text-slate-700">Due today</span>
+                        <span className="text-lg font-extrabold text-slate-950">£{amount.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <p className="mt-4 flex items-center gap-2 text-xs leading-5 text-slate-500">
+                      <Lock className="h-3.5 w-3.5 shrink-0 text-blue-700" />
+                      This is a one-time fee and does not renew.
+                    </p>
+                    {isDevelopmentPreview && (
+                      <p className="mt-2 text-[11px] leading-4 text-slate-400">Development checkout: this button simulates payment; no real charge is made.</p>
+                    )}
                   </>
                 )}
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => isDemoPaymentComplete ? onSuccess() : setIsDemoPaymentComplete(true)}
+                  className="mt-auto flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:mt-7"
+                >
+                  {isDemoPaymentComplete ? 'Continue to membership options' : `Pay £${amount.toFixed(2)}`}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <h3 className="text-lg font-extrabold tracking-tight text-slate-950">Choose a payment method</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Your payment is handled securely by our checkout provider.</p>
+                </div>
 
-          {/* Security Footer */}
-          <div className="pt-2 border-t border-gray-100 flex items-center justify-center gap-4 text-[11px] text-gray-400 font-medium">
-            <span className="flex items-center gap-1">
-              <Lock className="w-3 h-3 text-emerald-600" />
-              256-Bit SSL Encrypted
-            </span>
-            <span>•</span>
-            <span>PCI-DSS Level 1</span>
-            <span>•</span>
-            <span>No recurring charge</span>
-          </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setProvider('stripe'); setInitError(null); }}
+                    className={cn(
+                      'flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-bold transition-colors sm:text-sm',
+                      provider === 'stripe' ? 'border-orange-500 bg-orange-50 text-orange-950 ring-1 ring-orange-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                    )}
+                  >
+                    <CreditCard className="h-4 w-4 text-blue-700" />
+                    Card
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setProvider('paypal'); setInitError(null); }}
+                    className={cn(
+                      'flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-bold transition-colors sm:text-sm',
+                      provider === 'paypal' ? 'border-blue-600 bg-blue-50 text-blue-950 ring-1 ring-blue-200' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300',
+                    )}
+                  >
+                    <span className="font-extrabold text-blue-700">P</span>
+                    PayPal
+                  </button>
+                </div>
+
+                {initError && (
+                  <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700" role="alert">
+                    <span className="shrink-0">⚠️</span>
+                    <span>{initError}</span>
+                  </div>
+                )}
+
+                {provider === 'stripe' && (
+                  <div className="mt-4">
+                    {loading ? (
+                      <div className="flex flex-col items-center justify-center gap-3 py-12 text-sm text-slate-500">
+                        <RefreshCw className="h-5 w-5 animate-spin text-blue-600" />
+                        Preparing secure card checkout…
+                      </div>
+                    ) : clientSecret ? (
+                      <Elements
+                        stripe={stripePromise}
+                        options={{
+                          clientSecret,
+                          appearance: {
+                            theme: 'stripe',
+                            variables: {
+                              colorPrimary: '#ea580c',
+                              borderRadius: '12px',
+                              fontFamily: 'Outfit, system-ui, sans-serif',
+                            },
+                          },
+                        }}
+                      >
+                        <StripeVerificationForm amount={amount} trialDays={trialDays} onSuccess={onSuccess} />
+                      </Elements>
+                    ) : !initError ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+                        Card checkout could not be loaded. Try PayPal or close this window and try again.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {provider === 'paypal' && (
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4">
+                      <h4 className="text-sm font-bold text-slate-900">PayPal checkout</h4>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">You’ll be redirected to PayPal to approve the one-time £{amount.toFixed(2)} verification fee.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePaypalSubmit}
+                      disabled={paypalLoading}
+                      className={cn(
+                        'flex h-12 w-full items-center justify-center gap-2 rounded-xl font-bold text-white shadow-md transition-colors',
+                        paypalLoading ? 'cursor-not-allowed bg-slate-300 shadow-none' : 'cursor-pointer bg-blue-700 hover:bg-blue-800',
+                      )}
+                    >
+                      {paypalLoading ? <><RefreshCw className="h-4 w-4 animate-spin" /> Connecting to PayPal…</> : <>Pay £{amount.toFixed(2)} with PayPal <ArrowRight className="h-4 w-4" /></>}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-slate-100 bg-slate-50 px-4 py-3 text-[10px] font-medium text-slate-500 sm:text-[11px]">
+          <span className="flex items-center gap-1.5"><Lock className="h-3 w-3 text-blue-700" />{isDevelopmentPreview ? 'Simulated checkout · no real charge' : 'Secure checkout'}</span>
+          {!isDevelopmentPreview && <><span className="text-slate-300">•</span><span>No recurring verification charge</span></>}
+          <span className="text-slate-300">•</span>
+          <button type="button" onClick={onClose} className="cursor-pointer font-semibold text-slate-600 hover:text-orange-700">Back to programme</button>
         </div>
       </motion.div>
     </div>

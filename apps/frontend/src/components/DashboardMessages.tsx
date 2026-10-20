@@ -79,11 +79,11 @@ export default function DashboardMessages() {
   }, [setActiveConversationId, setSearchParams]);
 
   return (
-    <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden h-[calc(100vh-140px)] min-h-[580px] flex">
+    <div className="bg-white rounded-xl md:rounded-3xl border border-gray-100 shadow-sm overflow-hidden h-[calc(100dvh-15rem)] min-h-[320px] max-h-[720px] md:min-h-[420px] lg:h-[calc(100dvh-13rem)] lg:min-h-[460px] flex">
       {/* Sidebar List - responsive: hides on small screens when conversation active */}
       <div
-        className={`w-full md:w-80 lg:w-96 shrink-0 h-full border-r border-gray-100 ${
-          activeConversation ? 'hidden md:block' : 'block'
+        className={`w-full lg:w-80 xl:w-96 shrink-0 h-full border-r border-gray-100 ${
+          activeConversation ? 'hidden lg:block' : 'block'
         }`}
       >
         <ConversationList
@@ -107,7 +107,7 @@ export default function DashboardMessages() {
       {/* Main Conversation Area */}
       <div
         className={`flex-1 h-full bg-[#FAFAFA] ${
-          !activeConversation ? 'hidden md:flex flex-col' : 'flex flex-col'
+          !activeConversation ? 'hidden lg:flex flex-col' : 'flex flex-col'
         }`}
       >
         {activeConversation ? (
@@ -127,7 +127,7 @@ export default function DashboardMessages() {
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="w-16 h-16 rounded-3xl bg-orange-50 text-orange-600 flex items-center justify-center mb-3 shadow-inner">
+            <div className="mb-3 text-orange-600">
               <MessageSquare className="w-8 h-8" />
             </div>
             <h3 className="font-extrabold text-gray-900 text-base">Select a Conversation</h3>
