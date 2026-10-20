@@ -141,29 +141,29 @@ export default function CustomerDashboard() {
               <BadgeCheck className="hidden h-[18px] w-[18px] shrink-0 fill-blue-600 text-white sm:block" aria-label="Verified customer" />
               <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
             </button>
-            {profileMenuOpen && <div className="absolute right-0 top-full z-50 mt-3 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white py-2 text-left shadow-[0_18px_50px_rgba(15,23,42,0.18)]">
-              <div className="border-b border-slate-100 px-5 py-4">
+            {profileMenuOpen && <div className="absolute right-0 top-full z-50 mt-2 w-[min(17rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 text-left shadow-[0_18px_50px_rgba(15,23,42,0.18)] sm:mt-3 sm:w-80 sm:py-2">
+              <div className="border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
                 <p className="truncate font-semibold text-slate-900">{profileName}</p>
-                <p className="mt-1 truncate text-sm text-slate-500">{email || 'Customer account'}</p>
+                <p className="mt-1 truncate text-xs text-slate-500 sm:text-sm">{email || 'Customer account'}</p>
               </div>
-              <div className="py-2">
-                <button onClick={() => { setProfileMenuOpen(false); goTo('profile'); }} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-slate-50">
-                  <UserRound className="h-5 w-5 text-orange-700" />
-                  <span><span className="block text-sm font-semibold text-slate-900">Customer Profile</span><span className="mt-0.5 block text-xs text-slate-500">View your account information</span></span>
+              <div className="py-1.5 sm:py-2">
+                <button onClick={() => { setProfileMenuOpen(false); goTo('profile'); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 sm:gap-3 sm:px-5 sm:py-3">
+                  <UserRound className="h-4 w-4 shrink-0 text-orange-700 sm:h-5 sm:w-5" />
+                  <span><span className="block text-[13px] font-semibold text-slate-900 sm:text-sm">Customer Profile</span><span className="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">View your account information</span></span>
                 </button>
-                <button onClick={() => { setProfileMenuOpen(false); goTo('settings'); }} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-slate-50">
-                  <Settings className="h-5 w-5 text-slate-600" />
-                  <span><span className="block text-sm font-semibold text-slate-900">Settings &amp; Security</span><span className="mt-0.5 block text-xs text-slate-500">Account and sign-in preferences</span></span>
+                <button onClick={() => { setProfileMenuOpen(false); goTo('settings'); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 sm:gap-3 sm:px-5 sm:py-3">
+                  <Settings className="h-4 w-4 shrink-0 text-slate-600 sm:h-5 sm:w-5" />
+                  <span><span className="block text-[13px] font-semibold text-slate-900 sm:text-sm">Settings &amp; Security</span><span className="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">Account and sign-in preferences</span></span>
                 </button>
-                <button onClick={() => { setProfileMenuOpen(false); goTo('wallet'); }} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-slate-50">
-                  <WalletCards className="h-5 w-5 text-emerald-700" />
-                  <span><span className="block text-sm font-semibold text-slate-900">Wallet &amp; Transactions</span><span className="mt-0.5 block text-xs text-slate-500">Balances, funding, and receipts</span></span>
+                <button onClick={() => { setProfileMenuOpen(false); goTo('wallet'); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 sm:gap-3 sm:px-5 sm:py-3">
+                  <WalletCards className="h-4 w-4 shrink-0 text-emerald-700 sm:h-5 sm:w-5" />
+                  <span><span className="block text-[13px] font-semibold text-slate-900 sm:text-sm">Wallet &amp; Transactions</span><span className="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">Balances, funding, and receipts</span></span>
                 </button>
               </div>
               <div className="border-t border-slate-100 pt-2">
-                <button onClick={() => { setProfileMenuOpen(false); if (customerPreview) localStorage.removeItem('chs_customer_dashboard_preview'); logout(); }} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-red-50">
-                  <LogOut className="h-5 w-5 text-red-600" />
-                  <span><span className="block text-sm font-semibold text-red-700">Sign Out</span><span className="mt-0.5 block text-xs text-slate-500">Return to the login page</span></span>
+                <button onClick={() => { setProfileMenuOpen(false); if (customerPreview) localStorage.removeItem('chs_customer_dashboard_preview'); logout(); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left hover:bg-red-50 sm:gap-3 sm:px-5 sm:py-3">
+                  <LogOut className="h-4 w-4 shrink-0 text-red-600 sm:h-5 sm:w-5" />
+                  <span><span className="block text-[13px] font-semibold text-red-700 sm:text-sm">Sign Out</span><span className="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">Return to the login page</span></span>
                 </button>
               </div>
             </div>}
