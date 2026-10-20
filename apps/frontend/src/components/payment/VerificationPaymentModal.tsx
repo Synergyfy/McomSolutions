@@ -146,12 +146,9 @@ export default function VerificationPaymentModal({
   const [loading, setLoading] = useState(false);
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [isDemoPaymentComplete, setIsDemoPaymentComplete] = useState(false);
-  const isDevelopmentPreview = import.meta.env.DEV;
 
   useEffect(() => {
-    if (open) setIsDemoPaymentComplete(false);
-    if (!open || isDevelopmentPreview) {
+    if (!open) {
       setClientSecret(null);
       setInitError(null);
       setLoading(false);
@@ -181,7 +178,7 @@ export default function VerificationPaymentModal({
     return () => {
       isMounted = false;
     };
-  }, [open, isDevelopmentPreview]);
+  }, [open]);
 
   const handlePaypalSubmit = async () => {
     setPaypalLoading(true);
@@ -264,63 +261,6 @@ export default function VerificationPaymentModal({
           </section>
 
           <section className="p-5 sm:p-7 lg:p-8">
-            {isDevelopmentPreview ? (
-              <div className="flex h-full flex-col">
-                {isDemoPaymentComplete ? (
-                  <div className="my-auto">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-                      <CheckCircle2 className="h-7 w-7" />
-                    </span>
-                    <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-slate-950">Verification complete</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">Your verification step is complete. Continue to membership options to review the available tiers.</p>
-                    <div className="mt-6 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                      <span className="font-medium text-slate-600">Verification fee</span>
-                      <span className="font-bold text-slate-950">£{amount.toFixed(2)}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.15em] text-orange-700">One-time verification</p>
-                        <h3 className="mt-2 text-xl font-extrabold tracking-tight text-slate-950">Complete verification</h3>
-                        <p className="mt-1 text-sm leading-6 text-slate-600">Review the one-time fee before continuing.</p>
-                      </div>
-                      <CreditCard className="mt-1 h-6 w-6 shrink-0 text-blue-700" />
-                    </div>
-                    <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                      <div className="flex items-center justify-between px-4 py-4 sm:px-5">
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">Business verification</p>
-                          <p className="mt-1 text-xs text-slate-500">One-time fee · no recurring charge</p>
-                        </div>
-                        <p className="text-base font-bold text-slate-950">£{amount.toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
-                        <span className="text-sm font-semibold text-slate-700">Due today</span>
-                        <span className="text-lg font-extrabold text-slate-950">£{amount.toFixed(2)}</span>
-                      </div>
-                    </div>
-                    <p className="mt-4 flex items-center gap-2 text-xs leading-5 text-slate-500">
-                      <Lock className="h-3.5 w-3.5 shrink-0 text-blue-700" />
-                      This is a one-time fee and does not renew.
-                    </p>
-                    {isDevelopmentPreview && (
-                      <p className="mt-2 text-[11px] leading-4 text-slate-400">Development checkout: this button simulates payment; no real charge is made.</p>
-                    )}
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => isDemoPaymentComplete ? onSuccess() : setIsDemoPaymentComplete(true)}
-                  className="mt-auto flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:mt-7"
-                >
-                  {isDemoPaymentComplete ? 'Continue to membership options' : `Pay £${amount.toFixed(2)}`}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <>
                 <div className="mb-4">
                   <h3 className="text-lg font-extrabold tracking-tight text-slate-950">Choose a payment method</h3>
                   <p className="mt-1 text-xs leading-5 text-slate-500">Your payment is handled securely by our checkout provider.</p>
@@ -409,14 +349,12 @@ export default function VerificationPaymentModal({
                     </button>
                   </div>
                 )}
-              </>
-            )}
           </section>
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-slate-100 bg-slate-50 px-4 py-3 text-[10px] font-medium text-slate-500 sm:text-[11px]">
-          <span className="flex items-center gap-1.5"><Lock className="h-3 w-3 text-blue-700" />{isDevelopmentPreview ? 'Simulated checkout · no real charge' : 'Secure checkout'}</span>
-          {!isDevelopmentPreview && <><span className="text-slate-300">•</span><span>No recurring verification charge</span></>}
+          <span className="flex items-center gap-1.5"><Lock className="h-3 w-3 text-blue-700" />Secure checkout</span>
+          <span className="text-slate-300">•</span><span>No recurring verification charge</span>
           <span className="text-slate-300">•</span>
           <button type="button" onClick={onClose} className="cursor-pointer font-semibold text-slate-600 hover:text-orange-700">Back to programme</button>
         </div>

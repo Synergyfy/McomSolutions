@@ -15,6 +15,7 @@ export default function PayPalReturnPage() {
     const orderId = searchParams.get('token'); // PayPal sends `token` as the order ID
     const plan = searchParams.get('plan') || 'Bronze';
     const platform = searchParams.get('platform'); // If present, it's a platform purchase
+    const type = searchParams.get('type');
 
     if (!orderId) {
       setStatus('error');
@@ -25,6 +26,14 @@ export default function PayPalReturnPage() {
     const capture = async () => {
       try {
         let result: any;
+
+        if (type === 'verification') {
+          // One-time business verification fee (£1) — not a membership purchase.
+          await apiClient.post('/payment/verification-fee/paypal/capture', { orderId });
+          setStatus('success');
+          setTimeout(() => navigate('/getstarted/business?resume=plan'), 2000);
+          return;
+        }
 
         if (platform) {
           // Platform purchase — use platform capture endpoint

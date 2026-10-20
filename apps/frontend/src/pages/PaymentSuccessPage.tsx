@@ -13,6 +13,22 @@ export default function PaymentSuccessPage() {
     const paymentIntentId = searchParams.get('payment_intent');
     const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
     const platform = searchParams.get('platform');
+    const verification = searchParams.get('verification') === 'true';
+
+    if (verification && paymentIntentId) {
+      // One-time business verification fee (£1) — not a membership purchase.
+      apiClient.post('/payment/verification-fee/stripe/confirm', { paymentIntentId })
+        .then(() => {
+          setStatus('success');
+          setTimeout(() => navigate('/getstarted/business?resume=plan'), 2000);
+        })
+        .catch((err) => {
+          console.error('Verification payment confirm error:', err);
+          setStatus('error');
+          setErrorMessage(err.response?.data?.message || 'Verification payment confirmation failed.');
+        });
+      return;
+    }
 
     if (platform && paymentIntentId) {
       // Platform purchase — confirm with backend

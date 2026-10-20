@@ -438,6 +438,8 @@ export class AuthService {
     `;
 
     // Preferred path: Resend transactional email API (RESEND_API_KEY configured).
+    const isProduction =
+      this.config.get<string>('NODE_ENV') === 'production' || process.env.NODE_ENV === 'production';
     const rawResendApiKey = this.config.get<string>('RESEND_API_KEY') || process.env.RESEND_API_KEY;
     const resendApiKey = rawResendApiKey ? rawResendApiKey.replace(/['"\s]+/g, '') : undefined;
     if (resendApiKey) {
@@ -462,7 +464,10 @@ export class AuthService {
         this.logger.error(
           `[Resend] Failed to send email to ${email}: ${JSON.stringify(errorData || err.message)}`,
         );
-        this.logger.warn(`[OTP Fallback] Verification code for ${email}: ${code}`);
+        // Never leak one-time codes into production logs.
+        if (!isProduction) {
+          this.logger.warn(`[OTP Fallback] Verification code for ${email}: ${code}`);
+        }
       }
     } else {
       this.logger.debug('[Resend] RESEND_API_KEY not set — using SMTP fallback.');
@@ -471,8 +476,8 @@ export class AuthService {
     // Fallback: SMTP via nodemailer (legacy/dev path).
     const transporter = this.getSmtpTransporter();
     if (!transporter) {
-      this.logger.warn('SMTP variables are missing — verification code was not emailed.');
-      return;
+      this.logger.error('No email transport is configured — verification code was not emailed.');
+      throw new ServiceUnavailableException('Could not send verification email. Please try again later.');
     }
 
     try {
@@ -486,6 +491,7 @@ export class AuthService {
       this.logger.log(`[SMTP Mailer] Email sent successfully to ${email}`);
     } catch (err) {
       this.logger.error('[SMTP Mailer] Failed to send email:', err as any);
+      throw new ServiceUnavailableException('Could not send verification email. Please try again later.');
     }
   }
 
@@ -509,12 +515,19 @@ export class AuthService {
       // Dev-only convenience: log the code so it can be read in the terminal.
       this.logger.debug(`[OTP] Verification code for ${normalizedEmail}: ${code}`);
     } else {
-      await this.sendCodeEmail(
-        normalizedEmail,
-        code,
-        'Central Hub Solution - Your Verification Code',
-        'We received a request to verify your email address. Please use the following verification code to continue your setup:',
-      );
+      try {
+        await this.sendCodeEmail(
+          normalizedEmail,
+          code,
+          'Central Hub Solution - Your Verification Code',
+          'We received a request to verify your email address. Please use the following verification code to continue your setup:',
+        );
+      } catch (err) {
+        // Don't leave a live code or cooldown behind if delivery failed.
+        await this.redis.del(otpKey('OTP', normalizedEmail));
+        await this.redis.del(otpCooldownKey('OTP', normalizedEmail));
+        throw err;
+      }
     }
 
     return {
@@ -559,12 +572,18 @@ export class AuthService {
     if (isMock) {
       this.logger.debug(`[Reset Password] Reset code for ${normalizedEmail}: ${code}`);
     } else {
-      await this.sendCodeEmail(
-        normalizedEmail,
-        code,
-        'Central Hub Solution - Reset Your Password',
-        'We received a request to reset your password. Please use the following code to continue:',
-      );
+      try {
+        await this.sendCodeEmail(
+          normalizedEmail,
+          code,
+          'Central Hub Solution - Reset Your Password',
+          'We received a request to reset your password. Please use the following code to continue:',
+        );
+      } catch (err) {
+        await this.redis.del(otpKey('PASSWORD_RESET', normalizedEmail));
+        await this.redis.del(otpCooldownKey('PASSWORD_RESET', normalizedEmail));
+        throw err;
+      }
     }
 
     return {

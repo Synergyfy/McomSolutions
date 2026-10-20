@@ -51,8 +51,8 @@ function useValidateOtp() {
   return {
     mutateAsync: async (data: { email: string; otp: string; type?: string }) => {
       const res = await mutateAsync({ email: data.email, code: data.otp });
-      if (!res) {
-        throw new Error('Invalid verification code');
+      if (!res?.valid) {
+        throw new Error('Invalid or expired verification code');
       }
       return { data: { valid: true } };
     },
@@ -209,6 +209,9 @@ export default function CustomerRegistration() {
     otp: '',
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [otpMode, setOtpMode] = useState<'mock' | 'email' | null>(null);
+  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
 
   // Load custom hooks
   const { isPending: createUserPending, mutateAsync: createUserAsync } = useCreateUser();
@@ -219,6 +222,15 @@ export default function CustomerRegistration() {
 
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
   const { mutateAsync: getSsoToken } = useGetSsoToken();
+
+  // Backend enforces a 60s OTP cooldown; mirror it in the UI.
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpResendCooldown]);
 
   const performRedirect = async () => {
     if (clientId && redirectUri) {
@@ -542,10 +554,13 @@ export default function CustomerRegistration() {
 
   const handleSendOtp = async (email: string) => {
     try {
-      await sendOtpAsync({
+      const res = await sendOtpAsync({
         email,
         type: 'VERIFICATION',
       });
+      setOtpMode((res as any)?.mode ?? null);
+      setDevOtpCode((res as any)?.code ?? null);
+      setOtpResendCooldown(60);
       return true;
     } catch (error: any) {
       setDialogMessage(error.message || 'Failed to send OTP');
@@ -857,8 +872,16 @@ export default function CustomerRegistration() {
               {step === 'enter-otp' && (
                 <div className="space-y-5">
                   <div className="text-center pb-2">
-                    <p className="text-sm text-gray-500 font-medium">We've sent a 6-digit code to verification email.</p>
+                    <p className="text-sm text-gray-500 font-medium">
+                      We've sent a 6-digit code to <span className="font-bold text-gray-800">{formData.email}</span>.
+                    </p>
                   </div>
+                  {otpMode === 'mock' && devOtpCode && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                      <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Mock verification code</p>
+                      <p className="mt-1 text-3xl font-black tracking-[0.3em] text-amber-900">{devOtpCode}</p>
+                    </div>
+                  )}
                   <OTPInput length={6} value={formData.otp} onChange={(otp) => setFormData(prev => ({ ...prev, otp }))} />
                   {errors.otp && <p className="text-red-500 text-xs text-center font-semibold">{errors.otp}</p>}
                   
@@ -869,6 +892,19 @@ export default function CustomerRegistration() {
                     disabled={validateOtpPending}
                   >
                     {validateOtpPending ? 'Verifying...' : 'Verify OTP'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSendOtp(formData.email)}
+                    disabled={sendOtpPending || otpResendCooldown > 0}
+                    className="w-full py-2 text-xs text-gray-500 hover:text-orange-600 rounded-xl font-bold transition-colors uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendOtpPending
+                      ? 'Sending...'
+                      : otpResendCooldown > 0
+                        ? `Resend code in ${otpResendCooldown}s`
+                        : "Didn't receive it? Resend code"}
                   </button>
                   
                   <button 
