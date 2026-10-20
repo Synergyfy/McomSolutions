@@ -2,6 +2,37 @@ import { apiClient, setSharedAuthCookies } from '../api';
 import { clearStoredReferralCode, withReferralCode } from '../../lib/referral';
 import type { CreateSupportTicket } from '../../types/contracts';
 
+export interface MyCouponRedemption {
+  id: string;
+  redeemedAt: string | null;
+  discountAmount: number;
+  finalAmount: number;
+  planName: string | null;
+}
+
+export interface MyCoupon {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: 'PERCENTAGE' | 'FIXED';
+  discountValue: number;
+  appliesToAllMemberships: boolean;
+  membershipPlans: string[];
+  validFrom: string;
+  expiresAt: string | null;
+  source: 'ADMIN' | 'TASK_REWARD';
+  isPersonal: boolean;
+  couponStatus: 'active' | 'scheduled' | 'expired' | 'exhausted' | 'inactive';
+  usageStatus: 'available' | 'partially_used' | 'used' | 'scheduled' | 'expired' | 'exhausted' | 'inactive';
+  used: boolean;
+  usedCount: number;
+  maxUsesPerUser: number | null;
+  canUse: boolean;
+  lastUsedAt: string | null;
+  totalSaved: number;
+  redemptions: MyCouponRedemption[];
+}
+
 export const businessApi = {
   searchAddress: async (postcode: string) => {
     const res = await apiClient.get(`/business/search-address?postcode=${encodeURIComponent(postcode)}`);
@@ -58,6 +89,11 @@ export const businessApi = {
 
   getProfile: async () => {
     const res = await apiClient.get('/business/profile');
+    return res.data;
+  },
+
+  getMyCoupons: async (): Promise<{ success: boolean; data: MyCoupon[] }> => {
+    const res = await apiClient.get('/coupons/my');
     return res.data;
   },
 

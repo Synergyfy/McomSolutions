@@ -10,6 +10,14 @@ export const useProfile = () => {
   });
 };
 
+export const useMyCoupons = () => {
+  return useQuery({
+    queryKey: ['my-coupons'],
+    queryFn: () => businessApi.getMyCoupons(),
+    staleTime: 0,
+  });
+};
+
 export const useUpdateProfile = () => {
   const queryClient = useQueryClient();
   return useMutation({

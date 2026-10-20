@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentService } from './payment.service';
 import { ConfigService } from '@nestjs/config';
 import { PricingService } from '../pricing/pricing.service';
+import { CouponService } from '../coupon/coupon.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
@@ -64,6 +65,15 @@ describe('PaymentService', () => {
     subscribeMembership: jest.fn(),
     resolveMembershipPrice: jest.fn().mockResolvedValue(10),
     resolvePaymentQuote: jest.fn().mockResolvedValue({ perChargePrice: 30.6, totalPrice: 91.8, installments: 3 }),
+    resolveMembershipCharge: jest.fn(),
+  };
+
+  const mockCouponService = {
+    validateForCharge: jest.fn(),
+    reserveForCharge: jest.fn(),
+    findReservationForPayment: jest.fn().mockResolvedValue(null),
+    recordPaidRedemption: jest.fn().mockResolvedValue(null),
+    completeRedemption: jest.fn(),
   };
 
   const mockPrisma = {
@@ -107,6 +117,7 @@ describe('PaymentService', () => {
         PaymentService,
         { provide: ConfigService, useValue: mockConfigService },
         { provide: PricingService, useValue: mockPricingService },
+        { provide: CouponService, useValue: mockCouponService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -120,6 +131,38 @@ describe('PaymentService', () => {
     mockPrisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
     mockPrisma.billingTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.platformPackage.findFirst.mockResolvedValue(null);
+    mockPricingService.resolveMembershipCharge.mockImplementation(
+      async (level: string, tier: string, billing: string, paymentPlan: string) => {
+        const base =
+          String(paymentPlan) === 'full'
+            ? await mockPricingService.resolveMembershipPrice(level, tier, billing)
+            : (await mockPricingService.resolvePaymentQuote(level, tier, paymentPlan)).perChargePrice;
+        return {
+          planId: 'plan-1',
+          planName: level,
+          tier,
+          paymentPlan,
+          installments: 1,
+          sliceDays: 90,
+          originalAmount: base,
+          discountAmount: 0,
+          finalAmount: base,
+          currency: 'GBP',
+          coupon: null,
+        };
+      },
+    );
+    mockCouponService.findReservationForPayment.mockResolvedValue(null);
+    mockCouponService.recordPaidRedemption.mockResolvedValue(null);
+    mockCouponService.reserveForCharge.mockResolvedValue({
+      redemptionId: 'redemption-1',
+      reservedUntil: new Date().toISOString(),
+      coupon: { id: 'coupon-1', code: 'MCOM-10', discountType: 'PERCENTAGE', discountValue: 10 },
+      originalAmount: 10,
+      discountAmount: 1,
+      finalAmount: 9,
+      currency: 'GBP',
+    });
     mockPaymentIntents.retrieve.mockResolvedValue({
       status: 'succeeded',
       amount: 1000,
@@ -136,6 +179,7 @@ describe('PaymentService', () => {
           PaymentService,
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
+          { provide: CouponService, useValue: mockCouponService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -164,6 +208,7 @@ describe('PaymentService', () => {
           PaymentService,
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
+          { provide: CouponService, useValue: mockCouponService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -249,6 +294,7 @@ describe('PaymentService', () => {
             },
           },
           { provide: PricingService, useValue: mockPricingService },
+          { provide: CouponService, useValue: mockCouponService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -444,6 +490,7 @@ describe('PaymentService', () => {
             },
           },
           { provide: PricingService, useValue: mockPricingService },
+          { provide: CouponService, useValue: mockCouponService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -755,6 +802,122 @@ describe('PaymentService', () => {
         expect.objectContaining({ provider: 'paypal', providerPaymentId: 'order-retry' }),
       );
       expect(result).toEqual(expect.objectContaining({ membershipLevel: 'Gold' }));
+    });
+  });
+
+  describe('coupon payments', () => {
+    it('charges the discounted Stripe amount and reserves the coupon', async () => {
+      mockPricingService.resolveMembershipCharge.mockResolvedValueOnce({
+        planId: 'plan-1',
+        planName: 'Bronze',
+        tier: 'Standard',
+        paymentPlan: 'full',
+        installments: 1,
+        sliceDays: 90,
+        originalAmount: 10,
+        discountAmount: 2,
+        finalAmount: 8,
+        currency: 'GBP',
+        coupon: {
+          id: 'coupon-1',
+          code: 'MCOM-10',
+          discountType: 'PERCENTAGE',
+          discountValue: 10,
+          appliesToAllMemberships: true,
+          membershipPlanIds: [],
+          validFrom: new Date().toISOString(),
+          expiresAt: null,
+          lockedToUserId: null,
+          source: 'ADMIN',
+        },
+      });
+      mockPaymentIntents.create.mockResolvedValueOnce({
+        id: 'pi_coupon_1',
+        client_secret: 'pi_coupon_secret',
+      });
+
+      const result = await service.stripeInitiate(
+        'b1',
+        'Bronze',
+        'Standard',
+        'monthly',
+        'full',
+        'MCOM-10',
+        'u1',
+      );
+
+      expect(mockPaymentIntents.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 800,
+          metadata: expect.objectContaining({
+            couponCode: 'MCOM-10',
+            originalAmountPence: '1000',
+            discountPence: '200',
+            expectedAmountPence: '800',
+          }),
+        }),
+      );
+      expect(mockCouponService.reserveForCharge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'MCOM-10',
+          userId: 'u1',
+          provider: 'stripe',
+          providerPaymentId: 'pi_coupon_1',
+        }),
+      );
+      expect(result.pricing).toEqual(
+        expect.objectContaining({ originalAmount: 10, discountAmount: 2, finalAmount: 8 }),
+      );
+    });
+
+    it('completes the reservation on Stripe confirm using the charged amount', async () => {
+      mockPaymentIntents.retrieve.mockResolvedValue({
+        status: 'succeeded',
+        amount: 800,
+        currency: 'gbp',
+        metadata: {
+          businessId: 'b1',
+          paymentPlan: 'full',
+          couponCode: 'MCOM-10',
+          originalAmountPence: '1000',
+          discountPence: '200',
+          expectedAmountPence: '800',
+        },
+      });
+      mockCouponService.findReservationForPayment.mockResolvedValueOnce({
+        id: 'redemption-1',
+        couponId: 'coupon-1',
+        couponCode: 'MCOM-10',
+        businessId: 'b1',
+        userId: 'u1',
+        planId: 'plan-1',
+        originalAmount: 10,
+        discountAmount: 2,
+        finalAmount: 8,
+        status: 'PENDING',
+      });
+      mockPricingService.subscribeMembership.mockResolvedValue({ membershipLevel: 'Bronze' });
+
+      await service.stripeConfirm('b1', 'Bronze', 'Standard', 'monthly', 'pi_coupon_1', {
+        userId: 'u1',
+        businessId: 'b1',
+      });
+
+      expect(mockPricingService.subscribeMembership).toHaveBeenCalledWith(
+        'b1',
+        'Bronze',
+        'Standard',
+        'monthly',
+        expect.objectContaining({
+          provider: 'stripe',
+          providerPaymentId: 'pi_coupon_1',
+          chargedAmount: 8,
+          couponCode: 'MCOM-10',
+          couponRedemptionId: 'redemption-1',
+          originalAmount: 10,
+          discountAmount: 2,
+        }),
+      );
     });
   });
 });

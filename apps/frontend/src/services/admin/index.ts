@@ -52,6 +52,13 @@ import type {
   UpdateCategoryInput,
   CreateSubCategoryInput,
   UpdateSubCategoryInput,
+  AdminCoupon,
+  AdminCouponInput,
+  AdminCouponQuery,
+  AdminCouponRedemption,
+  AdminCouponRedemptionQuery,
+  AdminCouponStats,
+  CouponUserLookup,
 } from './types'
 
 export const adminApi = {
@@ -869,6 +876,52 @@ export const adminApi = {
   updateProgrammeSettings: async (data: { trialAccessDays?: number; verificationFeeAmount?: number; verificationRequired?: boolean }) => {
     const res = await apiClient.put('/admin/programme/settings', data)
     return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean }>
+  },
+
+  // ─── Coupons ─────────────────────────────────────────
+  getCoupons: async (params?: AdminCouponQuery) => {
+    const res = await apiClient.get('/admin/coupons', { params })
+    return res.data as PaginatedResponse<AdminCoupon>
+  },
+
+  getCouponStats: async () => {
+    const res = await apiClient.get('/admin/coupons/stats')
+    return res.data as ApiResponse<AdminCouponStats>
+  },
+
+  getCoupon: async (id: string) => {
+    const res = await apiClient.get(`/admin/coupons/${id}`)
+    return res.data as ApiResponse<AdminCoupon>
+  },
+
+  createCoupon: async (data: AdminCouponInput) => {
+    const res = await apiClient.post('/admin/coupons', data)
+    return res.data as ApiResponse<AdminCoupon>
+  },
+
+  updateCoupon: async (id: string, data: Partial<AdminCouponInput>) => {
+    const res = await apiClient.put(`/admin/coupons/${id}`, data)
+    return res.data as ApiResponse<AdminCoupon>
+  },
+
+  setCouponStatus: async (id: string, isActive: boolean) => {
+    const res = await apiClient.patch(`/admin/coupons/${id}/status`, { isActive })
+    return res.data as ApiResponse<AdminCoupon>
+  },
+
+  getCouponRedemptions: async (params?: AdminCouponRedemptionQuery) => {
+    const res = await apiClient.get('/admin/coupons/redemptions', { params })
+    return res.data as PaginatedResponse<AdminCouponRedemption>
+  },
+
+  lookupCouponUsers: async (search: string) => {
+    const res = await apiClient.get('/admin/coupons/users', { params: { search } })
+    return res.data as ApiResponse<CouponUserLookup[]>
+  },
+
+  resendCouponEmail: async (id: string) => {
+    const res = await apiClient.post(`/admin/coupons/${id}/resend-email`)
+    return res.data as { sent: boolean }
   },
 
 }

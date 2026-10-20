@@ -4,7 +4,7 @@ import {
   CheckCircle2, ArrowRight, Clock, Target, X,
   Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink
+  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Gift
 } from 'lucide-react';
 import {
   PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay,
@@ -218,6 +218,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           externalClientId: t.externalClientId || null,
           reward: `+${t.rewardPoints} points`,
           rewardPoints: t.rewardPoints,
+          rewardCouponEnabled: !!t.rewardCouponEnabled,
+          rewardCoupon: t.rewardCoupon || null,
           estimatedMinutes: t.daysRemaining !== undefined ? `${t.daysRemaining}d left` : '7d',
           deadlineDays: t.daysRemaining,
           status: st,
@@ -456,6 +458,16 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                           <span className="text-[11px] sm:text-xs text-amber-600 font-bold flex items-center gap-1">
                             <Target className="w-3 h-3 shrink-0" /> {mission.reward}
                           </span>
+                          {mission.rewardCouponEnabled && !mission.rewardCoupon && (
+                            <span className="text-[10px] sm:text-xs text-emerald-600 font-bold flex items-center gap-1">
+                              <Gift className="w-3 h-3 shrink-0" /> Coupon reward
+                            </span>
+                          )}
+                          {mission.rewardCoupon && (
+                            <span className="text-[10px] sm:text-xs text-emerald-700 font-black flex items-center gap-1 font-mono">
+                              <Gift className="w-3 h-3 shrink-0" /> {mission.rewardCoupon.code}
+                            </span>
+                          )}
                           {mission.system && (
                             <span className="text-[10px] sm:text-xs text-sky-600 font-bold truncate max-w-[90px] sm:max-w-none">{mission.system}</span>
                           )}

@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
   addDaysUtc,
@@ -29,6 +30,27 @@ export interface MembershipActivationOpts {
   providerPaymentId?: string;
   /** Non-full plans activate pay-as-you-go: each charge extends access by the option's slice. */
   paymentPlan?: string;
+  /** Actual amount charged after an optional coupon discount. */
+  chargedAmount?: number;
+  /** Coupon metadata persisted alongside the activation. */
+  originalAmount?: number;
+  discountAmount?: number;
+  couponCode?: string;
+  couponRedemptionId?: string;
+}
+
+export interface MembershipChargeQuote {
+  planId: string;
+  planName: string;
+  tier: string;
+  paymentPlan: MembershipPaymentPlan;
+  installments: number;
+  sliceDays: number;
+  originalAmount: number;
+  discountAmount: number;
+  finalAmount: number;
+  currency: 'GBP';
+  coupon: CouponChargeQuote['coupon'] | null;
 }
 
 /**
@@ -45,6 +67,7 @@ export class PricingService {
 
   constructor(
     private prisma: PrismaService,
+    private readonly couponService: CouponService,
     @Optional()
     @InjectQueue(TASK_EVENT_QUEUE)
     private readonly taskEventQueue?: Queue<TaskEventJobData>,
@@ -215,6 +238,101 @@ export class PricingService {
     };
   }
 
+  /**
+   * Resolve the amount charged today for a membership payment, including an
+   * optional coupon discount. This is the single source of truth used by the
+   * checkout quote, Stripe, PayPal and the webhook reconciliation path.
+   */
+  async resolveMembershipCharge(
+    level: string,
+    tier: string = 'Standard',
+    billing: 'monthly' | 'quarterly' | 'yearly' = 'monthly',
+    paymentPlan: string = 'full',
+    couponCode?: string,
+    userId?: string,
+  ): Promise<MembershipChargeQuote> {
+    const plan = await this.getPlan(level);
+    const canonical = normalizeTier(tier);
+    const planTier = normalizePlanTier(tier);
+    const tierKey = planTierLabel(planTier);
+    const wanted = normalizePaymentPlan(paymentPlan);
+    const split = allowedSplit(tierKey, wanted);
+    if (!split) {
+      throw new BadRequestException(
+        `The ${paymentPlan} payment option is not available for the ${canonical} tier.`,
+      );
+    }
+
+    const tierRow = await this.prisma.membershipPlanTier.findFirst({
+      where: { planId: plan.id, tier: planTier },
+      include: { paymentOptions: { where: { isActive: true } } },
+    });
+
+    let originalAmount: number;
+    let installments: number;
+    let sliceDays: number;
+
+    if (tierRow) {
+      const option = tierRow.paymentOptions.find((o) => o.paymentPlan === wanted);
+      if (!option) {
+        throw new BadRequestException(
+          `The ${paymentPlan} payment option is not available for the ${canonical} tier right now. Please choose another option.`,
+        );
+      }
+      originalAmount = Number(option.perChargePrice);
+      installments = option.installments;
+      sliceDays = option.sliceDays;
+    } else {
+      const full = await this.resolveMembershipPrice(
+        plan.name,
+        canonical,
+        wanted === MembershipPaymentPlan.full ? billing : 'monthly',
+      );
+      if (wanted === MembershipPaymentPlan.full) {
+        originalAmount = full;
+        installments = 1;
+        sliceDays = getTierDurationDays(canonical);
+      } else {
+        const priced = resolveOptionPrice(
+          full,
+          split.installments,
+          PaymentPriceMode.auto,
+          null,
+          0,
+        );
+        originalAmount = priced.perChargePrice;
+        installments = split.installments;
+        sliceDays =
+          split.sliceDays === 'duration'
+            ? getTierDurationDays(canonical)
+            : split.sliceDays;
+      }
+    }
+
+    const couponQuote = couponCode
+      ? await this.couponService.validateForCharge({
+          code: couponCode,
+          userId: userId ?? '',
+          planId: plan.id,
+          amount: originalAmount,
+        })
+      : null;
+
+    return {
+      planId: plan.id,
+      planName: plan.name,
+      tier: canonical,
+      paymentPlan: wanted,
+      installments,
+      sliceDays,
+      originalAmount: couponQuote?.originalAmount ?? originalAmount,
+      discountAmount: couponQuote?.discountAmount ?? 0,
+      finalAmount: couponQuote?.finalAmount ?? originalAmount,
+      currency: 'GBP',
+      coupon: couponQuote?.coupon ?? null,
+    };
+  }
+
   async getPlans() {
     const plans = await this.prisma.membershipPlan.findMany({
       where: { archived: false },
@@ -316,7 +434,15 @@ export class PricingService {
 
     const plan = await this.getPlan(level);
     const canonicalTier = normalizeTier(tier);
-    const price = await this.resolveMembershipPrice(level, canonicalTier, billing);
+    const listPrice = await this.resolveMembershipPrice(level, canonicalTier, billing);
+    const price =
+      opts.chargedAmount !== undefined
+        ? Math.round((opts.chargedAmount + Number.EPSILON) * 100) / 100
+        : listPrice;
+    const couponSuffix =
+      opts.couponCode && opts.discountAmount
+        ? `, coupon ${opts.couponCode} -£${Number(opts.discountAmount).toFixed(2)}`
+        : '';
 
     const enumLevels = Object.values(MembershipLevel);
     const validLevel = enumLevels.includes(plan.name as MembershipLevel)
@@ -359,8 +485,8 @@ export class PricingService {
 
     let updated;
     try {
-      const [profileUpdate] = await this.prisma.$transaction([
-        this.prisma.businessProfile.update({
+      const activation = await this.prisma.$transaction(async (tx) => {
+        const profileUpdate = await tx.businessProfile.update({
           where: { id: businessId },
           data: {
             membershipLevel: validLevel,
@@ -369,9 +495,9 @@ export class PricingService {
             membershipStatus: 'active' as MembershipStatus,
             membershipExpiresAt: expiresAt,
           },
-        }),
+        });
         // Record EcosystemSubscription entry
-        this.prisma.ecosystemSubscription.create({
+        await tx.ecosystemSubscription.create({
           data: {
             businessId,
             businessName: business.businessName,
@@ -383,20 +509,29 @@ export class PricingService {
             amount: price,
             billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
           },
-        }),
+        });
         // Record billing transaction (idempotency key when backed by a provider payment)
-        this.prisma.billingTransaction.create({
+        const billing = await tx.billingTransaction.create({
           data: {
             businessId,
             amount: price,
-            description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, valid until ${expiresAt.toISOString().split('T')[0]})`,
+            description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, valid until ${expiresAt.toISOString().split('T')[0]})${couponSuffix}`,
             status: 'paid',
             provider: opts.provider ?? null,
             providerPaymentId: opts.providerPaymentId ?? null,
           },
-        }),
-      ]);
-      updated = profileUpdate;
+        });
+        if (opts.couponRedemptionId) {
+          await this.couponService.completeRedemption(
+            tx,
+            opts.couponRedemptionId,
+            billing.id,
+            { businessId },
+          );
+        }
+        return { profileUpdate, billingId: billing.id };
+      });
+      updated = activation.profileUpdate;
     } catch (err) {
       // Lost the race with a concurrent activation using the same payment reference.
       if (
@@ -597,7 +732,14 @@ export class PricingService {
         `The selected payment option is not available for the ${canonicalTier} tier right now. Please choose another option.`,
       );
     }
-    const price = Number(option.perChargePrice);
+    const price =
+      opts.chargedAmount !== undefined
+        ? Math.round((opts.chargedAmount + Number.EPSILON) * 100) / 100
+        : Number(option.perChargePrice);
+    const couponSuffix =
+      opts.couponCode && opts.discountAmount
+        ? `, coupon ${opts.couponCode} -£${Number(opts.discountAmount).toFixed(2)}`
+        : '';
     const planLabel =
       wantedPlan === MembershipPaymentPlan.monthly
         ? 'Monthly'
@@ -607,7 +749,7 @@ export class PricingService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Serialize concurrent steps for this business (no lost extensions).
-      await tx.$queryRaw`SELECT "id" FROM "BusinessProfile" WHERE "id" = ${business.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "business_profiles" WHERE "id" = ${business.id} FOR UPDATE`;
 
       if (opts.providerPaymentId) {
         const existing = await tx.billingTransaction.findUnique({
@@ -691,16 +833,21 @@ export class PricingService {
           billingCycle: `${planLabel} instalment ${installmentNo} of ${option.installments}`,
         },
       });
-      await tx.billingTransaction.create({
+      const billing = await tx.billingTransaction.create({
         data: {
           businessId: business.id,
           amount: price,
-          description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, ${planLabel.toLowerCase()} instalment ${installmentNo} of ${option.installments}, access until ${expiresAt.toISOString().split('T')[0]})`,
+          description: `Ecosystem Membership: ${plan.name} (${canonicalTier}, ${planLabel.toLowerCase()} instalment ${installmentNo} of ${option.installments}, access until ${expiresAt.toISOString().split('T')[0]})${couponSuffix}`,
           status: 'paid',
           provider: opts.provider ?? null,
           providerPaymentId: opts.providerPaymentId ?? null,
         },
       });
+      if (opts.couponRedemptionId) {
+        await this.couponService.completeRedemption(tx, opts.couponRedemptionId, billing.id, {
+          businessId: business.id,
+        });
+      }
       if (continuedSubId) {
         await tx.membershipInstallmentSubscription.update({
           where: { id: continuedSubId },
