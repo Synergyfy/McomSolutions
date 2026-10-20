@@ -6,6 +6,7 @@ import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogou
 import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
+import { isAuthOrOnboardingRedirect } from '../lib/redirects';
 import CHSLogo from '../components/CHSLogo';
 
 export default function LoginPage() {
@@ -33,6 +34,20 @@ export default function LoginPage() {
   const hasSsoIntent = !!clientId || !!source || !!redirectParam || !!searchParams.get('redirect_uri') || !!searchParams.get('state');
   // Only verify session if credentials actually exist in browser storage/cookies
   const shouldCheckSession = hasToken || hasCookie;
+
+  // When handing off to onboarding, keep the SSO intent but drop any
+  // redirect that points back into the auth/onboarding funnel. Otherwise a
+  // login started from the onboarding "Log in here" link bounces straight
+  // back into onboarding (with a nested ?redirect=...) forever.
+  const buildOnboardingSearch = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const key of ['redirect', 'callbackUrl']) {
+      const value = params.get(key);
+      if (value && isAuthOrOnboardingRedirect(value)) params.delete(key);
+    }
+    const search = params.toString();
+    return search ? `?${search}` : '';
+  };
 
   // Affiliate roles have no dashboard here — a direct login (no SSO params)
   // sends them to the 247GBS affiliate portal instead of /dashboard.
@@ -107,16 +122,23 @@ export default function LoginPage() {
     let finalRedirectState = null;
 
     if (redirectParam) {
-      if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
+      // A redirect into /login, /register, /getstarted, etc. is not a real
+      // destination — it would send an authenticated user back into the
+      // signup funnel. Fall through to the role-appropriate default.
+      if (isAuthOrOnboardingRedirect(redirectParam)) {
+        // no-op
+      } else if (redirectParam.startsWith('http://') || redirectParam.startsWith('https://')) {
         redirectTarget = redirectParam;
       } else {
         finalRedirectState = redirectParam;
       }
     } else if (state && (state.startsWith('/') || state.startsWith('http://') || state.startsWith('https://'))) {
-      if (state.startsWith('http://') || state.startsWith('https://')) {
-        redirectTarget = state;
-      } else {
-        finalRedirectState = state;
+      if (!isAuthOrOnboardingRedirect(state)) {
+        if (state.startsWith('http://') || state.startsWith('https://')) {
+          redirectTarget = state;
+        } else {
+          finalRedirectState = state;
+        }
       }
     }
 
@@ -187,7 +209,7 @@ export default function LoginPage() {
       const userBizId = res?.user?.businessId || res?.user?.businessProfile?.id;
       const userIsOnboarded = res?.user?.isOnboarded ?? !!userBizId;
       if (res?.user?.role === 'BUSINESS' && (!userIsOnboarded || !userBizId)) {
-        const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+        const searchStr = buildOnboardingSearch();
         navigate(`/getstarted/business${searchStr}`);
         return;
       }
@@ -328,7 +350,7 @@ export default function LoginPage() {
         const googleBizId = user?.businessId || user?.businessProfile?.id;
         const googleIsOnboarded = user?.isOnboarded ?? !!googleBizId;
         if (user?.role === 'BUSINESS' && (!googleIsOnboarded || !googleBizId)) {
-          const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+          const searchStr = buildOnboardingSearch();
           navigate(`/getstarted/business${searchStr}`);
           return;
         }
@@ -408,7 +430,7 @@ export default function LoginPage() {
       const currentBizId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
       const currentIsOnboarded = currentUser?.isOnboarded ?? !!currentBizId;
       if (currentUser?.role === 'BUSINESS' && (!currentIsOnboarded || !currentBizId) && !clientId) {
-        const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+        const searchStr = buildOnboardingSearch();
         navigate(`/getstarted/business${searchStr}`);
         return;
       }

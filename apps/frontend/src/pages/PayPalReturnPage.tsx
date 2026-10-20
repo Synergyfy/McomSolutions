@@ -63,24 +63,6 @@ export default function PayPalReturnPage() {
 
         if (onboarding) {
           localStorage.setItem('onboardingPaymentSuccess', 'true');
-          
-          // Check if user already has a business profile
-          const userRaw = localStorage.getItem('business_user');
-          let hasBusinessProfile = false;
-          if (userRaw) {
-            try {
-              const user = JSON.parse(userRaw);
-              if (user?.businessProfile?.id) {
-                hasBusinessProfile = true;
-              }
-            } catch (e) {}
-          }
-
-          if (!hasBusinessProfile) {
-            localStorage.setItem('businessOnboardingState', 'assessment');
-          } else {
-            localStorage.removeItem('businessOnboardingState');
-          }
           setTimeout(() => navigate(`/getstarted/business?source=${encodeURIComponent(source)}&redirect=${encodeURIComponent(redirect)}`), 2500);
         } else {
           setTimeout(() => navigate('/dashboard'), 2500);

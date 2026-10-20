@@ -10,16 +10,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   ActivityQueryDto,
   CreateActivityFeedDto,
-  CreateAssessmentQuestionDto,
   CreateBackgroundJobDto,
   CreateBoroughMetricDto,
   CreateErrorLogDto,
   CreateExternalPlanDto,
   CreateSystemApiKeyDto,
   CreateSystemIntegrationDto,
-  ReorderAssessmentQuestionsDto,
   UpdateActivityFeedDto,
-  UpdateAssessmentQuestionDto,
   UpdateBackgroundJobDto,
   UpdateBoroughMetricDto,
   UpdateExternalPlanDto,
@@ -144,76 +141,6 @@ export class AdminOpsService {
     const integration = await this.ensureIntegration(id);
     await this.prisma.systemIntegration.delete({ where: { id } });
     await this.logAudit('Integration Deleted', 'SystemIntegration', integration.name, `Deleted integration "${integration.name}"`, 'Admin', 'Integration');
-    return { success: true };
-  }
-
-  // ─── Assessment Questions ─────────────────────────────
-  async getAssessmentQuestions() {
-    const questions = await this.prisma.assessmentQuestion.findMany({
-      orderBy: { order: 'asc' },
-    });
-    return { success: true, data: questions };
-  }
-
-  async createAssessmentQuestion(dto: CreateAssessmentQuestionDto) {
-    const maxOrder = await this.prisma.assessmentQuestion.aggregate({ _max: { order: true } });
-    const question = await this.prisma.assessmentQuestion.create({
-      data: {
-        question: dto.question,
-        iconName: dto.iconName,
-        fieldType: this.mapFieldType(dto.fieldType),
-        options: dto.options ?? [],
-        hint: dto.hint ?? '',
-        enabled: dto.enabled ?? true,
-        order: dto.order ?? (maxOrder._max.order ?? 0) + 1,
-      },
-    });
-    await this.logAudit('Assessment Question Created', 'AssessmentQuestion', dto.question, `Added assessment question "${dto.question}"`, 'Admin', 'Assessment');
-    return { success: true, data: question };
-  }
-
-  async updateAssessmentQuestion(id: string, dto: UpdateAssessmentQuestionDto) {
-    await this.ensureAssessmentQuestion(id);
-    const data: Prisma.AssessmentQuestionUpdateInput = {};
-    if (dto.question !== undefined) data.question = dto.question;
-    if (dto.iconName !== undefined) data.iconName = dto.iconName;
-    if (dto.fieldType !== undefined) data.fieldType = this.mapFieldType(dto.fieldType);
-    if (dto.options !== undefined) data.options = dto.options;
-    if (dto.hint !== undefined) data.hint = dto.hint;
-    if (dto.enabled !== undefined) data.enabled = dto.enabled;
-    if (dto.order !== undefined) data.order = dto.order;
-
-    const question = await this.prisma.assessmentQuestion.update({ where: { id }, data });
-    await this.logAudit('Assessment Question Updated', 'AssessmentQuestion', id, `Updated assessment question "${dto.question ?? id}"`, 'Admin', 'Assessment');
-    return { success: true, data: question };
-  }
-
-  async deleteAssessmentQuestion(id: string) {
-    const question = await this.ensureAssessmentQuestion(id);
-    await this.prisma.assessmentQuestion.delete({ where: { id } });
-    await this.logAudit('Assessment Question Deleted', 'AssessmentQuestion', question.question, `Deleted assessment question "${question.question}"`, 'Admin', 'Assessment');
-    return { success: true };
-  }
-
-  async reorderAssessmentQuestions(dto: ReorderAssessmentQuestionsDto) {
-    await this.prisma.$transaction([
-      ...dto.orderedIds.map((id, index) =>
-        this.prisma.assessmentQuestion.update({
-          where: { id },
-          data: { order: index + 1 },
-        }),
-      ),
-      this.prisma.auditLog.create({
-        data: {
-          action: 'Assessment Questions Reordered',
-          adminName: 'Admin',
-          targetType: 'AssessmentQuestion',
-          targetName: 'questions',
-          details: `Reordered ${dto.orderedIds.length} assessment questions`,
-          category: 'Assessment',
-        },
-      }),
-    ]);
     return { success: true };
   }
 
@@ -711,28 +638,6 @@ export class AdminOpsService {
   }
 
   // ─── Helpers ──────────────────────────────────────────
-  private mapFieldType(
-    t:
-      | 'single-choice'
-      | 'multi-choice'
-      | 'text'
-      | 'textarea'
-      | 'number'
-      | 'date'
-      | 'rating'
-      | 'yes-no',
-  ) {
-    return t.replace(/-/g, '_') as
-      | 'single_choice'
-      | 'multi_choice'
-      | 'text'
-      | 'textarea'
-      | 'number'
-      | 'date'
-      | 'rating'
-      | 'yes_no';
-  }
-
   private async ensureApiKey(id: string) {
     const k = await this.prisma.systemApiKey.findUnique({ where: { id } });
     if (!k) throw new NotFoundException('API key not found');
@@ -743,12 +648,6 @@ export class AdminOpsService {
     const i = await this.prisma.systemIntegration.findUnique({ where: { id } });
     if (!i) throw new NotFoundException('Integration not found');
     return i;
-  }
-
-  private async ensureAssessmentQuestion(id: string) {
-    const q = await this.prisma.assessmentQuestion.findUnique({ where: { id } });
-    if (!q) throw new NotFoundException('Assessment question not found');
-    return q;
   }
 
   private async ensureActivity(id: string) {

@@ -739,32 +739,6 @@ export const adminApi = {
     return res.data as ApiResponse<any>
   },
 
-  // ─── Assessment Questions ─────────────────────────────
-  getAssessmentQuestions: async () => {
-    const res = await apiClient.get('/admin/assessment/questions')
-    return res.data as ApiResponse<any[]>
-  },
-
-  createAssessmentQuestion: async (data: any) => {
-    const res = await apiClient.post('/admin/assessment/questions', data)
-    return res.data as ApiResponse<any>
-  },
-
-  updateAssessmentQuestion: async (id: string, data: any) => {
-    const res = await apiClient.put(`/admin/assessment/questions/${id}`, data)
-    return res.data as ApiResponse<any>
-  },
-
-  deleteAssessmentQuestion: async (id: string) => {
-    const res = await apiClient.delete(`/admin/assessment/questions/${id}`)
-    return res.data
-  },
-
-  reorderAssessmentQuestions: async (orderedIds: string[]) => {
-    const res = await apiClient.put('/admin/assessment/questions/reorder', { orderedIds })
-    return res.data as ApiResponse<any>
-  },
-
   // ─── Campaigns ─────────────────────────────────────────
   getCampaigns: async (params?: { locationType?: string; locationId?: string; page?: number; limit?: number }) => {
     const res = await apiClient.get('/admin/campaigns', { params })

@@ -264,13 +264,13 @@ export default function PlatformPaymentModal({
               </motion.div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Payment Successful!</h3>
               <p className="text-sm text-gray-500 mb-8 max-w-xs mx-auto">
-                Your package has been activated. Let's configure your onboarding profile next.
+                Your package has been activated. Taking you to your dashboard next.
               </p>
               <button
                 onClick={handleNext}
                 className="w-full py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-bold hover:from-orange-600 hover:to-red-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95 duration-100 flex items-center justify-center gap-2"
               >
-                Continue to Assessment <ChevronRight className="w-5 h-5" />
+                Continue to Dashboard <ChevronRight className="w-5 h-5" />
               </button>
             </div>
           ) : (

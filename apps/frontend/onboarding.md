@@ -61,11 +61,7 @@ Step 6 — Choose annual plan
 
 The business selects Bronze / Silver / Gold / Platinum and Standard / Pro / Pro+. The programme starts immediately after confirmation. Annual billing is the primary commercial model Henry described.
 
-Step 7 — Initial Business Assessment (5 minutes)
-
-This is not the full Audit. It determines the starting point, sector, and recommended pathway.
-
-Step 8 — Enter the Business Success Dashboard
+Step 7 — Enter the Business Success Dashboard
 
 ### Welcome, Toby Barbers
 ### Hospitality / Retail Dashboard

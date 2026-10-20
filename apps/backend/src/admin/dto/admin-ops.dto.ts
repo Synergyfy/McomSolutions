@@ -67,65 +67,6 @@ export class CreateSystemIntegrationDto {
 
 export class UpdateSystemIntegrationDto extends PartialType(CreateSystemIntegrationDto) {}
 
-// ─── Assessment Questions ──────────────────────────────────────────
-export class CreateAssessmentQuestionDto {
-  @ApiProperty({ example: 'What sector does your business operate in?', description: 'Question text' })
-  @IsString()
-  @IsNotEmpty()
-  question: string;
-
-  @ApiProperty({ example: 'Briefcase', description: 'Icon name from the icon set' })
-  @IsString()
-  @IsNotEmpty()
-  iconName: string;
-
-  @ApiProperty({
-    example: 'single-choice',
-    enum: ['single-choice', 'multi-choice', 'text', 'textarea', 'number', 'date', 'rating', 'yes-no'],
-    description: 'Field type',
-  })
-  @IsEnum(['single-choice', 'multi-choice', 'text', 'textarea', 'number', 'date', 'rating', 'yes-no'])
-  fieldType:
-    | 'single-choice'
-    | 'multi-choice'
-    | 'text'
-    | 'textarea'
-    | 'number'
-    | 'date'
-    | 'rating'
-    | 'yes-no';
-
-  @ApiPropertyOptional({ example: ['Retail', 'Hospitality'], description: 'Options for choice fields' })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  options?: string[];
-
-  @ApiPropertyOptional({ example: 'Select the one that best fits', description: 'Helper hint text' })
-  @IsOptional()
-  @IsString()
-  hint?: string;
-
-  @ApiPropertyOptional({ example: true, description: 'Whether the question is active' })
-  @IsOptional()
-  @IsBoolean()
-  enabled?: boolean;
-
-  @ApiPropertyOptional({ example: 1, description: 'Display order' })
-  @IsOptional()
-  @IsInt()
-  order?: number;
-}
-
-export class UpdateAssessmentQuestionDto extends PartialType(CreateAssessmentQuestionDto) {}
-
-export class ReorderAssessmentQuestionsDto {
-  @ApiProperty({ example: ['q1', 'q2', 'q3'], description: 'Ordered question IDs' })
-  @IsArray()
-  @IsString({ each: true })
-  orderedIds: string[];
-}
-
 // ─── Activity Feed ──────────────────────────────────────────────────
 export class CreateActivityFeedDto {
   @ApiProperty({ example: 'foot_traffic_spike', description: 'Activity type' })
