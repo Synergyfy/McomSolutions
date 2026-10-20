@@ -26,6 +26,11 @@ export class MembershipInitiateDto {
   @IsIn(['full', 'monthly', 'quarterly', 'halfYearly', 'half_yearly'], { message: 'Payment plan must be full, monthly, quarterly or halfYearly.' })
   paymentPlan?: string;
 
+  @ApiPropertyOptional({ example: 'MCOM-20OFF', description: 'Optional coupon code for this membership payment' })
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
+
   @ApiPropertyOptional({ example: false, description: 'Legacy trial flag — tolerated but ignored (trials discontinued, Phase 2)' })
   @IsOptional()
   @IsBoolean()

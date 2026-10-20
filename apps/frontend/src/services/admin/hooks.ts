@@ -37,6 +37,9 @@ import type {
   UpdateCategoryInput,
   CreateSubCategoryInput,
   UpdateSubCategoryInput,
+  AdminCouponInput,
+  AdminCouponQuery,
+  AdminCouponRedemptionQuery,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1340,5 +1343,91 @@ export const useUpdateProgrammeSettings = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'programme', 'settings'] })
     },
+  })
+}
+
+// ─── Coupon Hooks ──────────────────────────────────────
+export const useAdminCoupons = (params?: AdminCouponQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'coupons', params],
+    queryFn: () => adminApi.getCoupons(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useCouponStats = () => {
+  return useQuery({
+    queryKey: ['admin', 'coupons', 'stats'],
+    queryFn: () => adminApi.getCouponStats(),
+    staleTime: 1000 * 60,
+  })
+}
+
+export const useAdminCoupon = (id?: string | null) => {
+  return useQuery({
+    queryKey: ['admin', 'coupons', 'detail', id],
+    queryFn: () => adminApi.getCoupon(id!),
+    enabled: !!id,
+    staleTime: 1000 * 60,
+  })
+}
+
+export const useCreateCoupon = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: AdminCouponInput) => adminApi.createCoupon(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons', 'stats'] })
+    },
+  })
+}
+
+export const useUpdateCoupon = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<AdminCouponInput> }) =>
+      adminApi.updateCoupon(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons', 'stats'] })
+    },
+  })
+}
+
+export const useSetCouponStatus = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      adminApi.setCouponStatus(id, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'coupons', 'stats'] })
+    },
+  })
+}
+
+export const useCouponRedemptions = (params?: AdminCouponRedemptionQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'coupons', 'redemptions', params],
+    queryFn: () => adminApi.getCouponRedemptions(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useCouponUserLookup = (search: string) => {
+  return useQuery({
+    queryKey: ['admin', 'coupons', 'users', search],
+    queryFn: () => adminApi.lookupCouponUsers(search),
+    enabled: search.trim().length >= 2,
+    staleTime: 1000 * 60,
+  })
+}
+
+export const useResendCouponEmail = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.resendCouponEmail(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
   })
 }

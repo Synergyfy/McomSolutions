@@ -6,7 +6,7 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -14,7 +14,7 @@ import { useAdminNotifications } from '../services/admin/hooks';
 
 export type AdminTab =
   'dashboard' | 'users'
-  | 'memberships' | 'subscriptions'
+  | 'memberships' | 'subscriptions' | 'coupons'
   | 'platform-access'
   | 'permissions' | 'auth' | 'registration-flow' | 'business-profile'
   | 'payments' | 'billing'
@@ -60,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'memberships', icon: Gem, label: 'Plans & Billing' },
       { tab: 'subscriptions', icon: RefreshCw, label: 'Subscriptions' },
+      { tab: 'coupons', icon: Ticket, label: 'Coupons' },
     ],
   },
   {

@@ -6,6 +6,7 @@ import {
   WEBHOOK_DISPATCH_DLQ,
   TASK_EVENT_QUEUE,
   TASK_REWARD_QUEUE,
+  TASK_COUPON_QUEUE,
 } from './queue.constants';
 
 @Module({
@@ -59,6 +60,9 @@ import {
       },
       {
         name: TASK_REWARD_QUEUE,
+      },
+      {
+        name: TASK_COUPON_QUEUE,
       },
     ),
   ],

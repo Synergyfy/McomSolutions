@@ -2,18 +2,18 @@ import { apiClient } from '../api';
 import type { PlatformConfirm, PlatformPurchase } from '../../types/contracts';
 
 export const paymentApi = {
-  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean, paymentPlan: string = 'full') => {
-    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial, paymentPlan });
+  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string) => {
+    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial, paymentPlan, couponCode });
     return res.data;
   },
 
-  stripeConfirm: async (level: string, tier: string, billing: string, paymentIntentId: string, isTrial: boolean, paymentPlan: string = 'full') => {
-    const res = await apiClient.post('/payment/stripe/confirm', { level, tier, billing, paymentIntentId, isTrial, paymentPlan });
+  stripeConfirm: async (level: string, tier: string, billing: string, paymentIntentId: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string) => {
+    const res = await apiClient.post('/payment/stripe/confirm', { level, tier, billing, paymentIntentId, isTrial, paymentPlan, couponCode });
     return res.data;
   },
 
-  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean, paymentPlan: string = 'full') => {
-    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan });
+  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string) => {
+    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode });
     return res.data;
   },
 

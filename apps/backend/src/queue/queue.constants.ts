@@ -3,6 +3,7 @@ export const WEBHOOK_DISPATCH_DLQ = 'webhook-dispatch-dlq';
 
 export const TASK_EVENT_QUEUE = 'task-event';
 export const TASK_REWARD_QUEUE = 'task-reward';
+export const TASK_COUPON_QUEUE = 'task-coupon';
 
 export interface WebhookJobData {
   platformIdentifier: string;
@@ -22,4 +23,8 @@ export interface TaskRewardJobData {
   userId: string;
   rewardPoints: number;
   taskTitle: string;
+}
+
+export interface TaskCouponJobData {
+  assignmentId: string;
 }

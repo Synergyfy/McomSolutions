@@ -19,10 +19,13 @@ import {
 } from './dto/task.dto';
 import { CENTRAL_FEATURE_KEYS } from './task.constants';
 import {
+  TASK_COUPON_QUEUE,
   TASK_REWARD_QUEUE,
+  TaskCouponJobData,
   TaskRewardJobData,
 } from '../queue/queue.constants';
 import {
+  CouponDiscountType,
   Prisma,
   Role,
   TaskAssignmentStatus,
@@ -38,6 +41,8 @@ export class TaskService {
     private readonly prisma: PrismaService,
     @Optional() @InjectQueue(TASK_REWARD_QUEUE)
     private readonly rewardQueue?: Queue<TaskRewardJobData>,
+    @Optional() @InjectQueue(TASK_COUPON_QUEUE)
+    private readonly couponQueue?: Queue<TaskCouponJobData>,
   ) {}
 
   // ─── Audit Logger ──────────────────────────────────────
@@ -56,6 +61,25 @@ export class TaskService {
     } catch (err) {
       this.logger.warn(`Failed to log audit for ${action}:`, err as any);
     }
+  }
+
+  private async enqueueTaskCouponReward(assignmentId: string, task: { rewardCouponEnabled: boolean }) {
+    if (!task.rewardCouponEnabled) return;
+    if (!this.couponQueue) {
+      this.logger.warn(
+        `Task ${assignmentId} has a coupon reward but the coupon queue is unavailable`,
+      );
+      return;
+    }
+    await this.couponQueue.add(
+      'issue-task-coupon',
+      { assignmentId },
+      {
+        jobId: `task-coupon-${assignmentId}`,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+      },
+    );
   }
 
   // ─── Feature Keys Registry ────────────────────────────
@@ -121,6 +145,10 @@ export class TaskService {
             rewardPoints: true,
           },
         },
+        rewardCouponPlans: {
+          include: { plan: { select: { id: true, name: true } } },
+        },
+        _count: { select: { issuedCoupons: true } },
       },
     });
 
@@ -135,9 +163,14 @@ export class TaskService {
         .filter((a) => a.rewardGranted)
         .reduce((acc, a) => acc + a.rewardPoints, 0);
 
-      const { assignments, ...rest } = task;
+      const { assignments, _count, ...rest } = task;
       return {
         ...rest,
+        rewardCouponPlans: (task.rewardCouponPlans ?? []).map((link) => ({
+          id: link.plan.id,
+          name: link.plan.name,
+        })),
+        issuedCouponCount: _count?.issuedCoupons ?? 0,
         stats: {
           totalAssigned,
           completed,
@@ -156,7 +189,10 @@ export class TaskService {
       where: { id },
       include: {
         _count: {
-          select: { assignments: true },
+          select: { assignments: true, issuedCoupons: true },
+        },
+        rewardCouponPlans: {
+          include: { plan: { select: { id: true, name: true } } },
         },
       },
     });
@@ -176,6 +212,56 @@ export class TaskService {
 
   private isKnownFeatureKey(key: string): boolean {
     return CENTRAL_FEATURE_KEYS.some((f) => f.key === key);
+  }
+
+  // ─── Task reward coupon config ─────────────────────────
+  private async assertRewardCouponPlans(planIds: string[]): Promise<void> {
+    const unique = [...new Set(planIds)];
+    if (unique.length === 0) {
+      throw new BadRequestException('Select at least one membership plan for this reward coupon');
+    }
+    const count = await this.prisma.membershipPlan.count({
+      where: { id: { in: unique }, deletedAt: null },
+    });
+    if (count !== unique.length) {
+      throw new BadRequestException('One or more selected reward coupon plans do not exist');
+    }
+  }
+
+  private async validateRewardCouponConfig(input: {
+    enabled: boolean;
+    discountType?: CouponDiscountType | null;
+    value?: number | null;
+    appliesToAll: boolean;
+    planIds: string[];
+    validDays?: number | null;
+    expiresAt?: Date | null;
+  }): Promise<void> {
+    if (!input.enabled) return;
+    if (!input.discountType) {
+      throw new BadRequestException('Choose a reward coupon discount type');
+    }
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new BadRequestException('Reward coupon discount must be greater than zero');
+    }
+    if (input.discountType === CouponDiscountType.PERCENTAGE && value >= 100) {
+      throw new BadRequestException('Reward coupon percentage must be between 1% and 99%');
+    }
+    if (!input.appliesToAll) {
+      await this.assertRewardCouponPlans(input.planIds);
+    }
+    if (!input.validDays && !input.expiresAt) {
+      throw new BadRequestException(
+        'Set how many days the reward coupon is valid for, or an absolute expiry date',
+      );
+    }
+    if (input.validDays !== undefined && input.validDays !== null && input.validDays < 1) {
+      throw new BadRequestException('Reward coupon validity must be at least 1 day');
+    }
+    if (input.expiresAt && input.expiresAt <= new Date()) {
+      throw new BadRequestException('Reward coupon expiry must be in the future');
+    }
   }
 
   // Resolve + validate a console-registered app for EXTERNAL tasks.
@@ -246,6 +332,24 @@ export class TaskService {
       platform = 'mcom_central';
     }
 
+    const rewardEnabled = dto.rewardCouponEnabled ?? false;
+    const rewardAppliesToAll = dto.rewardCouponAppliesToAll ?? true;
+    const rewardPlanIds = rewardEnabled && !rewardAppliesToAll
+      ? [...new Set(dto.rewardCouponPlanIds ?? [])]
+      : [];
+    const rewardExpiresAt = dto.rewardCouponExpiresAt
+      ? new Date(dto.rewardCouponExpiresAt)
+      : null;
+    await this.validateRewardCouponConfig({
+      enabled: rewardEnabled,
+      discountType: dto.rewardCouponDiscountType,
+      value: dto.rewardCouponValue,
+      appliesToAll: rewardAppliesToAll,
+      planIds: rewardPlanIds,
+      validDays: dto.rewardCouponValidDays,
+      expiresAt: rewardExpiresAt,
+    });
+
     const task = await this.prisma.taskDefinition.create({
       data: {
         title,
@@ -261,6 +365,19 @@ export class TaskService {
         rewardPoints: dto.rewardPoints,
         isActive: dto.isActive ?? true,
         platform,
+        rewardCouponEnabled: rewardEnabled,
+        rewardCouponDiscountType: rewardEnabled ? dto.rewardCouponDiscountType ?? null : null,
+        rewardCouponValue: rewardEnabled ? dto.rewardCouponValue ?? null : null,
+        rewardCouponAppliesToAll: rewardAppliesToAll,
+        rewardCouponValidDays: rewardEnabled ? dto.rewardCouponValidDays ?? null : null,
+        rewardCouponExpiresAt: rewardEnabled ? rewardExpiresAt : null,
+        ...(rewardPlanIds.length > 0
+          ? {
+              rewardCouponPlans: {
+                createMany: { data: rewardPlanIds.map((planId) => ({ planId })) },
+              },
+            }
+          : {}),
       },
     });
 
@@ -278,7 +395,10 @@ export class TaskService {
   }
 
   async updateTaskDefinition(id: string, dto: UpdateTaskDefinitionDto, adminName = 'Admin') {
-    const existing = await this.prisma.taskDefinition.findUnique({ where: { id } });
+    const existing = await this.prisma.taskDefinition.findUnique({
+      where: { id },
+      include: { rewardCouponPlans: { select: { planId: true } } },
+    });
     if (!existing) {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
@@ -347,7 +467,74 @@ export class TaskService {
       this.logger.warn(`Ignoring manual platform edit on task ${id}: platform is derived from task source`);
     }
 
-    const task = await this.prisma.taskDefinition.update({ where: { id }, data });
+    const couponTouched =
+      dto.rewardCouponEnabled !== undefined ||
+      dto.rewardCouponDiscountType !== undefined ||
+      dto.rewardCouponValue !== undefined ||
+      dto.rewardCouponAppliesToAll !== undefined ||
+      dto.rewardCouponPlanIds !== undefined ||
+      dto.rewardCouponValidDays !== undefined ||
+      dto.rewardCouponExpiresAt !== undefined;
+
+    let rewardPlanIds: string[] = (existing.rewardCouponPlans ?? []).map((link) => link.planId);
+    if (couponTouched) {
+      const enabled = dto.rewardCouponEnabled ?? existing.rewardCouponEnabled;
+      const appliesToAll = dto.rewardCouponAppliesToAll ?? existing.rewardCouponAppliesToAll;
+      const planIds = appliesToAll
+        ? []
+        : dto.rewardCouponPlanIds !== undefined
+          ? [...new Set(dto.rewardCouponPlanIds)]
+          : rewardPlanIds;
+      const expiresAt =
+        dto.rewardCouponExpiresAt !== undefined
+          ? dto.rewardCouponExpiresAt
+            ? new Date(dto.rewardCouponExpiresAt)
+            : null
+          : existing.rewardCouponExpiresAt;
+      const validDays =
+        dto.rewardCouponValidDays !== undefined
+          ? dto.rewardCouponValidDays
+          : existing.rewardCouponValidDays;
+      const discountType =
+        dto.rewardCouponDiscountType !== undefined
+          ? dto.rewardCouponDiscountType
+          : existing.rewardCouponDiscountType;
+      const value =
+        dto.rewardCouponValue !== undefined
+          ? dto.rewardCouponValue
+          : existing.rewardCouponValue;
+
+      await this.validateRewardCouponConfig({
+        enabled,
+        discountType,
+        value,
+        appliesToAll,
+        planIds,
+        validDays,
+        expiresAt,
+      });
+
+      data.rewardCouponEnabled = enabled;
+      data.rewardCouponDiscountType = enabled ? discountType ?? null : null;
+      data.rewardCouponValue = enabled ? value ?? null : null;
+      data.rewardCouponAppliesToAll = appliesToAll;
+      data.rewardCouponValidDays = enabled ? validDays ?? null : null;
+      data.rewardCouponExpiresAt = enabled ? expiresAt ?? null : null;
+      rewardPlanIds = enabled ? planIds : [];
+    }
+
+    const task = couponTouched
+      ? await this.prisma.$transaction(async (tx) => {
+          const updated = await tx.taskDefinition.update({ where: { id }, data });
+          await tx.taskRewardCouponPlan.deleteMany({ where: { taskId: id } });
+          if (rewardPlanIds.length > 0) {
+            await tx.taskRewardCouponPlan.createMany({
+              data: rewardPlanIds.map((planId) => ({ taskId: id, planId })),
+            });
+          }
+          return updated;
+        })
+      : await this.prisma.taskDefinition.update({ where: { id }, data });
 
     await this.logAudit(
       'Task Definition Updated',
@@ -602,6 +789,10 @@ export class TaskService {
       );
     }
 
+    if (isNowCompleted) {
+      await this.enqueueTaskCouponReward(assignment.id, assignment.task);
+    }
+
     await this.logAudit(
       'User Task Assignment Updated',
       'UserTaskAssignment',
@@ -663,6 +854,16 @@ export class TaskService {
       where: { userId },
       include: {
         task: true,
+        rewardCoupon: {
+          select: {
+            id: true,
+            code: true,
+            discountType: true,
+            discountValue: true,
+            appliesToAllMemberships: true,
+            expiresAt: true,
+          },
+        },
       },
       orderBy: [
         { status: 'asc' },
@@ -698,6 +899,17 @@ export class TaskService {
           completedAt: a.completedAt,
           rewardGranted: a.rewardGranted,
           rewardPoints: a.rewardPoints,
+          rewardCouponEnabled: a.task.rewardCouponEnabled,
+          rewardCoupon: a.rewardCoupon
+            ? {
+                id: a.rewardCoupon.id,
+                code: a.rewardCoupon.code,
+                discountType: a.rewardCoupon.discountType,
+                discountValue: Number(a.rewardCoupon.discountValue),
+                appliesToAllMemberships: a.rewardCoupon.appliesToAllMemberships,
+                expiresAt: a.rewardCoupon.expiresAt,
+              }
+            : null,
         };
       }),
     };
@@ -808,6 +1020,9 @@ export class TaskService {
     if (businessId) {
       await this.syncToBusinessProgramme(businessId, assignment.task.featureKey || assignment.taskId);
     }
+
+    // 4. Queue the personal completion coupon (independent of point rewards).
+    await this.enqueueTaskCouponReward(assignment.id, assignment.task);
 
     return {
       success: true,
