@@ -932,3 +932,148 @@ export interface UpdateSubCategoryInput {
   sortOrder?: number
   imageUrl?: string | null
 }
+
+// ─── Coupons ─────────────────────────────────────────────
+export type CouponDiscountType = 'PERCENTAGE' | 'FIXED'
+export type CouponSource = 'ADMIN' | 'TASK_REWARD'
+export type CouponRedemptionStatus = 'PENDING' | 'COMPLETED' | 'EXPIRED'
+export type CouponStatus = 'active' | 'scheduled' | 'expired' | 'exhausted' | 'inactive'
+
+export interface AdminCouponPlan {
+  id: string
+  name: string
+  archived?: boolean
+}
+
+export interface AdminCouponUser {
+  id: string
+  email: string
+  firstName?: string | null
+  lastName?: string | null
+  businessProfile?: { id: string; businessName: string } | null
+}
+
+export interface AdminCoupon {
+  id: string
+  code: string
+  description: string | null
+  discountType: CouponDiscountType
+  discountValue: number
+  appliesToAllMemberships: boolean
+  membershipPlanIds: string[]
+  membershipPlans: AdminCouponPlan[]
+  validFrom: string
+  expiresAt: string | null
+  isActive: boolean
+  source: CouponSource
+  lockedToUserId: string | null
+  lockedToUser: AdminCouponUser | null
+  status: CouponStatus
+  timesRedeemed: number
+  maxUses: number | null
+  maxUsesPerUser: number | null
+  createdAt?: string
+}
+
+export interface AdminCouponInput {
+  code: string
+  description?: string
+  discountType: CouponDiscountType
+  discountValue: number
+  appliesToAllMemberships: boolean
+  membershipPlanIds?: string[]
+  maxUses?: number | null
+  maxUsesPerUser?: number | null
+  validFrom?: string
+  expiresAt?: string | null
+  isActive?: boolean
+  lockedToUserId?: string | null
+}
+
+export interface AdminCouponQuery {
+  page?: number
+  limit?: number
+  search?: string
+  status?: CouponStatus
+  source?: CouponSource
+  discountType?: CouponDiscountType
+  planId?: string
+}
+
+export interface AdminCouponRedemption {
+  id: string
+  couponId: string
+  couponCode: string
+  source: CouponSource
+  discountType: CouponDiscountType
+  discountValue: number
+  user: { id: string; email: string; name: string; businessName: string | null } | null
+  business: { id: string; businessName: string } | null
+  plan: { id: string; name: string } | null
+  planName: string | null
+  provider: string | null
+  providerPaymentId: string | null
+  originalAmount: number
+  discountAmount: number
+  finalAmount: number
+  status: CouponRedemptionStatus
+  reservedUntil: string | null
+  redeemedAt: string | null
+  createdAt: string
+}
+
+export interface AdminCouponRedemptionQuery {
+  page?: number
+  limit?: number
+  search?: string
+  status?: CouponRedemptionStatus
+  couponId?: string
+  planId?: string
+  businessId?: string
+  source?: CouponSource
+  from?: string
+  to?: string
+}
+
+export interface AdminCouponStats {
+  totalCoupons: number
+  activeCoupons: number
+  scheduledCoupons: number
+  expiredCoupons: number
+  totalRedemptions: number
+  totalDiscountGiven: number
+  redemptionsThisMonth: number
+  discountThisMonth: number
+}
+
+export interface CouponUserLookup {
+  id: string
+  email: string
+  name: string
+  role: string
+  businessName: string | null
+}
+
+export interface CouponQuote {
+  planId: string
+  planName: string
+  tier: string
+  paymentPlan: string
+  installments: number
+  sliceDays: number
+  originalAmount: number
+  discountAmount: number
+  finalAmount: number
+  currency: 'GBP'
+  coupon: {
+    id: string
+    code: string
+    discountType: CouponDiscountType
+    discountValue: number
+    appliesToAllMemberships: boolean
+    membershipPlanIds: string[]
+    expiresAt: string | null
+    lockedToUserId: string | null
+    source: CouponSource
+  } | null
+}

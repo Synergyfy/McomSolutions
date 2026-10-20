@@ -40,3 +40,16 @@ export class PaymentQuoteQueryDto {
   @IsIn(['full', 'monthly', 'quarterly', 'halfYearly', 'half_yearly'], { message: 'Payment plan must be full, monthly, quarterly or halfYearly.' })
   paymentPlan?: string = 'full';
 }
+
+/** Authenticated coupon preview for the current payment step. */
+export class CouponQuoteDto extends PaymentQuoteQueryDto {
+  @ApiProperty({ example: 'MCOM-20OFF', description: 'Coupon code to validate' })
+  @IsString()
+  @IsNotEmpty({ message: 'Enter a coupon code.' })
+  couponCode: string;
+
+  @ApiPropertyOptional({ example: 'monthly', enum: ['monthly', 'quarterly', 'yearly'] })
+  @IsOptional()
+  @IsIn(['monthly', 'quarterly', 'yearly'])
+  billing?: 'monthly' | 'quarterly' | 'yearly' = 'monthly';
+}

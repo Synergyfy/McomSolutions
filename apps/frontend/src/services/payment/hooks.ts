@@ -3,27 +3,28 @@ import { paymentApi } from './index';
 
 export const useStripeInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, isTrial, paymentPlan }: { level: string; tier: string; billing: string; isTrial: boolean; paymentPlan?: string }) =>
-      paymentApi.stripeInitiate(level, tier, billing, isTrial, paymentPlan ?? 'full'),
+    mutationFn: ({ level, tier, billing, isTrial, paymentPlan, couponCode }: { level: string; tier: string; billing: string; isTrial: boolean; paymentPlan?: string; couponCode?: string }) =>
+      paymentApi.stripeInitiate(level, tier, billing, isTrial, paymentPlan ?? 'full', couponCode),
   });
 };
 
 export const useStripeConfirm = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ level, tier, billing, paymentIntentId, isTrial, paymentPlan }: { level: string; tier: string; billing: string; paymentIntentId: string; isTrial: boolean; paymentPlan?: string }) =>
-      paymentApi.stripeConfirm(level, tier, billing, paymentIntentId, isTrial, paymentPlan ?? 'full'),
+    mutationFn: ({ level, tier, billing, paymentIntentId, isTrial, paymentPlan, couponCode }: { level: string; tier: string; billing: string; paymentIntentId: string; isTrial: boolean; paymentPlan?: string; couponCode?: string }) =>
+      paymentApi.stripeConfirm(level, tier, billing, paymentIntentId, isTrial, paymentPlan ?? 'full', couponCode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
     },
   });
 };
 
 export const usePaypalInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean; paymentPlan?: string }) =>
-      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan ?? 'full'),
+    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean; paymentPlan?: string; couponCode?: string }) =>
+      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan ?? 'full', couponCode),
   });
 };
 
@@ -34,6 +35,7 @@ export const usePaypalCapture = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
     },
   });
 };

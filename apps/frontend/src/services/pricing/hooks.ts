@@ -39,3 +39,15 @@ export const useSubscriptions = () => {
   });
 };
 
+export const useValidateCoupon = () => {
+  return useMutation({
+    mutationFn: (data: {
+      couponCode: string;
+      level: string;
+      tier?: string;
+      billing?: string;
+      paymentPlan?: string;
+    }) => pricingApi.validateCoupon(data),
+  });
+};
+

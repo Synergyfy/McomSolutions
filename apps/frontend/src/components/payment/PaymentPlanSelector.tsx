@@ -8,6 +8,10 @@ export interface SelectorOption {
   perChargePrice: number;
   totalPrice: number;
   sliceDays: number;
+  /** Display-only: original amounts before an applied coupon. */
+  originalPerChargePrice?: number;
+  originalTotalPrice?: number;
+  couponDiscount?: number;
 }
 
 interface PaymentPlanSelectorProps {
@@ -28,16 +32,36 @@ function durationText(tier: string, durationDays: number): string {
 }
 
 function planLabel(opt: SelectorOption): { title: string; sub: string } {
+  const discounted = (opt.couponDiscount ?? 0) > 0;
+  const original = Number(opt.originalPerChargePrice ?? opt.perChargePrice);
+  const remaining = discounted && opt.installments > 1
+    ? ` then £${original} × ${opt.installments - 1}`
+    : '';
   if (opt.paymentPlan === 'full') {
     return { title: 'Pay in full', sub: `One payment of £${opt.perChargePrice}` };
   }
   if (opt.paymentPlan === 'monthly') {
-    return { title: 'Pay monthly', sub: `£${opt.perChargePrice} × ${opt.installments} months` };
+    return {
+      title: 'Pay monthly',
+      sub: discounted
+        ? `£${opt.perChargePrice} today${remaining}`
+        : `£${opt.perChargePrice} × ${opt.installments} months`,
+    };
   }
   if (opt.paymentPlan === 'quarterly') {
-    return { title: 'Pay quarterly', sub: `£${opt.perChargePrice} × ${opt.installments} payments` };
+    return {
+      title: 'Pay quarterly',
+      sub: discounted
+        ? `£${opt.perChargePrice} today${remaining}`
+        : `£${opt.perChargePrice} × ${opt.installments} payments`,
+    };
   }
-  return { title: 'Pay every 6 months', sub: `£${opt.perChargePrice} × ${opt.installments} payments` };
+  return {
+    title: 'Pay every 6 months',
+    sub: discounted
+      ? `£${opt.perChargePrice} today${remaining}`
+      : `£${opt.perChargePrice} × ${opt.installments} payments`,
+  };
 }
 
 export default function PaymentPlanSelector({ tier, durationDays, options, value, onChange }: PaymentPlanSelectorProps) {
@@ -105,16 +129,29 @@ export default function PaymentPlanSelector({ tier, durationDays, options, value
                 </span>
               </span>
               <span className="text-right shrink-0">
-                <span className="block text-lg sm:text-xl font-black text-gray-900">£{opt.perChargePrice}</span>
+                <span className="block text-lg sm:text-xl font-black text-gray-900">
+                  £{opt.perChargePrice}
+                </span>
+                {(opt.originalPerChargePrice ?? opt.perChargePrice) > opt.perChargePrice && (
+                  <span className="block text-[11px] text-gray-400 font-semibold line-through">
+                    £{opt.originalPerChargePrice}
+                  </span>
+                )}
                 <span className="block text-[11px] text-gray-400 font-semibold">
-                  {opt.paymentPlan === 'full' ? 'one-off' : 'per payment'}
+                  {opt.paymentPlan === 'full'
+                    ? 'one-off'
+                    : (opt.couponDiscount ?? 0) > 0
+                      ? 'today'
+                      : 'per payment'}
                 </span>
               </span>
             </span>
             {opt.paymentPlan === 'monthly' && (
               <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-400 font-medium">
                 <CalendarClock className="w-3.5 h-3.5" />
-                Highest total (£{total}) — you pay as you go and can stop anytime.
+                Highest total (£{total}
+                {(opt.originalTotalPrice ?? total) > total ? `, was £${opt.originalTotalPrice}` : ''})
+                — you pay as you go and can stop anytime.
               </span>
             )}
           </button>

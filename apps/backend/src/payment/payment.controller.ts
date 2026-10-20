@@ -49,6 +49,8 @@ export class PaymentController {
       dto.tier,
       dto.billing || 'monthly',
       dto.paymentPlan || 'full',
+      dto.couponCode,
+      req.user?.userId,
     );
   }
 
@@ -93,6 +95,8 @@ export class PaymentController {
       dto.returnUrl,
       dto.cancelUrl,
       dto.paymentPlan || 'full',
+      dto.couponCode,
+      req.user?.userId,
     );
   }
 

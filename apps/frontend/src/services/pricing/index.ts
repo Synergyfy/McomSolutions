@@ -24,6 +24,23 @@ export const pricingApi = {
     return res.data;
   },
 
+  validateCoupon: async (data: {
+    couponCode: string;
+    level: string;
+    tier?: string;
+    billing?: string;
+    paymentPlan?: string;
+  }) => {
+    const res = await apiClient.post('/pricing/coupons/validate', {
+      couponCode: data.couponCode.trim().toUpperCase(),
+      level: data.level,
+      tier: data.tier ?? 'Standard',
+      billing: data.billing ?? 'monthly',
+      paymentPlan: data.paymentPlan ?? 'full',
+    });
+    return res.data;
+  },
+
   getTransactions: async () => {
     const res = await apiClient.get('/pricing/transactions');
     return res.data;
