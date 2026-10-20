@@ -58,7 +58,7 @@ export default function ProductSuite() {
               Explore 24/7 GBS business tools and Mcom commerce and engagement products, connected through one platform.
             </p>
           </div>
-          <Link to="/getstarted/business?entry=signup" className="inline-flex w-fit items-center gap-2 font-semibold text-orange-700 transition-colors hover:text-orange-800">
+          <Link to="/register" className="inline-flex w-fit items-center gap-2 font-semibold text-orange-700 transition-colors hover:text-orange-800">
             Get started <ArrowUpRight className="h-4 w-4" />
           </Link>
         </div>

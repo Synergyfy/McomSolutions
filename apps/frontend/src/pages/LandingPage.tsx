@@ -113,7 +113,7 @@ export default function LandingPage() {
 
           {/* Pricing CTA */}
           <div className="flex items-center justify-center">
-            <Link to="/getstarted/business?entry=signup" className="bg-brand-blue text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-lg transition-all shadow-glow active:scale-95 hover:bg-blue-600 flex items-center gap-2">
+            <Link to="/register" className="bg-brand-blue text-white px-8 sm:px-10 py-4 sm:py-5 rounded-full font-semibold text-base sm:text-lg transition-all shadow-glow active:scale-95 hover:bg-blue-600 flex items-center gap-2">
               Sign up to choose a tier
               <ArrowRight className="w-5 h-5" />
             </Link>
@@ -130,7 +130,7 @@ export default function LandingPage() {
             Start your 14-day free trial today. No credit card required.
           </p>
           <div className="flex flex-col items-center justify-center gap-3">
-            <Link to="/getstarted/business?entry=signup" className="w-full sm:w-auto bg-brand-blue text-white px-10 py-4 rounded-full font-semibold text-lg hover:bg-blue-600 transition-all text-center shadow-glow-lg active:scale-95">
+            <Link to="/register" className="w-full sm:w-auto bg-brand-blue text-white px-10 py-4 rounded-full font-semibold text-lg hover:bg-blue-600 transition-all text-center shadow-glow-lg active:scale-95">
               Get Started Now
             </Link>
             <button className="w-full sm:w-auto px-8 py-2 font-semibold text-gray-600 hover:text-gray-900 transition-colors active:scale-95">

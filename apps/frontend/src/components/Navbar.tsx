@@ -108,7 +108,7 @@ export default function Navbar() {
                   exit={{ opacity: 0, y: 10 }}
                   className="absolute top-full left-1/2 -translate-x-1/2 w-56 glass rounded-2xl shadow-2xl p-3 mt-2"
                 >
-                  <Link to={isLoggedIn ? "/membership" : "/getstarted/business?entry=signup"} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
+                  <Link to={isLoggedIn ? "/membership" : "/register"} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
                     <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
                       <LayoutGrid className="w-4 h-4" />
                     </div>
@@ -132,7 +132,7 @@ export default function Navbar() {
           ) : (
             <>
               <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
-              <Link to="/getstarted/business?entry=signup" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+              <Link to="/register" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
                 Get Started
               </Link>
             </>
@@ -203,7 +203,7 @@ export default function Navbar() {
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Plans</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Link 
-                    to={isLoggedIn ? "/membership" : "/getstarted/business?entry=signup"}
+                    to={isLoggedIn ? "/membership" : "/register"}
                     onClick={() => setIsOpen(false)}
                     className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
                   >
@@ -234,7 +234,7 @@ export default function Navbar() {
                       Sign In
                     </Link>
                     <Link 
-                      to="/getstarted/business?entry=signup"
+                      to="/register"
                       onClick={() => setIsOpen(false)}
                       className="block w-full bg-brand-blue text-white py-3 rounded-xl font-semibold text-center hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
                     >

@@ -130,7 +130,7 @@ export default function Hero() {
           </motion.div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <Link to="/getstarted/business?entry=signup">
+            <Link to="/register">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

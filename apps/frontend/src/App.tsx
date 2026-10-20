@@ -17,7 +17,6 @@ import RegistrationEntry from './pages/RegistrationEntry';
 import CustomerRegistration from './pages/CustomerRegistration';
 import AffiliateRoleSelection from './pages/AffiliateRoleSelection';
 import CustomerDashboard from './pages/CustomerDashboard';
-import GetStartedRoleSelect from './pages/getstarted/GetStartedRoleSelect';
 import BusinessOnboarding from './pages/getstarted/BusinessOnboarding';
 import HighStreetExplanationUX from './pages/section/ui/ux/high-street/page';
 import { AnimatePresence, motion } from 'motion/react';
@@ -159,7 +158,7 @@ function AnimatedRoutes() {
           />
           <Route 
             path="/pricing" 
-            element={<Navigate to="/getstarted/business?entry=signup" replace />}
+            element={<Navigate to="/register" replace />}
           />
           <Route 
             path="/membership" 
@@ -273,7 +272,7 @@ function AnimatedRoutes() {
             path="/getstarted" 
             element={
               <PageWrapper>
-                <GetStartedRoleSelect />
+                <RegistrationEntry />
               </PageWrapper>
             } 
           />
