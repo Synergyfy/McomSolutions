@@ -100,7 +100,7 @@ export default function CustomerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] pt-16 text-slate-900">
+    <div className="customer-dashboard-ui min-h-screen bg-[#f6f8fb] pt-16 text-slate-900">
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <CHSLogo variant="full" size="sm" imageClassName="h-8 w-auto" />

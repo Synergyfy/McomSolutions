@@ -373,3 +373,23 @@ main {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
+
+/* Keep interactive affordances consistent across every customer dashboard page. */
+.customer-dashboard-ui :is(
+  button:not(:disabled),
+  a[href],
+  [role="button"]:not([aria-disabled="true"]),
+  [role="link"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  summary,
+  select,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label[for]
+) {
+  cursor: pointer;
+}
+
+.customer-dashboard-ui :is(button:disabled, [aria-disabled="true"]) {
+  cursor: not-allowed;
+}
