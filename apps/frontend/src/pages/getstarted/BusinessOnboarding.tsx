@@ -150,8 +150,8 @@ function useSendOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      await businessApi.sendOtp(data.email);
-      return { success: true };
+      const res = await businessApi.sendOtp(data.email);
+      return res ?? { success: true };
     },
     isPending,
   };
@@ -164,7 +164,7 @@ function useValidateOtp() {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
       const res = await businessApi.verifyOtp(data.email, data.otp);
-      return { data: { valid: res.valid } };
+      return { data: { valid: Boolean(res?.valid) } };
     },
     isPending,
   };
@@ -1500,6 +1500,9 @@ function BusinessOnboardingInner() {
   const [hasRegistered, setHasRegistered] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
+  const [otpMode, setOtpMode] = useState<'mock' | 'email' | null>(null);
+  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
   const [verifyOtpCode, setVerifyOtpCode] = useState('');
   const [verifyOtpSent, setVerifyOtpSent] = useState(false);
   const [verifyOtpBusy, setVerifyOtpBusy] = useState(false);
@@ -1510,6 +1513,16 @@ function BusinessOnboardingInner() {
   const [showProgrammeIntro, setShowProgrammeIntro] = useState(false);
   const [showChoosePlan, setShowChoosePlan] = useState(false);
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
+
+  // Backend enforces a 60s OTP cooldown; mirror it in the UI so resend
+  // doesn't immediately fail with 429.
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpResendCooldown]);
 
   // If user is already logged in with a completed business profile, redirect to dashboard only if verified or subscribed (unless claim return, claim flow, or external platform/SSO intent in flight)
   useEffect(() => {
@@ -1524,6 +1537,7 @@ function BusinessOnboardingInner() {
       (redirectParam && !isAuthOrOnboardingRedirect(redirectParam))
     );
     if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
+    if (searchParams.get('resume') === 'plan') return;
     if (showProgrammeIntro || showChoosePlan || showVerificationModal) return;
     
     const businessId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
@@ -2014,6 +2028,20 @@ function BusinessOnboardingInner() {
     }
   }, []);
 
+  // ─── Resume after the verification fee was paid ───────
+  // Stripe/PayPal redirects return here with ?resume=plan, because the
+  // original onboarding screen flags are not preserved across the redirect.
+  useEffect(() => {
+    if (!isClient) return;
+    if (searchParams.get('resume') !== 'plan') return;
+    if (showChoosePlan) return;
+
+    setShowInitialPrompt(false);
+    setShowProgrammeIntro(false);
+    setShowVerificationModal(false);
+    setShowChoosePlan(true);
+  }, [isClient, searchParams, showChoosePlan]);
+
   // ─── Handle Payment Success Redirect ─────────────────
   useEffect(() => {
     if (!isClient) return;
@@ -2194,19 +2222,12 @@ function BusinessOnboardingInner() {
     // ── Step 0: Send OTP to email ────────────────────────────
     if (currentStep === 0) {
       if (!formData.email) { setSubmitError('Please enter your email address.'); return; }
-      if (import.meta.env.DEV) {
-        // Keep the verification screen in the design flow without requiring a
-        // running API/Redis service in the local frontend preview.
-        const next = new Set(completedSteps);
-        next.add(0);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        setTimeout(() => setCurrentStep(1), 300);
-        return;
-      }
       setIsSubmitting(true);
       try {
-        await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+        const res = await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+        setOtpMode(res?.mode ?? null);
+        setDevOtpCode(res?.code ?? null);
+        setOtpResendCooldown(60);
         const next = new Set(completedSteps);
         next.add(0);
         setCompletedSteps(next);
@@ -2224,21 +2245,13 @@ function BusinessOnboardingInner() {
     // ── Step 1: Validate OTP ───────────────────────────────
     if (currentStep === 1) {
       if (!otp || otp.length < 6) { setSubmitError('Please enter the full 6-digit code.'); return; }
-      if (import.meta.env.DEV) {
-        if (otp !== '123456') {
-          setSubmitError('For this local preview, enter the code 123456.');
-          return;
-        }
-        const next = new Set(completedSteps);
-        next.add(1);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        setTimeout(() => setCurrentStep(2), 300);
-        return;
-      }
       setIsSubmitting(true);
       try {
-        await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
+        const otpResult = await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
+        if (!otpResult?.data?.valid) {
+          setSubmitError('Invalid or expired verification code. Please check and try again.');
+          return;
+        }
 
         // Check if an account with this email already exists
         try {
@@ -2357,29 +2370,6 @@ function BusinessOnboardingInner() {
     if (currentStep === activeQuests.length - 1) {
       if (!formData.sectorId || !formData.categoryId) {
         setSubmitError('Please select your sector and primary category.');
-        return;
-      }
-
-      if (import.meta.env.DEV) {
-        // Let frontend review proceed without the unavailable account/profile APIs.
-        const next = new Set(completedSteps);
-        next.add(currentStep);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        localStorage.setItem('businessOnboarding', JSON.stringify({
-          businessName: formData.businessName,
-          postcode: formData.postcode,
-          address: formData.address,
-          logo: formData.logo,
-          sectorId: formData.sectorId,
-          categoryId: formData.categoryId,
-          subCategoryId: formData.subCategoryId,
-        }));
-        localStorage.removeItem('businessOnboardingStep');
-        localStorage.removeItem('businessOnboardingCompleted');
-        localStorage.removeItem('business_onboarding_draft');
-        localStorage.setItem('businessOnboardingState', 'plan_selection');
-        setShowProgrammeIntro(true);
         return;
       }
 
@@ -6466,15 +6456,19 @@ function BusinessOnboardingInner() {
                   <div className="space-y-6">
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
                       <p className="text-sm text-orange-900 font-medium leading-relaxed">
-                        {import.meta.env.DEV
-                          ? 'Local preview: enter 123456 to continue. This keeps the verification screen in the signup flow without needing the backend.'
+                        {otpMode === 'mock'
+                          ? 'Development mode: the backend is not sending email. Use the verification code shown below.'
                           : 'Check your inbox for a 6-digit verification code. This confirms you own this email address and keeps your account secure.'}
                       </p>
                     </div>
+                    {otpMode === 'mock' && devOtpCode && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                        <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Mock verification code</p>
+                        <p className="mt-1 text-3xl font-black tracking-[0.3em] text-amber-900">{devOtpCode}</p>
+                      </div>
+                    )}
                     <div className="text-center p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
-                      <p className="text-sm text-gray-500 font-medium">
-                        {import.meta.env.DEV ? 'Email being previewed' : 'Code sent to'}
-                      </p>
+                      <p className="text-sm text-gray-500 font-medium">Code sent to</p>
                       <p className="text-base font-bold text-gray-900 mt-0.5">{formData.email}</p>
                     </div>
                     <div className="space-y-2">
@@ -6496,18 +6490,31 @@ function BusinessOnboardingInner() {
                         autoFocus
                       />
                     </div>
-                    {!import.meta.env.DEV && <button
+                    <button
                       type="button"
+                      disabled={otpResending || otpResendCooldown > 0}
                       onClick={async () => {
                         setOtpResending(true);
-                        try { await sendOtp({ email: formData.email, type: 'VERIFICATION' }); }
-                        catch { /* silent */ }
-                        finally { setOtpResending(false); }
+                        try {
+                          const res = await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+                          setOtpMode(res?.mode ?? null);
+                          setDevOtpCode(res?.code ?? null);
+                          setOtpResendCooldown(60);
+                        } catch (err: unknown) {
+                          const e = err as { message?: string };
+                          setSubmitError(e?.message || 'Failed to resend verification code. Please try again.');
+                        } finally {
+                          setOtpResending(false);
+                        }
                       }}
-                      className="w-full text-center text-sm text-gray-400 hover:text-orange-500 transition-colors"
+                      className="w-full text-center text-sm text-gray-400 hover:text-orange-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {otpResending ? 'Sending...' : "Didn't receive it? Resend code"}
-                    </button>}
+                      {otpResending
+                        ? 'Sending...'
+                        : otpResendCooldown > 0
+                          ? `Resend code in ${otpResendCooldown}s`
+                          : "Didn't receive it? Resend code"}
+                    </button>
                   </div>
                 )}
 
@@ -7863,11 +7870,6 @@ function BusinessOnboardingInner() {
         }}
         onSuccess={() => {
           setShowVerificationModal(false);
-          if (import.meta.env.DEV) {
-            localStorage.removeItem('onboardingVerificationFeePaid');
-          } else {
-            localStorage.setItem('onboardingVerificationFeePaid', 'true');
-          }
           setShowChoosePlan(true);
         }}
       />

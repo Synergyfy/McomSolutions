@@ -28,9 +28,10 @@ export function useChatConnection() {
   };
 }
 
-export function useChat() {
+export function useChat(options: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { isConnected } = useChatConnection();
+  const enabled = options.enabled ?? true;
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typingUsers, setTypingUsers] = useState<Array<{ userId: string; userName: string }>>([]);
@@ -50,6 +51,7 @@ export function useChat() {
   const conversationsQuery = useQuery({
     queryKey: ['chat-conversations'],
     queryFn: () => chatApi.getConversations(),
+    enabled,
     refetchInterval: 30000, // background refresh safety net
   });
 
