@@ -6,7 +6,7 @@ import {
   ChevronRight, ChevronLeft, Upload, Check,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, HelpCircle, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, FileSearch, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
+  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
@@ -22,6 +22,7 @@ import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
 import { persistReferralCodeFromSearchParams } from '../../lib/referral';
+import { isAuthOrOnboardingRedirect } from '../../lib/redirects';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -149,8 +150,8 @@ function useSendOtp() {
   return {
     mutateAsync: async (data: any) => {
       console.log('Sending OTP to email via backend:', data);
-      await businessApi.sendOtp(data.email);
-      return { success: true };
+      const res = await businessApi.sendOtp(data.email);
+      return res ?? { success: true };
     },
     isPending,
   };
@@ -163,7 +164,7 @@ function useValidateOtp() {
     mutateAsync: async (data: any) => {
       console.log('Validating OTP code via backend:', data);
       const res = await businessApi.verifyOtp(data.email, data.otp);
-      return { data: { valid: res.valid } };
+      return { data: { valid: Boolean(res?.valid) } };
     },
     isPending,
   };
@@ -664,6 +665,21 @@ function BusinessOnboardingInner() {
   const logout = useLogout();
   const [searchParams] = useSearchParams();
 
+  // "Already have an account? Log in here" must not send the user back to
+  // onboarding after signing in. Carry only real SSO intent — never the
+  // current onboarding path as a ?redirect target.
+  const loginHref = (() => {
+    const params = new URLSearchParams();
+    for (const key of ['client_id', 'redirect_uri', 'state', 'scope', 'source', 'redirect', 'callbackUrl']) {
+      const value = searchParams.get(key);
+      if (!value) continue;
+      if ((key === 'redirect' || key === 'callbackUrl') && isAuthOrOnboardingRedirect(value)) continue;
+      params.set(key, value);
+    }
+    const search = params.toString();
+    return search ? `/login?${search}` : '/login';
+  })();
+
   const handleLogout = () => {
     localStorage.removeItem('businessOnboardingState');
     localStorage.removeItem('businessOnboarding');
@@ -803,6 +819,23 @@ function BusinessOnboardingInner() {
 
     cleanupIntent();
     router.push(fallbackRoute);
+  };
+
+  // Clear the onboarding draft and enter the dashboard. Used once the business
+  // has completed (or skipped) membership selection — there is no longer an
+  // initial assessment step between choosing a plan and the dashboard.
+  const completeOnboardingAndEnterDashboard = async () => {
+    localStorage.removeItem('businessOnboarding');
+    localStorage.removeItem('businessOnboardingStep');
+    localStorage.removeItem('businessOnboardingCompleted');
+    localStorage.removeItem('business_onboarding_draft');
+    localStorage.removeItem('businessOnboardingState');
+    localStorage.removeItem('onboardingPaymentSuccess');
+    localStorage.removeItem('assessmentCompleted');
+    sessionStorage.removeItem('onboarding_intent_token');
+    localStorage.setItem('firstDashboardLogin', 'true');
+    setProgrammeStarted();
+    await performSSORedirect('/dashboard');
   };
 
   const dispatch = useDispatch();
@@ -1467,25 +1500,45 @@ function BusinessOnboardingInner() {
   const [hasRegistered, setHasRegistered] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [otp, setOtp] = useState(''); const [otpResending, setOtpResending] = useState(false);
+  const [otpMode, setOtpMode] = useState<'mock' | 'email' | null>(null);
+  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
+  const [otpResendCooldown, setOtpResendCooldown] = useState(0);
   const [verifyOtpCode, setVerifyOtpCode] = useState('');
   const [verifyOtpSent, setVerifyOtpSent] = useState(false);
   const [verifyOtpBusy, setVerifyOtpBusy] = useState(false);
   const [verifyOtpError, setVerifyOtpError] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
-  // ─── Post-Quest Screens (Steps 5-7) ──────────────────
+  // ─── Post-Quest Screens (Steps 5-6) ──────────────────
   const [showProgrammeIntro, setShowProgrammeIntro] = useState(false);
   const [showChoosePlan, setShowChoosePlan] = useState(false);
-  const [showInitialAssessment, setShowInitialAssessment] = useState(false);
-  const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, string>>({});
-  const [assessmentStep, setAssessmentStep] = useState(0);
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
+
+  // Backend enforces a 60s OTP cooldown; mirror it in the UI so resend
+  // doesn't immediately fail with 429.
+  useEffect(() => {
+    if (otpResendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpResendCooldown((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpResendCooldown]);
 
   // If user is already logged in with a completed business profile, redirect to dashboard only if verified or subscribed (unless claim return, claim flow, or external platform/SSO intent in flight)
   useEffect(() => {
-    const hasExternalIntent = Boolean(searchParams.get('source') || searchParams.get('client_id') || searchParams.get('redirect_uri') || searchParams.get('redirect'));
+    const redirectParam = searchParams.get('redirect');
+    const hasExternalIntent = Boolean(
+      searchParams.get('source') ||
+      searchParams.get('client_id') ||
+      searchParams.get('redirect_uri') ||
+      // A redirect back into the auth/onboarding funnel is not a real
+      // external intent — e.g. the "Log in here" link leaves
+      // ?redirect=/getstarted/business behind after login.
+      (redirectParam && !isAuthOrOnboardingRedirect(redirectParam))
+    );
     if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
-    if (showProgrammeIntro || showChoosePlan || showVerificationModal || showInitialAssessment) return;
+    if (searchParams.get('resume') === 'plan') return;
+    if (showProgrammeIntro || showChoosePlan || showVerificationModal) return;
     
     const businessId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
     const hasPaidVerif = Boolean((currentUser as any)?.hasPaidVerificationFee || (currentUser as any)?.businessProfile?.hasPaidVerificationFee);
@@ -1494,7 +1547,7 @@ function BusinessOnboardingInner() {
     if (currentUser?.role === 'BUSINESS' && businessId && (hasPaidVerif || hasMembership)) {
       router.replace('/dashboard');
     }
-  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal, showInitialAssessment]);
+  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal]);
 
   // ─── Platform Plans (from external services) ──────────
   const sourceParam = searchParams.get('source');
@@ -1679,7 +1732,6 @@ function BusinessOnboardingInner() {
         setShowWelcomeChecklistPage(false);
         setShowProgrammeIntro(false);
         setShowChoosePlan(false);
-        setShowInitialAssessment(false);
         setShowComplete(false);
         setShowBoroughBrowser(false);
         setIsGoogleOnboarding(true);
@@ -1873,7 +1925,6 @@ function BusinessOnboardingInner() {
         setShowBusinessCategoryPage(false);
         setShowProgrammeIntro(false);
         setShowChoosePlan(false);
-        setShowInitialAssessment(false);
         return;
       }
 
@@ -1895,7 +1946,6 @@ function BusinessOnboardingInner() {
           setShowInitialPrompt(true);
           setShowProgrammeIntro(false);
           setShowChoosePlan(false);
-          setShowInitialAssessment(false);
           setShowGoogleCategoryPage(false);
           setShowFindClaimPage(false);
           setShowBusinessPreviewPage(false);
@@ -1918,9 +1968,15 @@ function BusinessOnboardingInner() {
             showBusinessTypePage: false,
             showProgrammeIntro: false,
             showChoosePlan: false,
-            showInitialAssessment: false,
           }));
         } else {
+          // Legacy drafts may still point at the removed initial assessment.
+          // Treat those users as having completed onboarding and send them on.
+          if (parsed.showInitialAssessment) {
+            void completeOnboardingAndEnterDashboard();
+            return;
+          }
+
           // Restore full draft state normally (credentials stripped from cache)
           if (parsed.formData) {
             const { password: _p, confirmPassword: _cp, ...restoredFormData } = parsed.formData;
@@ -1938,7 +1994,6 @@ function BusinessOnboardingInner() {
           if (parsed.showBusinessTypePage !== undefined) setShowBusinessTypePage(parsed.showBusinessTypePage);
           if (parsed.showProgrammeIntro !== undefined) setShowProgrammeIntro(parsed.showProgrammeIntro);
           if (parsed.showChoosePlan !== undefined) setShowChoosePlan(parsed.showChoosePlan);
-          if (parsed.showInitialAssessment !== undefined) setShowInitialAssessment(parsed.showInitialAssessment);
           if (parsed.selectedPreviewBusiness) setSelectedPreviewBusiness(parsed.selectedPreviewBusiness);
           if (parsed.googleSectorId) setGoogleSectorId(parsed.googleSectorId);
           if (parsed.googleCategoryId) setGoogleCategoryId(parsed.googleCategoryId);
@@ -1973,6 +2028,20 @@ function BusinessOnboardingInner() {
     }
   }, []);
 
+  // ─── Resume after the verification fee was paid ───────
+  // Stripe/PayPal redirects return here with ?resume=plan, because the
+  // original onboarding screen flags are not preserved across the redirect.
+  useEffect(() => {
+    if (!isClient) return;
+    if (searchParams.get('resume') !== 'plan') return;
+    if (showChoosePlan) return;
+
+    setShowInitialPrompt(false);
+    setShowProgrammeIntro(false);
+    setShowVerificationModal(false);
+    setShowChoosePlan(true);
+  }, [isClient, searchParams, showChoosePlan]);
+
   // ─── Handle Payment Success Redirect ─────────────────
   useEffect(() => {
     if (!isClient) return;
@@ -1980,37 +2049,13 @@ function BusinessOnboardingInner() {
     const paymentSuccess = localStorage.getItem('onboardingPaymentSuccess') === 'true';
     if (!paymentSuccess) return;
 
-    // Check localStorage for cached business profile (fast path)
-    const userRaw = localStorage.getItem('business_user');
-    let hasBusinessProfile = false;
-    if (userRaw) {
-      try {
-        const user = JSON.parse(userRaw);
-        if (user?.businessProfile?.id) {
-          hasBusinessProfile = true;
-        }
-      } catch (e) { }
-    }
-
-    if (currentUser?.businessProfile?.id || hasBusinessProfile) {
-      localStorage.removeItem('onboardingPaymentSuccess');
-      localStorage.removeItem('businessOnboardingState');
-      performSSORedirect();
-      return;
-    }
-
     // If authenticated (has token) but user profile hasn't loaded yet, wait.
     if (hasToken && currentUser === undefined) {
       return;
     }
 
-    // Default: new user signing up from scratch. Go to assessment.
-    localStorage.removeItem('onboardingPaymentSuccess');
-    localStorage.setItem('businessOnboardingState', 'assessment');
-    setShowInitialPrompt(false);
-    setShowChoosePlan(false);
-    setShowProgrammeIntro(false);
-    setShowInitialAssessment(true);
+    // Payment complete — go straight to the dashboard (no assessment step).
+    void completeOnboardingAndEnterDashboard();
   }, [isClient, currentUser, hasToken]);
 
   useEffect(() => {
@@ -2059,7 +2104,6 @@ function BusinessOnboardingInner() {
         showBusinessTypePage: isGoogleOnboarding ? false : showBusinessTypePage,
         showProgrammeIntro,
         showChoosePlan,
-        showInitialAssessment,
         // Google import state
         isGoogleOnboarding,
         selectedPreviewBusiness,
@@ -2178,19 +2222,12 @@ function BusinessOnboardingInner() {
     // ── Step 0: Send OTP to email ────────────────────────────
     if (currentStep === 0) {
       if (!formData.email) { setSubmitError('Please enter your email address.'); return; }
-      if (import.meta.env.DEV) {
-        // Keep the verification screen in the design flow without requiring a
-        // running API/Redis service in the local frontend preview.
-        const next = new Set(completedSteps);
-        next.add(0);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        setTimeout(() => setCurrentStep(1), 300);
-        return;
-      }
       setIsSubmitting(true);
       try {
-        await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+        const res = await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+        setOtpMode(res?.mode ?? null);
+        setDevOtpCode(res?.code ?? null);
+        setOtpResendCooldown(60);
         const next = new Set(completedSteps);
         next.add(0);
         setCompletedSteps(next);
@@ -2208,21 +2245,13 @@ function BusinessOnboardingInner() {
     // ── Step 1: Validate OTP ───────────────────────────────
     if (currentStep === 1) {
       if (!otp || otp.length < 6) { setSubmitError('Please enter the full 6-digit code.'); return; }
-      if (import.meta.env.DEV) {
-        if (otp !== '123456') {
-          setSubmitError('For this local preview, enter the code 123456.');
-          return;
-        }
-        const next = new Set(completedSteps);
-        next.add(1);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        setTimeout(() => setCurrentStep(2), 300);
-        return;
-      }
       setIsSubmitting(true);
       try {
-        await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
+        const otpResult = await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
+        if (!otpResult?.data?.valid) {
+          setSubmitError('Invalid or expired verification code. Please check and try again.');
+          return;
+        }
 
         // Check if an account with this email already exists
         try {
@@ -2341,29 +2370,6 @@ function BusinessOnboardingInner() {
     if (currentStep === activeQuests.length - 1) {
       if (!formData.sectorId || !formData.categoryId) {
         setSubmitError('Please select your sector and primary category.');
-        return;
-      }
-
-      if (import.meta.env.DEV) {
-        // Let frontend review proceed without the unavailable account/profile APIs.
-        const next = new Set(completedSteps);
-        next.add(currentStep);
-        setCompletedSteps(next);
-        setParticleTrigger((p) => p + 1);
-        localStorage.setItem('businessOnboarding', JSON.stringify({
-          businessName: formData.businessName,
-          postcode: formData.postcode,
-          address: formData.address,
-          logo: formData.logo,
-          sectorId: formData.sectorId,
-          categoryId: formData.categoryId,
-          subCategoryId: formData.subCategoryId,
-        }));
-        localStorage.removeItem('businessOnboardingStep');
-        localStorage.removeItem('businessOnboardingCompleted');
-        localStorage.removeItem('business_onboarding_draft');
-        localStorage.setItem('businessOnboardingState', 'plan_selection');
-        setShowProgrammeIntro(true);
         return;
       }
 
@@ -5428,16 +5434,12 @@ function BusinessOnboardingInner() {
             onSuccess={() => {
               setShowPlatformPaymentModal(false);
               if (currentUser?.businessProfile?.id) {
-                localStorage.removeItem('businessOnboardingState');
-                localStorage.removeItem('onboardingPaymentSuccess');
-                performSSORedirect();
+                void completeOnboardingAndEnterDashboard();
                 return;
               }
               const onboardingState = localStorage.getItem('businessOnboardingState');
               if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
-                localStorage.setItem('businessOnboardingState', 'assessment');
-                setShowChoosePlan(false);
-                setShowInitialAssessment(true);
+                void completeOnboardingAndEnterDashboard();
               } else {
                 setShowWelcomeChecklistPage(true);
               }
@@ -5677,9 +5679,7 @@ function BusinessOnboardingInner() {
           <div className="mt-8 text-center flex flex-col items-center gap-2.5">
             <button
               onClick={() => {
-                localStorage.setItem('businessOnboardingState', 'assessment');
-                setShowChoosePlan(false);
-                setShowInitialAssessment(true);
+                void completeOnboardingAndEnterDashboard();
               }}
               className="px-6 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs sm:text-sm font-semibold transition-all shadow-xs flex items-center gap-2 cursor-pointer"
             >
@@ -5709,441 +5709,9 @@ function BusinessOnboardingInner() {
                   })
                 );
               }
-              localStorage.setItem('onboardingPaymentSuccess', 'true');
-              localStorage.setItem('businessOnboardingState', 'assessment');
-              setShowChoosePlan(false);
-              setShowInitialAssessment(true);
+              void completeOnboardingAndEnterDashboard();
             }}
           />
-        </div>
-      </div>
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Step 7 — Initial Business Assessment (Interactive Wizard)
-  // ═══════════════════════════════════════════════════════
-  if (showInitialAssessment) {
-    // Load questions from admin panel (localStorage), fall back to defaults
-    const ICON_MAP: Record<string, any> = { Clock, Users, Globe, Heart, Target, Megaphone, HelpCircle, Zap, Award, Briefcase, BarChart3, Sparkles, MessageSquare, FileText, Star, TrendingUp, ShoppingCart, Package, MapPin };
-
-    const defaultQuestions = [
-      { id: 'yearsInBusiness', question: 'How long has your business been operating?', iconName: 'Clock', fieldType: 'single-choice', options: ['Less than 1 year', '1–3 years', '3–5 years', '5+ years'], hint: 'This helps us understand your growth stage' },
-      { id: 'employeeCount', question: 'How many employees does your business have?', iconName: 'Users', fieldType: 'single-choice', options: ['Just me', '2–5', '6–20', '20+'], hint: 'We tailor recommendations to your team size' },
-      { id: 'onlinePresence', question: 'How would you rate your current online presence?', iconName: 'Globe', fieldType: 'single-choice', options: ['No online presence', 'Basic website only', 'Website + social media', 'Strong online presence'], hint: 'This determines your digital starting point' },
-      { id: 'customerBase', question: 'Approximately how many active customers do you serve monthly?', iconName: 'Heart', fieldType: 'number', options: [], hint: 'We use this to set realistic growth targets' },
-      { id: 'mainGoal', question: 'What is your primary goal for the next 90 days?', iconName: 'Target', fieldType: 'single-choice', options: ['Increase customer loyalty', 'Grow customer base', 'Improve online visibility', 'Launch marketing campaigns'], hint: 'Your goal shapes your personalised action plan' },
-      { id: 'marketingChannels', question: 'Which marketing channels do you currently use?', iconName: 'Megaphone', fieldType: 'multi-choice', options: ['None', 'Social media only', 'Social media + email', 'Multiple channels'], hint: 'We will fill any gaps in your strategy' },
-    ];
-
-    let rawQuestions: any[];
-    try {
-      const saved = localStorage.getItem('admin_assessment_questions');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        rawQuestions = parsed.filter((q: any) => q.enabled !== false).sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
-      } else {
-        rawQuestions = defaultQuestions;
-      }
-    } catch { rawQuestions = defaultQuestions; }
-
-    const assessmentQuestions = rawQuestions.map(q => ({
-      ...q,
-      icon: ICON_MAP[q.iconName] || HelpCircle,
-      fieldType: q.fieldType || 'single-choice',
-    }));
-
-    const totalSteps = assessmentQuestions.length;
-    const safeAssessmentStep = Math.min(Math.max(0, assessmentStep), totalSteps - 1);
-    const currentQuestion = assessmentQuestions[safeAssessmentStep] || assessmentQuestions[0];
-    const ft = currentQuestion.fieldType || 'single-choice';
-
-    const isQuestionAnswered = (q: any) => {
-      const val = assessmentAnswers[q.id];
-      if (val === undefined || val === null || val === '') return false;
-      if (q.fieldType === 'multi-choice') return val.split(',').filter(Boolean).length > 0;
-      return true;
-    };
-
-    const isCurrentAnswered = isQuestionAnswered(currentQuestion);
-    const answeredCount = assessmentQuestions.filter(q => isQuestionAnswered(q)).length;
-    const progressPercent = Math.round((answeredCount / totalSteps) * 100);
-    const isLastStep = safeAssessmentStep === totalSteps - 1;
-    const allAnswered = answeredCount === totalSteps;
-
-    const unansweredIndices = assessmentQuestions
-      .map((q, idx) => (!isQuestionAnswered(q) ? idx : -1))
-      .filter(idx => idx !== -1);
-    const firstUnansweredIndex = unansweredIndices.length > 0 ? unansweredIndices[0] : -1;
-
-    const handleCompleteAndEnterDashboard = async () => {
-      localStorage.removeItem('businessOnboarding');
-      localStorage.removeItem('businessOnboardingStep');
-      localStorage.removeItem('businessOnboardingCompleted');
-      localStorage.removeItem('business_onboarding_draft');
-      sessionStorage.removeItem('onboarding_intent_token');
-      localStorage.setItem('firstDashboardLogin', 'true');
-      setProgrammeStarted();
-      localStorage.setItem('assessmentCompleted', JSON.stringify(assessmentAnswers));
-      await performSSORedirect('/dashboard');
-    };
-
-    return (
-      <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#fafafa]">
-        <ChsLogoPattern className="fixed !opacity-[0.055]" />
-        <div className="relative z-10 flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 flex flex-col">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col flex-1">
-
-            {/* Top Bar with Restart, Skip, and Logout */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
-              <button
-                onClick={handleRestartOnboarding}
-                className="text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer w-fit"
-              >
-                <RefreshCw className="w-3.5 h-3.5" /> Restart
-              </button>
-              <div className="flex items-center flex-wrap gap-2">
-                <button
-                  onClick={handleCompleteAndEnterDashboard}
-                  className="text-xs font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-xl hover:bg-orange-100 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
-                >
-                  <span>Skip to Dashboard</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="text-xs font-semibold text-red-600 hover:text-red-700 bg-white border border-red-200 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 duration-100 cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" /> Log Out
-                </button>
-              </div>
-            </div>
-
-            {/* Header */}
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-600 text-sm font-semibold mb-4">
-                <FileSearch className="w-4 h-4" />
-                Step 7 of 8
-              </div>
-              <h1 className="text-3xl font-black text-gray-900 mb-2">Initial Business Assessment</h1>
-              <p className="text-gray-500 font-medium text-sm">This quick assessment determines your starting point and recommended pathway.</p>
-            </div>
-
-            {/* Step Circles */}
-            <div className="flex items-center justify-center gap-1.5 mb-4">
-              {assessmentQuestions.map((q, i) => {
-                const isCompleted = isQuestionAnswered(q);
-                const isCurrent = i === safeAssessmentStep;
-                return (
-                  <React.Fragment key={q.id}>
-                    <button
-                      onClick={() => setAssessmentStep(i)}
-                      title={`Question ${i + 1}: ${q.question}`}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 cursor-pointer ${isCompleted
-                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30 hover:bg-orange-600'
-                          : isCurrent
-                            ? 'bg-orange-100 text-orange-600 border-2 border-orange-500 shadow-md ring-2 ring-orange-400/30'
-                            : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200 hover:text-gray-600'
-                        }`}
-                    >
-                      {isCompleted ? <Check className="w-4 h-4" strokeWidth={3} /> : i + 1}
-                    </button>
-                    {i < totalSteps - 1 && (
-                      <div className={`flex-1 h-0.5 max-w-[24px] rounded-full transition-all duration-500 ${isCompleted ? 'bg-orange-500' : 'bg-gray-200'
-                        }`} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
-
-            {/* Progress bar */}
-            <div className="mb-8">
-              <div className="flex items-center justify-between text-xs font-bold mb-1.5">
-                <span className="text-gray-500">{answeredCount} of {totalSteps} answered</span>
-                <span className="text-orange-600">{progressPercent}%</span>
-              </div>
-              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                <motion.div
-                  animate={{ width: `${progressPercent}%` }}
-                  transition={{ duration: 0.5, ease: 'easeOut' }}
-                  className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full"
-                />
-              </div>
-            </div>
-
-            {/* Question Card */}
-            <div className="flex-1 flex flex-col">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={safeAssessmentStep}
-                  initial={{ opacity: 0, x: 40, scale: 0.98 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: -40, scale: 0.98 }}
-                  transition={{ duration: 0.25 }}
-                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm flex-1 flex flex-col"
-                >
-                  {/* Question number */}
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
-                      <currentQuestion.icon className="w-5 h-5 text-orange-500" />
-                    </div>
-                    <span className="text-xs font-bold text-orange-500 uppercase tracking-wider">
-                      Question {safeAssessmentStep + 1} of {totalSteps}
-                    </span>
-                  </div>
-
-                  {/* Question text */}
-                  <h2 className="text-xl sm:text-2xl font-black text-gray-900 mb-2 leading-tight">
-                    {currentQuestion.question}
-                  </h2>
-                  <p className="text-sm text-gray-400 font-medium mb-6">{currentQuestion.hint}</p>
-
-                  {/* Answer Input — renders based on fieldType */}
-                  <div className="flex-1 flex flex-col">
-                    {ft === 'single-choice' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {currentQuestion.options.map((opt: string) => {
-                          const isSelected = assessmentAnswers[currentQuestion.id] === opt;
-                          return (
-                            <motion.button
-                              key={opt}
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => {
-                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
-                                if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
-                              }}
-                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${isSelected
-                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
-                                }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
-                                  {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />}
-                                </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
-                              </div>
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {ft === 'multi-choice' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {currentQuestion.options.map((opt: string) => {
-                          const selected = (assessmentAnswers[currentQuestion.id] || '').split(',').filter(Boolean);
-                          const isSelected = selected.includes(opt);
-                          return (
-                            <motion.button
-                              key={opt}
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => {
-                                const next = isSelected ? selected.filter(s => s !== opt) : [...selected, opt];
-                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: next.join(',') }));
-                              }}
-                              className={`p-4 rounded-2xl text-left font-semibold transition-all border-2 ${isSelected
-                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600'
-                                }`}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-white bg-white/30' : 'border-gray-300'}`}>
-                                  {isSelected && <Check className="w-3 h-3" strokeWidth={3} />}
-                                </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
-                              </div>
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {ft === 'text' && (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
-                        <input
-                          type="text"
-                          value={assessmentAnswers[currentQuestion.id] || ''}
-                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
-                          placeholder="Type your answer..."
-                          autoFocus
-                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none"
-                        />
-                      </div>
-                    )}
-
-                    {ft === 'textarea' && (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
-                        <textarea
-                          value={assessmentAnswers[currentQuestion.id] || ''}
-                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
-                          placeholder="Type your answer..."
-                          autoFocus
-                          rows={4}
-                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none resize-none"
-                        />
-                      </div>
-                    )}
-
-                    {ft === 'number' && (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
-                        <input
-                          type="number"
-                          value={assessmentAnswers[currentQuestion.id] || ''}
-                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
-                          placeholder="0"
-                          autoFocus
-                          min="0"
-                          className="w-full text-lg font-semibold text-gray-900 placeholder:text-gray-300 focus:outline-none"
-                        />
-                      </div>
-                    )}
-
-                    {ft === 'date' && (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-4">
-                        <input
-                          type="date"
-                          value={assessmentAnswers[currentQuestion.id] || ''}
-                          onChange={e => setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: e.target.value }))}
-                          className="w-full text-lg font-semibold text-gray-900 focus:outline-none"
-                        />
-                      </div>
-                    )}
-
-                    {ft === 'rating' && (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-6 flex items-center justify-center gap-3">
-                        {[1, 2, 3, 4, 5].map(s => {
-                          const val = parseInt(assessmentAnswers[currentQuestion.id] || '0');
-                          const active = s <= val;
-                          return (
-                            <motion.button
-                              key={s}
-                              whileHover={{ scale: 1.15 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => {
-                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: String(s) }));
-                                if (!isLastStep) setTimeout(() => setAssessmentStep(step => step + 1), 400);
-                              }}
-                              className="transition-all cursor-pointer"
-                            >
-                              <Star className={`w-10 h-10 transition-colors ${active ? 'text-orange-400 fill-orange-400' : 'text-gray-300'}`} />
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {ft === 'yes-no' && (
-                      <div className="flex gap-4 justify-center">
-                        {['Yes', 'No'].map(opt => {
-                          const isSelected = assessmentAnswers[currentQuestion.id] === opt;
-                          return (
-                            <motion.button
-                              key={opt}
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => {
-                                setAssessmentAnswers(prev => ({ ...prev, [currentQuestion.id]: opt }));
-                                if (!isLastStep) setTimeout(() => setAssessmentStep(s => s + 1), 350);
-                              }}
-                              className={`px-10 py-5 rounded-2xl text-lg font-bold transition-all border-2 cursor-pointer ${isSelected
-                                  ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:border-orange-300 hover:bg-orange-50'
-                                }`}
-                            >
-                              {opt}
-                            </motion.button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-            </div>
-
-            {/* Unanswered Questions Helper (if on last step and not all answered) */}
-            {isLastStep && !allAnswered && unansweredIndices.length > 0 && (
-              <div className="mt-4 bg-orange-50 border border-orange-200 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 text-xs sm:text-sm">
-                <div className="flex items-center gap-2 text-orange-900 font-medium min-w-0">
-                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0" />
-                  <span>
-                    Question{unansweredIndices.length > 1 ? 's' : ''} {unansweredIndices.map(idx => idx + 1).join(', ')} {unansweredIndices.length > 1 ? 'are' : 'is'} unanswered.
-                  </span>
-                </div>
-                <button
-                  onClick={() => setAssessmentStep(firstUnansweredIndex)}
-                  className="shrink-0 text-orange-700 hover:text-orange-900 font-bold underline cursor-pointer hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-colors"
-                >
-                  Answer Question {firstUnansweredIndex + 1}
-                </button>
-              </div>
-            )}
-
-            {/* Navigation */}
-            <div className="flex items-center justify-between mt-6 gap-4">
-              <button
-                onClick={() => safeAssessmentStep > 0 && setAssessmentStep(s => s - 1)}
-                disabled={safeAssessmentStep === 0}
-                className="flex items-center gap-1.5 text-sm font-semibold px-5 py-3 rounded-xl transition-all outline-none text-gray-500 hover:text-gray-700 hover:bg-gray-100 active:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Back
-              </button>
-
-              {isLastStep ? (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleCompleteAndEnterDashboard}
-                  className="flex items-center gap-2 px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base transition-all active:scale-95 bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-lg shadow-orange-500/25 hover:from-orange-600 hover:to-red-600 cursor-pointer"
-                >
-                  <span className="hidden sm:inline">Complete Assessment & Enter Dashboard</span>
-                  <span className="sm:hidden">Complete & Enter</span>
-                  <ArrowRight className="w-5 h-5" />
-                </motion.button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  {!isCurrentAnswered && (
-                    <button
-                      onClick={() => setAssessmentStep(s => s + 1)}
-                      className="text-xs font-semibold text-gray-400 hover:text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-100 transition-all cursor-pointer"
-                    >
-                      Skip question
-                    </button>
-                  )}
-                  <motion.button
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => {
-                      setAssessmentStep(s => s + 1);
-                    }}
-                    className={`flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-base transition-all cursor-pointer ${isCurrentAnswered
-                        ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25 hover:bg-orange-600'
-                        : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                      }`}
-                  >
-                    Next
-                    <ChevronRight className="w-5 h-5" />
-                  </motion.button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 text-xs text-gray-400 font-medium">
-              <span>Your answers help us personalise your 90-day journey</span>
-              <button
-                onClick={handleCompleteAndEnterDashboard}
-                className="text-orange-600 hover:text-orange-700 hover:underline cursor-pointer"
-              >
-                Skip assessment & enter dashboard →
-              </button>
-            </div>
-
-          </motion.div>
         </div>
       </div>
     );
@@ -6869,7 +6437,7 @@ function BusinessOnboardingInner() {
                         <p className="text-sm font-medium text-gray-600">
                           Already have an account?{' '}
                           <Link
-                            to={`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+                            to={loginHref}
                             className="text-orange-600 font-bold hover:underline"
                           >
                             Log in here
@@ -6888,15 +6456,19 @@ function BusinessOnboardingInner() {
                   <div className="space-y-6">
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
                       <p className="text-sm text-orange-900 font-medium leading-relaxed">
-                        {import.meta.env.DEV
-                          ? 'Local preview: enter 123456 to continue. This keeps the verification screen in the signup flow without needing the backend.'
+                        {otpMode === 'mock'
+                          ? 'Development mode: the backend is not sending email. Use the verification code shown below.'
                           : 'Check your inbox for a 6-digit verification code. This confirms you own this email address and keeps your account secure.'}
                       </p>
                     </div>
+                    {otpMode === 'mock' && devOtpCode && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                        <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Mock verification code</p>
+                        <p className="mt-1 text-3xl font-black tracking-[0.3em] text-amber-900">{devOtpCode}</p>
+                      </div>
+                    )}
                     <div className="text-center p-4 bg-white rounded-xl border border-gray-100 shadow-sm">
-                      <p className="text-sm text-gray-500 font-medium">
-                        {import.meta.env.DEV ? 'Email being previewed' : 'Code sent to'}
-                      </p>
+                      <p className="text-sm text-gray-500 font-medium">Code sent to</p>
                       <p className="text-base font-bold text-gray-900 mt-0.5">{formData.email}</p>
                     </div>
                     <div className="space-y-2">
@@ -6918,18 +6490,31 @@ function BusinessOnboardingInner() {
                         autoFocus
                       />
                     </div>
-                    {!import.meta.env.DEV && <button
+                    <button
                       type="button"
+                      disabled={otpResending || otpResendCooldown > 0}
                       onClick={async () => {
                         setOtpResending(true);
-                        try { await sendOtp({ email: formData.email, type: 'VERIFICATION' }); }
-                        catch { /* silent */ }
-                        finally { setOtpResending(false); }
+                        try {
+                          const res = await sendOtp({ email: formData.email, type: 'VERIFICATION' });
+                          setOtpMode(res?.mode ?? null);
+                          setDevOtpCode(res?.code ?? null);
+                          setOtpResendCooldown(60);
+                        } catch (err: unknown) {
+                          const e = err as { message?: string };
+                          setSubmitError(e?.message || 'Failed to resend verification code. Please try again.');
+                        } finally {
+                          setOtpResending(false);
+                        }
                       }}
-                      className="w-full text-center text-sm text-gray-400 hover:text-orange-500 transition-colors"
+                      className="w-full text-center text-sm text-gray-400 hover:text-orange-500 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {otpResending ? 'Sending...' : "Didn't receive it? Resend code"}
-                    </button>}
+                      {otpResending
+                        ? 'Sending...'
+                        : otpResendCooldown > 0
+                          ? `Resend code in ${otpResendCooldown}s`
+                          : "Didn't receive it? Resend code"}
+                    </button>
                   </div>
                 )}
 
@@ -8263,16 +7848,12 @@ function BusinessOnboardingInner() {
         onSuccess={() => {
           setShowPlatformPaymentModal(false);
           if (currentUser?.businessProfile?.id) {
-            localStorage.removeItem('businessOnboardingState');
-            localStorage.removeItem('onboardingPaymentSuccess');
-            performSSORedirect();
+            void completeOnboardingAndEnterDashboard();
             return;
           }
           const onboardingState = localStorage.getItem('businessOnboardingState');
           if (onboardingState === 'plan_selection' || onboardingState === 'assessment' || localStorage.getItem('onboardingPaymentSuccess') === 'true') {
-            localStorage.setItem('businessOnboardingState', 'assessment');
-            setShowChoosePlan(false);
-            setShowInitialAssessment(true);
+            void completeOnboardingAndEnterDashboard();
           } else {
             setShowWelcomeChecklistPage(true);
           }
@@ -8289,12 +7870,6 @@ function BusinessOnboardingInner() {
         }}
         onSuccess={() => {
           setShowVerificationModal(false);
-          if (import.meta.env.DEV) {
-            localStorage.removeItem('onboardingVerificationFeePaid');
-          } else {
-            localStorage.setItem('onboardingVerificationFeePaid', 'true');
-          }
-          setShowInitialAssessment(false);
           setShowChoosePlan(true);
         }}
       />

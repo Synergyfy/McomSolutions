@@ -13,6 +13,22 @@ export default function PaymentSuccessPage() {
     const paymentIntentId = searchParams.get('payment_intent');
     const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
     const platform = searchParams.get('platform');
+    const verification = searchParams.get('verification') === 'true';
+
+    if (verification && paymentIntentId) {
+      // One-time business verification fee (£1) — not a membership purchase.
+      apiClient.post('/payment/verification-fee/stripe/confirm', { paymentIntentId })
+        .then(() => {
+          setStatus('success');
+          setTimeout(() => navigate('/getstarted/business?resume=plan'), 2000);
+        })
+        .catch((err) => {
+          console.error('Verification payment confirm error:', err);
+          setStatus('error');
+          setErrorMessage(err.response?.data?.message || 'Verification payment confirmation failed.');
+        });
+      return;
+    }
 
     if (platform && paymentIntentId) {
       // Platform purchase — confirm with backend
@@ -39,24 +55,6 @@ export default function PaymentSuccessPage() {
 
         if (onboarding) {
           localStorage.setItem('onboardingPaymentSuccess', 'true');
-
-          // Check if user already has a business profile
-          const userRaw = localStorage.getItem('business_user');
-          let hasBusinessProfile = false;
-          if (userRaw) {
-            try {
-              const user = JSON.parse(userRaw);
-              if (user?.businessProfile?.id) {
-                hasBusinessProfile = true;
-              }
-            } catch (e) {}
-          }
-
-          if (!hasBusinessProfile) {
-            localStorage.setItem('businessOnboardingState', 'assessment');
-          } else {
-            localStorage.removeItem('businessOnboardingState');
-          }
           setTimeout(() => navigate(`/getstarted/business?source=${encodeURIComponent(source)}&redirect=${encodeURIComponent(redirect)}`), 2500);
         } else {
           setTimeout(() => navigate('/dashboard'), 2500);
@@ -84,7 +82,6 @@ export default function PaymentSuccessPage() {
         setStatus('success');
         if (onboarding) {
           localStorage.setItem('onboardingPaymentSuccess', 'true');
-          localStorage.setItem('businessOnboardingState', 'assessment');
           setTimeout(() => navigate('/getstarted/business'), 2000);
         } else {
           setTimeout(() => navigate('/dashboard'), 2000);
@@ -95,7 +92,6 @@ export default function PaymentSuccessPage() {
         setStatus('success');
         if (onboarding) {
           localStorage.setItem('onboardingPaymentSuccess', 'true');
-          localStorage.setItem('businessOnboardingState', 'assessment');
           setTimeout(() => navigate('/getstarted/business'), 2000);
         } else {
           setTimeout(() => navigate('/dashboard'), 2000);

@@ -31,16 +31,13 @@ import { AdminOpsService } from './admin-ops.service';
 import {
   ActivityQueryDto,
   CreateActivityFeedDto,
-  CreateAssessmentQuestionDto,
   CreateBackgroundJobDto,
   CreateBoroughMetricDto,
   CreateErrorLogDto,
   CreateExternalPlanDto,
   CreateSystemApiKeyDto,
   CreateSystemIntegrationDto,
-  ReorderAssessmentQuestionsDto,
   UpdateActivityFeedDto,
-  UpdateAssessmentQuestionDto,
   UpdateBackgroundJobDto,
   UpdateBoroughMetricDto,
   UpdateExternalPlanDto,
@@ -190,47 +187,6 @@ export class AdminOpsController {
   @ApiNotFoundResponse({ description: 'Integration not found' })
   async deleteIntegration(@Param('id') id: string) {
     await this.adminOpsService.deleteIntegration(id);
-  }
-
-  // ─── Assessment Questions ─────────────────────────────
-  @Get('assessment/questions')
-  @ApiOperation({ summary: 'List assessment questions' })
-  @ApiOkResponse({ description: 'List of assessment questions' })
-  getAssessmentQuestions() {
-    return this.adminOpsService.getAssessmentQuestions();
-  }
-
-  @Post('assessment/questions')
-  @ApiOperation({ summary: 'Create an assessment question' })
-  @ApiBody({ type: CreateAssessmentQuestionDto })
-  @ApiCreatedResponse({ description: 'Assessment question created' })
-  createAssessmentQuestion(@Body() dto: CreateAssessmentQuestionDto) {
-    return this.adminOpsService.createAssessmentQuestion(dto);
-  }
-
-  @Put('assessment/questions/reorder')
-  @ApiOperation({ summary: 'Reorder assessment questions' })
-  @ApiBody({ type: ReorderAssessmentQuestionsDto })
-  @ApiOkResponse({ description: 'Questions reordered' })
-  reorderAssessmentQuestions(@Body() dto: ReorderAssessmentQuestionsDto) {
-    return this.adminOpsService.reorderAssessmentQuestions(dto);
-  }
-
-  @Put('assessment/questions/:id')
-  @ApiOperation({ summary: 'Update an assessment question' })
-  @ApiBody({ type: UpdateAssessmentQuestionDto })
-  @ApiOkResponse({ description: 'Assessment question updated' })
-  @ApiNotFoundResponse({ description: 'Assessment question not found' })
-  updateAssessmentQuestion(@Param('id') id: string, @Body() dto: UpdateAssessmentQuestionDto) {
-    return this.adminOpsService.updateAssessmentQuestion(id, dto);
-  }
-
-  @Delete('assessment/questions/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete an assessment question' })
-  @ApiNotFoundResponse({ description: 'Assessment question not found' })
-  async deleteAssessmentQuestion(@Param('id') id: string) {
-    await this.adminOpsService.deleteAssessmentQuestion(id);
   }
 
   // ─── Activity Feed ────────────────────────────────────

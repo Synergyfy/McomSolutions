@@ -332,7 +332,7 @@ export default function MembershipPaymentModal({
               <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-2">Payment Successful!</h3>
               <p className="text-xs sm:text-sm text-gray-600 max-w-sm">
                 Your <span className="font-bold text-gray-900">{plan.name} Membership ({plan.selectedTier || 'Standard'})</span> is now active.
-                {source === 'onboarding' ? ' Proceeding to your business assessment...' : ' Your subscription has been successfully updated.'}
+                {source === 'onboarding' ? ' Taking you to your dashboard...' : ' Your subscription has been successfully updated.'}
               </p>
               <div className="mt-6 flex items-center gap-2 text-xs font-bold text-orange-600">
                 <RefreshCw className="w-4 h-4 animate-spin" /> {source === 'onboarding' ? 'Setting up your workspace...' : 'Updating dashboard...'}

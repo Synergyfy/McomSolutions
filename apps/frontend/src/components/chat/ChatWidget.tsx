@@ -17,7 +17,9 @@ export default function ChatWidget() {
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(
+    () => typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token')),
+  );
 
   const {
     conversations,
@@ -35,7 +37,7 @@ export default function ChatWidget() {
     openReceipts,
     closeReceipts,
     receiptsModalData,
-  } = useChat();
+  } = useChat({ enabled: isLoggedIn });
 
   const { state: connectionState } = useChatConnection();
 
@@ -49,11 +51,10 @@ export default function ChatWidget() {
   const pendingRequestsCount = requestsData?.incoming?.length || 0;
 
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
-    setIsLoggedIn(!!token);
+    setIsLoggedIn(Boolean(localStorage.getItem('auth_token')));
 
     const handleStorage = () => {
-      setIsLoggedIn(!!localStorage.getItem('auth_token'));
+      setIsLoggedIn(Boolean(localStorage.getItem('auth_token')));
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);

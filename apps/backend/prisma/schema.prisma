@@ -1353,35 +1353,6 @@ model UserTaskAssignment {
   @@map("user_task_assignments")
 }
 
-// ─── ASSESSMENT (AssessmentPanel) ────────────────────────────────────────────
-
-enum AssessmentFieldType {
-  single_choice
-  multi_choice
-  text
-  textarea
-  number
-  date
-  rating
-  yes_no
-}
-
-model AssessmentQuestion {
-  id        String              @id @default(cuid())
-  question  String              @map("question")
-  iconName  String              @map("icon_name")
-  fieldType AssessmentFieldType @map("field_type")
-  options   String[]            @map("options")
-  hint      String              @map("hint")
-  enabled   Boolean             @default(true) @map("enabled")
-  order     Int                 @default(0) @map("order")
-  createdAt DateTime            @default(now()) @map("created_at")
-  updatedAt DateTime            @updatedAt @map("updated_at")
-
-  @@index([order])
-  @@map("assessment_questions")
-}
-
 // ─── ACTIVITY FEED (HighStreetsPanel operational feed) ───────────────────────
 
 enum ActivitySeverity {

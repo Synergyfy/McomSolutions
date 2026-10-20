@@ -1136,47 +1136,6 @@ export const useCreateSystemErrorLog = () => {
   })
 }
 
-// ─── Assessment Questions ───────────────────────────────
-export const useAssessmentQuestions = () => {
-  return useQuery({
-    queryKey: ['admin', 'assessmentQuestions'],
-    queryFn: () => adminApi.getAssessmentQuestions(),
-    staleTime: 1000 * 60 * 5,
-  })
-}
-
-export const useCreateAssessmentQuestion = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: any) => adminApi.createAssessmentQuestion(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
-  })
-}
-
-export const useUpdateAssessmentQuestion = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateAssessmentQuestion(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
-  })
-}
-
-export const useDeleteAssessmentQuestion = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => adminApi.deleteAssessmentQuestion(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
-  })
-}
-
-export const useReorderAssessmentQuestions = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (orderedIds: string[]) => adminApi.reorderAssessmentQuestions(orderedIds),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'assessmentQuestions'] }),
-  })
-}
-
 // ─── Campaigns ─────────────────────────────────────────
 export const useAdminCampaigns = (params?: { locationType?: string; locationId?: string; page?: number; limit?: number }) => {
   return useQuery({

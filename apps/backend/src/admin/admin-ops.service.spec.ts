@@ -35,14 +35,6 @@ describe('AdminOpsService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
-    assessmentQuestion: {
-      findMany: jest.fn().mockResolvedValue([]),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      aggregate: jest.fn().mockResolvedValue({ _max: { order: null } }),
-    },
     activityFeed: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
@@ -149,15 +141,6 @@ describe('AdminOpsService', () => {
     it('throws NotFoundException when borough does not exist', async () => {
       mockPrisma.borough.findUnique.mockResolvedValue(null);
       await expect(service.getBoroughStats('nope')).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('getAssessmentQuestions', () => {
-    it('returns questions ordered by order asc', async () => {
-      await service.getAssessmentQuestions();
-      expect(mockPrisma.assessmentQuestion.findMany).toHaveBeenCalledWith({
-        orderBy: { order: 'asc' },
-      });
     });
   });
 
@@ -313,28 +296,6 @@ describe('AdminOpsService', () => {
     it('throws NotFoundException when deleting a missing integration', async () => {
       mockPrisma.systemIntegration.findUnique.mockResolvedValue(null);
       await expect(service.deleteIntegration('nope')).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('createAssessmentQuestion', () => {
-    it('auto-assigns the next order when not provided', async () => {
-      mockPrisma.assessmentQuestion.aggregate.mockResolvedValue({ _max: { order: 3 } });
-      mockPrisma.assessmentQuestion.create.mockImplementation(({ data }) =>
-        Promise.resolve({ id: 'q1', ...data }),
-      );
-      const result = await service.createAssessmentQuestion({
-        question: 'Sector?',
-        iconName: 'Briefcase',
-        fieldType: 'single-choice',
-      });
-      expect(result.data.order).toBe(4);
-    });
-  });
-
-  describe('reorderAssessmentQuestions', () => {
-    it('updates order for each id in the transaction', async () => {
-      await service.reorderAssessmentQuestions({ orderedIds: ['a', 'b', 'c'] });
-      expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Array));
     });
   });
 

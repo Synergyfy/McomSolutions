@@ -53,7 +53,7 @@ GET http://localhost:3010/api/v1/auth/sso/authorize
 3. Checks if the user has an active `mcom_session` cookie
    - If **yes** → generates a one-time auth code and immediately redirects back
    - If **no** → redirects user to MCOM Central's login page.
-     - *If the user decides to sign up/onboard instead*, the client parameters (`client_id`, `redirect_uri`, `state`, `scope`) are automatically preserved and forwarded through the onboarding/assessment flow. Once onboarding is successfully completed, the user is automatically logged in and redirected back to the partner's callback URI with the authorization code.
+     - *If the user decides to sign up/onboard instead*, the client parameters (`client_id`, `redirect_uri`, `state`, `scope`) are automatically preserved and forwarded through the onboarding flow. Once onboarding is successfully completed, the user is automatically logged in and redirected back to the partner's callback URI with the authorization code.
 
 **Successful redirect back to your app:**
 ```

@@ -172,23 +172,7 @@ DTO: `CreateActivityFeedDto` (severity: `info` / `success` / `warning` / `danger
 
 ---
 
-## 8. Assessment — `AssessmentPanel`
-
-Replaces in-memory `AdminDataContext` questions.
-
-| Method | Path |
-|--------|------|
-| GET | `/admin/assessment/questions` |
-| POST | `/admin/assessment/questions` |
-| PUT | `/admin/assessment/questions/:id` |
-| DELETE | `/admin/assessment/questions/:id` |
-| PUT | `/admin/assessment/questions/reorder` | Body `{ orderedIds: string[] }` |
-
-DTO: `CreateAssessmentQuestionDto` (fieldType: `single-choice`, `multi-choice`, `text`, `textarea`, `number`, `date`, `rating`, `yes-no`).
-
----
-
-## 9. System Developer Center — `SystemPanel`
+## 8. System Developer Center — `SystemPanel`
 
 Replaces the 6 non-functional cards.
 
@@ -206,7 +190,7 @@ Replaces the 6 non-functional cards.
 
 ---
 
-## 10. Dropdown Data — `UserManagementPanel`
+## 9. Dropdown Data — `UserManagementPanel`
 
 Replaces hardcoded dropdown options.
 
@@ -230,4 +214,4 @@ user/plan/package/subscription/finance/communication methods.
 - `getAnalytics`, `getDropdowns`
 - Local mall create/update/delete
 - `ProgrammeModule` calls (phases, gates, agents, businesses, tasks, actions)
-- `AdminOps` calls (api-keys, integrations, assessment, activities, borough metrics/stats, jobs, error-logs, health)
+- `AdminOps` calls (api-keys, integrations, activities, borough metrics/stats, jobs, error-logs, health)
