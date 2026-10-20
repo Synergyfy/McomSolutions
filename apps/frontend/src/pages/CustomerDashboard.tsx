@@ -8,12 +8,7 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CHSLogo from '../components/CHSLogo';
-import DashboardAllProducts from '../components/DashboardAllProducts';
-import DashboardMessages from '../components/DashboardMessages';
-import DashboardWallet from '../components/DashboardWallet';
-import { useLogout, useCurrentUser } from '../services/auth/hooks';
-import { useMyWallet, useWalletTransactions } from '../services/wallet/hooks';
-import { useEcosystemApps } from '../services/business/hooks';
+import { useLogout } from '../services/auth/hooks';
 import { CUSTOMER_CONVERSATIONS, CUSTOMER_NOTIFICATIONS, OLDER_CUSTOMER_NOTIFICATIONS, CUSTOMER_PREVIEW, CUSTOMER_PRODUCTS, CUSTOMER_TRANSACTIONS, type CustomerPreviewConversation, type CustomerPreviewNotification } from '../data/customerDashboardMock';
 
 type CustomerPage = 'overview' | 'ecosystem' | 'wallet' | 'messages' | 'notifications' | 'settings' | 'profile';
@@ -41,35 +36,23 @@ const PAGE_TITLES: Record<CustomerPage, { title: string; subtitle: string }> = {
 export default function CustomerDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const customerPreview = import.meta.env.DEV
-    && localStorage.getItem('chs_customer_dashboard_preview') === 'true';
+  // This approved design is the canonical customer dashboard in every environment.
+  // Backend data integration will replace these fixtures after the API handoff.
+  const customerPreview = true;
   const [search, setSearch] = useState('');
   const [previewBalance, setPreviewBalance] = useState(CUSTOMER_PREVIEW.walletBalance);
-  const [customerNotifications, setCustomerNotifications] = useState<CustomerPreviewNotification[]>(() => customerPreview ? CUSTOMER_NOTIFICATIONS.map((item) => ({ ...item })) : []);
+  const [customerNotifications, setCustomerNotifications] = useState<CustomerPreviewNotification[]>(() => CUSTOMER_NOTIFICATIONS.map((item) => ({ ...item })));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
-  const { data: user } = useCurrentUser(!customerPreview);
-  const { data: wallet, isLoading: walletLoading } = useMyWallet(!customerPreview);
-  const { data: transactions } = useWalletTransactions({ limit: 5 }, !customerPreview);
-  const { data: ecosystemApps } = useEcosystemApps(!customerPreview);
   const logout = useLogout();
 
-  const storedUser = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem('business_user') || '{}'); } catch { return {}; }
-  }, []);
   const [profileOverride, setProfileOverride] = useState<Record<string, any>>(() => {
-    if (!customerPreview) return {};
     try { return JSON.parse(localStorage.getItem('chs_customer_profile_mock') || '{}'); } catch { return {}; }
   });
-  const customer = useMemo(
-    () => ({ ...(user || (customerPreview ? CUSTOMER_PREVIEW : storedUser.email ? storedUser : {})), ...profileOverride }),
-    [user, storedUser, customerPreview, profileOverride],
-  );
+  const customer = useMemo(() => ({ ...CUSTOMER_PREVIEW, ...profileOverride }), [profileOverride]);
   const name = customer.firstName || customer.name || customer.email?.split('@')[0] || 'there';
   const profileName = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.name || name;
   const email = customer.email || '';
-  const appCount = customerPreview ? 4 : Array.isArray(ecosystemApps) ? ecosystemApps.length : Array.isArray(ecosystemApps?.data) ? ecosystemApps.data.length : 0;
-  const recentTransactions = transactions?.data || [];
   const unreadNotificationCount = customerNotifications.filter((item) => item.unread).length;
   const requestedPage = location.pathname.replace(/^\/customer\/?/, '').split('/')[0] || 'overview';
   const page: CustomerPage = NAV_ITEMS.some((item) => item.id === requestedPage) || requestedPage === 'profile' ? requestedPage as CustomerPage : 'overview';
@@ -121,7 +104,7 @@ export default function CustomerDashboard() {
         <div className="flex shrink-0 items-center gap-3 sm:gap-4">
           <button onClick={() => goTo('wallet')} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-2.5 text-xs font-semibold text-slate-800 sm:min-h-10 sm:px-3 sm:text-sm" aria-label="Open wallet">
             <WalletCards className="h-4 w-4 sm:hidden" />
-            <span className="hidden sm:inline">Wallet: {customerPreview ? `$${previewBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : walletLoading ? '…' : `${Number(wallet?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} MCOM`}</span>
+            <span className="hidden sm:inline">Wallet: ${previewBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             <Plus className="hidden h-4 w-4 rounded-full bg-orange-600 p-0.5 text-white sm:block" />
           </button>
           <button onClick={() => goTo('notifications')} aria-label="Open notifications" aria-current={page === 'notifications' ? 'page' : undefined} className={`relative inline-flex min-h-10 min-w-10 items-center justify-center p-2 ${page === 'notifications' ? 'text-orange-700' : 'text-slate-500 hover:text-slate-900'}`}>
@@ -188,7 +171,7 @@ export default function CustomerDashboard() {
         </aside>
 
         <main className="min-w-0 flex-1 overflow-x-hidden px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:ml-60 lg:px-8 lg:pb-8">
-          {page !== 'profile' && page !== 'notifications' && page !== 'settings' && (!customerPreview || page === 'overview') && <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-start sm:justify-between">
+          {page === 'overview' && <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{page === 'overview' ? `Welcome back, ${name}` : title.title}</h1>
               <p className="mt-1 text-sm text-slate-600 sm:text-base">{title.subtitle}</p>
@@ -196,30 +179,13 @@ export default function CustomerDashboard() {
             {page === 'overview' && <button onClick={() => goTo('wallet')} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 sm:w-auto"><WalletCards className="h-4 w-4" />Fund Wallet</button>}
           </div>}
 
-          {customerPreview ? (
-            <>
-              {page === 'overview' && <PreviewOverview balance={previewBalance} onNavigate={goTo} />}
-              {page === 'ecosystem' && <PreviewEcosystem />}
-              {page === 'wallet' && <PreviewWallet balance={previewBalance} onBalanceChange={setPreviewBalance} />}
-              {page === 'messages' && <PreviewMessages />}
-              {page === 'notifications' && <CustomerNotifications preview={customerPreview} onNavigate={goTo} notifications={customerNotifications} setNotifications={setCustomerNotifications} />}
-              {page === 'settings' && <CustomerSettings name={profileName} email={email} preview={customerPreview} onSignOut={() => logout()} />}
-              {page === 'profile' && <CustomerProfile customer={customer} preview={customerPreview} onNavigate={goTo} onProfileChange={setProfileOverride} />}
-            </>
-          ) : page === 'overview' ? (
-            <CustomerOverview
-              walletBalance={wallet?.balance}
-              walletLoading={walletLoading}
-              appCount={appCount}
-              transactions={recentTransactions}
-              onNavigate={goTo}
-            />
-          ) : page === 'ecosystem' ? <DashboardAllProducts initialFilter="mcom" initialSearch={search} />
-            : page === 'wallet' ? <DashboardWallet />
-              : page === 'messages' ? <DashboardMessages />
-                : page === 'notifications' ? <CustomerNotifications preview={customerPreview} onNavigate={goTo} notifications={customerNotifications} setNotifications={setCustomerNotifications} />
-                  : page === 'profile' ? <CustomerProfile customer={customer} preview={customerPreview} onNavigate={goTo} onProfileChange={setProfileOverride} />
-                : <CustomerSettings name={profileName} email={email} preview={customerPreview} onSignOut={() => logout()} />}
+          {page === 'overview' && <PreviewOverview balance={previewBalance} onNavigate={goTo} />}
+          {page === 'ecosystem' && <PreviewEcosystem />}
+          {page === 'wallet' && <PreviewWallet balance={previewBalance} onBalanceChange={setPreviewBalance} />}
+          {page === 'messages' && <PreviewMessages />}
+          {page === 'notifications' && <CustomerNotifications preview={customerPreview} onNavigate={goTo} notifications={customerNotifications} setNotifications={setCustomerNotifications} />}
+          {page === 'settings' && <CustomerSettings name={profileName} email={email} preview={customerPreview} onSignOut={() => logout()} />}
+          {page === 'profile' && <CustomerProfile customer={customer} preview={customerPreview} onNavigate={goTo} onProfileChange={setProfileOverride} />}
         </main>
       </div>
 
@@ -329,78 +295,6 @@ function CustomerNotifications({ preview, onNavigate, notifications, setNotifica
 
 function PreferenceCard({ icon: Icon, title, description, action, onAction, accent = false }: { icon: typeof Bell; title: string; description: string; action: string; onAction: () => void; accent?: boolean }) {
   return <article className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm sm:p-6"><Icon className={`h-6 w-6 ${accent ? 'text-orange-700' : 'text-blue-700'}`} /><h3 className="mt-4 text-base font-semibold text-slate-950">{title}</h3><p className="mt-2 min-h-[4.5rem] text-sm leading-6 text-slate-600">{description}</p><button onClick={onAction} className={`mt-3 inline-flex min-h-9 items-center gap-1 text-xs font-semibold ${accent ? 'text-orange-700' : 'text-blue-700'}`}>{action}<ArrowRight className="h-3.5 w-3.5" /></button></article>;
-}
-
-function CustomerOverview({
-  walletBalance,
-  walletLoading,
-  appCount,
-  transactions,
-  onNavigate,
-}: {
-  walletBalance?: number;
-  walletLoading: boolean;
-  appCount: number;
-  transactions: any[];
-  onNavigate: (page: CustomerPage) => void;
-}) {
-  const stats = [
-    { label: 'Wallet balance', value: walletLoading ? 'Loading…' : `${Number(walletBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} MCOM`, icon: WalletCards, color: 'text-orange-700', action: 'wallet' as const },
-    { label: 'MCOM apps', value: `${appCount} available`, icon: Grid2X2, color: 'text-blue-700', action: 'ecosystem' as const },
-    { label: 'Recent transactions', value: `${transactions.length} records`, icon: ArrowUpRight, color: 'text-emerald-700', action: 'wallet' as const },
-  ];
-  const highlights = [
-    { title: 'Loyalty & rewards', text: 'Keep your connected rewards apps close at hand.', icon: Compass },
-    { title: 'Local offers', text: 'Explore offers and services from the MCOM network.', icon: Box },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {stats.map(({ label, value, icon: Icon, color, action }) => (
-          <button key={label} onClick={() => onNavigate(action)} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-orange-200 hover:shadow-md sm:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-                <p className="mt-2 truncate text-2xl font-semibold tracking-tight text-slate-950">{value}</p>
-              </div>
-              <Icon className={`h-5 w-5 shrink-0 ${color}`} />
-            </div>
-          </button>
-        ))}
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div><h2 className="text-lg font-semibold">MCOM Product Highlights</h2><p className="mt-1 text-sm text-slate-600">Explore apps available to your customer account.</p></div>
-          <button onClick={() => onNavigate('ecosystem')} className="hidden shrink-0 items-center gap-1 text-sm font-semibold text-orange-700 sm:inline-flex">View ecosystem <ArrowRight className="h-4 w-4" /></button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {highlights.map(({ title, text, icon: Icon }) => (
-            <button key={title} onClick={() => onNavigate('ecosystem')} className="flex min-h-24 items-start gap-3 rounded-lg border border-slate-200 p-4 text-left transition hover:border-orange-200 hover:bg-orange-50/30">
-              <Icon className="mt-0.5 h-5 w-5 shrink-0 text-orange-700" />
-              <span><span className="block font-semibold">{title}</span><span className="mt-1 block text-sm leading-5 text-slate-600">{text}</span><span className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Explore apps <ArrowUpRight className="h-4 w-4" /></span></span>
-            </button>
-          ))}
-        </div>
-        <button onClick={() => onNavigate('ecosystem')} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-orange-700 sm:hidden">View MCOM ecosystem <ArrowRight className="h-4 w-4" /></button>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-5">
-          <div><h2 className="font-semibold">Recent wallet activity</h2><p className="mt-1 text-xs text-slate-500">Your latest wallet transactions</p></div>
-          <button onClick={() => onNavigate('wallet')} className="inline-flex items-center gap-1 text-sm font-semibold text-orange-700">Wallet <ArrowRight className="h-4 w-4" /></button>
-        </div>
-        {transactions.length ? <div className="divide-y divide-slate-100">{transactions.slice(0, 4).map((transaction) => (
-          <div key={transaction.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
-            <ArrowUpRight className={`h-4 w-4 shrink-0 ${transaction.type === 'CREDIT' ? 'text-emerald-700' : 'text-slate-500'}`} />
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{transaction.description || transaction.reference || 'Wallet transaction'}</p><p className="mt-0.5 text-xs text-slate-500">{transaction.createdAt ? new Date(transaction.createdAt).toLocaleDateString() : ''}</p></div>
-            <span className={`shrink-0 text-sm font-semibold ${transaction.type === 'CREDIT' ? 'text-emerald-700' : 'text-slate-800'}`}>{transaction.type === 'CREDIT' ? '+' : '−'}{Number(transaction.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-          </div>
-        ))}</div> : <p className="px-4 py-8 text-center text-sm text-slate-500 sm:px-5">No wallet activity to show yet.</p>}
-      </section>
-    </div>
-  );
 }
 
 function CustomerProfile({ customer, preview, onNavigate, onProfileChange }: { customer: Record<string, any>; preview: boolean; onNavigate: (page: CustomerPage) => void; onProfileChange: (profile: Record<string, any>) => void }) {
