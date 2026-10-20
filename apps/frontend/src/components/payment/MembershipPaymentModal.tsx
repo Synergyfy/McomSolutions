@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Crown, Sparkles, AlertCircle } from 'lucide-react';
@@ -6,6 +7,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { paymentApi } from '../../services/payment';
 import { usePricing } from '../../context/PricingContext';
 import PaymentPlanSelector from './PaymentPlanSelector';
+import CouponCodeField from './CouponCodeField';
+import type { CouponQuote } from '../../services/admin/types';
+import { priceOptionWithCoupon } from '../../lib/couponPricing';
 import { cn } from '../../lib/utils';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
@@ -24,12 +28,14 @@ export interface MembershipPaymentPlan {
 function StripeMembershipForm({
   plan,
   paymentPlan,
+  couponCode,
   source = 'onboarding',
   onSuccess,
   onCancel,
 }: {
   plan: MembershipPaymentPlan;
   paymentPlan: string;
+  couponCode?: string;
   source?: 'dashboard' | 'onboarding';
   onSuccess: () => void;
   onCancel: () => void;
@@ -75,7 +81,8 @@ function StripeMembershipForm({
           plan.billingCycle,
           paymentIntent.id,
           false,
-          paymentPlan
+          paymentPlan,
+          couponCode
         );
 
         // Update local session
@@ -165,6 +172,7 @@ export default function MembershipPaymentModal({
   plan: MembershipPaymentPlan | null;
   source?: 'dashboard' | 'onboarding';
 }) {
+  const queryClient = useQueryClient();
   const [provider, setProvider] = useState<'stripe' | 'paypal'>('stripe');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [isLoadingSecret, setIsLoadingSecret] = useState(false);
@@ -172,6 +180,7 @@ export default function MembershipPaymentModal({
   const [isProcessingPaypal, setIsProcessingPaypal] = useState(false);
   const [isPaymentSuccess, setIsPaymentSuccess] = useState(false);
   const [paymentPlan, setPaymentPlan] = useState<string>('full');
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponQuote | null>(null);
 
   const { plans } = usePricing();
   const modalPlan = plan ? plans.find((p) => p.id === plan.id || p.name === plan.id || p.name === plan.name) : undefined;
@@ -191,7 +200,19 @@ export default function MembershipPaymentModal({
           sliceDays: modalTier?.durationDays ?? (currentSelectedTier === 'Pro+' ? 365 : currentSelectedTier === 'Pro' ? 180 : 90),
         }];
   const modalSelected = modalOptions.find((o) => o.paymentPlan === paymentPlan) ?? modalOptions[0];
-  const modalDueToday = Number(modalSelected.perChargePrice);
+  const displayModalOptions = appliedCoupon?.coupon
+    ? modalOptions.map((option) => priceOptionWithCoupon(option, appliedCoupon.coupon!))
+    : modalOptions;
+  const displaySelected =
+    displayModalOptions.find((o) => o.paymentPlan === paymentPlan) ?? displayModalOptions[0];
+  const baseDueToday = Number(modalSelected.perChargePrice);
+  const modalDueToday = appliedCoupon?.coupon
+    ? Number(displaySelected.perChargePrice)
+    : baseDueToday;
+  const modalTotal = appliedCoupon?.coupon
+    ? Number(displaySelected.totalPrice)
+    : Number(modalSelected.totalPrice);
+  const couponCode = appliedCoupon?.coupon?.code;
 
   useEffect(() => {
     if (!isOpen || !plan) {
@@ -199,16 +220,18 @@ export default function MembershipPaymentModal({
       setInitError(null);
       setIsPaymentSuccess(false);
       setPaymentPlan('full');
+      setAppliedCoupon(null);
       return;
     }
 
     if (provider === 'stripe') {
       let isMounted = true;
       setIsLoadingSecret(true);
+      setClientSecret(null);
       setInitError(null);
 
       paymentApi
-        .stripeInitiate(plan.id, plan.selectedTier || 'Standard', plan.billingCycle, false, paymentPlan)
+        .stripeInitiate(plan.id, plan.selectedTier || 'Standard', plan.billingCycle, false, paymentPlan, couponCode)
         .then((data) => {
           if (isMounted) {
             if (data?.clientSecret) {
@@ -232,7 +255,7 @@ export default function MembershipPaymentModal({
         isMounted = false;
       };
     }
-  }, [isOpen, plan, provider, paymentPlan]);
+  }, [isOpen, plan, provider, paymentPlan, couponCode]);
 
   const handlePaypalSubmit = async () => {
     if (!plan || isProcessingPaypal) return;
@@ -257,7 +280,8 @@ export default function MembershipPaymentModal({
         returnUrl,
         cancelUrl,
         false,
-        paymentPlan
+        paymentPlan,
+        couponCode
       );
 
       if (data?.approvalUrl) {
@@ -270,6 +294,7 @@ export default function MembershipPaymentModal({
             selectedTier: plan.selectedTier || 'Standard',
             billing: plan.billingCycle,
             paymentPlan,
+            couponCode,
             price: modalDueToday,
             includedApps: plan.includedApps,
           })
@@ -287,6 +312,8 @@ export default function MembershipPaymentModal({
 
   const handleSuccess = () => {
     setIsPaymentSuccess(true);
+    setAppliedCoupon(null);
+    queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
     if (source === 'onboarding') {
       localStorage.setItem('onboardingPaymentSuccess', 'true');
     }
@@ -363,12 +390,23 @@ export default function MembershipPaymentModal({
                   <div className="text-right">
                     <span className="text-xl sm:text-2xl font-black text-orange-600 tracking-tight">£{modalDueToday}</span>
                     <span className="block text-[10px] font-semibold text-gray-500">
-                      {modalSelected.installments > 1
-                        ? `${modalSelected.installments} payments · £${Number(modalSelected.totalPrice)} total`
+                      {appliedCoupon?.coupon
+                        ? `Coupon saved £${Number(appliedCoupon.discountAmount).toFixed(2)}`
+                        : modalSelected.installments > 1
+                        ? `${modalSelected.installments} payments · £${modalTotal} total`
                         : plan.billingCycle === 'yearly' ? 'Save 20%' : plan.billingCycle === 'quarterly' ? 'Save 10%' : 'Standard Rate'}
                     </span>
                   </div>
                 </div>
+
+                {appliedCoupon?.coupon && (
+                  <div className="mt-2.5 pt-2.5 border-t border-orange-200/60 flex items-center justify-between text-[11px] text-orange-950 font-semibold">
+                    <span>Subtotal</span>
+                    <span className="line-through text-gray-500">
+                      £{Number(appliedCoupon.originalAmount).toFixed(2)}
+                    </span>
+                  </div>
+                )}
 
                 {plan.includedApps && plan.includedApps.length > 0 && (
                   <div className="mt-2.5 pt-2.5 border-t border-orange-200/60 flex items-center justify-between text-[11px] text-orange-950 font-semibold">
@@ -380,6 +418,22 @@ export default function MembershipPaymentModal({
                 )}
               </div>
 
+              {/* Coupon code */}
+              <div className="mb-4 sm:mb-5">
+                <div className="text-[11px] sm:text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
+                  Have a coupon?
+                </div>
+                <CouponCodeField
+                  level={plan.id}
+                  tier={plan.selectedTier || 'Standard'}
+                  billing={plan.billingCycle}
+                  paymentPlan={paymentPlan}
+                  applied={appliedCoupon}
+                  onApplied={setAppliedCoupon}
+                  disabled={isPaymentSuccess}
+                />
+              </div>
+
               {/* How to pay — partitioned options appear here at payment time only */}
               <div className="mb-4 sm:mb-5">
                 <div className="text-[11px] sm:text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
@@ -388,7 +442,7 @@ export default function MembershipPaymentModal({
                 <PaymentPlanSelector
                   tier="Standard"
                   durationDays={modalTier?.durationDays ?? 90}
-                  options={modalOptions}
+                  options={displayModalOptions}
                   value={paymentPlan}
                   onChange={setPaymentPlan}
                 />
@@ -449,6 +503,7 @@ export default function MembershipPaymentModal({
                       <StripeMembershipForm
                         plan={{ ...plan, totalPerCycle: modalDueToday }}
                         paymentPlan={paymentPlan}
+                        couponCode={couponCode}
                         onSuccess={handleSuccess}
                         onCancel={onClose}
                       />

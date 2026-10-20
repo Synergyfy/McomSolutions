@@ -20,11 +20,14 @@ import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
 import { McomPayPanel } from '../components/admin/mcom-pay/McomPayPanel';
 import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
+import CouponsPanel from '../components/admin/CouponsPanel';
 import AdminMembershipEditor from './AdminMembershipEditor';
+import AdminCouponEditor from './AdminCouponEditor';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
   'memberships', 'subscriptions',
+  'coupons',
   'platform-access',
   'permissions', 'auth', 'registration-flow', 'business-profile',
   'payments', 'billing',
@@ -53,6 +56,9 @@ export default function AdminDashboard() {
   const isMembershipEditor =
     segments[2] === 'memberships' && (segments[3] === 'new' || segments[4] === 'edit');
   const editorTitle = segments[3] === 'new' ? 'New Membership' : 'Edit Membership';
+  const isCouponEditor =
+    segments[2] === 'coupons' && (segments[3] === 'new' || segments[4] === 'edit');
+  const couponEditorTitle = segments[3] === 'new' ? 'New Coupon' : 'Edit Coupon';
 
   const handleTabChange = (tab: AdminTab) => {
     navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
@@ -64,6 +70,7 @@ export default function AdminDashboard() {
       users: { title: 'User Management', subtitle: 'Manage all ecosystem users across roles' },
       memberships: { title: 'Membership Management', subtitle: 'Create and manage ecosystem membership tiers' },
       subscriptions: { title: 'Subscription Management', subtitle: 'Control all ecosystem subscriptions' },
+      coupons: { title: 'Coupon Management', subtitle: 'Create codes, control redemption limits, and audit every discount' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
       permissions: { title: 'Permission Management', subtitle: 'Role and permission control matrix' },
       auth: { title: 'Authentication Management', subtitle: 'Manage login, registration, and security policies' },
@@ -94,10 +101,16 @@ export default function AdminDashboard() {
   };
 
   const tabInfo = getTabInfo(activeTab);
-  const title = isMembershipEditor ? editorTitle : tabInfo.title;
+  const title = isMembershipEditor
+    ? editorTitle
+    : isCouponEditor
+      ? couponEditorTitle
+      : tabInfo.title;
   const subtitle = isMembershipEditor
     ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
-    : tabInfo.subtitle;
+    : isCouponEditor
+      ? 'Discount, membership scope, validity and redemption limits'
+      : tabInfo.subtitle;
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -109,6 +122,8 @@ export default function AdminDashboard() {
         return <PlanManagementPanel />;
       case 'subscriptions':
         return <SubscriptionManagementPanel />;
+      case 'coupons':
+        return <CouponsPanel />;
       case 'platform-access':
         return <PlatformPanel />;
       case 'permissions':
@@ -157,7 +172,13 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
-      {isMembershipEditor ? <AdminMembershipEditor /> : renderPanel()}
+      {isMembershipEditor ? (
+        <AdminMembershipEditor />
+      ) : isCouponEditor ? (
+        <AdminCouponEditor />
+      ) : (
+        renderPanel()
+      )}
     </AdminLayout>
   );
 }

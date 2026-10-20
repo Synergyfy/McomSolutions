@@ -4,12 +4,15 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
-import { TaskAudience, TaskAssignmentStatus, TaskSource } from '@prisma/client';
+import { CouponDiscountType, TaskAudience, TaskAssignmentStatus, TaskSource } from '@prisma/client';
 
 export class CreateTaskDefinitionDto {
   @ApiProperty({ example: 'Upload Business Logo', description: 'Task title shown to the user' })
@@ -71,6 +74,46 @@ export class CreateTaskDefinitionDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: 'Issue a personal coupon when this task is completed' })
+  @IsOptional()
+  @IsBoolean()
+  rewardCouponEnabled?: boolean;
+
+  @ApiPropertyOptional({ enum: CouponDiscountType, example: CouponDiscountType.PERCENTAGE })
+  @IsOptional()
+  @IsEnum(CouponDiscountType)
+  rewardCouponDiscountType?: CouponDiscountType;
+
+  @ApiPropertyOptional({ example: 20, description: 'Percentage (1–99) or fixed GBP amount' })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(100000)
+  rewardCouponValue?: number;
+
+  @ApiPropertyOptional({ example: true, description: 'True = all memberships, false = selected plans' })
+  @IsOptional()
+  @IsBoolean()
+  rewardCouponAppliesToAll?: boolean;
+
+  @ApiPropertyOptional({ type: [String], example: ['plan-id-1'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  rewardCouponPlanIds?: string[];
+
+  @ApiPropertyOptional({ example: 30, description: 'Days after issuance before the reward coupon expires' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  rewardCouponValidDays?: number;
+
+  @ApiPropertyOptional({ example: '2026-12-31T23:59:59.000Z', description: 'Absolute expiry for issued reward coupons' })
+  @IsOptional()
+  @IsISO8601()
+  rewardCouponExpiresAt?: string;
 
   @ApiPropertyOptional({ example: 'mcom_central', description: 'Platform identifier' })
   @IsOptional()

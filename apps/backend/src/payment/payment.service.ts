@@ -18,6 +18,7 @@ import Stripe from 'stripe';
 import axios from 'axios';
 import { Role, Prisma, MembershipPaymentPlan } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service';
+import { CouponService } from '../coupon/coupon.service';
 import { normalizePaymentPlan } from '../pricing/payment-option.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -33,8 +34,8 @@ export interface PaymentCaller {
 }
 
 /**
- * Parse a PayPal custom_id of `businessId|level|tier|billing` (outright) or
- * `businessId|level|tier|billing|paymentPlan` (instalment step).
+ * Parse a PayPal custom_id of `businessId|level|tier|billing|paymentPlan` with
+ * an optional 6th `couponCode` segment. Legacy 4/5-segment ids remain valid.
  */
 function parseMembershipCustomId(customId: string): {
   businessId: string;
@@ -42,13 +43,15 @@ function parseMembershipCustomId(customId: string): {
   tier: string;
   billing: 'monthly' | 'quarterly' | 'yearly';
   paymentPlan: string;
+  couponCode?: string;
 } {
   const parts = (customId || '').split('|');
-  const [businessId, level, tier, billing, fifth] = parts;
+  const [businessId, level, tier, billing, fifth, sixth] = parts;
   if (!businessId || !level || !tier) {
     throw new BadRequestException('PayPal order metadata is missing. Cannot activate subscription.');
   }
   let paymentPlan = 'full';
+  let couponCode: string | undefined;
   if (parts.length >= 5) {
     const slug = (fifth || '').toLowerCase().replace(/[^a-z]/g, '');
     if (['full', 'monthly', 'quarterly', 'halfyearly'].includes(slug)) {
@@ -57,6 +60,9 @@ function parseMembershipCustomId(customId: string): {
       // Legacy 5-segment references carried a trial flag — trials are discontinued.
       throw new BadRequestException('Trial orders are no longer supported. Please create a new paid order.');
     }
+  }
+  if (parts.length >= 6 && sixth && sixth.trim()) {
+    couponCode = sixth.trim().toUpperCase();
   }
   const cycle = (['monthly', 'quarterly', 'yearly'].includes(billing) ? billing : 'monthly') as
     'monthly' | 'quarterly' | 'yearly';
@@ -86,6 +92,7 @@ export class PaymentService {
     private config: ConfigService,
     private prisma: PrismaService,
     private pricingService: PricingService,
+    private couponService: CouponService,
     private connectorsService: ServiceConnectorsService,
     private webhookDispatcher: WebhookDispatcherService,
     @Optional() private redis?: RedisService,
@@ -205,6 +212,44 @@ export class PaymentService {
     return quote.perChargePrice;
   }
 
+  private async resolveMembershipQuote(
+    level: string,
+    tier: string,
+    billing: 'monthly' | 'quarterly' | 'yearly',
+    paymentPlan: string,
+    couponCode?: string,
+    userId?: string,
+  ) {
+    return this.pricingService.resolveMembershipCharge(
+      level,
+      tier,
+      billing,
+      paymentPlan,
+      couponCode,
+      userId,
+    );
+  }
+
+  private couponMetadata(quote: {
+    coupon: { id: string; code: string } | null;
+    planId: string;
+    planName: string;
+    originalAmount: number;
+    discountAmount: number;
+    finalAmount: number;
+  }): Record<string, string> {
+    if (!quote.coupon) return {};
+    return {
+      couponId: quote.coupon.id,
+      couponCode: quote.coupon.code,
+      planId: quote.planId,
+      planName: quote.planName,
+      originalAmountPence: String(Math.round(quote.originalAmount * 100)),
+      discountPence: String(Math.round(quote.discountAmount * 100)),
+      expectedAmountPence: String(Math.round(quote.finalAmount * 100)),
+    };
+  }
+
   private paymentPlanLabel(paymentPlan: string): string {
     switch (normalizePaymentPlan(paymentPlan)) {
       case MembershipPaymentPlan.monthly:
@@ -268,15 +313,27 @@ export class PaymentService {
     tier: string,
     billing: 'monthly' | 'quarterly' | 'yearly',
     paymentPlan: string = 'full',
+    couponCode?: string,
+    userId?: string,
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
     }
+    if (couponCode && !userId) {
+      throw new BadRequestException('A signed-in user is required to use a coupon.');
+    }
 
     // Phase 2: trials removed — every initiation is a real charge.
     const plan = normalizePaymentPlan(paymentPlan);
-    const amountGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
-    const amountPence = Math.round(amountGBP * 100);
+    const quote = await this.resolveMembershipQuote(
+      level,
+      tier,
+      billing,
+      paymentPlan,
+      couponCode,
+      userId,
+    );
+    const amountPence = Math.round(quote.finalAmount * 100);
 
     // One charge per step: outright, or a single instalment (access extends per payment).
     const paymentIntent = await this.stripe.paymentIntents.create({
@@ -289,11 +346,37 @@ export class PaymentService {
         tier,
         billing,
         paymentPlan: plan === MembershipPaymentPlan.halfYearly ? 'halfYearly' : plan,
+        ...this.couponMetadata(quote),
       },
-      description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})`,
+      description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})${
+        quote.coupon ? ` · coupon ${quote.coupon.code}` : ''
+      }`,
     });
 
-    return { clientSecret: paymentIntent.client_secret, type: 'payment' };
+    if (quote.coupon) {
+      await this.couponService.reserveForCharge({
+        code: quote.coupon.code,
+        userId: userId!,
+        planId: quote.planId,
+        planName: quote.planName,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'stripe',
+        providerPaymentId: paymentIntent.id,
+      });
+    }
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      type: 'payment',
+      pricing: {
+        originalAmount: quote.originalAmount,
+        discountAmount: quote.discountAmount,
+        finalAmount: quote.finalAmount,
+        couponCode: quote.coupon?.code ?? null,
+        currency: quote.currency,
+      },
+    };
   }
 
   async stripeConfirm(
@@ -326,10 +409,26 @@ export class PaymentService {
       throw new BadRequestException('Payment is missing business metadata. Cannot activate subscription.');
     }
     // The intent's own metadata is authoritative for which step was charged.
-    const effectivePlan = intent.metadata?.paymentPlan ?? paymentPlan;
-    const expectedPence = Math.round(
-      (await this.resolveChargePrice(level, tier, billing, effectivePlan)) * 100,
-    );
+    const meta = intent.metadata ?? {};
+    const effectiveLevel = meta.level || level;
+    const effectiveTier = meta.tier || tier;
+    const effectiveBilling = (['monthly', 'quarterly', 'yearly'].includes(meta.billing)
+      ? meta.billing
+      : billing) as 'monthly' | 'quarterly' | 'yearly';
+    const effectivePlan = meta.paymentPlan ?? paymentPlan;
+    const couponCode = meta.couponCode?.toUpperCase();
+    let expectedPence = Number(meta.expectedAmountPence);
+    if (!Number.isFinite(expectedPence) || expectedPence <= 0) {
+      const quote = await this.resolveMembershipQuote(
+        effectiveLevel,
+        effectiveTier,
+        effectiveBilling,
+        effectivePlan,
+        couponCode,
+        caller?.userId,
+      );
+      expectedPence = Math.round(quote.finalAmount * 100);
+    }
     if (intent.currency?.toLowerCase() !== 'gbp' || intent.amount !== expectedPence) {
       this.logger.warn(
         `Stripe confirm amount mismatch: intent ${paymentIntentId} is ${intent.amount} ${intent.currency}, expected ${expectedPence} gbp`,
@@ -340,13 +439,99 @@ export class PaymentService {
       this.assertCaptureOwnership(businessId, caller, paymentIntentId);
     }
 
-    // Activate subscription in database (idempotent on paymentIntentId)
+    let redemptionId: string | undefined;
+    let originalAmount = Number(meta.originalAmountPence) / 100;
+    let discountAmount = Number(meta.discountPence) / 100;
+    if (couponCode) {
+      const reservation = await this.couponService.findReservationForPayment(
+        'stripe',
+        paymentIntentId,
+      );
+      if (reservation) {
+        redemptionId = reservation.id;
+        originalAmount = Number(reservation.originalAmount);
+        discountAmount = Number(reservation.discountAmount);
+      } else if (caller?.userId) {
+        // Extremely defensive: re-reserve if the initiation hold was lost.
+        try {
+          const quote = await this.resolveMembershipQuote(
+            effectiveLevel,
+            effectiveTier,
+            effectiveBilling,
+            effectivePlan,
+            couponCode,
+            caller.userId,
+          );
+          const fresh = await this.couponService.reserveForCharge({
+            code: couponCode,
+            userId: caller.userId,
+            planId: quote.planId,
+            planName: quote.planName,
+            amount: quote.originalAmount,
+            businessId,
+            provider: 'stripe',
+            providerPaymentId: paymentIntentId,
+          });
+          redemptionId = fresh.redemptionId;
+          originalAmount = fresh.originalAmount;
+          discountAmount = fresh.discountAmount;
+        } catch (err) {
+          this.logger.warn(
+            `Could not re-reserve coupon ${couponCode} for paid intent ${paymentIntentId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
+      }
+    }
+
     const plan = normalizePaymentPlan(effectivePlan);
-    return this.pricingService.subscribeMembership(businessId, level, tier, billing, {
-      provider: 'stripe',
-      providerPaymentId: paymentIntentId,
-      ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan: effectivePlan }),
-    });
+    const chargedAmount = intent.amount / 100;
+    const result = await this.pricingService.subscribeMembership(
+      businessId,
+      effectiveLevel,
+      effectiveTier,
+      effectiveBilling,
+      {
+        provider: 'stripe',
+        providerPaymentId: paymentIntentId,
+        ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan: effectivePlan }),
+        ...(couponCode
+          ? {
+              chargedAmount,
+              couponCode,
+              couponRedemptionId: redemptionId,
+              originalAmount: Number.isFinite(originalAmount) ? originalAmount : chargedAmount,
+              discountAmount: Number.isFinite(discountAmount) ? discountAmount : 0,
+            }
+          : {}),
+      },
+    );
+
+    if (couponCode && !redemptionId) {
+      await this.couponService
+        .recordPaidRedemption({
+          couponCode,
+          userId: caller?.userId,
+          businessId,
+          planId: meta.planId,
+          planName: meta.planName,
+          originalAmount: Number.isFinite(originalAmount) ? originalAmount : chargedAmount,
+          discountAmount: Number.isFinite(discountAmount) ? discountAmount : 0,
+          finalAmount: chargedAmount,
+          provider: 'stripe',
+          providerPaymentId: paymentIntentId,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to record paid coupon redemption for ${paymentIntentId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          ),
+        );
+    }
+
+    return result;
   }
 
   // ─── PAYPAL ───────────────────────────────────────────────────────────────────
@@ -359,11 +544,32 @@ export class PaymentService {
     returnUrl: string,
     cancelUrl: string,
     paymentPlan: string = 'full',
+    couponCode?: string,
+    userId?: string,
   ) {
+    if (couponCode && !userId) {
+      throw new BadRequestException('A signed-in user is required to use a coupon.');
+    }
     const token = await this.getPayPalAccessToken();
     // Phase 2: trials removed — always a real charge (outright or one instalment).
     const plan = normalizePaymentPlan(paymentPlan);
-    const amountGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
+    const quote = await this.resolveMembershipQuote(
+      level,
+      tier,
+      billing,
+      paymentPlan,
+      couponCode,
+      userId,
+    );
+    const planSlug = plan === MembershipPaymentPlan.halfYearly ? 'halfYearly' : plan;
+    const customIdParts = [businessId, level, tier, billing];
+    if (plan !== MembershipPaymentPlan.full || quote.coupon) {
+      customIdParts.push(planSlug);
+    }
+    if (quote.coupon) {
+      customIdParts.push(quote.coupon.code);
+    }
+    const customId = customIdParts.join('|');
 
     const order = await axios.post(
       `${this.paypalBaseUrl}/v2/checkout/orders`,
@@ -373,13 +579,12 @@ export class PaymentService {
           {
             amount: {
               currency_code: 'GBP',
-              value: amountGBP.toFixed(2),
+              value: quote.finalAmount.toFixed(2),
             },
-            description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})`,
-            custom_id:
-              plan === MembershipPaymentPlan.full
-                ? `${businessId}|${level}|${tier}|${billing}`
-                : `${businessId}|${level}|${tier}|${billing}|${plan === MembershipPaymentPlan.halfYearly ? 'halfYearly' : plan}`,
+            description: `MCOM ${level} ${tier} Membership (${this.paymentPlanLabel(paymentPlan)})${
+              quote.coupon ? ` · coupon ${quote.coupon.code}` : ''
+            }`,
+            custom_id: customId,
           },
         ],
         application_context: {
@@ -398,11 +603,31 @@ export class PaymentService {
       },
     );
 
+    if (quote.coupon) {
+      await this.couponService.reserveForCharge({
+        code: quote.coupon.code,
+        userId: userId!,
+        planId: quote.planId,
+        planName: quote.planName,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'paypal',
+        providerPaymentId: order.data.id,
+      });
+    }
+
     const approveLink = order.data.links?.find((l: any) => l.rel === 'approve')?.href;
 
     return {
       orderId: order.data.id,
       approvalUrl: approveLink,
+      pricing: {
+        originalAmount: quote.originalAmount,
+        discountAmount: quote.discountAmount,
+        finalAmount: quote.finalAmount,
+        couponCode: quote.coupon?.code ?? null,
+        currency: quote.currency,
+      },
     };
   }
 
@@ -435,11 +660,59 @@ export class PaymentService {
     }
 
     const unit = order.purchase_units?.[0];
-    const { businessId, level, tier, billing, paymentPlan } = parseMembershipCustomId(unit?.custom_id || '');
+    const { businessId, level, tier, billing, paymentPlan, couponCode } = parseMembershipCustomId(unit?.custom_id || '');
     this.assertCaptureOwnership(businessId, caller, orderId);
 
     // Re-validate the approved amount against the server-side step price.
-    const expectedGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
+    let expectedGBP: number;
+    let originalAmount: number;
+    let discountAmount: number;
+    let redemptionId: string | undefined;
+    let reservation = couponCode
+      ? await this.couponService.findReservationForPayment('paypal', orderId)
+      : null;
+
+    if (couponCode) {
+      if (!caller?.userId) {
+        throw new BadRequestException('A signed-in user is required to capture a coupon payment.');
+      }
+      if (reservation) {
+        expectedGBP = Number(reservation.finalAmount);
+        originalAmount = Number(reservation.originalAmount);
+        discountAmount = Number(reservation.discountAmount);
+        redemptionId = reservation.id;
+      } else {
+        const quote = await this.resolveMembershipQuote(
+          level,
+          tier,
+          billing,
+          paymentPlan,
+          couponCode,
+          caller.userId,
+        );
+        expectedGBP = quote.finalAmount;
+        originalAmount = quote.originalAmount;
+        discountAmount = quote.discountAmount;
+        const reserved = await this.couponService.reserveForCharge({
+          code: couponCode,
+          userId: caller.userId,
+          planId: quote.planId,
+          planName: quote.planName,
+          amount: quote.originalAmount,
+          businessId,
+          provider: 'paypal',
+          providerPaymentId: orderId,
+        });
+        redemptionId = reserved.redemptionId;
+        originalAmount = reserved.originalAmount;
+        discountAmount = reserved.discountAmount;
+      }
+    } else {
+      expectedGBP = await this.resolveChargePrice(level, tier, billing, paymentPlan);
+      originalAmount = expectedGBP;
+      discountAmount = 0;
+    }
+
     const approvedValue = Number(unit?.amount?.value);
     const approvedCurrency = (unit?.amount?.currency_code || '').toUpperCase();
     if (approvedCurrency !== 'GBP' || !Number.isFinite(approvedValue) || Math.abs(approvedValue - expectedGBP) > 0.005) {
@@ -475,7 +748,21 @@ export class PaymentService {
       throw new BadRequestException('PayPal order metadata changed during capture. Cannot activate subscription.');
     }
 
-    const membershipPayload = { level, tier, billing, paymentPlan, expectedGBP };
+    const membershipPayload = {
+      level,
+      tier,
+      billing,
+      paymentPlan,
+      expectedGBP,
+      ...(couponCode
+        ? {
+            couponCode,
+            couponRedemptionId: redemptionId,
+            originalAmount,
+            discountAmount,
+          }
+        : {}),
+    };
     const plan = normalizePaymentPlan(paymentPlan);
     let result: Awaited<ReturnType<PricingService['subscribeMembership']>>;
     try {
@@ -483,9 +770,39 @@ export class PaymentService {
         provider: 'paypal',
         providerPaymentId: orderId,
         ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan }),
+        ...(couponCode
+          ? {
+              chargedAmount: approvedValue,
+              couponCode,
+              couponRedemptionId: redemptionId,
+              originalAmount,
+              discountAmount,
+            }
+          : {}),
       });
     } catch (dbErr) {
       await this.parkForReconcile('membership', orderId, businessId, membershipPayload, dbErr);
+    }
+
+    if (couponCode && !redemptionId) {
+      await this.couponService
+        .recordPaidRedemption({
+          couponCode,
+          userId: caller?.userId,
+          businessId,
+          originalAmount,
+          discountAmount,
+          finalAmount: approvedValue,
+          provider: 'paypal',
+          providerPaymentId: orderId,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to record paid coupon redemption for ${orderId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          ),
+        );
     }
 
     if (this.redis) {
@@ -976,11 +1293,26 @@ export class PaymentService {
     payload: Record<string, unknown>;
   }): Promise<void> {
     if (row.kind === 'membership') {
-      const { level, tier, billing, paymentPlan } = row.payload as {
+      const {
+        level,
+        tier,
+        billing,
+        paymentPlan,
+        expectedGBP,
+        couponCode,
+        couponRedemptionId,
+        originalAmount,
+        discountAmount,
+      } = row.payload as {
         level: string;
         tier: string;
         billing: 'monthly' | 'quarterly' | 'yearly';
         paymentPlan?: string;
+        expectedGBP?: number;
+        couponCode?: string;
+        couponRedemptionId?: string;
+        originalAmount?: number;
+        discountAmount?: number;
       };
       const rowPlan = normalizePaymentPlan(String(paymentPlan ?? 'full'));
       await this.pricingService.subscribeMembership(
@@ -992,8 +1324,36 @@ export class PaymentService {
           provider: 'paypal',
           providerPaymentId: row.providerPaymentId,
           ...(rowPlan === MembershipPaymentPlan.full ? {} : { paymentPlan: String(paymentPlan) }),
+          ...(typeof expectedGBP === 'number' ? { chargedAmount: expectedGBP } : {}),
+          ...(couponCode
+            ? {
+                couponCode: String(couponCode),
+                couponRedemptionId: couponRedemptionId ? String(couponRedemptionId) : undefined,
+                originalAmount,
+                discountAmount,
+              }
+            : {}),
         },
       );
+      if (couponCode && !couponRedemptionId) {
+        await this.couponService
+          .recordPaidRedemption({
+            couponCode: String(couponCode),
+            businessId: row.businessId,
+            originalAmount: Number(originalAmount ?? expectedGBP ?? 0),
+            discountAmount: Number(discountAmount ?? 0),
+            finalAmount: Number(expectedGBP ?? 0),
+            provider: 'paypal',
+            providerPaymentId: row.providerPaymentId,
+          })
+          .catch((err) =>
+            this.logger.warn(
+              `Outbox could not record paid coupon ${couponCode}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            ),
+          );
+      }
       return;
     }
     const { platform, externalPlanId, billingCycle, amountGBP } = row.payload as {
@@ -1255,13 +1615,78 @@ export class PaymentService {
     const cycle = (['monthly', 'quarterly', 'yearly'].includes(billing) ? billing : 'monthly') as
       'monthly' | 'quarterly' | 'yearly';
     const webhookPlan = normalizePaymentPlan(String(meta.paymentPlan ?? 'full'));
-    const expectedGBP = await this.resolveChargePrice(level, tier, cycle, String(meta.paymentPlan ?? 'full'));
+    const couponCode = meta.couponCode?.toUpperCase();
+    let expectedGBP: number;
+    let originalAmount = Number(meta.originalAmountPence) / 100;
+    let discountAmount = Number(meta.discountPence) / 100;
+    let redemptionId: string | undefined;
+    if (couponCode) {
+      const reservation = await this.couponService.findReservationForPayment('stripe', intent.id);
+      if (reservation) {
+        redemptionId = reservation.id;
+        expectedGBP = Number(reservation.finalAmount);
+        originalAmount = Number(reservation.originalAmount);
+        discountAmount = Number(reservation.discountAmount);
+      } else {
+        // The intent was created by this server with a coupon discount. Trust
+        // its own metadata rather than failing a completed charge if the hold
+        // expired between initiation and the webhook.
+        const metaExpected = Number(meta.expectedAmountPence) / 100;
+        if (Number.isFinite(metaExpected) && metaExpected > 0) {
+          expectedGBP = metaExpected;
+        } else {
+          const quote = await this.resolveMembershipQuote(
+            level,
+            tier,
+            cycle,
+            String(meta.paymentPlan ?? 'full'),
+            couponCode,
+          );
+          expectedGBP = quote.finalAmount;
+          originalAmount = quote.originalAmount;
+          discountAmount = quote.discountAmount;
+        }
+      }
+    } else {
+      expectedGBP = await this.resolveChargePrice(level, tier, cycle, String(meta.paymentPlan ?? 'full'));
+      originalAmount = expectedGBP;
+    }
     this.assertStripeIntentAmount(intent, expectedGBP);
     await this.pricingService.subscribeMembership(businessId, level, tier, cycle, {
       provider: 'stripe',
       providerPaymentId: intent.id,
       ...(webhookPlan === MembershipPaymentPlan.full ? {} : { paymentPlan: String(meta.paymentPlan) }),
+      ...(couponCode
+        ? {
+            chargedAmount: expectedGBP,
+            couponCode,
+            couponRedemptionId: redemptionId,
+            originalAmount,
+            discountAmount,
+          }
+        : {}),
     });
+    if (couponCode && !redemptionId) {
+      await this.couponService
+        .recordPaidRedemption({
+          couponCode,
+          businessId,
+          planId: meta.planId,
+          planName: meta.planName,
+          originalAmount,
+          discountAmount,
+          finalAmount: expectedGBP,
+          provider: 'stripe',
+          providerPaymentId: intent.id,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Webhook could not record paid coupon ${couponCode} for ${intent.id}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          ),
+        );
+    }
   }
 
   private assertStripeIntentAmount(intent: Stripe.PaymentIntent, expectedGBP: number): void {

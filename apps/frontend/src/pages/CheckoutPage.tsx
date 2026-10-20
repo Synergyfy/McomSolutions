@@ -24,6 +24,9 @@ import { usePricing } from '../context/PricingContext';
 import type { PlanTier } from '../context/PricingContext';
 import { useStripeInitiate, useStripeConfirm, usePaypalInitiate } from '../services/payment/hooks';
 import PaymentPlanSelector from '../components/payment/PaymentPlanSelector';
+import CouponCodeField from '../components/payment/CouponCodeField';
+import type { CouponQuote } from '../services/admin/types';
+import { priceOptionWithCoupon } from '../lib/couponPricing';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -56,6 +59,7 @@ function StripeCardForm({
   paymentPlan,
   isTrial,
   subtotal,
+  couponCode,
   user,
   onSuccess,
   onError,
@@ -66,6 +70,7 @@ function StripeCardForm({
   paymentPlan: string;
   isTrial: boolean;
   subtotal: number;
+  couponCode?: string;
   user: any;
   onSuccess: () => void;
   onError: (msg: string) => void;
@@ -104,6 +109,7 @@ function StripeCardForm({
           paymentIntentId: paymentIntent.id,
           isTrial,
           paymentPlan,
+          couponCode,
         });
 
         if (user) {
@@ -179,6 +185,7 @@ export default function CheckoutPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponQuote | null>(null);
 
   // Stripe client secret
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -233,10 +240,15 @@ export default function CheckoutPage() {
   }, [planId, selectedTier]);
 
   const selected = options.find((o) => o.paymentPlan === paymentPlan) ?? options[0];
-  const monthlyOption = options.find((o) => o.paymentPlan === 'monthly');
+  const displayOptions = appliedCoupon?.coupon
+    ? options.map((option) => priceOptionWithCoupon(option, appliedCoupon.coupon!))
+    : options;
+  const displaySelected =
+    displayOptions.find((o) => o.paymentPlan === paymentPlan) ?? displayOptions[0];
+  const monthlyOption = displayOptions.find((o) => o.paymentPlan === 'monthly');
   const savingsVsMonthly =
-    monthlyOption && selected.paymentPlan !== 'monthly'
-      ? Math.max(0, Number(monthlyOption.totalPrice) - Number(selected.totalPrice))
+    monthlyOption && displaySelected.paymentPlan !== 'monthly'
+      ? Math.max(0, Number(monthlyOption.totalPrice) - Number(displaySelected.totalPrice))
       : 0;
 
   // Closest legacy billing label for the one-off charge metadata.
@@ -245,17 +257,23 @@ export default function CheckoutPage() {
     : selected.paymentPlan === 'quarterly' || selected.paymentPlan === 'halfYearly' ? 'quarterly'
     : legacyBilling;
 
-  const dueToday = isTrial ? 0 : Number(selected.perChargePrice);
+  const dueToday = isTrial
+    ? 0
+    : appliedCoupon?.coupon
+      ? Number(displaySelected.perChargePrice)
+      : Number(selected.perChargePrice);
   const subtotal = dueToday;
+  const couponCode = appliedCoupon?.coupon?.code;
 
   useEffect(() => {
     if (!token || paymentProvider !== 'stripe') return;
 
     let isMounted = true;
     setLoadingSecret(true);
+    setClientSecret(null);
     setErrorMessage(null);
 
-    stripeInitiate({ level: planId, tier, billing, isTrial, paymentPlan: selected.paymentPlan })
+    stripeInitiate({ level: planId, tier, billing, isTrial, paymentPlan: selected.paymentPlan, couponCode })
       .then((data) => {
         if (isMounted && data?.clientSecret) {
           setClientSecret(data.clientSecret);
@@ -274,7 +292,7 @@ export default function CheckoutPage() {
     return () => {
       isMounted = false;
     };
-  }, [token, paymentProvider, planId, tier, billing, isTrial, paymentPlan, selected.paymentPlan]);
+  }, [token, paymentProvider, planId, tier, billing, isTrial, paymentPlan, selected.paymentPlan, couponCode]);
 
   const handlePaypalPayment = async () => {
     setIsProcessing(true);
@@ -285,7 +303,7 @@ export default function CheckoutPage() {
       const returnUrl = `${origin}/checkout/paypal-return?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&paymentPlan=${encodeURIComponent(selected.paymentPlan)}&isTrial=${isTrial}`;
       const cancelUrl = `${origin}/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&isTrial=${isTrial}`;
 
-      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan: selected.paymentPlan });
+      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan: selected.paymentPlan, couponCode });
 
       if (initiated?.approvalUrl) {
         window.location.href = initiated.approvalUrl;
@@ -357,13 +375,26 @@ export default function CheckoutPage() {
               </div>
             </div>
 
+            {/* Coupon */}
+            <div className="mb-6 sm:mb-8">
+              <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">Have a coupon?</h3>
+              <CouponCodeField
+                level={planId}
+                tier={tier}
+                billing={billing}
+                paymentPlan={selected.paymentPlan}
+                applied={appliedCoupon}
+                onApplied={setAppliedCoupon}
+              />
+            </div>
+
             {/* How to pay — partitioned options appear here at payment time only */}
             <div className="mb-6 sm:mb-8">
               <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-3">2. Choose how to pay</h3>
               <PaymentPlanSelector
                 tier={tier}
                 durationDays={tierDuration}
-                options={options}
+                options={displayOptions}
                 value={selected.paymentPlan}
                 onChange={setPaymentPlan}
               />
@@ -395,13 +426,25 @@ export default function CheckoutPage() {
                   <span>100% OFF</span>
                 </div>
               )}
+              {appliedCoupon?.coupon && (
+                <>
+                  <div className="flex justify-between items-center text-gray-500 font-medium">
+                    <span>Subtotal</span>
+                    <span className="line-through">£{Number(appliedCoupon.originalAmount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-emerald-600 font-bold">
+                    <span>Coupon {appliedCoupon.coupon.code}</span>
+                    <span>-£{Number(appliedCoupon.discountAmount).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
               <div className="border-t border-gray-100 pt-3 sm:pt-4 flex justify-between items-baseline">
                 <span className="font-bold text-gray-900 text-sm sm:text-base">Due Today</span>
                 <div className="text-right">
                   <span className="text-2xl sm:text-3xl font-black text-gray-900">£{dueToday.toLocaleString()}</span>
                   {selected.installments > 1 && !isTrial && (
                     <span className="block text-[10px] sm:text-xs text-gray-400 font-semibold">
-                      £{Number(selected.totalPrice).toLocaleString()} total · {selected.installments} payments · +{selected.sliceDays} days access per payment
+                      £{Number(displaySelected.totalPrice).toLocaleString()} total · {selected.installments} payments · +{selected.sliceDays} days access per payment
                     </span>
                   )}
                 </div>
@@ -462,6 +505,7 @@ export default function CheckoutPage() {
                       paymentPlan={selected.paymentPlan}
                       isTrial={isTrial}
                       subtotal={subtotal}
+                      couponCode={couponCode}
                       user={user}
                       onSuccess={() => {
                         setIsSuccess(true);

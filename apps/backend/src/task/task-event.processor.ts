@@ -1,9 +1,11 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import {
+  TASK_COUPON_QUEUE,
   TASK_EVENT_QUEUE,
   TASK_REWARD_QUEUE,
+  TaskCouponJobData,
   TaskEventJobData,
   TaskRewardJobData,
 } from '../queue/queue.constants';
@@ -17,6 +19,8 @@ export class TaskEventProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(TASK_REWARD_QUEUE) private readonly rewardQueue: Queue<TaskRewardJobData>,
+    @Optional() @InjectQueue(TASK_COUPON_QUEUE)
+    private readonly couponQueue?: Queue<TaskCouponJobData>,
   ) {
     super();
   }
@@ -89,6 +93,18 @@ export class TaskEventProcessor extends WorkerHost {
             },
             {
               jobId: `task-reward-${assignment.id}`,
+              attempts: 5,
+              backoff: { type: 'exponential', delay: 2000 },
+            },
+          );
+        }
+
+        if (assignment.task.rewardCouponEnabled && this.couponQueue) {
+          await this.couponQueue.add(
+            'issue-task-coupon',
+            { assignmentId: assignment.id },
+            {
+              jobId: `task-coupon-${assignment.id}`,
               attempts: 5,
               backoff: { type: 'exponential', delay: 2000 },
             },

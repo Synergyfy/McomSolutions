@@ -1,13 +1,13 @@
 import { Controller, Get, Post, Body, Query, UseGuards, Request, NotFoundException, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiOkResponse, ApiNotFoundResponse } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 import { PricingService } from './pricing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { PaymentQuoteQueryDto, SubscribeMembershipDto } from './dto/pricing.dto';
+import { CouponQuoteDto, PaymentQuoteQueryDto, SubscribeMembershipDto } from './dto/pricing.dto';
 
 @ApiTags('Pricing')
 @Controller('pricing')
@@ -32,6 +32,23 @@ export class PricingController {
       query.level,
       query.tier ?? 'Standard',
       query.paymentPlan ?? 'full',
+    );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 15, ttl: 60000, blockDuration: 60000 } })
+  @Post('coupons/validate')
+  @ApiOperation({ summary: 'Validate a coupon and quote the discounted amount due today' })
+  @ApiOkResponse({ description: 'Coupon quote (original, discount and final amount)' })
+  async validateCoupon(@Request() req: any, @Body() dto: CouponQuoteDto) {
+    return this.pricingService.resolveMembershipCharge(
+      dto.level,
+      dto.tier ?? 'Standard',
+      dto.billing ?? 'monthly',
+      dto.paymentPlan ?? 'full',
+      dto.couponCode,
+      req.user?.userId,
     );
   }
 

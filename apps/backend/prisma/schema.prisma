@@ -72,6 +72,8 @@ model User {
   wallet                  Wallet?
   walletTopUps            WalletTopUpRequest[]
   taskAssignments         UserTaskAssignment[]
+  lockedCoupons           Coupon[]                  @relation("CouponLockedToUser")
+  couponRedemptions       CouponRedemption[]
   conversationsCreated    Conversation[]            @relation("ConversationCreator")
   conversationMemberships ConversationParticipant[]
   sentMessages            Message[]                 @relation("MessageSender")
@@ -126,6 +128,7 @@ model BusinessProfile {
   transactions           BillingTransaction[]
   notifications          Notification[]
   supportTickets         SupportTicket[]
+  couponRedemptions      CouponRedemption[]
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   deletedAt              DateTime?            @map("deleted_at")
@@ -364,8 +367,8 @@ model ServiceTokenAudit {
   id        String   @id @default(cuid())
   jti       String   @unique @map("jti")
   tokenType String   @map("token_type") // "service" | "delegated"
-  clientId  String   @map("client_id")  // caller app (sub for service, act.sub for delegated)
-  subject   String?  @map("subject")    // end-user id for delegated tokens
+  clientId  String   @map("client_id") // caller app (sub for service, act.sub for delegated)
+  subject   String?  @map("subject") // end-user id for delegated tokens
   audience  String?  @map("audience")
   scopes    String[] @default([])
   expiresAt DateTime @map("expires_at")
@@ -596,8 +599,11 @@ model MembershipPlan {
   color            String?  @map("color")
   features         String[] @default([]) @map("features")
 
-  tiers      MembershipPlanTier[]
-  appBundles MembershipPlanAppBundle[]
+  tiers                     MembershipPlanTier[]
+  appBundles                MembershipPlanAppBundle[]
+  couponLinks               CouponMembershipPlan[]
+  taskRewardCouponPlanLinks TaskRewardCouponPlan[]
+  couponRedemptions         CouponRedemption[]
 
   @@index([archived])
   @@index([deletedAt])
@@ -735,6 +741,119 @@ model MembershipInstallmentSubscription {
   @@index([businessId, status])
   @@index([status, nextDueAt])
   @@map("membership_installment_subscriptions")
+}
+
+// ─── COUPONS (admin codes + task rewards) ────────────────────────────────────
+// A coupon is redeemable against a membership payment. Task rewards are
+// issued as personal, single-use coupons locked to the completing user.
+// `times_redeemed` is a denormalised completed-redemption counter for fast
+// list/status filters; the CouponRedemption ledger remains the audit source.
+
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum CouponSource {
+  ADMIN
+  TASK_REWARD
+}
+
+enum CouponRedemptionStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+model Coupon {
+  id                      String              @id @default(cuid())
+  code                    String              @unique
+  description             String?
+  discountType            CouponDiscountType  @map("discount_type")
+  discountValue           Float               @map("discount_value")
+  appliesToAllMemberships Boolean             @default(true) @map("applies_to_all_memberships")
+  maxUses                 Int?                @map("max_uses")
+  maxUsesPerUser          Int?                @default(1) @map("max_uses_per_user")
+  timesRedeemed           Int                 @default(0) @map("times_redeemed")
+  validFrom               DateTime            @default(now()) @map("valid_from")
+  expiresAt               DateTime?           @map("expires_at")
+  isActive                Boolean             @default(true) @map("is_active")
+  source                  CouponSource        @default(ADMIN)
+  lockedToUserId          String?             @map("locked_to_user_id")
+  lockedToUser            User?               @relation("CouponLockedToUser", fields: [lockedToUserId], references: [id], onDelete: SetNull)
+  taskDefinitionId        String?             @map("task_definition_id")
+  taskDefinition          TaskDefinition?     @relation(fields: [taskDefinitionId], references: [id], onDelete: SetNull)
+  taskAssignmentId        String?             @unique @map("task_assignment_id")
+  taskAssignment          UserTaskAssignment? @relation(fields: [taskAssignmentId], references: [id], onDelete: SetNull)
+  createdByName           String?             @map("created_by_name")
+  emailSentAt             DateTime?           @map("email_sent_at")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  membershipPlans CouponMembershipPlan[]
+  redemptions     CouponRedemption[]
+
+  @@index([isActive, validFrom, expiresAt])
+  @@index([source])
+  @@index([lockedToUserId])
+  @@index([taskDefinitionId])
+  @@map("coupons")
+}
+
+model CouponMembershipPlan {
+  couponId String         @map("coupon_id")
+  planId   String         @map("plan_id")
+  coupon   Coupon         @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  plan     MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, planId])
+  @@index([planId])
+  @@map("coupon_membership_plans")
+}
+
+model CouponRedemption {
+  id                   String                 @id @default(cuid())
+  couponId             String                 @map("coupon_id")
+  coupon               Coupon                 @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  couponCode           String                 @map("coupon_code")
+  userId               String?                @map("user_id")
+  user                 User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  businessId           String?                @map("business_id")
+  business             BusinessProfile?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  planId               String?                @map("plan_id")
+  plan                 MembershipPlan?        @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planName             String?                @map("plan_name")
+  billingTransactionId String?                @unique @map("billing_transaction_id")
+  provider             String?
+  providerPaymentId    String?                @map("provider_payment_id")
+  originalAmount       Float                  @map("original_amount")
+  discountAmount       Float                  @map("discount_amount")
+  finalAmount          Float                  @map("final_amount")
+  status               CouponRedemptionStatus @default(PENDING)
+  reservedUntil        DateTime?              @map("reserved_until")
+  redeemedAt           DateTime?              @map("redeemed_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  @@index([couponId, status, reservedUntil])
+  @@index([userId, couponId, status])
+  @@index([status, reservedUntil])
+  @@index([businessId])
+  @@index([planId])
+  @@index([redeemedAt])
+  @@map("coupon_redemptions")
+}
+
+// Task reward coupon scope (specific membership plans selected on a task).
+model TaskRewardCouponPlan {
+  taskId String         @map("task_id")
+  planId String         @map("plan_id")
+  task   TaskDefinition @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  plan   MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, planId])
+  @@index([planId])
+  @@map("task_reward_coupon_plans")
 }
 
 // ─── PACKAGE TEMPLATES — REMOVED ─────────────────────────────────────────────
@@ -1303,28 +1422,39 @@ enum TaskSource {
 }
 
 model TaskDefinition {
-  id                   String               @id @default(cuid())
-  title                String               @map("title")
-  description          String               @map("description")
-  targetAudience       TaskAudience         @default(BOTH) @map("target_audience")
-  featureKey           String?              @map("feature_key")
-  taskSource           TaskSource           @default(INTERNAL) @map("task_source")
-  externalClientId     String?              @map("external_client_id")
-  externalAppName      String?              @map("external_app_name")
-  externalPlatformSlug String?              @map("external_platform_slug")
-  externalAppUrl       String?              @map("external_app_url")
-  deadlineDays         Int                  @default(7) @map("deadline_days")
-  rewardPoints         Int                  @default(50) @map("reward_points")
-  isActive             Boolean              @default(true) @map("is_active")
-  platform             String               @default("mcom_central") @map("platform")
-  createdAt            DateTime             @default(now()) @map("created_at")
-  updatedAt            DateTime             @updatedAt @map("updated_at")
-  assignments          UserTaskAssignment[]
+  id                       String                 @id @default(cuid())
+  title                    String                 @map("title")
+  description              String                 @map("description")
+  targetAudience           TaskAudience           @default(BOTH) @map("target_audience")
+  featureKey               String?                @map("feature_key")
+  taskSource               TaskSource             @default(INTERNAL) @map("task_source")
+  externalClientId         String?                @map("external_client_id")
+  externalAppName          String?                @map("external_app_name")
+  externalPlatformSlug     String?                @map("external_platform_slug")
+  externalAppUrl           String?                @map("external_app_url")
+  deadlineDays             Int                    @default(7) @map("deadline_days")
+  rewardPoints             Int                    @default(50) @map("reward_points")
+  // Optional completion reward: a personal single-use coupon issued when the
+  // assignment is completed (user, admin, or event worker).
+  rewardCouponEnabled      Boolean                @default(false) @map("reward_coupon_enabled")
+  rewardCouponDiscountType CouponDiscountType?    @map("reward_coupon_discount_type")
+  rewardCouponValue        Float?                 @map("reward_coupon_value")
+  rewardCouponAppliesToAll Boolean                @default(true) @map("reward_coupon_applies_to_all")
+  rewardCouponValidDays    Int?                   @map("reward_coupon_valid_days")
+  rewardCouponExpiresAt    DateTime?              @map("reward_coupon_expires_at")
+  isActive                 Boolean                @default(true) @map("is_active")
+  platform                 String                 @default("mcom_central") @map("platform")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+  assignments              UserTaskAssignment[]
+  rewardCouponPlans        TaskRewardCouponPlan[]
+  issuedCoupons            Coupon[]
 
   @@index([featureKey])
   @@index([isActive])
   @@index([taskSource])
   @@index([externalClientId])
+  @@index([rewardCouponEnabled])
   @@map("task_definitions")
 }
 
@@ -1342,6 +1472,7 @@ model UserTaskAssignment {
   rewardGranted  Boolean              @default(false) @map("reward_granted")
   rewardPoints   Int                  @default(0) @map("reward_points")
   submissionData Json?                @map("submission_data")
+  rewardCoupon   Coupon?
   createdAt      DateTime             @default(now()) @map("created_at")
   updatedAt      DateTime             @updatedAt @map("updated_at")
 

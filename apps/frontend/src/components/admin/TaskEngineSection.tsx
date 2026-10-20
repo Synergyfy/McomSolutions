@@ -18,16 +18,19 @@ import {
   Layers,
   ChevronRight,
   Loader2,
+  Lock,
   Building2,
   User,
   Filter,
   RefreshCw,
   Gift,
+  Ticket,
   HelpCircle,
   Globe,
   ExternalLink,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { toDateTimeLocal } from '../../lib/couponValidation';
 import { useConsoleApps } from './console/hooks/useConsoleApps';
 import {
   useTaskFeatures,
@@ -39,6 +42,7 @@ import {
   useAssignTask,
   useTaskAssignments,
   useUpdateTaskAssignmentStatus,
+  useAdminPlans,
 } from '../../services/admin/hooks';
 
 interface TaskFormData {
@@ -50,6 +54,13 @@ interface TaskFormData {
   externalClientId: string;
   deadlineDays: number;
   rewardPoints: number;
+  rewardCouponEnabled: boolean;
+  rewardCouponDiscountType: 'PERCENTAGE' | 'FIXED';
+  rewardCouponValue: number;
+  rewardCouponAppliesToAll: boolean;
+  rewardCouponPlanIds: string[];
+  rewardCouponValidDays: number;
+  rewardCouponExpiresAt: string;
   isActive: boolean;
   platform: string;
 }
@@ -63,6 +74,13 @@ const DEFAULT_FORM: TaskFormData = {
   externalClientId: '',
   deadlineDays: 7,
   rewardPoints: 50,
+  rewardCouponEnabled: false,
+  rewardCouponDiscountType: 'PERCENTAGE',
+  rewardCouponValue: 10,
+  rewardCouponAppliesToAll: true,
+  rewardCouponPlanIds: [],
+  rewardCouponValidDays: 30,
+  rewardCouponExpiresAt: '',
   isActive: true,
   platform: 'mcom_central',
 };
@@ -77,11 +95,14 @@ export default function TaskEngineSection() {
   const [audienceFilter, setAudienceFilter] = useState<'ALL' | 'BUSINESS' | 'CUSTOMER' | 'BOTH'>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [progressSearch, setProgressSearch] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Queries & Mutations
   const { data: featuresRes, isLoading: loadingFeatures } = useTaskFeatures();
   const { data: statsRes, refetch: refetchStats } = useTaskOverviewStats();
   const { data: tasksRes, isLoading: loadingTasks, refetch: refetchTasks } = useTaskDefinitions();
+  const { data: plansRes } = useAdminPlans();
+  const membershipPlans = (plansRes?.data ?? []).filter((plan: any) => !plan.archived);
   // Console-registered external apps (read-only reuse — no console changes here).
   const { data: consoleApps = [], isLoading: loadingApps } = useConsoleApps();
   const activeApps = (consoleApps || []).filter((a: any) => a.isActive);
@@ -131,6 +152,7 @@ export default function TaskEngineSection() {
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
     setFormData(DEFAULT_FORM);
+    setFormError(null);
     setIsModalOpen(true);
   };
 
@@ -148,17 +170,50 @@ export default function TaskEngineSection() {
       externalClientId: task.externalClientId || '',
       deadlineDays: task.deadlineDays,
       rewardPoints: task.rewardPoints,
+      rewardCouponEnabled: !!task.rewardCouponEnabled,
+      rewardCouponDiscountType: task.rewardCouponDiscountType || 'PERCENTAGE',
+      rewardCouponValue: Number(task.rewardCouponValue) || 10,
+      rewardCouponAppliesToAll: task.rewardCouponAppliesToAll ?? true,
+      rewardCouponPlanIds: Array.isArray(task.rewardCouponPlans)
+        ? task.rewardCouponPlans.map((plan: any) => plan.id)
+        : [],
+      rewardCouponValidDays: task.rewardCouponValidDays ?? 30,
+      rewardCouponExpiresAt: toDateTimeLocal(task.rewardCouponExpiresAt),
       isActive: task.isActive,
       platform: task.platform || 'mcom_central',
     });
+    setFormError(null);
     setIsModalOpen(true);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!formData.title.trim() || !formData.description.trim()) return;
     if (formData.taskSource === 'INTERNAL' && !formData.featureKey) return;
     if (formData.taskSource === 'EXTERNAL' && !formData.externalClientId) return;
+    if (formData.rewardCouponEnabled) {
+      if (!Number.isFinite(formData.rewardCouponValue) || formData.rewardCouponValue <= 0) {
+        setFormError('Enter a reward coupon discount greater than zero.');
+        return;
+      }
+      if (formData.rewardCouponDiscountType === 'PERCENTAGE' && formData.rewardCouponValue >= 100) {
+        setFormError('Reward coupon percentage must be between 1% and 99%.');
+        return;
+      }
+      if (!formData.rewardCouponAppliesToAll && formData.rewardCouponPlanIds.length === 0) {
+        setFormError('Select at least one membership plan for the reward coupon.');
+        return;
+      }
+      if (!formData.rewardCouponValidDays && !formData.rewardCouponExpiresAt) {
+        setFormError('Set how many days the reward coupon is valid for, or an expiry date.');
+        return;
+      }
+      if (formData.rewardCouponExpiresAt && new Date(formData.rewardCouponExpiresAt) <= new Date()) {
+        setFormError('Reward coupon expiry must be in the future.');
+        return;
+      }
+    }
 
     // Platform is derived server-side (mcom_central | console platformSlug) — not sent.
     const payload: Record<string, unknown> = {
@@ -169,6 +224,21 @@ export default function TaskEngineSection() {
       deadlineDays: formData.deadlineDays,
       rewardPoints: formData.rewardPoints,
       isActive: formData.isActive,
+      rewardCouponEnabled: formData.rewardCouponEnabled,
+      ...(formData.rewardCouponEnabled
+        ? {
+            rewardCouponDiscountType: formData.rewardCouponDiscountType,
+            rewardCouponValue: formData.rewardCouponValue,
+            rewardCouponAppliesToAll: formData.rewardCouponAppliesToAll,
+            rewardCouponPlanIds: formData.rewardCouponAppliesToAll
+              ? []
+              : formData.rewardCouponPlanIds,
+            rewardCouponValidDays: formData.rewardCouponValidDays || undefined,
+            rewardCouponExpiresAt: formData.rewardCouponExpiresAt
+              ? new Date(formData.rewardCouponExpiresAt).toISOString()
+              : undefined,
+          }
+        : {}),
     };
     if (formData.taskSource === 'INTERNAL') {
       payload.featureKey = formData.featureKey;
@@ -176,12 +246,18 @@ export default function TaskEngineSection() {
       payload.externalClientId = formData.externalClientId;
     }
 
-    if (editingTaskId) {
-      await updateTask.mutateAsync({ id: editingTaskId, data: payload });
-    } else {
-      await createTask.mutateAsync(payload);
+    try {
+      if (editingTaskId) {
+        await updateTask.mutateAsync({ id: editingTaskId, data: payload });
+      } else {
+        await createTask.mutateAsync(payload);
+      }
+      setIsModalOpen(false);
+    } catch (err: any) {
+      setFormError(
+        err?.response?.data?.message || err?.message || 'Could not save this task.',
+      );
     }
-    setIsModalOpen(false);
   };
 
   const handleDeleteTask = async (id: string, title: string) => {
@@ -427,6 +503,16 @@ export default function TaskEngineSection() {
                         <Gift className="w-3 h-3 text-amber-500" />
                         +{task.rewardPoints} Points
                       </span>
+
+                      {task.rewardCouponEnabled && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 flex items-center gap-1">
+                          <Ticket className="w-3 h-3 text-emerald-600" />
+                          {task.rewardCouponDiscountType === 'PERCENTAGE'
+                            ? `${task.rewardCouponValue}% off coupon`
+                            : `£${task.rewardCouponValue} off coupon`}
+                          {task.issuedCouponCount > 0 ? ` · ${task.issuedCouponCount} issued` : ''}
+                        </span>
+                      )}
 
                       {task.isActive ? (
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">
@@ -1019,6 +1105,175 @@ export default function TaskEngineSection() {
                   </div>
                 </div>
 
+                {/* Completion coupon reward */}
+                <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/40 p-3.5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                        <Ticket className="w-3.5 h-3.5 text-emerald-600" />
+                        Completion Coupon Reward
+                      </span>
+                      <span className="text-[11px] text-gray-500 block mt-0.5">
+                        Issue a personal, single-use coupon when this task is completed.
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={formData.rewardCouponEnabled}
+                        onChange={(e) => setFormData({ ...formData, rewardCouponEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600" />
+                    </label>
+                  </div>
+
+                  {formData.rewardCouponEnabled && (
+                    <div className="space-y-3 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">
+                            Discount type
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {(['PERCENTAGE', 'FIXED'] as const).map((type) => (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setFormData({ ...formData, rewardCouponDiscountType: type })}
+                                className={cn(
+                                  'px-2.5 py-2 rounded-lg border text-[11px] font-bold transition-all',
+                                  formData.rewardCouponDiscountType === type
+                                    ? 'border-emerald-500 bg-emerald-600 text-white'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
+                                )}
+                              >
+                                {type === 'PERCENTAGE' ? 'Percentage (%)' : 'Fixed (£)'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">
+                            Discount value
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={formData.rewardCouponDiscountType === 'PERCENTAGE' ? 1 : 0.01}
+                              max={formData.rewardCouponDiscountType === 'PERCENTAGE' ? 99 : 100000}
+                              step="0.01"
+                              value={formData.rewardCouponValue}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  rewardCouponValue: parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-black text-gray-400">
+                              {formData.rewardCouponDiscountType === 'PERCENTAGE' ? '%' : '£'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-3 p-2.5 bg-white rounded-lg border border-gray-200">
+                        <div>
+                          <p className="text-[11px] font-bold text-gray-700">All memberships</p>
+                          <p className="text-[10px] text-gray-400">Otherwise choose specific plans below.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.rewardCouponAppliesToAll}
+                            onChange={(e) =>
+                              setFormData({ ...formData, rewardCouponAppliesToAll: e.target.checked })
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
+                        </label>
+                      </div>
+
+                      {!formData.rewardCouponAppliesToAll && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {membershipPlans.length === 0 ? (
+                            <span className="text-[11px] text-red-600">No active membership plans found.</span>
+                          ) : (
+                            membershipPlans.map((plan: any) => {
+                              const selected = formData.rewardCouponPlanIds.includes(plan.id);
+                              return (
+                                <button
+                                  key={plan.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setFormData({
+                                      ...formData,
+                                      rewardCouponPlanIds: selected
+                                        ? formData.rewardCouponPlanIds.filter((id) => id !== plan.id)
+                                        : [...formData.rewardCouponPlanIds, plan.id],
+                                    })
+                                  }
+                                  className={cn(
+                                    'px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all',
+                                    selected
+                                      ? 'border-emerald-500 bg-emerald-600 text-white'
+                                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
+                                  )}
+                                >
+                                  {plan.name}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">
+                            Valid for (days after earned)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={3650}
+                            value={formData.rewardCouponValidDays}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                rewardCouponValidDays: parseInt(e.target.value, 10) || 0,
+                              })
+                            }
+                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">
+                            Absolute expiry (optional)
+                          </label>
+                          <input
+                            type="datetime-local"
+                            min={new Date().toISOString().slice(0, 16)}
+                            value={formData.rewardCouponExpiresAt}
+                            onChange={(e) =>
+                              setFormData({ ...formData, rewardCouponExpiresAt: e.target.value })
+                            }
+                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200/70 rounded-lg p-2 flex items-start gap-1.5">
+                        <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        Each completion generates a unique one-use code locked to that user. The code is emailed automatically; if both limits are set, the earlier expiry wins.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Active Toggle */}
                 <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-200">
                   <div>
@@ -1048,6 +1303,12 @@ export default function TaskEngineSection() {
                 </div>
 
                 {/* Submit Buttons */}
+                {formError && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{formError}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
                   <button
                     type="button"
