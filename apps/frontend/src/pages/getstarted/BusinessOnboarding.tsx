@@ -2695,6 +2695,13 @@ function BusinessOnboardingInner() {
               </button>
               </div>
 
+              <p className="mt-6 text-sm font-medium text-slate-600">
+                Already have an account?{' '}
+                <Link to={loginHref} className="font-semibold text-orange-700 hover:underline">
+                  Sign in
+                </Link>
+              </p>
+
             </div>
 
             <div className="relative order-1 aspect-[16/9] w-full overflow-hidden sm:mx-9 sm:mb-9 sm:w-auto sm:rounded-2xl lg:order-2 lg:mx-5 lg:my-5 lg:aspect-auto lg:min-h-[540px]">
