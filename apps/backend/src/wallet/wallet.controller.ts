@@ -56,20 +56,26 @@ export class WalletController {
   @ApiOkResponse({ type: TransactionReceiptDto })
   @ApiNotFoundResponse()
   async getTransaction(@Req() req: any, @Param('id') id: string) {
-    return this.ledgerService.getTransactionById(id);
+    const wallet = await this.walletService.ensureWallet(req.user.userId);
+    return this.ledgerService.getTransactionById(id, wallet.id);
   }
 
   @Post('topup/initiate')
-  @ApiOperation({ summary: 'Start a wallet top-up → returns Stripe PaymentIntent clientSecret or Checkout URL' })
+  @ApiOperation({
+    summary: 'Start a wallet top-up → Stripe clientSecret/Checkout URL, or PayPal approvalUrl',
+  })
   @ApiCreatedResponse({ type: WalletTopUpInitiateDto })
   async initiateTopUp(@Req() req: any, @Body() dto: TopUpInitiateDto) {
     return this.topUpService.initiateTopUp(req.user.userId, dto);
   }
 
   @Post('topup/confirm')
-  @ApiOperation({ summary: 'Confirm completed Stripe payment intent and credit wallet in-app' })
+  @ApiOperation({
+    summary:
+      'Confirm a completed top-up. Stripe: paymentIntentId; PayPal: orderId. Wallet is credited idempotently.',
+  })
   async confirmTopUp(@Req() req: any, @Body() dto: ConfirmTopUpDto) {
-    return this.topUpService.confirmStripeTopUp(req.user.userId, dto);
+    return this.topUpService.confirmTopUp(req.user.userId, dto);
   }
 
   @Get('topup/history')

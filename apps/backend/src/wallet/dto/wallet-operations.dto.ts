@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TransactionCategory } from '@prisma/client';
 
@@ -128,7 +128,7 @@ export class TopUpInitiateDto {
 
   @ApiPropertyOptional({ example: 'stripe', enum: ['stripe', 'paypal'], default: 'stripe' })
   @IsOptional()
-  @IsString()
+  @IsIn(['stripe', 'paypal'], { message: 'provider must be stripe or paypal' })
   provider?: string;
 }
 
@@ -138,8 +138,18 @@ export class ConfirmTopUpDto {
   @IsNotEmpty()
   topUpRequestId: string;
 
-  @ApiProperty({ example: 'pi_3MtwBwLkdIwHu7ix28a3tqPa', description: 'Stripe PaymentIntent ID' })
+  @ApiPropertyOptional({ example: 'pi_3MtwBwLkdIwHu7ix28a3tqPa', description: 'Stripe PaymentIntent ID (Stripe top-ups)' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  paymentIntentId: string;
+  paymentIntentId?: string;
+
+  @ApiPropertyOptional({ example: '5O190127TN364715T', description: 'PayPal order ID (PayPal top-ups)' })
+  @IsOptional()
+  @IsString()
+  orderId?: string;
+
+  @ApiPropertyOptional({ example: 'stripe', enum: ['stripe', 'paypal'], description: 'Provider that produced the payment reference' })
+  @IsOptional()
+  @IsIn(['stripe', 'paypal'], { message: 'provider must be stripe or paypal' })
+  provider?: string;
 }

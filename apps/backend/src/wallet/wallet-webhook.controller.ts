@@ -3,7 +3,7 @@ import { ApiExcludeEndpoint } from '@nestjs/swagger';
 import { WalletTopUpService } from './wallet-topup.service';
 
 /**
- * Stripe webhook for wallet top-ups.
+ * Provider webhooks for wallet top-ups.
  *
  * Endpoints here need the RAW request body for signature verification. Nest is
  * bootstrapped with `rawBody: true` (main.ts) so `req.rawBody` is available —
@@ -26,6 +26,17 @@ export class WalletWebhookController {
       throw new BadRequestException('Missing stripe-signature header');
     }
     await this.topUpService.handleStripeWebhook(rawBody, signature);
+    return { received: true };
+  }
+
+  @Post('paypal')
+  @ApiExcludeEndpoint()
+  async paypalWebhook(@Req() req: any, @Headers() headers: Record<string, any>) {
+    const rawBody = req.rawBody as string | Buffer | undefined;
+    if (!rawBody) {
+      throw new BadRequestException('Missing request body');
+    }
+    await this.topUpService.handlePaypalWebhook(rawBody, headers);
     return { received: true };
   }
 }
