@@ -25,6 +25,7 @@ import { TaskModule } from './task/task.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { ChatModule } from './chat/chat.module';
 import { CouponModule } from './coupon/coupon.module';
+import { CustomerModule } from './customer/customer.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -101,6 +102,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     ReferralsModule,
     ChatModule,
     CouponModule,
+    CustomerModule,
   ],
   controllers: [],
   // Global throttler: AppThrottlerGuard keys by userId for authenticated

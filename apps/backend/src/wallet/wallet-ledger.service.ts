@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
@@ -64,10 +64,19 @@ export class WalletLedgerService {
     };
   }
 
-  async getTransactionById(transactionId: string): Promise<WalletTransactionDto> {
-    const txn = await this.prisma.walletTransaction.findUniqueOrThrow({
+  async getTransactionById(transactionId: string, walletId?: string): Promise<WalletTransactionDto> {
+    const txn = await this.prisma.walletTransaction.findUnique({
       where: { id: transactionId },
     });
+    if (!txn) {
+      throw new NotFoundException('Transaction not found');
+    }
+    // Caller-scoped reads (e.g. GET /wallet/transactions/:id) must never leak
+    // another user's transaction. Partner lookups omit walletId and retain
+    // their own platform-ownership check in WalletPartnerController.
+    if (walletId && txn.walletId !== walletId) {
+      throw new NotFoundException('Transaction not found');
+    }
     return this.toDto(txn);
   }
 

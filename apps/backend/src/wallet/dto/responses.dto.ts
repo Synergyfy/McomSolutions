@@ -180,11 +180,32 @@ export class WalletSummaryDto {
 }
 
 export class WalletTopUpInitiateDto {
-  @ApiProperty({ example: 'cs_test_abc123' })
-  sessionId: string;
+  @ApiPropertyOptional({ example: 'stripe', enum: ['stripe', 'paypal'] })
+  provider?: string;
 
-  @ApiProperty({ example: 'https://checkout.stripe.com/c/pay/cs_test_abc123' })
-  checkoutUrl: string;
+  @ApiPropertyOptional({ example: 'clx8p2qr10000x4vj3k5m7n9p' })
+  topUpRequestId?: string;
+
+  @ApiPropertyOptional({ example: 'pi_3MtwBwLkdIwHu7ix28a3tqPa' })
+  paymentIntentId?: string;
+
+  @ApiPropertyOptional({ example: 'cs_test_abc123' })
+  sessionId?: string;
+
+  @ApiPropertyOptional({ example: 'https://checkout.stripe.com/c/pay/cs_test_abc123' })
+  checkoutUrl?: string;
+
+  @ApiPropertyOptional({ example: '5O190127TN364715T', description: 'PayPal order ID' })
+  orderId?: string;
+
+  @ApiPropertyOptional({ example: 'https://www.sandbox.paypal.com/checkoutnow?token=...', description: 'PayPal approval URL' })
+  approvalUrl?: string;
+
+  @ApiPropertyOptional({ example: 50 })
+  amount?: number;
+
+  @ApiPropertyOptional({ example: 'GBP' })
+  currency?: string;
 
   @ApiProperty({ example: 'PENDING' })
   status: string;

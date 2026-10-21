@@ -31,6 +31,7 @@ describe('ChatService', () => {
       message: {
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         create: jest.fn(),
         count: jest.fn(),
       },
@@ -149,7 +150,7 @@ describe('ChatService', () => {
         userId: 'user-1',
         conversation: { id: 'conv-1', participants: [] },
       });
-      prisma.message.findUnique.mockResolvedValue({
+      prisma.message.findFirst.mockResolvedValue({
         id: 'msg-existing',
         conversationId: 'conv-1',
         idempotencyKey: 'idem-1',
@@ -176,7 +177,7 @@ describe('ChatService', () => {
         user: { id: 'user-1', email: 'user1@test.com' },
         conversation: { id: 'conv-1', type: 'DIRECT', participants: [{ userId: 'user-1', isMuted: false }] },
       });
-      prisma.message.findUnique.mockResolvedValue(null);
+      prisma.message.findFirst.mockResolvedValue(null);
       prisma.message.create.mockResolvedValue({
         id: 'msg-new',
         conversationId: 'conv-1',

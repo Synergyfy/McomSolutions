@@ -12,6 +12,8 @@ describe('NotificationService', () => {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       updateMany: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
       delete: jest.fn(),
       create: jest.fn(),
     },
@@ -67,6 +69,117 @@ describe('NotificationService', () => {
           },
         }),
       );
+    });
+
+    it('should return a paginated envelope with unreadCount when filters are supplied', async () => {
+      mockPrisma.notification.count.mockResolvedValueOnce(4).mockResolvedValueOnce(2);
+      mockPrisma.notification.findMany.mockResolvedValue([
+        {
+          id: 'n1',
+          userId: 'u1',
+          businessId: null,
+          type: 'wallet',
+          title: 'Top-up complete',
+          message: 'Your wallet was credited',
+          read: false,
+          createdAt: new Date('2026-10-21T10:00:00Z'),
+        },
+      ]);
+
+      const result: any = await service.getNotifications(
+        { userId: 'u1', businessId: null },
+        { page: 1, limit: 10, category: 'wallet', unreadOnly: true, search: 'wallet' },
+      );
+
+      expect(result).toMatchObject({
+        success: true,
+        total: 4,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+        unreadCount: 2,
+      });
+      expect(result.data[0]).toMatchObject({
+        id: 'n1',
+        body: 'Your wallet was credited',
+        category: 'wallet',
+        isRead: false,
+      });
+      expect(mockPrisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ userId: 'u1' }],
+            type: 'wallet',
+            read: false,
+          }),
+          skip: 0,
+          take: 10,
+        }),
+      );
+    });
+
+    it('should expose an unread count scoped to caller-owned rows', async () => {
+      mockPrisma.notification.count.mockResolvedValue(7);
+      const result = await service.getUnreadCount({ userId: 'u1', businessId: null });
+      expect(result).toEqual({ success: true, unreadCount: 7 });
+      expect(mockPrisma.notification.count).toHaveBeenCalledWith({
+        where: { OR: [{ userId: 'u1' }], read: false },
+      });
+    });
+  });
+
+  // ─── markOneAsRead ─────────────────────────────
+  describe('markOneAsRead', () => {
+    it('should mark an owned notification as read', async () => {
+      mockPrisma.notification.findUnique.mockResolvedValue({
+        id: 'n1',
+        userId: 'u1',
+        businessId: null,
+        type: 'wallet',
+        title: 'Top-up complete',
+        message: 'Credited',
+        read: false,
+      });
+      mockPrisma.notification.update.mockResolvedValue({
+        id: 'n1',
+        userId: 'u1',
+        businessId: null,
+        type: 'wallet',
+        title: 'Top-up complete',
+        message: 'Credited',
+        read: true,
+      });
+
+      const result = await service.markOneAsRead({ userId: 'u1', businessId: null }, 'n1');
+
+      expect(mockPrisma.notification.update).toHaveBeenCalledWith({
+        where: { id: 'n1' },
+        data: { read: true },
+      });
+      expect(result).toMatchObject({ id: 'n1', isRead: true });
+    });
+
+    it('should reject another user’s notification', async () => {
+      mockPrisma.notification.findUnique.mockResolvedValue({
+        id: 'n1',
+        userId: 'other',
+        businessId: null,
+      });
+      await expect(
+        service.markOneAsRead({ userId: 'u1', businessId: null }, 'n1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.notification.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject global broadcasts', async () => {
+      mockPrisma.notification.findUnique.mockResolvedValue({
+        id: 'n1',
+        userId: null,
+        businessId: null,
+      });
+      await expect(
+        service.markOneAsRead({ userId: 'u1', businessId: null }, 'n1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
