@@ -16,9 +16,10 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { Role, Prisma, MembershipPaymentPlan } from '@prisma/client';
+import { Role, Prisma, MembershipPaymentPlan, CouponProductType } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service';
 import { CouponService } from '../coupon/coupon.service';
+import { AccessService } from '../access/access.service';
 import { normalizePaymentPlan } from '../pricing/payment-option.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -82,6 +83,26 @@ function parsePlatformCustomId(customId: string): {
   return { businessId, platform, externalPlanId, billingCycle: billingCycle || 'monthly' };
 }
 
+/**
+ * Parse `ACCESS|businessId|accessPlanId|couponCode?`. The access-plan ID is a
+ * cuid (never contains `|`); coupon codes are alphanumeric + `-`/`_`.
+ */
+function parseAccessCustomId(customId: string): {
+  businessId: string;
+  accessPlanId: string;
+  couponCode?: string;
+} {
+  const [kind, businessId, accessPlanId, couponCode] = (customId || '').split('|');
+  if (kind !== 'ACCESS' || !businessId || !accessPlanId) {
+    throw new BadRequestException('PayPal order metadata is missing. Cannot activate access pass.');
+  }
+  return {
+    businessId,
+    accessPlanId,
+    couponCode: couponCode?.trim() ? couponCode.trim().toUpperCase() : undefined,
+  };
+}
+
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
@@ -93,6 +114,7 @@ export class PaymentService {
     private prisma: PrismaService,
     private pricingService: PricingService,
     private couponService: CouponService,
+    private accessService: AccessService,
     private connectorsService: ServiceConnectorsService,
     private webhookDispatcher: WebhookDispatcherService,
     @Optional() private redis?: RedisService,
@@ -278,7 +300,7 @@ export class PaymentService {
    * source of truth until the cron drains it to DONE.
    */
   private async parkForReconcile(
-    kind: 'membership' | 'platform',
+    kind: 'membership' | 'platform' | 'access',
     providerPaymentId: string,
     businessId: string,
     payload: Record<string, unknown>,
@@ -844,6 +866,471 @@ export class PaymentService {
     return { ...(current ?? { id: existing.businessId }), replayed: true, price: existing.amount };
   }
 
+  // ─── ACCESS PASS PURCHASES ──────────────────────────────────────────────────
+
+  async accessStripeInitiate(
+    businessId: string,
+    accessPlanId: string,
+    couponCode?: string,
+    userId?: string,
+  ) {
+    if (!this.stripe) {
+      throw new InternalServerErrorException('Stripe is not configured on this server.');
+    }
+    if (couponCode && !userId) {
+      throw new BadRequestException('A signed-in user is required to use a coupon.');
+    }
+
+    const quote = await this.accessService.resolveQuote(accessPlanId, couponCode, userId);
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: Math.round(quote.finalAmount * 100),
+      currency: 'gbp',
+      automatic_payment_methods: { enabled: true },
+      metadata: {
+        kind: 'access',
+        businessId,
+        accessPlanId: quote.accessPlan.id,
+        planName: quote.accessPlan.name,
+        ...(quote.coupon
+          ? {
+              couponId: quote.coupon.id,
+              couponCode: quote.coupon.code,
+              originalAmountPence: String(Math.round(quote.originalAmount * 100)),
+              discountPence: String(Math.round(quote.discountAmount * 100)),
+              expectedAmountPence: String(Math.round(quote.finalAmount * 100)),
+            }
+          : {}),
+      },
+      description: `MCOM Access Pass — ${quote.accessPlan.name} (${quote.accessPlan.durationDays} days)${
+        quote.coupon ? ` · coupon ${quote.coupon.code}` : ''
+      }`,
+    });
+
+    if (quote.coupon) {
+      await this.couponService.reserveForCharge({
+        code: quote.coupon.code,
+        userId: userId!,
+        planId: quote.accessPlan.id,
+        planName: quote.accessPlan.name,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'stripe',
+        providerPaymentId: paymentIntent.id,
+        productType: CouponProductType.ACCESS,
+      });
+    }
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      type: 'payment',
+      pricing: {
+        originalAmount: quote.originalAmount,
+        discountAmount: quote.discountAmount,
+        finalAmount: quote.finalAmount,
+        couponCode: quote.coupon?.code ?? null,
+        currency: quote.currency,
+        walletCredits: quote.walletCredits,
+        walletCurrency: quote.walletCurrency,
+      },
+    };
+  }
+
+  async accessStripeConfirm(
+    businessId: string,
+    accessPlanId: string,
+    paymentIntentId: string,
+    caller?: PaymentCaller,
+  ) {
+    if (!this.stripe) {
+      throw new InternalServerErrorException('Stripe is not configured.');
+    }
+
+    const intent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+    if (intent.status !== 'succeeded') {
+      throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
+    }
+    if (intent.metadata?.kind !== 'access') {
+      throw new BadRequestException('This payment is not an access pass payment.');
+    }
+    if (intent.metadata?.businessId && intent.metadata.businessId !== businessId) {
+      this.logger.warn(
+        `Stripe access confirm forbidden: intent ${paymentIntentId} belongs to business ${intent.metadata.businessId}, confirm attempted for ${businessId}`,
+      );
+      throw new ForbiddenException('This payment belongs to a different business.');
+    }
+    if (!intent.metadata?.businessId) {
+      throw new BadRequestException('Payment is missing business metadata.');
+    }
+    if (caller) {
+      this.assertCaptureOwnership(businessId, caller, paymentIntentId);
+    }
+
+    const meta = intent.metadata ?? {};
+    const effectiveAccessPlanId = meta.accessPlanId || accessPlanId;
+    if (!effectiveAccessPlanId) {
+      throw new BadRequestException('Payment is missing access plan metadata.');
+    }
+    const couponCode = meta.couponCode?.toUpperCase();
+    const reservation = couponCode
+      ? await this.couponService.findReservationForPayment('stripe', paymentIntentId)
+      : null;
+
+    let expectedGBP: number;
+    let originalAmount = Number(meta.originalAmountPence) / 100;
+    let discountAmount = Number(meta.discountPence) / 100;
+    let redemptionId: string | undefined = reservation?.id;
+
+    if (reservation) {
+      expectedGBP = Number(reservation.finalAmount);
+      originalAmount = Number(reservation.originalAmount);
+      discountAmount = Number(reservation.discountAmount);
+    } else if (couponCode && caller?.userId) {
+      const quote = await this.accessService.resolveQuote(
+        effectiveAccessPlanId,
+        couponCode,
+        caller.userId,
+      );
+      expectedGBP = quote.finalAmount;
+      originalAmount = quote.originalAmount;
+      discountAmount = quote.discountAmount;
+      const fresh = await this.couponService.reserveForCharge({
+        code: couponCode,
+        userId: caller.userId,
+        planId: quote.accessPlan.id,
+        planName: quote.accessPlan.name,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'stripe',
+        providerPaymentId: paymentIntentId,
+        productType: CouponProductType.ACCESS,
+      });
+      redemptionId = fresh.redemptionId;
+    } else {
+      const quote = await this.accessService.resolveQuote(effectiveAccessPlanId);
+      expectedGBP = quote.finalAmount;
+      originalAmount = quote.originalAmount;
+      discountAmount = quote.discountAmount;
+    }
+
+    if (intent.currency?.toLowerCase() !== 'gbp' || intent.amount !== Math.round(expectedGBP * 100)) {
+      this.logger.warn(
+        `Stripe access confirm amount mismatch: intent ${paymentIntentId} is ${intent.amount} ${intent.currency}, expected ${Math.round(expectedGBP * 100)} gbp`,
+      );
+      throw new BadRequestException('Paid amount does not match the access pass price.');
+    }
+
+    const chargedAmount = intent.amount / 100;
+    const result = await this.accessService.activateAccess(businessId, effectiveAccessPlanId, {
+      provider: 'stripe',
+      providerPaymentId: paymentIntentId,
+      userId: caller?.userId,
+      chargedAmount,
+      originalAmount,
+      discountAmount,
+      couponCode,
+      couponRedemptionId: redemptionId,
+    });
+
+    if (couponCode && !redemptionId) {
+      await this.couponService
+        .recordPaidRedemption({
+          couponCode,
+          userId: caller?.userId,
+          businessId,
+          productType: CouponProductType.ACCESS,
+          accessPlanId: effectiveAccessPlanId,
+          accessPlanName: meta.planName ?? undefined,
+          originalAmount,
+          discountAmount,
+          finalAmount: chargedAmount,
+          provider: 'stripe',
+          providerPaymentId: paymentIntentId,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to record paid access coupon redemption for ${paymentIntentId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          ),
+        );
+    }
+
+    return result;
+  }
+
+  async accessPaypalInitiate(
+    businessId: string,
+    accessPlanId: string,
+    returnUrl: string,
+    cancelUrl: string,
+    couponCode?: string,
+    userId?: string,
+  ) {
+    if (couponCode && !userId) {
+      throw new BadRequestException('A signed-in user is required to use a coupon.');
+    }
+    const token = await this.getPayPalAccessToken();
+    const quote = await this.accessService.resolveQuote(accessPlanId, couponCode, userId);
+
+    const customIdParts = ['ACCESS', businessId, quote.accessPlan.id];
+    if (quote.coupon) customIdParts.push(quote.coupon.code);
+    const customId = customIdParts.join('|');
+
+    const order = await axios.post(
+      `${this.paypalBaseUrl}/v2/checkout/orders`,
+      {
+        intent: 'CAPTURE',
+        purchase_units: [
+          {
+            amount: {
+              currency_code: 'GBP',
+              value: quote.finalAmount.toFixed(2),
+            },
+            description: `MCOM Access Pass — ${quote.accessPlan.name} (${quote.accessPlan.durationDays} days)${
+              quote.coupon ? ` · coupon ${quote.coupon.code}` : ''
+            }`,
+            custom_id: customId,
+          },
+        ],
+        application_context: {
+          return_url: returnUrl,
+          cancel_url: cancelUrl,
+          brand_name: 'MCOM Solutions',
+          landing_page: 'BILLING',
+          user_action: 'PAY_NOW',
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    if (quote.coupon) {
+      await this.couponService.reserveForCharge({
+        code: quote.coupon.code,
+        userId: userId!,
+        planId: quote.accessPlan.id,
+        planName: quote.accessPlan.name,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'paypal',
+        providerPaymentId: order.data.id,
+        productType: CouponProductType.ACCESS,
+      });
+    }
+
+    const approveLink = order.data.links?.find((l: any) => l.rel === 'approve')?.href;
+    return {
+      orderId: order.data.id,
+      approvalUrl: approveLink,
+      pricing: {
+        originalAmount: quote.originalAmount,
+        discountAmount: quote.discountAmount,
+        finalAmount: quote.finalAmount,
+        couponCode: quote.coupon?.code ?? null,
+        currency: quote.currency,
+        walletCredits: quote.walletCredits,
+        walletCurrency: quote.walletCurrency,
+      },
+    };
+  }
+
+  async accessPaypalCapture(orderId: string, caller?: PaymentCaller) {
+    const existingPurchase = await this.prisma.accessPurchase.findUnique({
+      where: { providerPaymentId: orderId },
+    });
+    if (existingPurchase) {
+      this.assertCaptureOwnership(existingPurchase.businessId, caller, orderId);
+      return this.accessService.activateAccess(
+        existingPurchase.businessId,
+        existingPurchase.accessPlanId,
+        {
+          provider: 'paypal',
+          providerPaymentId: orderId,
+          chargedAmount: existingPurchase.amount,
+        },
+      );
+    }
+
+    const token = await this.getPayPalAccessToken();
+    let order: any;
+    try {
+      const res = await axios.get(`${this.paypalBaseUrl}/v2/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      order = res.data;
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        throw new BadRequestException(`PayPal order ${orderId} does not exist.`);
+      }
+      throw err;
+    }
+
+    const unit = order.purchase_units?.[0];
+    const { businessId, accessPlanId, couponCode } = parseAccessCustomId(
+      unit?.custom_id || '',
+    );
+    this.assertCaptureOwnership(businessId, caller, orderId);
+
+    const reservation = couponCode
+      ? await this.couponService.findReservationForPayment('paypal', orderId)
+      : null;
+
+    let expectedGBP: number;
+    let originalAmount: number;
+    let discountAmount: number;
+    let redemptionId: string | undefined = reservation?.id;
+
+    if (reservation) {
+      expectedGBP = Number(reservation.finalAmount);
+      originalAmount = Number(reservation.originalAmount);
+      discountAmount = Number(reservation.discountAmount);
+    } else if (couponCode && caller?.userId) {
+      const quote = await this.accessService.resolveQuote(accessPlanId, couponCode, caller.userId);
+      expectedGBP = quote.finalAmount;
+      originalAmount = quote.originalAmount;
+      discountAmount = quote.discountAmount;
+      const fresh = await this.couponService.reserveForCharge({
+        code: couponCode,
+        userId: caller.userId,
+        planId: quote.accessPlan.id,
+        planName: quote.accessPlan.name,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'paypal',
+        providerPaymentId: orderId,
+        productType: CouponProductType.ACCESS,
+      });
+      redemptionId = fresh.redemptionId;
+    } else {
+      const quote = await this.accessService.resolveQuote(accessPlanId);
+      expectedGBP = quote.finalAmount;
+      originalAmount = quote.originalAmount;
+      discountAmount = quote.discountAmount;
+    }
+
+    const approvedValue = Number(unit?.amount?.value);
+    const approvedCurrency = (unit?.amount?.currency_code || '').toUpperCase();
+    if (
+      approvedCurrency !== 'GBP' ||
+      !Number.isFinite(approvedValue) ||
+      Math.abs(approvedValue - expectedGBP) > 0.005
+    ) {
+      this.logger.warn(
+        `PayPal access capture amount mismatch: order ${orderId} approved ${unit?.amount?.value} ${approvedCurrency}, expected ${expectedGBP.toFixed(2)} GBP`,
+      );
+      throw new BadRequestException('Approved amount does not match the access pass price.');
+    }
+
+    const capture = await axios
+      .post(
+        `${this.paypalBaseUrl}/v2/checkout/orders/${orderId}/capture`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+      .catch(async (err: any) => {
+        if (this.isAlreadyCapturedError(err)) {
+          this.logger.warn(
+            `PayPal access order ${orderId} already captured upstream — activating from read data`,
+          );
+          return { data: { purchase_units: [{ custom_id: unit?.custom_id }] } };
+        }
+        throw err;
+      });
+
+    const capturedUnit = capture.data.purchase_units?.[0];
+    if (capturedUnit?.custom_id && capturedUnit.custom_id !== unit?.custom_id) {
+      this.logger.warn(`PayPal access capture metadata drift on order ${orderId} — refusing to activate.`);
+      throw new BadRequestException('PayPal order metadata changed during capture.');
+    }
+
+    const payload = {
+      accessPlanId,
+      expectedGBP,
+      ...(couponCode
+        ? {
+            couponCode,
+            couponRedemptionId: redemptionId,
+            originalAmount,
+            discountAmount,
+          }
+        : {}),
+    };
+
+    let result: Awaited<ReturnType<AccessService['activateAccess']>>;
+    try {
+      result = await this.accessService.activateAccess(businessId, accessPlanId, {
+        provider: 'paypal',
+        providerPaymentId: orderId,
+        userId: caller?.userId,
+        chargedAmount: approvedValue,
+        originalAmount,
+        discountAmount,
+        couponCode,
+        couponRedemptionId: redemptionId,
+      });
+    } catch (dbErr) {
+      await this.parkForReconcile('access', orderId, businessId, payload, dbErr);
+    }
+
+    if (couponCode && !redemptionId) {
+      await this.couponService
+        .recordPaidRedemption({
+          couponCode,
+          userId: caller?.userId,
+          businessId,
+          productType: CouponProductType.ACCESS,
+          accessPlanId,
+          originalAmount,
+          discountAmount,
+          finalAmount: approvedValue,
+          provider: 'paypal',
+          providerPaymentId: orderId,
+        })
+        .catch((err) =>
+          this.logger.warn(
+            `Failed to record paid access coupon redemption for ${orderId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          ),
+        );
+    }
+
+    if (this.redis) {
+      try {
+        await this.redis.set(`paypal:captured:${orderId}`, true, 86400 * 7);
+      } catch (err: any) {
+        this.logger.warn(`Redis error flagging captured order ${orderId}: ${err.message}`);
+      }
+    }
+
+    return result;
+  }
+
+  async accessWalletPurchase(
+    businessId: string,
+    userId: string,
+    accessPlanId: string,
+    couponCode: string | undefined,
+    idempotencyKey: string,
+  ) {
+    return this.accessService.purchaseWithWallet(
+      businessId,
+      userId,
+      accessPlanId,
+      couponCode,
+      idempotencyKey,
+    );
+  }
+
   // ─── PLATFORM PLAN PURCHASES ──────────────────────────────────────────────────
 
   private resolvePlatformPlanPrice(
@@ -1292,6 +1779,59 @@ export class PaymentService {
     businessId: string;
     payload: Record<string, unknown>;
   }): Promise<void> {
+    if (row.kind === 'access') {
+      const {
+        accessPlanId,
+        expectedGBP,
+        couponCode,
+        couponRedemptionId,
+        originalAmount,
+        discountAmount,
+      } = row.payload as {
+        accessPlanId: string;
+        expectedGBP?: number;
+        couponCode?: string;
+        couponRedemptionId?: string;
+        originalAmount?: number;
+        discountAmount?: number;
+      };
+      await this.accessService.activateAccess(row.businessId, String(accessPlanId), {
+        provider: 'paypal',
+        providerPaymentId: row.providerPaymentId,
+        chargedAmount: Number(expectedGBP ?? 0),
+        ...(couponCode
+          ? {
+              couponCode: String(couponCode),
+              couponRedemptionId: couponRedemptionId ? String(couponRedemptionId) : undefined,
+              originalAmount,
+              discountAmount,
+            }
+          : {}),
+      });
+      if (couponCode && !couponRedemptionId) {
+        await this.couponService
+          .recordPaidRedemption({
+            couponCode: String(couponCode),
+            businessId: row.businessId,
+            productType: CouponProductType.ACCESS,
+            accessPlanId: String(accessPlanId),
+            originalAmount: Number(originalAmount ?? expectedGBP ?? 0),
+            discountAmount: Number(discountAmount ?? 0),
+            finalAmount: Number(expectedGBP ?? 0),
+            provider: 'paypal',
+            providerPaymentId: row.providerPaymentId,
+          })
+          .catch((err) =>
+            this.logger.warn(
+              `Outbox could not record paid access coupon ${couponCode}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            ),
+          );
+      }
+      return;
+    }
+
     if (row.kind === 'membership') {
       const {
         level,
@@ -1577,6 +2117,74 @@ export class PaymentService {
     const businessId = meta.businessId;
     if (!businessId) {
       throw new BadRequestException('Payment intent is missing business metadata.');
+    }
+
+    if (meta.kind === 'access') {
+      const accessPlanId = meta.accessPlanId;
+      if (!accessPlanId) {
+        throw new BadRequestException('Payment intent is missing access plan metadata.');
+      }
+      const couponCode = meta.couponCode?.toUpperCase();
+      const reservation = couponCode
+        ? await this.couponService.findReservationForPayment('stripe', intent.id)
+        : null;
+
+      let expectedGBP: number;
+      let originalAmount = Number(meta.originalAmountPence) / 100;
+      let discountAmount = Number(meta.discountPence) / 100;
+      let redemptionId: string | undefined = reservation?.id;
+
+      if (reservation) {
+        expectedGBP = Number(reservation.finalAmount);
+        originalAmount = Number(reservation.originalAmount);
+        discountAmount = Number(reservation.discountAmount);
+      } else {
+        const metaExpected = Number(meta.expectedAmountPence) / 100;
+        if (Number.isFinite(metaExpected) && metaExpected > 0) {
+          expectedGBP = metaExpected;
+        } else {
+          const quote = await this.accessService.resolveQuote(accessPlanId);
+          expectedGBP = quote.finalAmount;
+          originalAmount = quote.originalAmount;
+          discountAmount = quote.discountAmount;
+        }
+      }
+      this.assertStripeIntentAmount(intent, expectedGBP);
+
+      const chargedAmount = intent.amount / 100;
+      await this.accessService.activateAccess(businessId, accessPlanId, {
+        provider: 'stripe',
+        providerPaymentId: intent.id,
+        chargedAmount,
+        originalAmount,
+        discountAmount,
+        couponCode,
+        couponRedemptionId: redemptionId,
+      });
+
+      if (couponCode && !redemptionId) {
+        await this.couponService
+          .recordPaidRedemption({
+            couponCode,
+            businessId,
+            productType: CouponProductType.ACCESS,
+            accessPlanId,
+            accessPlanName: meta.planName,
+            originalAmount,
+            discountAmount,
+            finalAmount: expectedGBP,
+            provider: 'stripe',
+            providerPaymentId: intent.id,
+          })
+          .catch((err) =>
+            this.logger.warn(
+              `Webhook could not record paid access coupon ${couponCode} for ${intent.id}: ${
+                err instanceof Error ? err.message : err
+              }`,
+            ),
+          );
+      }
+      return;
     }
 
     if (meta.platform) {

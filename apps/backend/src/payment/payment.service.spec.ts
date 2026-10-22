@@ -3,6 +3,7 @@ import { PaymentService } from './payment.service';
 import { ConfigService } from '@nestjs/config';
 import { PricingService } from '../pricing/pricing.service';
 import { CouponService } from '../coupon/coupon.service';
+import { AccessService } from '../access/access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
@@ -76,6 +77,12 @@ describe('PaymentService', () => {
     completeRedemption: jest.fn(),
   };
 
+  const mockAccessService = {
+    resolveQuote: jest.fn(),
+    activateAccess: jest.fn(),
+    purchaseWithWallet: jest.fn(),
+  };
+
   const mockPrisma = {
     user: {
       findFirst: jest.fn(),
@@ -118,6 +125,7 @@ describe('PaymentService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: PricingService, useValue: mockPricingService },
         { provide: CouponService, useValue: mockCouponService },
+        { provide: AccessService, useValue: mockAccessService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -180,6 +188,7 @@ describe('PaymentService', () => {
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
+          { provide: AccessService, useValue: mockAccessService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -209,6 +218,7 @@ describe('PaymentService', () => {
           { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
+          { provide: AccessService, useValue: mockAccessService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -295,6 +305,7 @@ describe('PaymentService', () => {
           },
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
+          { provide: AccessService, useValue: mockAccessService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -491,6 +502,7 @@ describe('PaymentService', () => {
           },
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
+          { provide: AccessService, useValue: mockAccessService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },

@@ -103,6 +103,17 @@ export class CreateTaskDefinitionDto {
   @IsString({ each: true })
   rewardCouponPlanIds?: string[];
 
+  @ApiPropertyOptional({ example: false, description: 'True = all access passes, false = selected access plans' })
+  @IsOptional()
+  @IsBoolean()
+  rewardCouponAppliesToAllAccess?: boolean;
+
+  @ApiPropertyOptional({ type: [String], example: ['access-plan-id-1'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  rewardCouponAccessPlanIds?: string[];
+
   @ApiPropertyOptional({ example: 30, description: 'Days after issuance before the reward coupon expires' })
   @IsOptional()
   @IsInt()

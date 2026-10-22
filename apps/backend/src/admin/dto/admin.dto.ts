@@ -263,6 +263,161 @@ export class IncludedAppPlanDto {
   quotas?: Record<string, any>;
 }
 
+export class AccessIncludedAppPlanDto {
+  @ApiProperty({ example: 'MCOM Mall' })
+  @IsString()
+  @IsNotEmpty()
+  platform: string;
+
+  @ApiPropertyOptional({ example: 'mcom-mall' })
+  @IsOptional()
+  @IsString()
+  clientId?: string;
+
+  @ApiProperty({ example: 'plan-family-id', description: 'External plan family ID' })
+  @IsString()
+  @IsNotEmpty()
+  planId: string;
+
+  @ApiPropertyOptional({ example: 'variant-id', description: 'Resolved external plan variant ID (defaults to planId)' })
+  @IsOptional()
+  @IsString()
+  externalPlanId?: string;
+
+  @ApiProperty({ example: 'Mall Business' })
+  @IsString()
+  @IsNotEmpty()
+  planName: string;
+
+  @ApiPropertyOptional({ example: 29.99 })
+  @IsOptional()
+  @IsNumber()
+  standalonePrice?: number;
+
+  @ApiPropertyOptional({ enum: ['Standard', 'Pro', 'Pro+'], example: 'Standard', description: 'External plan variant granted by this access bundle' })
+  @IsOptional()
+  @IsIn(['Standard', 'Pro', 'Pro+', 'Normal', 'ProPlus'], { message: 'Variant must be Standard, Pro or Pro+.' })
+  variantTier?: string;
+
+  @ApiPropertyOptional({ example: { maxProducts: 50 }, description: 'Optional quota snapshot for the selected variant' })
+  @IsOptional()
+  @IsObject()
+  limits?: Record<string, any>;
+}
+
+export class CreateAccessPlanDto {
+  @ApiProperty({ example: '7-Day Mall Pass' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({ example: 'Short-term access to MCOM Mall and Rewards' })
+  @IsString()
+  @IsNotEmpty()
+  description: string;
+
+  @ApiProperty({ example: 19.99 })
+  @IsNumber({}, { message: 'Price must be a number.' })
+  @Min(0.01, { message: 'Price must be greater than zero.' })
+  price: number;
+
+  @ApiProperty({ example: 30, description: 'Access duration in days (1–800)' })
+  @IsInt({ message: 'Duration must be a whole number of days.' })
+  @Min(1, { message: 'Duration must be at least 1 day.' })
+  @Max(800, { message: 'Duration looks too long. Please check the number of days.' })
+  durationDays: number;
+
+  @ApiPropertyOptional({ example: 'Businesses testing the ecosystem' })
+  @IsOptional()
+  @IsString()
+  whoItIsFor?: string;
+
+  @ApiPropertyOptional({ example: 'LIMITED TIME' })
+  @IsOptional()
+  @IsString()
+  badge?: string;
+
+  @ApiPropertyOptional({ example: 'border-emerald-500/20 text-emerald-600 bg-emerald-50' })
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['Mall storefront', 'Rewards campaigns'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  features?: string[];
+
+  @ApiPropertyOptional({ type: [AccessIncludedAppPlanDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => AccessIncludedAppPlanDto)
+  includedApps?: AccessIncludedAppPlanDto[];
+}
+
+export class UpdateAccessPlanDto {
+  @ApiPropertyOptional({ example: '7-Day Mall Pass' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 19.99 })
+  @IsOptional()
+  @IsNumber({}, { message: 'Price must be a number.' })
+  @Min(0.01, { message: 'Price must be greater than zero.' })
+  price?: number;
+
+  @ApiPropertyOptional({ example: 30 })
+  @IsOptional()
+  @IsInt({ message: 'Duration must be a whole number of days.' })
+  @Min(1, { message: 'Duration must be at least 1 day.' })
+  @Max(800, { message: 'Duration looks too long. Please check the number of days.' })
+  durationDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  whoItIsFor?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  badge?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  color?: string;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(200)
+  features?: string[];
+
+  @ApiPropertyOptional({ type: [AccessIncludedAppPlanDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => AccessIncludedAppPlanDto)
+  includedApps?: AccessIncludedAppPlanDto[];
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  archived?: boolean;
+}
+
 export class CreateMembershipPlanDto {
   @ApiProperty({ example: 'Gold' })
   @IsString()

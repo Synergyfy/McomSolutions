@@ -14,7 +14,7 @@ import { useAdminNotifications } from '../services/admin/hooks';
 
 export type AdminTab =
   'dashboard' | 'users'
-  | 'memberships' | 'subscriptions' | 'coupons'
+  | 'memberships' | 'access' | 'subscriptions' | 'coupons'
   | 'platform-access'
   | 'permissions' | 'auth' | 'registration-flow' | 'business-profile'
   | 'payments' | 'billing'
@@ -59,6 +59,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Plans & Billing',
     items: [
       { tab: 'memberships', icon: Gem, label: 'Plans & Billing' },
+      { tab: 'access', icon: KeyRound, label: 'Access Passes' },
       { tab: 'subscriptions', icon: RefreshCw, label: 'Subscriptions' },
       { tab: 'coupons', icon: Ticket, label: 'Coupons' },
     ],
