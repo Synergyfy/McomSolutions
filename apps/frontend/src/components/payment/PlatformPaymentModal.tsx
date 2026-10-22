@@ -171,8 +171,12 @@ export default function PlatformPaymentModal({
           platform: purchase.platform,
           externalPlanId: purchase.externalPlanId,
           billingCycle: purchase.billingCycle,
-          returnUrl: `${window.location.origin}/payment/success?platform=${encodeURIComponent(purchase.platform)}`,
+          returnUrl:
+            purchase.provider === 'paypal'
+              ? `${window.location.origin}/checkout/paypal-return?platform=${encodeURIComponent(purchase.platform)}&onboarding=true&source=${encodeURIComponent(purchase.source || '')}`
+              : `${window.location.origin}/payment/success?platform=${encodeURIComponent(purchase.platform)}`,
           cancelUrl: `${window.location.origin}/getstarted/business?source=${purchase.source || ''}`,
+          autoRenew: Boolean(purchase.autoRenew),
         };
 
         if (purchase.provider === 'paypal') {

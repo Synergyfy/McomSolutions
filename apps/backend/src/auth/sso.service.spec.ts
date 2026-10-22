@@ -19,6 +19,9 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
+    programmeSetting: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
 
   const mockJwtService = {
@@ -42,6 +45,7 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.programmeSetting.findMany.mockResolvedValue([]);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SsoService,
@@ -330,6 +334,126 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
       expect(result.entitlement?.access.hasAccess).toBe(false);
       expect(result.entitlement?.access.reason).toBe('UNVERIFIED');
       expect(result.entitlement?.access.upgradeUrl).toContain('/dashboard?action=verify');
+    });
+
+    it('grants TRIAL_PROGRAMME from signup when verification is optional', async () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([
+        {
+          id: 'task_mall_1',
+          title: 'Setup Store Profile',
+          description: 'Upload banner',
+          deadlineDays: 7,
+          rewardPoints: 50,
+          assignments: [],
+        },
+      ]);
+      mockPrisma.programmeSetting.findMany.mockResolvedValue([
+        {
+          key: 'verification_required',
+          value: 'false',
+          updatedAt: new Date(Date.now() - 30 * DAY),
+        },
+        { key: 'trial_access_days', value: '14', updatedAt: new Date(Date.now() - 30 * DAY) },
+      ]);
+
+      const user: EntitlementUser = {
+        id: 'usr_7',
+        email: 'free-trial@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_7',
+          businessName: 'Free Trial Merchant',
+          hasPaidVerificationFee: false,
+          createdAt: new Date(Date.now() - 2 * DAY),
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement?.access.hasAccess).toBe(true);
+      expect(result.entitlement?.access.accessType).toBe('TRIAL_PROGRAMME');
+      expect(result.entitlement?.trialContext.isInTrial).toBe(true);
+      expect(result.entitlement?.trialContext.hasPaidVerificationFee).toBe(false);
+      expect(result.entitlement?.trialContext.daysRemaining).toBeGreaterThanOrEqual(11);
+    });
+
+    it('starts the optional free trial when verification was switched off for an existing business', async () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([
+        {
+          id: 'task_mall_1',
+          title: 'Setup Store Profile',
+          description: 'Upload banner',
+          deadlineDays: 7,
+          rewardPoints: 50,
+          assignments: [],
+        },
+      ]);
+      mockPrisma.programmeSetting.findMany.mockResolvedValue([
+        {
+          key: 'verification_required',
+          value: 'false',
+          updatedAt: new Date(Date.now() - 2 * DAY),
+        },
+        { key: 'trial_access_days', value: '14', updatedAt: new Date(Date.now() - 2 * DAY) },
+      ]);
+
+      const user: EntitlementUser = {
+        id: 'usr_8',
+        email: 'existing@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_8',
+          businessName: 'Existing Merchant',
+          hasPaidVerificationFee: false,
+          // Signed up long before verification became optional
+          createdAt: new Date(Date.now() - 60 * DAY),
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement?.access.hasAccess).toBe(true);
+      expect(result.entitlement?.trialContext.isInTrial).toBe(true);
+      expect(result.entitlement?.trialContext.daysRemaining).toBeGreaterThanOrEqual(11);
+    });
+
+    it('denies an expired optional free trial with TRIAL_EXPIRED, not UNVERIFIED', async () => {
+      const DAY = 24 * 60 * 60 * 1000;
+      mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+      mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
+      mockPrisma.programmeSetting.findMany.mockResolvedValue([
+        {
+          key: 'verification_required',
+          value: 'false',
+          updatedAt: new Date(Date.now() - 60 * DAY),
+        },
+        { key: 'trial_access_days', value: '14', updatedAt: new Date(Date.now() - 60 * DAY) },
+      ]);
+
+      const user: EntitlementUser = {
+        id: 'usr_9',
+        email: 'expired-free@example.com',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_9',
+          businessName: 'Expired Free Trial Merchant',
+          hasPaidVerificationFee: false,
+          createdAt: new Date(Date.now() - 60 * DAY),
+          packages: [],
+        },
+      };
+
+      const result = await service.resolveEntitlements(user, testClient);
+
+      expect(result.entitlement?.access.hasAccess).toBe(false);
+      expect(result.entitlement?.access.reason).toBe('TRIAL_EXPIRED');
+      expect(result.entitlement?.access.upgradeUrl).toContain('/dashboard/memberships');
     });
   });
 });

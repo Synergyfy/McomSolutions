@@ -20,6 +20,7 @@ interface PaymentPlanSelectorProps {
   options: SelectorOption[];
   value: string;
   onChange: (paymentPlan: string) => void;
+  disabled?: boolean;
 }
 
 const ORDER = ['full', 'halfYearly', 'quarterly', 'monthly'];
@@ -64,7 +65,7 @@ function planLabel(opt: SelectorOption): { title: string; sub: string } {
   };
 }
 
-export default function PaymentPlanSelector({ tier, durationDays, options, value, onChange }: PaymentPlanSelectorProps) {
+export default function PaymentPlanSelector({ tier, durationDays, options, value, onChange, disabled = false }: PaymentPlanSelectorProps) {
   if (!Array.isArray(options) || options.length === 0) return null;
 
   const ordered = [...options].sort(
@@ -94,8 +95,10 @@ export default function PaymentPlanSelector({ tier, durationDays, options, value
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(opt.paymentPlan)}
+            disabled={disabled}
             className={cn(
               'w-full min-h-[64px] p-3.5 sm:p-4 rounded-2xl border-2 text-left transition-all active:scale-[0.99] cursor-pointer',
+              disabled && 'opacity-50 cursor-not-allowed active:scale-100',
               selected
                 ? 'border-brand-blue bg-blue-50/60 shadow-sm'
                 : 'border-gray-200 bg-white hover:border-gray-300',

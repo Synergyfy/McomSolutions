@@ -36,6 +36,7 @@ enum MembershipStatus {
   active
   inactive
   trial
+  past_due
 }
 
 model User {
@@ -116,6 +117,11 @@ model BusinessProfile {
   membershipStatus       MembershipStatus     @default(active)
   membershipPlanName     String?              @map("membership_plan_name")
   membershipExpiresAt    DateTime?            @map("membership_expires_at")
+  // Recurring billing linkage. Loose ids on purpose (same precedent as
+  // EcosystemSubscription): historical rows may not have a matching record.
+  membershipRecurringId  String?              @map("membership_recurring_id")
+  stripeCustomerId       String?              @map("stripe_customer_id")
+  paypalPayerId          String?              @map("paypal_payer_id")
   hasPaidVerificationFee Boolean              @default(false) @map("has_paid_verification_fee")
   verificationFeePaidAt  DateTime?            @map("verification_fee_paid_at")
   trialAccessDays        Int                  @default(14) @map("trial_access_days")
@@ -173,6 +179,8 @@ model PlatformPackage {
   expiresAt              DateTime? // When the subscription expires (null = no expiry)
   provider               String? // 'stripe' or 'paypal'
   providerSubscriptionId String? // Stripe subscription ID or PayPal subscription ID
+  autoRenew              Boolean         @default(false) @map("auto_renew")
+  nextChargeAt           DateTime?       @map("next_charge_at")
   amount                 Float? // Amount paid
   currency               String          @default("GBP")
   billingCycle           String? // monthly, quarterly, annual
@@ -813,6 +821,117 @@ model MembershipInstallmentSubscription {
   @@index([businessId, status])
   @@index([status, nextDueAt])
   @@map("membership_installment_subscriptions")
+}
+
+// ─── RECURRING BILLING MANDATES ──────────────────────────────────────────────
+// One row per auto-renewing agreement. Stripe/PayPal charge at the provider;
+// the local scheduler only reconciles + extends entitlements (and handles
+// wallet debits, where MCOM is the actual charger). `scope_key` is a stable
+// natural key so a business can never hold two mandates for the same target.
+
+enum RecurringScope {
+  MEMBERSHIP
+  PLATFORM
+}
+
+enum RecurringProvider {
+  stripe
+  paypal
+  wallet
+}
+
+enum RecurringStatus {
+  INCOMPLETE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum RecurringChargeStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model RecurringSubscription {
+  id                       String           @id @default(cuid())
+  scopeKey                 String           @unique @map("scope_key")
+  scope                    RecurringScope
+  businessId               String           @map("business_id")
+  userId                   String?          @map("user_id")
+
+  // Membership target
+  membershipPlanId         String?          @map("membership_plan_id")
+  membershipPlanName       String?          @map("membership_plan_name")
+  membershipTier           String?          @map("membership_tier")
+  level                    String?          @map("level")
+
+  // Platform target
+  platform                 String?
+  externalPlanId           String?          @map("external_plan_id")
+
+  // Provider linkage
+  provider                 RecurringProvider
+  providerCustomerId       String?          @map("provider_customer_id")
+  providerSubscriptionId   String?          @unique @map("provider_subscription_id")
+  providerPriceId          String?          @map("provider_price_id")
+  providerPaymentIntentId  String?          @unique @map("provider_payment_intent_id")
+
+  // Terms
+  planName                 String           @map("plan_name")
+  billingCycle             String           @map("billing_cycle")
+  intervalUnit             String           @default("month") @map("interval_unit")
+  intervalCount            Int              @default(1) @map("interval_count")
+  amount                   Float
+  currency                 String           @default("GBP")
+
+  // Lifecycle
+  status                   RecurringStatus  @default(INCOMPLETE)
+  autoRenew                Boolean          @default(true) @map("auto_renew")
+  cancelAtPeriodEnd        Boolean          @default(false) @map("cancel_at_period_end")
+  currentPeriodStart       DateTime?        @map("current_period_start")
+  currentPeriodEnd         DateTime?        @map("current_period_end")
+  nextChargeAt             DateTime?        @map("next_charge_at")
+  graceDays                Int              @default(3) @map("grace_days")
+  retryCount               Int              @default(0) @map("retry_count")
+  lastAttemptAt            DateTime?        @map("last_attempt_at")
+  lastError                String?          @map("last_error")
+  metadata                 Json?
+
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  charges RecurringCharge[]
+
+  @@index([status, nextChargeAt])
+  @@index([businessId, scope])
+  @@index([provider, status])
+  @@map("recurring_subscriptions")
+}
+
+model RecurringCharge {
+  id                String                 @id @default(cuid())
+  subscriptionId    String                 @map("subscription_id")
+  subscription      RecurringSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  periodStart       DateTime               @map("period_start")
+  periodEnd         DateTime               @map("period_end")
+  amount            Float
+  currency          String                 @default("GBP")
+  status            RecurringChargeStatus  @default(PENDING)
+  attempt           Int                    @default(1)
+  idempotencyKey    String                 @unique @map("idempotency_key")
+  providerInvoiceId String?                @unique @map("provider_invoice_id")
+  providerPaymentId String?                @unique @map("provider_payment_id")
+  error             String?
+  paidAt            DateTime?              @map("paid_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  @@unique([subscriptionId, periodStart])
+  @@index([status, createdAt])
+  @@map("recurring_charges")
 }
 
 // ─── COUPONS (admin codes + task rewards) ────────────────────────────────────

@@ -113,6 +113,7 @@ export interface EntitlementBusinessProfile {
   verificationFeePaidAt?: Date | string | null;
   trialAccessDays?: number | null;
   trialAccessExpiresAt?: Date | string | null;
+  createdAt?: Date | string | null;
   packages?: EntitlementPackage[];
   phone?: string | null;
   address?: string | null;
@@ -284,6 +285,7 @@ export class SsoService {
             verificationFeePaidAt: true,
             trialAccessDays: true,
             trialAccessExpiresAt: true,
+            createdAt: true,
             packages: {
               select: {
                 id: true,
@@ -382,7 +384,8 @@ export class SsoService {
               membershipStatus: user.businessProfile.membershipStatus,
               membershipPlanName: user.businessProfile.membershipPlanName,
               hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
-              trialAccessExpiresAt: user.businessProfile.trialAccessExpiresAt,
+              trialAccessExpiresAt:
+                entitlement?.trialContext.trialExpiresAt ?? user.businessProfile.trialAccessExpiresAt,
               appPlan,
               entitlement,
             }
@@ -563,7 +566,7 @@ export class SsoService {
     // 3. The membership has not expired
     const hasExplicitMembershipPlan = Boolean(businessProfile?.membershipPlanName);
     const isMembershipActive =
-      (membershipStatus === 'active' || membershipStatus === 'trial') &&
+      (membershipStatus === 'active' || membershipStatus === 'trial' || membershipStatus === 'past_due') &&
       hasExplicitMembershipPlan &&
       !isMembershipExpired;
 
@@ -776,16 +779,46 @@ export class SsoService {
 
     // 3. Programme Trial Access verification & task engine resolution
     const hasPaidVerificationFee = Boolean(businessProfile?.hasPaidVerificationFee);
+
+    // Verification is mandatory unless an admin explicitly turns it off. When
+    // optional, unpaid businesses receive a free trial of `trialAccessDays`
+    // starting from signup (or from the moment verification was disabled).
+    const programmeSettings = await this.prisma.programmeSetting.findMany({
+      where: { key: { in: ['verification_required', 'trial_access_days'] } },
+    });
+    const settingMap = new Map(programmeSettings.map((s) => [s.key, s]));
+    const verificationSetting = settingMap.get('verification_required');
+    const trialDaysSetting = settingMap.get('trial_access_days');
+    const verificationRequired = verificationSetting ? verificationSetting.value === 'true' : true;
+    const configuredTrialDays = trialDaysSetting ? parseInt(trialDaysSetting.value, 10) : 14;
+    const trialDays = isNaN(configuredTrialDays) ? 14 : configuredTrialDays;
+
     let trialAccessExpiresAt: Date | null = null;
     if (businessProfile?.trialAccessExpiresAt) {
       trialAccessExpiresAt = new Date(businessProfile.trialAccessExpiresAt);
     } else if (hasPaidVerificationFee && businessProfile?.verificationFeePaidAt) {
       const paidAt = new Date(businessProfile.verificationFeePaidAt);
-      const days = businessProfile.trialAccessDays || 14;
+      const days = businessProfile.trialAccessDays || trialDays;
       trialAccessExpiresAt = new Date(paidAt.getTime() + days * 24 * 60 * 60 * 1000);
     }
+
+    if (!trialAccessExpiresAt && !verificationRequired) {
+      const profileCreatedAt = businessProfile?.createdAt ? new Date(businessProfile.createdAt) : null;
+      const optionalSince = verificationSetting?.updatedAt ? new Date(verificationSetting.updatedAt) : null;
+      const trialStartedAt =
+        !profileCreatedAt
+          ? optionalSince
+          : optionalSince && optionalSince.getTime() > profileCreatedAt.getTime()
+            ? optionalSince
+            : profileCreatedAt;
+      if (trialStartedAt && !isNaN(trialStartedAt.getTime())) {
+        trialAccessExpiresAt = new Date(trialStartedAt.getTime() + trialDays * 24 * 60 * 60 * 1000);
+      }
+    }
+
+    const hasTrialEntitlement = hasPaidVerificationFee || !verificationRequired;
     const isTrialTimeValid = trialAccessExpiresAt ? trialAccessExpiresAt.getTime() > now.getTime() : false;
-    const isInTrial = hasPaidVerificationFee && isTrialTimeValid;
+    const isInTrial = hasTrialEntitlement && isTrialTimeValid;
     const daysRemaining = isInTrial && trialAccessExpiresAt
       ? Math.max(0, Math.ceil((trialAccessExpiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
       : 0;
@@ -901,10 +934,10 @@ export class SsoService {
       } else if (isInTrial && !hasPlatformTrialTasks) {
         accessReason = 'TRIAL_NO_TASKS';
         upgradeUrl = `${frontendUrl}/dashboard/memberships`;
-      } else if (hasPaidVerificationFee && !isTrialTimeValid) {
+      } else if (hasTrialEntitlement && !isTrialTimeValid) {
         accessReason = 'TRIAL_EXPIRED';
         upgradeUrl = `${frontendUrl}/dashboard/memberships`;
-      } else if (!hasPaidVerificationFee) {
+      } else if (verificationRequired && !hasPaidVerificationFee) {
         accessReason = 'UNVERIFIED';
         upgradeUrl = `${frontendUrl}/dashboard?action=verify`;
       } else {
@@ -1064,7 +1097,8 @@ export class SsoService {
       membershipTier: user.businessProfile?.membershipTier || 'Normal',
       membershipStatus: user.businessProfile?.membershipStatus || 'active',
       hasPaidVerificationFee: Boolean(user.businessProfile?.hasPaidVerificationFee),
-      trialAccessExpiresAt: user.businessProfile?.trialAccessExpiresAt || null,
+      trialAccessExpiresAt:
+        entitlement?.trialContext.trialExpiresAt ?? user.businessProfile?.trialAccessExpiresAt ?? null,
       phone: user.businessProfile?.phone || null,
       address: user.businessProfile?.address || null,
       postcode: user.businessProfile?.postcode || null,
@@ -1115,7 +1149,8 @@ export class SsoService {
               id: user.businessProfile.id,
               businessName: user.businessProfile.businessName,
               hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
-              trialAccessExpiresAt: user.businessProfile.trialAccessExpiresAt,
+              trialAccessExpiresAt:
+                entitlement?.trialContext.trialExpiresAt ?? user.businessProfile.trialAccessExpiresAt,
             }
           : null,
       },

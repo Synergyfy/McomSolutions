@@ -6,6 +6,7 @@ import {
   Loader2, Sparkles, Check, AlertCircle, PackageOpen
 } from 'lucide-react';
 import { useTransactions, useSubscriptions } from '../services/pricing/hooks';
+import { useRecurringMutations } from '../services/payment/hooks';
 import { useProfile } from '../services/business/hooks';
 import { cn } from '../lib/utils';
 
@@ -14,10 +15,16 @@ export default function DashboardBilling() {
   const { data: rawTransactions = [], isLoading: txLoading } = useTransactions();
   const { data: subData, isLoading: subLoading } = useSubscriptions();
   const { data: profile } = useProfile();
+  const recurringMutations = useRecurringMutations();
 
   const transactions = Array.isArray(rawTransactions) ? rawTransactions : [];
   const subscriptions = subData?.subscriptions ?? [];
   const packages = subData?.packages ?? profile?.packages ?? [];
+  const recurring = subData?.recurring ?? [];
+  const autoRenewCount = recurring.filter((r: any) => r.autoRenew).length;
+  const activeMembershipMandate = recurring.find(
+    (r: any) => r.scope === 'MEMBERSHIP' && (r.status === 'ACTIVE' || r.status === 'PAST_DUE'),
+  );
 
   // 1. Calculate Total Spend (Lifetime)
   const totalSpend = useMemo(() => {
@@ -53,11 +60,18 @@ export default function DashboardBilling() {
         if (!isNaN(d.getTime()) && d.getTime() > Date.now()) dates.push(d);
       }
     });
+    recurring.forEach((r: any) => {
+      const raw = r.autoRenew ? r.nextChargeAt : r.currentPeriodEnd;
+      if (raw) {
+        const d = new Date(raw);
+        if (!isNaN(d.getTime()) && d.getTime() > Date.now()) dates.push(d);
+      }
+    });
 
     if (dates.length === 0) return '—';
     dates.sort((a, b) => a.getTime() - b.getTime());
     return dates[0].toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  }, [profile, subscriptions, packages]);
+  }, [profile, subscriptions, packages, recurring]);
 
   const handleExportCsv = () => {
     if (transactions.length === 0) return;
@@ -103,7 +117,9 @@ export default function DashboardBilling() {
           <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-green-500 mb-3 sm:mb-4" />
           <p className="text-gray-400 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1">Active Subscriptions</p>
           <p className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-900">{activeSubsCount}</p>
-          <p className="text-gray-400 text-[11px] sm:text-xs font-semibold mt-1">Auto-renewing</p>
+          <p className="text-gray-400 text-[11px] sm:text-xs font-semibold mt-1">
+            {autoRenewCount > 0 ? `${autoRenewCount} on auto-renew` : 'Manual renewal'}
+          </p>
         </div>
         <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-8 border border-gray-200 shadow-sm">
           <Clock className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500 mb-3 sm:mb-4" />
@@ -238,9 +254,29 @@ export default function DashboardBilling() {
                           </p>
                         </div>
                       </div>
-                      <span className="px-4 py-2 bg-white border border-orange-200 rounded-xl font-bold text-xs text-orange-600 shadow-xs">
-                        Active Plan
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-4 py-2 bg-white border border-orange-200 rounded-xl font-bold text-xs text-orange-600 shadow-xs">
+                          Active Plan
+                        </span>
+                        {!activeMembershipMandate &&
+                          (profile.membershipStatus === 'active' || profile.membershipStatus === 'past_due') && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                recurringMutations.enableWallet.mutate({
+                                  scope: 'MEMBERSHIP',
+                                  billingCycle: 'monthly',
+                                })
+                              }
+                              disabled={recurringMutations.enableWallet.isPending}
+                              className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 disabled:opacity-50"
+                            >
+                              {recurringMutations.enableWallet.isPending
+                                ? 'Enabling...'
+                                : 'Auto-renew from wallet'}
+                            </button>
+                          )}
+                      </div>
                     </div>
                   )}
 
@@ -286,6 +322,58 @@ export default function DashboardBilling() {
                       <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full font-bold text-xs">
                         {pkg.status || 'Active'}
                       </span>
+                    </div>
+                  ))}
+
+                  {/* Recurring mandates */}
+                  {recurring.map((m: any) => (
+                    <div key={m.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-5 bg-white border border-gray-200 rounded-2xl gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className={cn('w-12 h-12 rounded-xl text-white flex items-center justify-center font-black', m.autoRenew ? 'bg-emerald-500' : 'bg-gray-400')}>
+                          <RefreshCw className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                            {m.scope === 'MEMBERSHIP' ? 'Membership' : m.platform || 'Platform'} · {m.provider}
+                          </span>
+                          <h4 className="font-black text-lg text-gray-900 mt-1">{m.planName}</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {m.autoRenew ? 'Next charge' : 'Ends'}:{' '}
+                            <span className="font-bold text-gray-700">
+                              {new Date(m.autoRenew ? m.nextChargeAt || m.currentPeriodEnd : m.currentPeriodEnd).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>{' '}
+                            · £{Number(m.amount || 0).toFixed(2)}
+                            {m.lastError ? <span className="text-red-600 font-bold"> · renewal issue</span> : null}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          'px-3 py-1 rounded-full font-bold text-xs',
+                          m.autoRenew ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600',
+                        )}>
+                          {m.autoRenew ? 'Auto-renew ON' : 'Auto-renew OFF'}
+                        </span>
+                        {m.autoRenew ? (
+                          <button
+                            type="button"
+                            onClick={() => recurringMutations.cancel.mutate({ id: m.id })}
+                            disabled={recurringMutations.cancel.isPending}
+                            className="px-3 py-1 rounded-full border border-gray-200 text-gray-600 font-bold text-xs hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel auto-renew
+                          </button>
+                        ) : m.status !== 'EXPIRED' && m.status !== 'CANCELED' ? (
+                          <button
+                            type="button"
+                            onClick={() => recurringMutations.resume.mutate(m.id)}
+                            disabled={recurringMutations.resume.isPending}
+                            className="px-3 py-1 rounded-full border border-emerald-200 text-emerald-700 font-bold text-xs hover:bg-emerald-50 disabled:opacity-50"
+                          >
+                            Resume
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ))}
                 </div>

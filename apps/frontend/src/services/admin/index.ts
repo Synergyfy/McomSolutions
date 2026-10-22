@@ -894,12 +894,12 @@ export const adminApi = {
   // ─── Programme Settings & Trial Duration ──────────────
   getProgrammeSettings: async () => {
     const res = await apiClient.get('/admin/programme/settings')
-    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean }>
+    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean; verificationOptionalSince: string | null }>
   },
 
   updateProgrammeSettings: async (data: { trialAccessDays?: number; verificationFeeAmount?: number; verificationRequired?: boolean }) => {
     const res = await apiClient.put('/admin/programme/settings', data)
-    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean }>
+    return res.data as ApiResponse<{ trialAccessDays: number; verificationFeeAmount: number; verificationRequired: boolean; verificationOptionalSince: string | null }>
   },
 
   // ─── Coupons ─────────────────────────────────────────

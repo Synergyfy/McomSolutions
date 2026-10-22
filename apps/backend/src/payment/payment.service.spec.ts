@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { RedisService } from '../redis/redis.service';
+import { RecurringService } from '../recurring/recurring.service';
 import { InternalServerErrorException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 
 const mockSetupIntents = {
@@ -47,6 +48,19 @@ describe('PaymentService', () => {
   const mockWebhookDispatcher = {
     dispatchPackageEvent: jest.fn().mockResolvedValue(undefined),
     dispatch: jest.fn().mockResolvedValue({ dispatched: true }),
+  };
+
+  const mockRecurringService = {
+    findByPaymentIntent: jest.fn().mockResolvedValue(null),
+    findByProviderSubscription: jest.fn().mockResolvedValue(null),
+    confirmStripeSubscription: jest.fn(),
+    confirmPayPalSubscription: jest.fn(),
+    handleStripeEvent: jest.fn(),
+    handlePayPalWebhook: jest.fn(),
+    createMembershipStripeSubscription: jest.fn(),
+    createMembershipPayPalSubscription: jest.fn(),
+    createPlatformStripeSubscription: jest.fn(),
+    createPlatformPayPalSubscription: jest.fn(),
   };
 
   const mockConfigService = {
@@ -129,6 +143,7 @@ describe('PaymentService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+        { provide: RecurringService, useValue: mockRecurringService },
       ],
     }).compile();
 
@@ -192,6 +207,7 @@ describe('PaymentService', () => {
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+          { provide: RecurringService, useValue: mockRecurringService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -222,6 +238,7 @@ describe('PaymentService', () => {
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+          { provide: RecurringService, useValue: mockRecurringService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -309,6 +326,7 @@ describe('PaymentService', () => {
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+          { provide: RecurringService, useValue: mockRecurringService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);
@@ -506,6 +524,7 @@ describe('PaymentService', () => {
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
+          { provide: RecurringService, useValue: mockRecurringService },
         ],
       }).compile();
       const badService = badModule.get<PaymentService>(PaymentService);

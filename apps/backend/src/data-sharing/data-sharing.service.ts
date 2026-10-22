@@ -59,7 +59,7 @@ export class DataSharingService {
       membershipTier,
       membershipStatus,
       membership: {
-        planName: user.businessProfile?.membershipPlanName || (membershipStatus === 'active' ? membershipLevel : null),
+        planName: user.businessProfile?.membershipPlanName || ((membershipStatus === 'active' || membershipStatus === 'past_due') ? membershipLevel : null),
         level: membershipLevel,
         tier: membershipTier,
         status: membershipStatus,

@@ -16,7 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { Role, Prisma, MembershipPaymentPlan, CouponProductType } from '@prisma/client';
+import { Role, Prisma, MembershipPaymentPlan, CouponProductType, RecurringScope } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service';
 import { CouponService } from '../coupon/coupon.service';
 import { AccessService } from '../access/access.service';
@@ -26,6 +26,7 @@ import { RedisService } from '../redis/redis.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { ExternalPlan } from '../service-connectors/connectors/connector.interface';
+import { RecurringService } from '../recurring/recurring.service';
 
 /** Authenticated caller attempting a payment operation. */
 export interface PaymentCaller {
@@ -117,6 +118,7 @@ export class PaymentService {
     private accessService: AccessService,
     private connectorsService: ServiceConnectorsService,
     private webhookDispatcher: WebhookDispatcherService,
+    private recurringService: RecurringService,
     @Optional() private redis?: RedisService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
@@ -337,6 +339,7 @@ export class PaymentService {
     paymentPlan: string = 'full',
     couponCode?: string,
     userId?: string,
+    autoRenew = false,
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
@@ -347,6 +350,44 @@ export class PaymentService {
 
     // Phase 2: trials removed — every initiation is a real charge.
     const plan = normalizePaymentPlan(paymentPlan);
+    if (autoRenew) {
+      if (plan !== MembershipPaymentPlan.full) {
+        throw new BadRequestException('Auto-renew is only available for full-term membership plans.');
+      }
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be combined with auto-renew yet.');
+      }
+      const quote = await this.resolveMembershipQuote(level, tier, billing, 'full', undefined, userId);
+      const result = await this.recurringService.createMembershipStripeSubscription({
+        businessId,
+        userId,
+        level,
+        tier,
+        planId: quote.planId,
+        planName: quote.planName,
+        amount: quote.finalAmount,
+        durationDays: quote.sliceDays,
+        billingCycle: billing,
+      });
+      if (!result.clientSecret) {
+        throw new BadGatewayException('Stripe did not return a payment secret for this subscription.');
+      }
+      return {
+        clientSecret: result.clientSecret,
+        type: 'subscription',
+        subscriptionId: result.subscriptionId,
+        pricing: {
+          originalAmount: quote.originalAmount,
+          discountAmount: quote.discountAmount,
+          finalAmount: quote.finalAmount,
+          couponCode: quote.coupon?.code ?? null,
+          currency: quote.currency,
+          walletCredits: (quote as any).walletCredits,
+          walletCurrency: (quote as any).walletCurrency,
+          autoRenew: true,
+        },
+      };
+    }
     const quote = await this.resolveMembershipQuote(
       level,
       tier,
@@ -418,6 +459,20 @@ export class PaymentService {
     const intent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
     if (intent.status !== 'succeeded') {
       throw new BadRequestException(`Payment not completed. Status: ${intent.status}`);
+    }
+
+    // Recurring opt-in: the first invoice's PaymentIntent is linked to a
+    // RecurringSubscription. Confirm through the recurring engine instead of
+    // the one-time activation path.
+    const recurring = await this.recurringService.findByPaymentIntent(paymentIntentId);
+    if (recurring) {
+      if (intent.metadata?.businessId && intent.metadata.businessId !== businessId) {
+        throw new ForbiddenException('This payment belongs to a different business.');
+      }
+      if (caller) this.assertCaptureOwnership(businessId, caller, paymentIntentId);
+      return this.recurringService.confirmStripeSubscription(paymentIntentId, businessId, {
+        scope: RecurringScope.MEMBERSHIP,
+      });
     }
 
     // Phase 2: bind the intent to this business + expected amount (fail closed).
@@ -568,13 +623,56 @@ export class PaymentService {
     paymentPlan: string = 'full',
     couponCode?: string,
     userId?: string,
+    autoRenew = false,
   ) {
     if (couponCode && !userId) {
       throw new BadRequestException('A signed-in user is required to use a coupon.');
     }
-    const token = await this.getPayPalAccessToken();
     // Phase 2: trials removed — always a real charge (outright or one instalment).
     const plan = normalizePaymentPlan(paymentPlan);
+    if (autoRenew) {
+      if (plan !== MembershipPaymentPlan.full) {
+        throw new BadRequestException('Auto-renew is only available for full-term membership plans.');
+      }
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be combined with auto-renew yet.');
+      }
+      const recurringQuote = await this.resolveMembershipQuote(
+        level,
+        tier,
+        billing,
+        'full',
+        undefined,
+        userId,
+      );
+      const result = await this.recurringService.createMembershipPayPalSubscription({
+        businessId,
+        userId,
+        level,
+        tier,
+        planId: recurringQuote.planId,
+        planName: recurringQuote.planName,
+        amount: recurringQuote.finalAmount,
+        durationDays: recurringQuote.sliceDays,
+        billingCycle: billing,
+        returnUrl,
+        cancelUrl,
+      });
+      return {
+        subscriptionId: result.subscriptionId,
+        approvalUrl: result.approvalUrl,
+        type: 'subscription',
+        pricing: {
+          originalAmount: recurringQuote.originalAmount,
+          discountAmount: recurringQuote.discountAmount,
+          finalAmount: recurringQuote.finalAmount,
+          couponCode: null,
+          currency: recurringQuote.currency,
+          autoRenew: true,
+        },
+      };
+    }
+    const token = await this.getPayPalAccessToken();
     const quote = await this.resolveMembershipQuote(
       level,
       tier,
@@ -663,6 +761,20 @@ export class PaymentService {
     const replay = await this.findMembershipReplay(orderId);
     if (replay) {
       return this.resolvePaypalReplay(replay, caller);
+    }
+
+    // Recurring subscriptions use PayPal's Subscriptions API (IDs start with
+    // I-). Their activation is verified against the provider, not captured.
+    const recurringMandate = await this.recurringService.findByProviderSubscription(orderId);
+    if (recurringMandate) {
+      let businessId = caller?.businessId;
+      if (!businessId && caller?.userId) {
+        businessId = await this.resolveBusinessId(caller.userId);
+      }
+      if (!businessId && caller?.role !== Role.ADMIN) {
+        throw new ForbiddenException('A signed-in business is required to confirm this subscription.');
+      }
+      return this.recurringService.confirmPayPalSubscription(orderId, businessId);
     }
 
     const token = await this.getPayPalAccessToken();
@@ -1406,6 +1518,7 @@ export class PaymentService {
     billingCycle: string,
     returnUrl?: string,
     cancelUrl?: string,
+    autoRenew = false,
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
@@ -1421,6 +1534,34 @@ export class PaymentService {
     const amountGBP = this.resolvePlatformPlanPrice(plan.monthlyPrice, plan.quarterlyPrice, plan.annualPrice, billingCycle);
     if (!Number.isFinite(amountGBP) || amountGBP <= 0) {
       throw new BadRequestException('This plan has no chargeable price. Cannot initiate payment.');
+    }
+
+    if (autoRenew) {
+      const stripePriceId =
+        billingCycle === 'monthly'
+          ? plan.stripeMonthlyPriceId
+          : billingCycle === 'quarterly'
+            ? plan.stripeQuarterlyPriceId
+            : plan.stripeAnnualPriceId;
+      const result = await this.recurringService.createPlatformStripeSubscription({
+        businessId,
+        userId,
+        platform,
+        externalPlanId,
+        planName: plan.name,
+        amount: amountGBP,
+        billingCycle,
+        stripePriceId,
+      });
+      if (!result.clientSecret) {
+        throw new BadGatewayException('Stripe did not return a payment secret for this subscription.');
+      }
+      return {
+        clientSecret: result.clientSecret,
+        type: 'subscription',
+        subscriptionId: result.subscriptionId,
+        plan,
+      };
     }
 
     const amountPence = Math.round(amountGBP * 100);
@@ -1449,6 +1590,18 @@ export class PaymentService {
 
     if (!intentId) {
       throw new BadRequestException('paymentIntentId or setupIntentId is required.');
+    }
+
+    // Recurring opt-in: first invoice PaymentIntent is linked to a mandate.
+    const recurring = await this.recurringService.findByPaymentIntent(intentId);
+    if (recurring) {
+      const businessId = await this.resolveBusinessId(userId);
+      if (caller) this.assertCaptureOwnership(businessId, caller, intentId);
+      return this.recurringService.confirmStripeSubscription(intentId, businessId, {
+        scope: RecurringScope.PLATFORM,
+        platform,
+        externalPlanId,
+      });
     }
 
     const businessId = await this.resolveBusinessId(userId);
@@ -1513,6 +1666,7 @@ export class PaymentService {
     billingCycle: string,
     returnUrl: string,
     cancelUrl: string,
+    autoRenew = false,
   ) {
     const token = await this.getPayPalAccessToken();
     const businessId = await this.resolveBusinessId(userId);
@@ -1527,6 +1681,33 @@ export class PaymentService {
       throw new BadRequestException('This plan has no chargeable price. Cannot initiate payment.');
     }
     const finalAmount = amountGBP;
+
+    if (autoRenew) {
+      const paypalPlanId =
+        billingCycle === 'monthly'
+          ? plan.paypalMonthlyPlanId
+          : billingCycle === 'quarterly'
+            ? plan.paypalQuarterlyPlanId
+            : plan.paypalAnnualPlanId;
+      const result = await this.recurringService.createPlatformPayPalSubscription({
+        businessId,
+        userId,
+        platform,
+        externalPlanId,
+        planName: plan.name,
+        amount: amountGBP,
+        billingCycle,
+        paypalPlanId,
+        returnUrl,
+        cancelUrl,
+      });
+      return {
+        subscriptionId: result.subscriptionId,
+        approvalUrl: result.approvalUrl,
+        type: 'subscription',
+        plan,
+      };
+    }
 
     const order = await axios.post(
       `${this.paypalBaseUrl}/v2/checkout/orders`,
@@ -1578,6 +1759,19 @@ export class PaymentService {
     });
     if (replay) {
       return this.resolvePlatformReplay(replay, caller);
+    }
+
+    // PayPal Subscriptions (I-...) are activated after provider verification.
+    const recurringMandate = await this.recurringService.findByProviderSubscription(orderId);
+    if (recurringMandate) {
+      let businessId = caller?.businessId;
+      if (!businessId && caller?.userId) {
+        businessId = await this.resolveBusinessId(caller.userId);
+      }
+      if (!businessId && caller?.role !== Role.ADMIN) {
+        throw new ForbiddenException('A signed-in business is required to confirm this subscription.');
+      }
+      return this.recurringService.confirmPayPalSubscription(orderId, businessId);
     }
 
     const token = await this.getPayPalAccessToken();
@@ -2091,6 +2285,13 @@ export class PaymentService {
     try {
       if (event.type === 'payment_intent.succeeded') {
         await this.handleSucceededPaymentIntent(event.data.object as Stripe.PaymentIntent);
+      } else if (
+        event.type === 'invoice.paid' ||
+        event.type === 'invoice.payment_failed' ||
+        event.type === 'customer.subscription.updated' ||
+        event.type === 'customer.subscription.deleted'
+      ) {
+        await this.recurringService.handleStripeEvent(event);
       }
       // setup_intent.succeeded and all other types: no trials exist, so card
       // setups alone never activate anything — acknowledge and ignore.
@@ -2368,7 +2569,7 @@ export class PaymentService {
               currency_code: 'GBP',
               value: feeGBP.toFixed(2),
             },
-            description: 'MCOM Business Verification Fee (£1.00)',
+            description: `MCOM Business Verification Fee (£${feeGBP.toFixed(2)})`,
             custom_id: `VERIFICATION_FEE|${businessId}`,
           },
         ],

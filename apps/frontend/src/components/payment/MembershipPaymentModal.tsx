@@ -180,6 +180,7 @@ export default function MembershipPaymentModal({
   const [isProcessingPaypal, setIsProcessingPaypal] = useState(false);
   const [isPaymentSuccess, setIsPaymentSuccess] = useState(false);
   const [paymentPlan, setPaymentPlan] = useState<string>('full');
+  const [autoRenew, setAutoRenew] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<CouponQuote | null>(null);
 
   const { plans } = usePricing();
@@ -220,6 +221,7 @@ export default function MembershipPaymentModal({
       setInitError(null);
       setIsPaymentSuccess(false);
       setPaymentPlan('full');
+      setAutoRenew(false);
       setAppliedCoupon(null);
       return;
     }
@@ -231,7 +233,7 @@ export default function MembershipPaymentModal({
       setInitError(null);
 
       paymentApi
-        .stripeInitiate(plan.id, plan.selectedTier || 'Standard', plan.billingCycle, false, paymentPlan, couponCode)
+        .stripeInitiate(plan.id, plan.selectedTier || 'Standard', plan.billingCycle, false, paymentPlan, couponCode, autoRenew)
         .then((data) => {
           if (isMounted) {
             if (data?.clientSecret) {
@@ -255,7 +257,7 @@ export default function MembershipPaymentModal({
         isMounted = false;
       };
     }
-  }, [isOpen, plan, provider, paymentPlan, couponCode]);
+  }, [isOpen, plan, provider, paymentPlan, couponCode, autoRenew]);
 
   const handlePaypalSubmit = async () => {
     if (!plan || isProcessingPaypal) return;
@@ -281,7 +283,8 @@ export default function MembershipPaymentModal({
         cancelUrl,
         false,
         paymentPlan,
-        couponCode
+        couponCode,
+        autoRenew
       );
 
       if (data?.approvalUrl) {
@@ -430,7 +433,7 @@ export default function MembershipPaymentModal({
                   paymentPlan={paymentPlan}
                   applied={appliedCoupon}
                   onApplied={setAppliedCoupon}
-                  disabled={isPaymentSuccess}
+                  disabled={isPaymentSuccess || autoRenew}
                 />
               </div>
 
@@ -445,8 +448,34 @@ export default function MembershipPaymentModal({
                   options={displayModalOptions}
                   value={paymentPlan}
                   onChange={setPaymentPlan}
+                  disabled={autoRenew}
                 />
               </div>
+
+              {/* Auto-renew opt-in (v1: full-term plans only) */}
+              <label className="mb-4 sm:mb-5 flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50/60 p-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-orange-600"
+                  checked={autoRenew}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setAutoRenew(next);
+                    if (next) {
+                      setPaymentPlan('full');
+                      setAppliedCoupon(null);
+                    }
+                  }}
+                  disabled={isPaymentSuccess}
+                />
+                <span className="text-xs sm:text-sm text-orange-950">
+                  <span className="font-bold">Auto-renew this membership</span>
+                  <span className="block text-[11px] sm:text-xs text-orange-800/80 mt-0.5">
+                    We will charge the same amount at the end of each term so access never lapses.
+                    Cancel anytime from Billing. Coupons and instalments are not available with auto-renew.
+                  </span>
+                </span>
+              </label>
 
               {/* Payment Method Selector Tabs */}
               <div className="mb-4 sm:mb-5">

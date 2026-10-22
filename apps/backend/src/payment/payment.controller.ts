@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
+import { RecurringService } from '../recurring/recurring.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SsoUserGuard } from '../auth/guards/sso-user.guard';
 import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
@@ -26,7 +27,10 @@ import { AccessWalletPurchaseDto } from '../access/dto/access.dto';
 @ApiBearerAuth()
 @Controller('payment')
 export class PaymentController {
-  constructor(private paymentService: PaymentService) {}
+  constructor(
+    private paymentService: PaymentService,
+    private recurringService: RecurringService,
+  ) {}
 
   private async getBusinessId(req: any): Promise<string> {
     if (req.user?.businessId) return req.user.businessId;
@@ -58,6 +62,7 @@ export class PaymentController {
       dto.paymentPlan || 'full',
       dto.couponCode,
       req.user?.userId,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -104,6 +109,7 @@ export class PaymentController {
       dto.paymentPlan || 'full',
       dto.couponCode,
       req.user?.userId,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -212,6 +218,7 @@ export class PaymentController {
       dto.billingCycle,
       dto.returnUrl,
       dto.cancelUrl,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -246,6 +253,7 @@ export class PaymentController {
       dto.billingCycle,
       dto.returnUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/success`,
       dto.cancelUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/cancel`,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -275,6 +283,20 @@ export class PaymentController {
       throw new BadRequestException('Missing stripe-signature header');
     }
     return this.paymentService.handleStripeWebhook(rawBody, signature);
+  }
+
+  /**
+   * PayPal webhook: subscription lifecycle + recurring sale events.
+   * Verified with PAYPAL_WEBHOOK_ID; hidden from Swagger.
+   */
+  @Post('paypal/webhook')
+  @ApiExcludeEndpoint()
+  async paypalWebhook(@Req() req: any, @Headers() headers: Record<string, string>) {
+    const rawBody = req.rawBody as string | Buffer | undefined;
+    if (!rawBody) {
+      throw new BadRequestException('Missing request body');
+    }
+    return this.recurringService.handlePayPalWebhook(rawBody, headers);
   }
 
   // ─── VERIFICATION FEE (£1.00) ─────────────────────────────────────────────

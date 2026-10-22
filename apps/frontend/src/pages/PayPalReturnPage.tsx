@@ -12,7 +12,9 @@ export default function PayPalReturnPage() {
   const { mutateAsync: capturePaypal } = usePaypalCapture();
 
   useEffect(() => {
-    const orderId = searchParams.get('token'); // PayPal sends `token` as the order ID
+    // PayPal sends `token` for one-time orders and `subscription_id` for
+    // Subscriptions API approvals. Support both.
+    const orderId = searchParams.get('subscription_id') || searchParams.get('token');
     const plan = searchParams.get('plan') || 'Bronze';
     const platform = searchParams.get('platform'); // If present, it's a platform purchase
     const type = searchParams.get('type');
@@ -44,9 +46,9 @@ export default function PayPalReturnPage() {
           result = await capturePaypal(orderId);
         }
 
-        // Update localStorage with new membership
+        // Update localStorage with new membership (membership purchases only)
         const userRaw = localStorage.getItem('business_user');
-        if (userRaw) {
+        if (!platform && userRaw) {
           const user = JSON.parse(userRaw);
           const updatedUser = {
             ...user,
