@@ -63,6 +63,18 @@ export class CreateCouponDto {
   @IsString({ each: true })
   membershipPlanIds?: string[];
 
+  @ApiPropertyOptional({ example: false, description: 'True = all access passes, false = selected access plans only' })
+  @IsOptional()
+  @IsBoolean()
+  appliesToAllAccess?: boolean;
+
+  @ApiPropertyOptional({ type: [String], example: ['access-plan-id-1'] })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  accessPlanIds?: string[];
+
   @ApiPropertyOptional({ example: 100, description: 'Maximum completed redemptions (omit for unlimited)' })
   @IsOptional()
   @Type(() => Number)
@@ -147,6 +159,11 @@ export class QueryCouponsDto {
   @IsOptional()
   @IsString()
   planId?: string;
+
+  @ApiPropertyOptional({ example: 'access-plan-id' })
+  @IsOptional()
+  @IsString()
+  accessPlanId?: string;
 }
 
 export class QueryCouponRedemptionsDto {
@@ -185,6 +202,11 @@ export class QueryCouponRedemptionsDto {
   @IsOptional()
   @IsString()
   planId?: string;
+
+  @ApiPropertyOptional({ example: 'access-plan-id' })
+  @IsOptional()
+  @IsString()
+  accessPlanId?: string;
 
   @ApiPropertyOptional({ example: 'business-id' })
   @IsOptional()

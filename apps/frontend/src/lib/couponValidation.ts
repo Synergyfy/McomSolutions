@@ -9,6 +9,8 @@ export interface CouponFormValues {
   discountValue: string;
   appliesToAllMemberships: boolean;
   membershipPlanIds: string[];
+  appliesToAllAccess: boolean;
+  accessPlanIds: string[];
   maxUses: string;
   maxUsesPerUser: string;
   validFrom: string;
@@ -17,7 +19,9 @@ export interface CouponFormValues {
   lockedToUserId: string;
 }
 
-export type CouponFormErrors = Partial<Record<keyof CouponFormValues, string>>;
+export type CouponFormErrors = Partial<Record<keyof CouponFormValues, string>> & {
+  scope?: string;
+};
 
 export function toDateTimeLocal(value?: string | null): string {
   if (!value) return '';
@@ -35,6 +39,8 @@ export function defaultCouponForm(): CouponFormValues {
     discountValue: '10',
     appliesToAllMemberships: true,
     membershipPlanIds: [],
+    appliesToAllAccess: false,
+    accessPlanIds: [],
     maxUses: '',
     maxUsesPerUser: '1',
     validFrom: toDateTimeLocal(new Date().toISOString()),
@@ -71,8 +77,11 @@ export function validateCouponForm(values: CouponFormValues): CouponFormErrors {
     errors.discountValue = 'Fixed discount is too large.';
   }
 
-  if (!values.appliesToAllMemberships && values.membershipPlanIds.length === 0) {
-    errors.membershipPlanIds = 'Select at least one membership plan.';
+  const hasMembershipScope =
+    values.appliesToAllMemberships || values.membershipPlanIds.length > 0;
+  const hasAccessScope = values.appliesToAllAccess || values.accessPlanIds.length > 0;
+  if (!hasMembershipScope && !hasAccessScope) {
+    errors.scope = 'Select at least one membership or access pass.';
   }
 
   const maxUses = values.maxUses.trim() === '' ? null : Number(values.maxUses);

@@ -208,6 +208,31 @@ export interface MembershipPlan {
   createdAt?: string
 }
 
+export interface AccessPlanAppBundle {
+  id?: string
+  platform: string
+  externalPlanId?: string | null
+  packageName: string
+  variantTier?: string | null
+  limits?: Record<string, any> | null
+}
+
+export interface AccessPlan {
+  id: string
+  name: string
+  description: string
+  price: number
+  durationDays: number
+  platformAccess: string[]
+  features: string[]
+  whoItIsFor?: string | null
+  badge?: string | null
+  color?: string | null
+  archived: boolean
+  appBundles?: AccessPlanAppBundle[]
+  createdAt?: string
+}
+
 // PackageTemplate — REMOVED (memberships-only model). Standalone plans live
 // on console-registered external platforms (external plans API).
 
@@ -486,6 +511,33 @@ export interface CreatePlanInput {
   badge?: string
   color?: string
   features?: string[]
+}
+
+export interface AccessIncludedAppPlan {
+  platform: string
+  clientId?: string
+  planId: string
+  externalPlanId?: string
+  planName: string
+  standalonePrice?: number
+  variantTier?: TierName
+  limits?: Record<string, any>
+}
+
+export interface CreateAccessPlanInput {
+  name: string
+  description: string
+  price: number
+  durationDays: number
+  whoItIsFor?: string
+  badge?: string
+  color?: string
+  features?: string[]
+  includedApps: AccessIncludedAppPlan[]
+}
+
+export interface UpdateAccessPlanInput extends Partial<CreateAccessPlanInput> {
+  archived?: boolean
 }
 
 export interface UpdatePlanInput extends Partial<CreatePlanInput> {
@@ -962,6 +1014,9 @@ export interface AdminCoupon {
   appliesToAllMemberships: boolean
   membershipPlanIds: string[]
   membershipPlans: AdminCouponPlan[]
+  appliesToAllAccess: boolean
+  accessPlanIds: string[]
+  accessPlans: AdminCouponPlan[]
   validFrom: string
   expiresAt: string | null
   isActive: boolean
@@ -982,6 +1037,8 @@ export interface AdminCouponInput {
   discountValue: number
   appliesToAllMemberships: boolean
   membershipPlanIds?: string[]
+  appliesToAllAccess: boolean
+  accessPlanIds?: string[]
   maxUses?: number | null
   maxUsesPerUser?: number | null
   validFrom?: string
@@ -998,6 +1055,7 @@ export interface AdminCouponQuery {
   source?: CouponSource
   discountType?: CouponDiscountType
   planId?: string
+  accessPlanId?: string
 }
 
 export interface AdminCouponRedemption {
@@ -1011,6 +1069,9 @@ export interface AdminCouponRedemption {
   business: { id: string; businessName: string } | null
   plan: { id: string; name: string } | null
   planName: string | null
+  productType?: 'MEMBERSHIP' | 'ACCESS'
+  accessPlan?: { id: string; name: string } | null
+  accessPlanName?: string | null
   provider: string | null
   providerPaymentId: string | null
   originalAmount: number
@@ -1029,6 +1090,7 @@ export interface AdminCouponRedemptionQuery {
   status?: CouponRedemptionStatus
   couponId?: string
   planId?: string
+  accessPlanId?: string
   businessId?: string
   source?: CouponSource
   from?: string

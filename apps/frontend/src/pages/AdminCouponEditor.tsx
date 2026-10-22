@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
+  useAdminAccessPlans,
   useAdminCoupon,
   useAdminPlans,
   useCouponUserLookup,
@@ -60,10 +61,14 @@ export default function AdminCouponEditor() {
 
   const { data: couponRes, isLoading: couponLoading } = useAdminCoupon(couponId);
   const { data: plansRes, isLoading: plansLoading } = useAdminPlans();
+  const { data: accessPlansRes, isLoading: accessPlansLoading } = useAdminAccessPlans();
   const createCoupon = useCreateCoupon();
   const updateCoupon = useUpdateCoupon();
 
   const [form, setForm] = useState<CouponFormValues>(defaultCouponForm);
+  const membershipPlanIds = form.membershipPlanIds ?? [];
+  const accessPlanIds = form.accessPlanIds ?? [];
+  const appliesToAllAccess = form.appliesToAllAccess ?? false;
   const [errors, setErrors] = useState<CouponFormErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
@@ -81,6 +86,10 @@ export default function AdminCouponEditor() {
     () => (plansRes?.data ?? []).filter((plan: any) => !plan.archived),
     [plansRes],
   );
+  const accessPlans = useMemo(
+    () => (accessPlansRes?.data ?? []).filter((plan: any) => !plan.archived),
+    [accessPlansRes],
+  );
   const coupon = couponRes?.data;
 
   const { data: userLookupRes, isLoading: userLookupLoading } = useCouponUserLookup(userSearchDebounced);
@@ -95,6 +104,8 @@ export default function AdminCouponEditor() {
       discountValue: String(coupon.discountValue),
       appliesToAllMemberships: coupon.appliesToAllMemberships,
       membershipPlanIds: coupon.membershipPlanIds ?? [],
+      appliesToAllAccess: coupon.appliesToAllAccess ?? false,
+      accessPlanIds: coupon.accessPlanIds ?? [],
       maxUses: coupon.maxUses === null ? '' : String(coupon.maxUses),
       maxUsesPerUser: coupon.maxUsesPerUser === null ? '' : String(coupon.maxUsesPerUser),
       validFrom: toDateTimeLocal(coupon.validFrom),
@@ -119,14 +130,30 @@ export default function AdminCouponEditor() {
   const update = <K extends keyof CouponFormValues>(key: K, value: CouponFormValues[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
+    if (
+      errors.scope &&
+      (key === 'appliesToAllMemberships' ||
+        key === 'membershipPlanIds' ||
+        key === 'appliesToAllAccess' ||
+        key === 'accessPlanIds')
+    ) {
+      setErrors((prev) => ({ ...prev, scope: undefined }));
+    }
     if (submitError) setSubmitError(null);
   };
 
   const togglePlan = (planId: string) => {
-    const next = form.membershipPlanIds.includes(planId)
-      ? form.membershipPlanIds.filter((id) => id !== planId)
-      : [...form.membershipPlanIds, planId];
+    const next = membershipPlanIds.includes(planId)
+      ? membershipPlanIds.filter((id) => id !== planId)
+      : [...membershipPlanIds, planId];
     update('membershipPlanIds', next);
+  };
+
+  const toggleAccessPlan = (planId: string) => {
+    const next = accessPlanIds.includes(planId)
+      ? accessPlanIds.filter((id) => id !== planId)
+      : [...accessPlanIds, planId];
+    update('accessPlanIds', next);
   };
 
   const selectUser = (user: CouponUserLookup) => {
@@ -161,7 +188,9 @@ export default function AdminCouponEditor() {
       discountType: form.discountType,
       discountValue: Number(form.discountValue),
       appliesToAllMemberships: form.appliesToAllMemberships,
-      membershipPlanIds: form.appliesToAllMemberships ? [] : form.membershipPlanIds,
+      membershipPlanIds: form.appliesToAllMemberships ? [] : membershipPlanIds,
+      appliesToAllAccess,
+      accessPlanIds: appliesToAllAccess ? [] : accessPlanIds,
       maxUses: form.maxUses.trim() ? Number(form.maxUses) : null,
       maxUsesPerUser: form.maxUsesPerUser.trim() ? Number(form.maxUsesPerUser) : null,
       validFrom: form.validFrom ? new Date(form.validFrom).toISOString() : undefined,
@@ -266,6 +295,13 @@ export default function AdminCouponEditor() {
         <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-700 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{submitError}</span>
+        </div>
+      )}
+
+      {errors.scope && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-800 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{errors.scope}</span>
         </div>
       )}
 
@@ -419,7 +455,7 @@ export default function AdminCouponEditor() {
                 <span className="text-xs text-red-600">No active membership plans found.</span>
               ) : (
                 plans.map((plan: any) => {
-                  const selected = form.membershipPlanIds.includes(plan.id);
+                  const selected = membershipPlanIds.includes(plan.id);
                   return (
                     <button
                       key={plan.id}
@@ -440,6 +476,66 @@ export default function AdminCouponEditor() {
               )}
             </div>
             <FieldError message={errors.membershipPlanIds} />
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-black text-gray-900">Access pass scope</h2>
+            <p className="text-xs text-gray-500">Choose which access passes the coupon can be used on.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-3.5 bg-gray-50 rounded-xl border border-gray-200 mb-4">
+          <div>
+            <p className="text-sm font-bold text-gray-800">All access passes</p>
+            <p className="text-xs text-gray-500">The code works on every active access pass.</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={appliesToAllAccess}
+              onChange={(event) => update('appliesToAllAccess', event.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+          </label>
+        </div>
+
+        {!appliesToAllAccess && (
+          <div>
+            <div className="flex flex-wrap gap-2">
+              {accessPlansLoading ? (
+                <span className="text-xs text-gray-400">Loading access passes...</span>
+              ) : accessPlans.length === 0 ? (
+                <span className="text-xs text-gray-500">No active access passes found.</span>
+              ) : (
+                accessPlans.map((plan: any) => {
+                  const selected = accessPlanIds.includes(plan.id);
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => toggleAccessPlan(plan.id)}
+                      className={cn(
+                        'px-3 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5',
+                        selected
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
+                      )}
+                    >
+                      {selected && <Check className="w-3.5 h-3.5" />}
+                      {plan.name}
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
       </div>

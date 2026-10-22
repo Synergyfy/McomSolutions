@@ -8,6 +8,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   CouponDiscountType,
+  CouponProductType,
   CouponRedemptionStatus,
   CouponSource,
   Prisma,
@@ -36,6 +37,8 @@ export interface CouponSummary {
   discountValue: number;
   appliesToAllMemberships: boolean;
   membershipPlanIds: string[];
+  appliesToAllAccess: boolean;
+  accessPlanIds: string[];
   validFrom: string;
   expiresAt: string | null;
   lockedToUserId: string | null;
@@ -54,13 +57,15 @@ export interface CouponChargeInput {
   code: string;
   userId: string;
   planId: string;
+  planName?: string;
   amount: number;
+  productType?: CouponProductType;
 }
 
 export interface ReserveCouponInput extends CouponChargeInput {
   businessId: string;
   planName: string;
-  provider: 'stripe' | 'paypal';
+  provider: 'stripe' | 'paypal' | 'wallet';
   providerPaymentId: string;
 }
 
@@ -72,7 +77,12 @@ export interface CouponReservation extends CouponChargeQuote {
 const couponInclude = {
   membershipPlans: {
     include: {
-      plan: { select: { id: true, name: true, archived: true } },
+      plan: { select: { id: true, name: true, archived: true, deletedAt: true } },
+    },
+  },
+  accessPlans: {
+    include: {
+      accessPlan: { select: { id: true, name: true, archived: true, deletedAt: true } },
     },
   },
   lockedToUser: {
@@ -109,6 +119,7 @@ const redemptionInclude = {
   },
   business: { select: { id: true, businessName: true } },
   plan: { select: { id: true, name: true } },
+  accessPlan: { select: { id: true, name: true } },
 } satisfies Prisma.CouponRedemptionInclude;
 
 type RedemptionWithRelations = Prisma.CouponRedemptionGetPayload<{
@@ -164,6 +175,7 @@ export class CouponService {
 
   private serializeCoupon(coupon: CouponWithRelations): CouponSummary & {
     membershipPlans: Array<{ id: string; name: string; archived: boolean }>;
+    accessPlans: Array<{ id: string; name: string; archived: boolean }>;
     lockedToUser: CouponWithRelations['lockedToUser'];
     status: string;
     timesRedeemed: number;
@@ -179,6 +191,8 @@ export class CouponService {
       discountValue: Number(coupon.discountValue),
       appliesToAllMemberships: coupon.appliesToAllMemberships,
       membershipPlanIds: coupon.membershipPlans.map((link) => link.planId),
+      appliesToAllAccess: coupon.appliesToAllAccess ?? false,
+      accessPlanIds: (coupon.accessPlans ?? []).map((link) => link.accessPlanId),
       validFrom: coupon.validFrom.toISOString(),
       expiresAt: coupon.expiresAt?.toISOString() ?? null,
       lockedToUserId: coupon.lockedToUserId,
@@ -187,6 +201,11 @@ export class CouponService {
         id: link.plan.id,
         name: link.plan.name,
         archived: link.plan.archived,
+      })),
+      accessPlans: (coupon.accessPlans ?? []).map((link) => ({
+        id: link.accessPlan.id,
+        name: link.accessPlan.name,
+        archived: link.accessPlan.archived,
       })),
       lockedToUser: coupon.lockedToUser,
       status: this.deriveStatus(coupon),
@@ -228,9 +247,24 @@ export class CouponService {
     if (coupon.expiresAt && coupon.expiresAt <= now) {
       throw new BadRequestException('This coupon has expired.');
     }
-    if (
+    const productType = input.productType ?? CouponProductType.MEMBERSHIP;
+    if (productType === CouponProductType.ACCESS) {
+      const allowed =
+        coupon.appliesToAllAccess ||
+        (coupon.accessPlans ?? []).some(
+          (link) =>
+            link.accessPlanId === input.planId &&
+            !link.accessPlan.archived &&
+            !link.accessPlan.deletedAt,
+        );
+      if (!allowed) {
+        throw new BadRequestException('This coupon cannot be used with the selected access pass.');
+      }
+    } else if (
       !coupon.appliesToAllMemberships &&
-      !coupon.membershipPlans.some((link) => link.planId === input.planId && !link.plan.archived)
+      !coupon.membershipPlans.some(
+        (link) => link.planId === input.planId && !link.plan.archived && !link.plan.deletedAt,
+      )
     ) {
       throw new BadRequestException('This coupon cannot be used with the selected membership.');
     }
@@ -341,8 +375,19 @@ export class CouponService {
           couponCode: lockedCoupon.code,
           userId: input.userId,
           businessId: input.businessId,
-          planId: input.planId,
-          planName: input.planName,
+          planId:
+            (input.productType ?? CouponProductType.MEMBERSHIP) === CouponProductType.MEMBERSHIP
+              ? input.planId
+              : null,
+          planName:
+            (input.productType ?? CouponProductType.MEMBERSHIP) === CouponProductType.MEMBERSHIP
+              ? input.planName ?? null
+              : null,
+          productType: input.productType ?? CouponProductType.MEMBERSHIP,
+          accessPlanId:
+            input.productType === CouponProductType.ACCESS ? input.planId : null,
+          accessPlanName:
+            input.productType === CouponProductType.ACCESS ? input.planName ?? null : null,
           provider: input.provider,
           providerPaymentId: input.providerPaymentId,
           originalAmount: quote.originalAmount,
@@ -371,12 +416,24 @@ export class CouponService {
         businessId: true,
         userId: true,
         planId: true,
+        planName: true,
+        productType: true,
+        accessPlanId: true,
+        accessPlanName: true,
         originalAmount: true,
         discountAmount: true,
         finalAmount: true,
         status: true,
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Release a pending hold after a failed synchronous payment (e.g. wallet). */
+  async releaseReservation(redemptionId: string): Promise<void> {
+    await this.prisma.couponRedemption.updateMany({
+      where: { id: redemptionId, status: CouponRedemptionStatus.PENDING },
+      data: { status: CouponRedemptionStatus.EXPIRED, reservedUntil: null },
     });
   }
 
@@ -391,6 +448,9 @@ export class CouponService {
     businessId?: string;
     planId?: string;
     planName?: string;
+    productType?: CouponProductType;
+    accessPlanId?: string;
+    accessPlanName?: string;
     originalAmount: number;
     discountAmount: number;
     finalAmount: number;
@@ -424,6 +484,9 @@ export class CouponService {
           businessId: input.businessId ?? null,
           planId: input.planId ?? null,
           planName: input.planName ?? null,
+          productType: input.productType ?? CouponProductType.MEMBERSHIP,
+          accessPlanId: input.accessPlanId ?? null,
+          accessPlanName: input.accessPlanName ?? null,
           billingTransactionId: billing?.id ?? null,
           provider: input.provider,
           providerPaymentId: input.providerPaymentId,
@@ -542,6 +605,9 @@ export class CouponService {
         task: {
           include: {
             rewardCouponPlans: { include: { plan: { select: { id: true, name: true } } } },
+            rewardCouponAccessPlans: {
+              include: { accessPlan: { select: { id: true, name: true } } },
+            },
           },
         },
         user: {
@@ -602,10 +668,16 @@ export class CouponService {
     const planIds = task.rewardCouponAppliesToAll
       ? []
       : task.rewardCouponPlans.map((link) => link.planId);
+    const accessPlanIds = task.rewardCouponAppliesToAllAccess
+      ? []
+      : (task.rewardCouponAccessPlans ?? []).map((link) => link.accessPlanId);
 
-    if (!task.rewardCouponAppliesToAll && planIds.length === 0) {
+    const hasMembershipScope = task.rewardCouponAppliesToAll || planIds.length > 0;
+    const hasAccessScope = task.rewardCouponAppliesToAllAccess || accessPlanIds.length > 0;
+
+    if (!hasMembershipScope && !hasAccessScope) {
       this.logger.warn(
-        `Task ${task.id} reward coupon has no remaining membership plans; skipping issuance for assignment ${assignmentId}`,
+        `Task ${task.id} reward coupon has no remaining membership or access plans; skipping issuance for assignment ${assignmentId}`,
       );
       return null;
     }
@@ -625,6 +697,7 @@ export class CouponService {
             discountType: task.rewardCouponDiscountType,
             discountValue: Number(task.rewardCouponValue),
             appliesToAllMemberships: task.rewardCouponAppliesToAll,
+            appliesToAllAccess: task.rewardCouponAppliesToAllAccess,
             maxUses: 1,
             maxUsesPerUser: 1,
             validFrom: now,
@@ -639,6 +712,15 @@ export class CouponService {
               ? {
                   membershipPlans: {
                     createMany: { data: planIds.map((planId) => ({ planId })) },
+                  },
+                }
+              : {}),
+            ...(accessPlanIds.length > 0
+              ? {
+                  accessPlans: {
+                    createMany: {
+                      data: accessPlanIds.map((accessPlanId) => ({ accessPlanId })),
+                    },
                   },
                 }
               : {}),
@@ -687,11 +769,19 @@ export class CouponService {
     taskTitle: string,
   ): Promise<void> {
     const planNames = coupon.membershipPlans.map((link) => link.plan.name);
-    const scope = coupon.appliesToAllMemberships
+    const accessPlanNames = (coupon.accessPlans ?? []).map((link) => link.accessPlan.name);
+    const membershipScope = coupon.appliesToAllMemberships
       ? 'any MCOM membership'
       : planNames.length > 0
         ? planNames.join(', ')
-        : 'selected MCOM memberships';
+        : null;
+    const accessScope = coupon.appliesToAllAccess
+      ? 'any MCOM access pass'
+      : accessPlanNames.length > 0
+        ? accessPlanNames.join(', ')
+        : null;
+    const scope = [membershipScope, accessScope].filter(Boolean).join(' · ') ||
+      'selected MCOM products';
     const expiry = coupon.expiresAt
       ? coupon.expiresAt.toLocaleDateString('en-GB', {
           day: 'numeric',
@@ -729,7 +819,7 @@ export class CouponService {
 
     await this.mailService.send({
       to: assignment.user.email,
-      subject: `Your ${this.discountLabel(coupon.discountType, Number(coupon.discountValue))} membership coupon`,
+      subject: `Your ${this.discountLabel(coupon.discountType, Number(coupon.discountValue))} MCOM coupon`,
       html,
       text: `You completed "${taskTitle}". Your one-time ${this.discountLabel(
         coupon.discountType,
@@ -838,6 +928,19 @@ export class CouponService {
     }
   }
 
+  private async assertAccessPlansExist(accessPlanIds: string[]): Promise<void> {
+    if (accessPlanIds.length === 0) {
+      throw new BadRequestException('Select at least one access plan.');
+    }
+    const unique = [...new Set(accessPlanIds)];
+    const count = await this.prisma.accessPlan.count({
+      where: { id: { in: unique }, deletedAt: null },
+    });
+    if (count !== unique.length) {
+      throw new BadRequestException('One or more selected access plans do not exist.');
+    }
+  }
+
   private async assertLockedUserExists(userId: string): Promise<void> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
@@ -869,9 +972,26 @@ export class CouponService {
     }
     this.validateDiscount(dto.discountType, dto.discountValue);
 
-    const appliesToAll = dto.appliesToAllMemberships ?? true;
-    const planIds = appliesToAll ? [] : [...new Set(dto.membershipPlanIds ?? [])];
-    if (!appliesToAll) await this.assertPlansExist(planIds);
+    const appliesToAllMemberships = dto.appliesToAllMemberships ?? true;
+    const membershipPlanIds = appliesToAllMemberships
+      ? []
+      : [...new Set(dto.membershipPlanIds ?? [])];
+    const appliesToAllAccess = dto.appliesToAllAccess ?? false;
+    const accessPlanIds = appliesToAllAccess ? [] : [...new Set(dto.accessPlanIds ?? [])];
+
+    const hasMembershipScope = appliesToAllMemberships || membershipPlanIds.length > 0;
+    const hasAccessScope = appliesToAllAccess || accessPlanIds.length > 0;
+    if (!hasMembershipScope && !hasAccessScope) {
+      throw new BadRequestException(
+        'Select at least one membership or access plan for this coupon.',
+      );
+    }
+    if (!appliesToAllMemberships && membershipPlanIds.length > 0) {
+      await this.assertPlansExist(membershipPlanIds);
+    }
+    if (!appliesToAllAccess && accessPlanIds.length > 0) {
+      await this.assertAccessPlansExist(accessPlanIds);
+    }
 
     if (dto.lockedToUserId) await this.assertLockedUserExists(dto.lockedToUserId);
 
@@ -890,7 +1010,8 @@ export class CouponService {
           description: dto.description?.trim() || null,
           discountType: dto.discountType,
           discountValue: dto.discountValue,
-          appliesToAllMemberships: appliesToAll,
+          appliesToAllMemberships,
+          appliesToAllAccess,
           maxUses: dto.maxUses ?? null,
           maxUsesPerUser: dto.maxUsesPerUser === undefined ? 1 : dto.maxUsesPerUser,
           validFrom,
@@ -899,10 +1020,19 @@ export class CouponService {
           source: CouponSource.ADMIN,
           lockedToUserId: dto.lockedToUserId || null,
           createdByName: adminName,
-          ...(planIds.length > 0
+          ...(membershipPlanIds.length > 0
             ? {
                 membershipPlans: {
-                  createMany: { data: planIds.map((planId) => ({ planId })) },
+                  createMany: { data: membershipPlanIds.map((planId) => ({ planId })) },
+                },
+              }
+            : {}),
+          ...(accessPlanIds.length > 0
+            ? {
+                accessPlans: {
+                  createMany: {
+                    data: accessPlanIds.map((accessPlanId) => ({ accessPlanId })),
+                  },
                 },
               }
             : {}),
@@ -914,7 +1044,12 @@ export class CouponService {
         'Coupon Created',
         coupon.code,
         `${this.discountLabel(coupon.discountType, Number(coupon.discountValue))}; scope=${
-          coupon.appliesToAllMemberships ? 'all memberships' : planIds.join(', ')
+          [
+            appliesToAllMemberships ? 'all memberships' : membershipPlanIds.join(', '),
+            appliesToAllAccess ? 'all access' : accessPlanIds.join(', '),
+          ]
+            .filter(Boolean)
+            .join(' + ') || 'none'
         }; maxUses=${coupon.maxUses ?? 'unlimited'}`,
         adminName,
       );
@@ -949,13 +1084,33 @@ export class CouponService {
     const discountValue = dto.discountValue ?? Number(existing.discountValue);
     this.validateDiscount(discountType, discountValue);
 
-    const appliesToAll = dto.appliesToAllMemberships ?? existing.appliesToAllMemberships;
-    let planIds: string[] | null = null;
-    if (!appliesToAll) {
-      planIds = dto.membershipPlanIds !== undefined
+    const appliesToAllMemberships =
+      dto.appliesToAllMemberships ?? existing.appliesToAllMemberships;
+    const appliesToAllAccess = dto.appliesToAllAccess ?? existing.appliesToAllAccess ?? false;
+
+    const membershipPlanIds = appliesToAllMemberships
+      ? []
+      : dto.membershipPlanIds !== undefined
         ? [...new Set(dto.membershipPlanIds)]
         : existing.membershipPlans.map((link) => link.planId);
-      await this.assertPlansExist(planIds);
+    const accessPlanIds = appliesToAllAccess
+      ? []
+      : dto.accessPlanIds !== undefined
+        ? [...new Set(dto.accessPlanIds)]
+        : (existing.accessPlans ?? []).map((link) => link.accessPlanId);
+
+    const hasMembershipScope = appliesToAllMemberships || membershipPlanIds.length > 0;
+    const hasAccessScope = appliesToAllAccess || accessPlanIds.length > 0;
+    if (!hasMembershipScope && !hasAccessScope) {
+      throw new BadRequestException(
+        'Select at least one membership or access plan for this coupon.',
+      );
+    }
+    if (!appliesToAllMemberships && membershipPlanIds.length > 0) {
+      await this.assertPlansExist(membershipPlanIds);
+    }
+    if (!appliesToAllAccess && accessPlanIds.length > 0) {
+      await this.assertAccessPlansExist(accessPlanIds);
     }
 
     if (dto.lockedToUserId) await this.assertLockedUserExists(dto.lockedToUserId);
@@ -983,6 +1138,7 @@ export class CouponService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.couponMembershipPlan.deleteMany({ where: { couponId: id } });
+      await tx.couponAccessPlan.deleteMany({ where: { couponId: id } });
       return tx.coupon.update({
         where: { id },
         data: {
@@ -990,7 +1146,8 @@ export class CouponService {
           description: dto.description !== undefined ? dto.description?.trim() || null : existing.description,
           discountType,
           discountValue,
-          appliesToAllMemberships: appliesToAll,
+          appliesToAllMemberships,
+          appliesToAllAccess,
           maxUses,
           maxUsesPerUser,
           validFrom,
@@ -998,10 +1155,19 @@ export class CouponService {
           isActive: dto.isActive ?? existing.isActive,
           lockedToUserId:
             dto.lockedToUserId !== undefined ? dto.lockedToUserId || null : existing.lockedToUserId,
-          ...(planIds && planIds.length > 0
+          ...(membershipPlanIds.length > 0
             ? {
                 membershipPlans: {
-                  createMany: { data: planIds.map((planId) => ({ planId })) },
+                  createMany: { data: membershipPlanIds.map((planId) => ({ planId })) },
+                },
+              }
+            : {}),
+          ...(accessPlanIds.length > 0
+            ? {
+                accessPlans: {
+                  createMany: {
+                    data: accessPlanIds.map((accessPlanId) => ({ accessPlanId })),
+                  },
                 },
               }
             : {}),
@@ -1075,6 +1241,9 @@ export class CouponService {
     if (query.discountType) and.push({ discountType: query.discountType });
     if (query.planId) {
       and.push({ membershipPlans: { some: { planId: query.planId } } });
+    }
+    if (query.accessPlanId) {
+      and.push({ accessPlans: { some: { accessPlanId: query.accessPlanId } } });
     }
 
     if (query.status) {
@@ -1185,6 +1354,7 @@ export class CouponService {
     if (query.status) and.push({ status: query.status });
     if (query.couponId) and.push({ couponId: query.couponId });
     if (query.planId) and.push({ planId: query.planId });
+    if (query.accessPlanId) and.push({ accessPlanId: query.accessPlanId });
     if (query.businessId) and.push({ businessId: query.businessId });
     if (query.source) and.push({ coupon: { source: query.source } });
     if (query.search) {
@@ -1263,6 +1433,9 @@ export class CouponService {
         : null,
       plan: row.plan ? { id: row.plan.id, name: row.plan.name } : null,
       planName: row.planName,
+      productType: row.productType,
+      accessPlan: row.accessPlan ? { id: row.accessPlan.id, name: row.accessPlan.name } : null,
+      accessPlanName: row.accessPlanName,
       provider: row.provider,
       providerPaymentId: row.providerPaymentId,
       originalAmount: Number(row.originalAmount),
@@ -1336,6 +1509,9 @@ export class CouponService {
         membershipPlans: {
           include: { plan: { select: { id: true, name: true, archived: true } } },
         },
+        accessPlans: {
+          include: { accessPlan: { select: { id: true, name: true, archived: true } } },
+        },
         redemptions: {
           where: { userId, status: CouponRedemptionStatus.COMPLETED },
           select: {
@@ -1373,6 +1549,8 @@ export class CouponService {
         discountValue: Number(coupon.discountValue),
         appliesToAllMemberships: coupon.appliesToAllMemberships,
         membershipPlans: coupon.membershipPlans.map((link) => link.plan.name),
+        appliesToAllAccess: coupon.appliesToAllAccess ?? false,
+        accessPlans: (coupon.accessPlans ?? []).map((link) => link.accessPlan.name),
         validFrom: coupon.validFrom.toISOString(),
         expiresAt: coupon.expiresAt?.toISOString() ?? null,
         source: coupon.source,

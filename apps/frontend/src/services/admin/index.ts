@@ -35,6 +35,9 @@ import type {
   UpdateTicketInput,
   CreatePlanInput,
   UpdatePlanInput,
+  CreateAccessPlanInput,
+  UpdateAccessPlanInput,
+  AccessPlan,
   ExternalPlan,
   CreateExternalPlanInput,
   PlatformInfo,
@@ -201,6 +204,27 @@ export const adminApi = {
 
   deletePlan: async (id: string) => {
     const res = await apiClient.delete(`/admin/plans/${id}`)
+    return res.data
+  },
+
+  // ─── Access Plans ────────────────────────────────────
+  getAccessPlans: async () => {
+    const res = await apiClient.get('/admin/access-plans')
+    return res.data as ApiResponse<AccessPlan[]>
+  },
+
+  createAccessPlan: async (data: CreateAccessPlanInput) => {
+    const res = await apiClient.post('/admin/access-plans', data)
+    return res.data as ApiResponse<AccessPlan>
+  },
+
+  updateAccessPlan: async (id: string, data: UpdateAccessPlanInput) => {
+    const res = await apiClient.put(`/admin/access-plans/${id}`, data)
+    return res.data as ApiResponse<AccessPlan>
+  },
+
+  deleteAccessPlan: async (id: string) => {
+    const res = await apiClient.delete(`/admin/access-plans/${id}`)
     return res.data
   },
 

@@ -263,6 +263,11 @@ export default function DashboardCoupons() {
                         {coupon.appliesToAllMemberships
                           ? 'All memberships'
                           : coupon.membershipPlans.join(', ') || 'Selected memberships'}
+                        {coupon.appliesToAllAccess
+                          ? ' · All access passes'
+                          : coupon.accessPlans?.length
+                            ? ` · ${coupon.accessPlans.join(', ')}`
+                            : ''}
                       </span>
                       <span className="flex items-center gap-1">
                         <CalendarDays className="w-3.5 h-3.5 text-gray-400" />

@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
+import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import {
@@ -22,6 +22,8 @@ import {
   CreateConsultantUserDto,
   CreateAccountManagerDto,
   CreateMembershipPlanDto,
+  CreateAccessPlanDto,
+  UpdateAccessPlanDto,
   CreateSubscriptionDto,
   UpdateSubscriptionDto,
   UpdateEcosystemPlatformDto,
@@ -1460,6 +1462,190 @@ export class AdminService implements OnModuleInit {
       // soft-delete extension. Repeat delete → 404 via the pre-check above.
       await tx.membershipPlan.update({ where: { id }, data: { deletedAt: new Date() } });
       await this.logAuditTx(tx, 'Membership Deleted', 'Membership', id, `Soft-deleted membership plan`, adminName);
+    });
+
+    return { success: true };
+  }
+
+  // ─── Access Plans CRUD ─────────────────────────────────
+  private normalizeAccessVariantTier(value?: string | null): PlanTier | null {
+    if (!value) return PlanTier.Standard;
+    const normalized = value.toLowerCase().replace(/[^a-z+]/g, '');
+    if (normalized === 'pro') return PlanTier.Pro;
+    if (normalized === 'pro+' || normalized === 'proplus') return PlanTier.ProPlus;
+    if (normalized === 'standard' || normalized === 'normal') return PlanTier.Standard;
+    return null;
+  }
+
+  private normalizeAccessBundles(includedApps: unknown) {
+    if (!Array.isArray(includedApps) || includedApps.length === 0) {
+      throw new BadRequestException('Add at least one platform plan to the access pass.');
+    }
+    const seenPlatforms = new Set<string>();
+    const rows = includedApps.map((raw) => {
+      const app = raw as Record<string, unknown>;
+      const platform = String(app['platform'] ?? app['platformName'] ?? '').trim();
+      const externalPlanId = String(
+        app['externalPlanId'] ?? app['planId'] ?? app['id'] ?? '',
+      ).trim();
+      const packageName = String(app['planName'] ?? app['name'] ?? platform).trim();
+      if (!platform || !externalPlanId) {
+        throw new BadRequestException('Each bundled platform needs a platform and a plan.');
+      }
+      const key = platform.toLowerCase();
+      if (seenPlatforms.has(key)) {
+        throw new BadRequestException(
+          `Only one plan per platform is allowed. Remove the duplicate ${platform} bundle.`,
+        );
+      }
+      seenPlatforms.add(key);
+      return {
+        platform,
+        externalPlanId,
+        packageName,
+        variantTier: this.normalizeAccessVariantTier(
+          typeof app['variantTier'] === 'string' ? app['variantTier'] : null,
+        ),
+        limits:
+          app['limits'] && typeof app['limits'] === 'object'
+            ? (app['limits'] as Prisma.InputJsonValue)
+            : app['quotas'] && typeof app['quotas'] === 'object'
+              ? (app['quotas'] as Prisma.InputJsonValue)
+              : undefined,
+      };
+    });
+    return { rows, platformAccess: Array.from(new Set(rows.map((r) => r.platform))) };
+  }
+
+  private async syncAccessPlanBundlesTx(
+    tx: Prisma.TransactionClient,
+    accessPlanId: string,
+    includedApps: unknown,
+  ) {
+    const { rows } = this.normalizeAccessBundles(includedApps);
+    await tx.accessPlanAppBundle.deleteMany({ where: { accessPlanId } });
+    await tx.accessPlanAppBundle.createMany({
+      data: rows.map((row) => ({ ...row, accessPlanId })),
+    });
+    return rows;
+  }
+
+  async getAccessPlans() {
+    const items = await this.prisma.accessPlan.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+    });
+    return { success: true, data: items };
+  }
+
+  async getAccessPlan(id: string) {
+    const plan = await this.prisma.accessPlan.findFirst({
+      where: { id },
+      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!plan) throw new NotFoundException('Access plan not found');
+    return { success: true, data: plan };
+  }
+
+  async createAccessPlan(dto: CreateAccessPlanDto, adminName?: string) {
+    const { rows, platformAccess } = this.normalizeAccessBundles(dto.includedApps);
+
+    const plan = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.accessPlan.create({
+        data: {
+          name: dto.name.trim(),
+          description: dto.description.trim(),
+          price: dto.price,
+          durationDays: dto.durationDays,
+          platformAccess,
+          features: (dto.features ?? []).map((f) => f.trim()).filter(Boolean),
+          whoItIsFor: dto.whoItIsFor?.trim() || undefined,
+          badge: dto.badge?.trim() || undefined,
+          color: dto.color?.trim() || undefined,
+          archived: false,
+        },
+      });
+      await tx.accessPlanAppBundle.createMany({
+        data: rows.map((row) => ({ ...row, accessPlanId: created.id })),
+      });
+      await this.logAuditTx(
+        tx,
+        'Access Plan Created',
+        'AccessPlan',
+        created.name,
+        `Created ${created.name} access pass (${dto.durationDays} days)`,
+        adminName,
+      );
+      return created;
+    });
+
+    return { success: true, data: plan };
+  }
+
+  async updateAccessPlan(id: string, updates: UpdateAccessPlanDto, adminName?: string) {
+    const existing = await this.prisma.accessPlan.findFirst({ where: { id } });
+    if (!existing) throw new NotFoundException('Access plan not found');
+
+    const bundleData = updates.includedApps
+      ? this.normalizeAccessBundles(updates.includedApps)
+      : null;
+
+    const plan = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.accessPlan.update({
+        where: { id },
+        data: {
+          ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
+          ...(updates.description !== undefined
+            ? { description: updates.description.trim() }
+            : {}),
+          ...(updates.price !== undefined ? { price: updates.price } : {}),
+          ...(updates.durationDays !== undefined ? { durationDays: updates.durationDays } : {}),
+          ...(updates.whoItIsFor !== undefined
+            ? { whoItIsFor: updates.whoItIsFor.trim() || null }
+            : {}),
+          ...(updates.badge !== undefined ? { badge: updates.badge.trim() || null } : {}),
+          ...(updates.color !== undefined ? { color: updates.color.trim() || null } : {}),
+          ...(updates.features !== undefined
+            ? { features: updates.features.map((f) => f.trim()).filter(Boolean) }
+            : {}),
+          ...(updates.archived !== undefined ? { archived: updates.archived } : {}),
+          ...(bundleData ? { platformAccess: bundleData.platformAccess } : {}),
+        },
+      });
+      if (bundleData) {
+        await tx.accessPlanAppBundle.deleteMany({ where: { accessPlanId: id } });
+        await tx.accessPlanAppBundle.createMany({
+          data: bundleData.rows.map((row) => ({ ...row, accessPlanId: id })),
+        });
+      }
+      await this.logAuditTx(
+        tx,
+        'Access Plan Updated',
+        'AccessPlan',
+        id,
+        'Updated access plan settings',
+        adminName,
+      );
+      return updated;
+    });
+
+    return { success: true, data: plan };
+  }
+
+  async deleteAccessPlan(id: string, adminName?: string) {
+    const existing = await this.prisma.accessPlan.findFirst({ where: { id } });
+    if (!existing) throw new NotFoundException('Access plan not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.accessPlan.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.logAuditTx(
+        tx,
+        'Access Plan Deleted',
+        'AccessPlan',
+        id,
+        'Soft-deleted access plan',
+        adminName,
+      );
     });
 
     return { success: true };
