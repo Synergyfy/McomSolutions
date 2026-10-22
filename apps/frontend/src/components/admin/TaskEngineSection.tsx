@@ -43,6 +43,7 @@ import {
   useTaskAssignments,
   useUpdateTaskAssignmentStatus,
   useAdminPlans,
+  useAdminAccessPlans,
 } from '../../services/admin/hooks';
 
 interface TaskFormData {
@@ -59,6 +60,8 @@ interface TaskFormData {
   rewardCouponValue: number;
   rewardCouponAppliesToAll: boolean;
   rewardCouponPlanIds: string[];
+  rewardCouponAppliesToAllAccess: boolean;
+  rewardCouponAccessPlanIds: string[];
   rewardCouponValidDays: number;
   rewardCouponExpiresAt: string;
   isActive: boolean;
@@ -79,6 +82,8 @@ const DEFAULT_FORM: TaskFormData = {
   rewardCouponValue: 10,
   rewardCouponAppliesToAll: true,
   rewardCouponPlanIds: [],
+  rewardCouponAppliesToAllAccess: false,
+  rewardCouponAccessPlanIds: [],
   rewardCouponValidDays: 30,
   rewardCouponExpiresAt: '',
   isActive: true,
@@ -89,6 +94,8 @@ export default function TaskEngineSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [formData, setFormData] = useState<TaskFormData>(DEFAULT_FORM);
+  const rewardCouponAccessPlanIds = formData.rewardCouponAccessPlanIds ?? [];
+  const rewardCouponAppliesToAllAccess = formData.rewardCouponAppliesToAllAccess ?? false;
   const [selectedTaskForProgress, setSelectedTaskForProgress] = useState<any | null>(null);
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,6 +110,8 @@ export default function TaskEngineSection() {
   const { data: tasksRes, isLoading: loadingTasks, refetch: refetchTasks } = useTaskDefinitions();
   const { data: plansRes } = useAdminPlans();
   const membershipPlans = (plansRes?.data ?? []).filter((plan: any) => !plan.archived);
+  const { data: accessPlansRes } = useAdminAccessPlans();
+  const accessPlans = (accessPlansRes?.data ?? []).filter((plan: any) => !plan.archived);
   // Console-registered external apps (read-only reuse — no console changes here).
   const { data: consoleApps = [], isLoading: loadingApps } = useConsoleApps();
   const activeApps = (consoleApps || []).filter((a: any) => a.isActive);
@@ -177,6 +186,10 @@ export default function TaskEngineSection() {
       rewardCouponPlanIds: Array.isArray(task.rewardCouponPlans)
         ? task.rewardCouponPlans.map((plan: any) => plan.id)
         : [],
+      rewardCouponAppliesToAllAccess: task.rewardCouponAppliesToAllAccess ?? false,
+      rewardCouponAccessPlanIds: Array.isArray(task.rewardCouponAccessPlans)
+        ? task.rewardCouponAccessPlans.map((plan: any) => plan.id)
+        : [],
       rewardCouponValidDays: task.rewardCouponValidDays ?? 30,
       rewardCouponExpiresAt: toDateTimeLocal(task.rewardCouponExpiresAt),
       isActive: task.isActive,
@@ -201,8 +214,12 @@ export default function TaskEngineSection() {
         setFormError('Reward coupon percentage must be between 1% and 99%.');
         return;
       }
-      if (!formData.rewardCouponAppliesToAll && formData.rewardCouponPlanIds.length === 0) {
-        setFormError('Select at least one membership plan for the reward coupon.');
+      const hasMembershipScope =
+        formData.rewardCouponAppliesToAll || formData.rewardCouponPlanIds.length > 0;
+      const hasAccessScope =
+        rewardCouponAppliesToAllAccess || rewardCouponAccessPlanIds.length > 0;
+      if (!hasMembershipScope && !hasAccessScope) {
+        setFormError('Select at least one membership or access pass for the reward coupon.');
         return;
       }
       if (!formData.rewardCouponValidDays && !formData.rewardCouponExpiresAt) {
@@ -233,6 +250,10 @@ export default function TaskEngineSection() {
             rewardCouponPlanIds: formData.rewardCouponAppliesToAll
               ? []
               : formData.rewardCouponPlanIds,
+            rewardCouponAppliesToAllAccess,
+            rewardCouponAccessPlanIds: rewardCouponAppliesToAllAccess
+              ? []
+              : rewardCouponAccessPlanIds,
             rewardCouponValidDays: formData.rewardCouponValidDays || undefined,
             rewardCouponExpiresAt: formData.rewardCouponExpiresAt
               ? new Date(formData.rewardCouponExpiresAt).toISOString()
@@ -1214,6 +1235,61 @@ export default function TaskEngineSection() {
                                       rewardCouponPlanIds: selected
                                         ? formData.rewardCouponPlanIds.filter((id) => id !== plan.id)
                                         : [...formData.rewardCouponPlanIds, plan.id],
+                                    })
+                                  }
+                                  className={cn(
+                                    'px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all',
+                                    selected
+                                      ? 'border-emerald-500 bg-emerald-600 text-white'
+                                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50',
+                                  )}
+                                >
+                                  {plan.name}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-3 p-2.5 bg-white rounded-lg border border-gray-200">
+                        <div>
+                          <p className="text-[11px] font-bold text-gray-700">All access passes</p>
+                          <p className="text-[10px] text-gray-400">Otherwise choose specific access passes below.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={rewardCouponAppliesToAllAccess}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                rewardCouponAppliesToAllAccess: e.target.checked,
+                              })
+                            }
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
+                        </label>
+                      </div>
+
+                      {!rewardCouponAppliesToAllAccess && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {accessPlans.length === 0 ? (
+                            <span className="text-[11px] text-gray-500">No active access passes found.</span>
+                          ) : (
+                            accessPlans.map((plan: any) => {
+                              const selected = rewardCouponAccessPlanIds.includes(plan.id);
+                              return (
+                                <button
+                                  key={plan.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setFormData({
+                                      ...formData,
+                                      rewardCouponAccessPlanIds: selected
+                                        ? rewardCouponAccessPlanIds.filter((id) => id !== plan.id)
+                                        : [...rewardCouponAccessPlanIds, plan.id],
                                     })
                                   }
                                   className={cn(

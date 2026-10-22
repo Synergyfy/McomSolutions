@@ -148,6 +148,9 @@ export class TaskService {
         rewardCouponPlans: {
           include: { plan: { select: { id: true, name: true } } },
         },
+        rewardCouponAccessPlans: {
+          include: { accessPlan: { select: { id: true, name: true } } },
+        },
         _count: { select: { issuedCoupons: true } },
       },
     });
@@ -169,6 +172,10 @@ export class TaskService {
         rewardCouponPlans: (task.rewardCouponPlans ?? []).map((link) => ({
           id: link.plan.id,
           name: link.plan.name,
+        })),
+        rewardCouponAccessPlans: (task.rewardCouponAccessPlans ?? []).map((link) => ({
+          id: link.accessPlan.id,
+          name: link.accessPlan.name,
         })),
         issuedCouponCount: _count?.issuedCoupons ?? 0,
         stats: {
@@ -193,6 +200,9 @@ export class TaskService {
         },
         rewardCouponPlans: {
           include: { plan: { select: { id: true, name: true } } },
+        },
+        rewardCouponAccessPlans: {
+          include: { accessPlan: { select: { id: true, name: true } } },
         },
       },
     });
@@ -228,12 +238,27 @@ export class TaskService {
     }
   }
 
+  private async assertRewardCouponAccessPlans(accessPlanIds: string[]): Promise<void> {
+    const unique = [...new Set(accessPlanIds)];
+    if (unique.length === 0) {
+      throw new BadRequestException('Select at least one access plan for this reward coupon');
+    }
+    const count = await this.prisma.accessPlan.count({
+      where: { id: { in: unique }, deletedAt: null },
+    });
+    if (count !== unique.length) {
+      throw new BadRequestException('One or more selected access plans do not exist');
+    }
+  }
+
   private async validateRewardCouponConfig(input: {
     enabled: boolean;
     discountType?: CouponDiscountType | null;
     value?: number | null;
     appliesToAll: boolean;
     planIds: string[];
+    appliesToAllAccess: boolean;
+    accessPlanIds: string[];
     validDays?: number | null;
     expiresAt?: Date | null;
   }): Promise<void> {
@@ -248,9 +273,21 @@ export class TaskService {
     if (input.discountType === CouponDiscountType.PERCENTAGE && value >= 100) {
       throw new BadRequestException('Reward coupon percentage must be between 1% and 99%');
     }
-    if (!input.appliesToAll) {
+
+    const hasMembershipScope = input.appliesToAll || input.planIds.length > 0;
+    const hasAccessScope = input.appliesToAllAccess || input.accessPlanIds.length > 0;
+    if (!hasMembershipScope && !hasAccessScope) {
+      throw new BadRequestException(
+        'Select at least one membership or access plan for this reward coupon',
+      );
+    }
+    if (!input.appliesToAll && input.planIds.length > 0) {
       await this.assertRewardCouponPlans(input.planIds);
     }
+    if (!input.appliesToAllAccess && input.accessPlanIds.length > 0) {
+      await this.assertRewardCouponAccessPlans(input.accessPlanIds);
+    }
+
     if (!input.validDays && !input.expiresAt) {
       throw new BadRequestException(
         'Set how many days the reward coupon is valid for, or an absolute expiry date',
@@ -334,8 +371,12 @@ export class TaskService {
 
     const rewardEnabled = dto.rewardCouponEnabled ?? false;
     const rewardAppliesToAll = dto.rewardCouponAppliesToAll ?? true;
+    const rewardAppliesToAllAccess = dto.rewardCouponAppliesToAllAccess ?? false;
     const rewardPlanIds = rewardEnabled && !rewardAppliesToAll
       ? [...new Set(dto.rewardCouponPlanIds ?? [])]
+      : [];
+    const rewardAccessPlanIds = rewardEnabled && !rewardAppliesToAllAccess
+      ? [...new Set(dto.rewardCouponAccessPlanIds ?? [])]
       : [];
     const rewardExpiresAt = dto.rewardCouponExpiresAt
       ? new Date(dto.rewardCouponExpiresAt)
@@ -346,6 +387,8 @@ export class TaskService {
       value: dto.rewardCouponValue,
       appliesToAll: rewardAppliesToAll,
       planIds: rewardPlanIds,
+      appliesToAllAccess: rewardAppliesToAllAccess,
+      accessPlanIds: rewardAccessPlanIds,
       validDays: dto.rewardCouponValidDays,
       expiresAt: rewardExpiresAt,
     });
@@ -369,12 +412,22 @@ export class TaskService {
         rewardCouponDiscountType: rewardEnabled ? dto.rewardCouponDiscountType ?? null : null,
         rewardCouponValue: rewardEnabled ? dto.rewardCouponValue ?? null : null,
         rewardCouponAppliesToAll: rewardAppliesToAll,
+        rewardCouponAppliesToAllAccess: rewardAppliesToAllAccess,
         rewardCouponValidDays: rewardEnabled ? dto.rewardCouponValidDays ?? null : null,
         rewardCouponExpiresAt: rewardEnabled ? rewardExpiresAt : null,
         ...(rewardPlanIds.length > 0
           ? {
               rewardCouponPlans: {
                 createMany: { data: rewardPlanIds.map((planId) => ({ planId })) },
+              },
+            }
+          : {}),
+        ...(rewardAccessPlanIds.length > 0
+          ? {
+              rewardCouponAccessPlans: {
+                createMany: {
+                  data: rewardAccessPlanIds.map((accessPlanId) => ({ accessPlanId })),
+                },
               },
             }
           : {}),
@@ -397,7 +450,10 @@ export class TaskService {
   async updateTaskDefinition(id: string, dto: UpdateTaskDefinitionDto, adminName = 'Admin') {
     const existing = await this.prisma.taskDefinition.findUnique({
       where: { id },
-      include: { rewardCouponPlans: { select: { planId: true } } },
+      include: {
+        rewardCouponPlans: { select: { planId: true } },
+        rewardCouponAccessPlans: { select: { accessPlanId: true } },
+      },
     });
     if (!existing) {
       throw new NotFoundException(`Task with ID ${id} not found`);
@@ -473,18 +529,30 @@ export class TaskService {
       dto.rewardCouponValue !== undefined ||
       dto.rewardCouponAppliesToAll !== undefined ||
       dto.rewardCouponPlanIds !== undefined ||
+      dto.rewardCouponAppliesToAllAccess !== undefined ||
+      dto.rewardCouponAccessPlanIds !== undefined ||
       dto.rewardCouponValidDays !== undefined ||
       dto.rewardCouponExpiresAt !== undefined;
 
     let rewardPlanIds: string[] = (existing.rewardCouponPlans ?? []).map((link) => link.planId);
+    let rewardAccessPlanIds: string[] = (existing.rewardCouponAccessPlans ?? []).map(
+      (link) => link.accessPlanId,
+    );
     if (couponTouched) {
       const enabled = dto.rewardCouponEnabled ?? existing.rewardCouponEnabled;
       const appliesToAll = dto.rewardCouponAppliesToAll ?? existing.rewardCouponAppliesToAll;
+      const appliesToAllAccess =
+        dto.rewardCouponAppliesToAllAccess ?? existing.rewardCouponAppliesToAllAccess;
       const planIds = appliesToAll
         ? []
         : dto.rewardCouponPlanIds !== undefined
           ? [...new Set(dto.rewardCouponPlanIds)]
           : rewardPlanIds;
+      const accessPlanIds = appliesToAllAccess
+        ? []
+        : dto.rewardCouponAccessPlanIds !== undefined
+          ? [...new Set(dto.rewardCouponAccessPlanIds)]
+          : rewardAccessPlanIds;
       const expiresAt =
         dto.rewardCouponExpiresAt !== undefined
           ? dto.rewardCouponExpiresAt
@@ -510,6 +578,8 @@ export class TaskService {
         value,
         appliesToAll,
         planIds,
+        appliesToAllAccess,
+        accessPlanIds,
         validDays,
         expiresAt,
       });
@@ -518,18 +588,26 @@ export class TaskService {
       data.rewardCouponDiscountType = enabled ? discountType ?? null : null;
       data.rewardCouponValue = enabled ? value ?? null : null;
       data.rewardCouponAppliesToAll = appliesToAll;
+      data.rewardCouponAppliesToAllAccess = appliesToAllAccess;
       data.rewardCouponValidDays = enabled ? validDays ?? null : null;
       data.rewardCouponExpiresAt = enabled ? expiresAt ?? null : null;
       rewardPlanIds = enabled ? planIds : [];
+      rewardAccessPlanIds = enabled ? accessPlanIds : [];
     }
 
     const task = couponTouched
       ? await this.prisma.$transaction(async (tx) => {
           const updated = await tx.taskDefinition.update({ where: { id }, data });
           await tx.taskRewardCouponPlan.deleteMany({ where: { taskId: id } });
+          await tx.taskRewardCouponAccessPlan.deleteMany({ where: { taskId: id } });
           if (rewardPlanIds.length > 0) {
             await tx.taskRewardCouponPlan.createMany({
               data: rewardPlanIds.map((planId) => ({ taskId: id, planId })),
+            });
+          }
+          if (rewardAccessPlanIds.length > 0) {
+            await tx.taskRewardCouponAccessPlan.createMany({
+              data: rewardAccessPlanIds.map((accessPlanId) => ({ taskId: id, accessPlanId })),
             });
           }
           return updated;
@@ -861,6 +939,7 @@ export class TaskService {
             discountType: true,
             discountValue: true,
             appliesToAllMemberships: true,
+            appliesToAllAccess: true,
             expiresAt: true,
           },
         },
@@ -907,6 +986,7 @@ export class TaskService {
                 discountType: a.rewardCoupon.discountType,
                 discountValue: Number(a.rewardCoupon.discountValue),
                 appliesToAllMemberships: a.rewardCoupon.appliesToAllMemberships,
+                appliesToAllAccess: a.rewardCoupon.appliesToAllAccess,
                 expiresAt: a.rewardCoupon.expiresAt,
               }
             : null,

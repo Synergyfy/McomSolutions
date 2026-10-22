@@ -9,6 +9,7 @@ import {
   Landmark,
   Lock,
   Network,
+  RefreshCw,
   Server,
   ShieldAlert,
   TerminalSquare,
@@ -18,13 +19,14 @@ import {
 import { cn } from '../../../lib/utils';
 import { generateWalletIntegrationGuide, walletEnvBlock } from './utils/walletIntegrationGuide';
 
-type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'hmac' | 'errors' | 'code';
+type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'recurring' | 'hmac' | 'errors' | 'code';
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'overview', label: 'Overview', icon: Network },
   { id: 'credentials', label: 'Credentials', icon: KeyRound },
   { id: 'endpoints', label: 'Wallet API', icon: Server },
   { id: 'mcompay', label: 'MCOM Pay', icon: CreditCard },
+  { id: 'recurring', label: 'Recurring', icon: RefreshCw },
   { id: 'hmac', label: 'HMAC Auth', icon: Lock },
   { id: 'errors', label: 'Errors & Retry', icon: ShieldAlert },
   { id: 'code', label: 'Drop-In Code', icon: TerminalSquare },
@@ -78,7 +80,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400">
-                How any registered app integrates MCOM Wallet (prepaid balance) and MCOM Pay (charge customers).
+                How any registered app integrates MCOM Wallet (prepaid balance), MCOM Pay (charge customers) and recurring billing.
               </p>
             </div>
           </div>
@@ -135,6 +137,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
           {activeTab === 'credentials' && <CredentialsTab />}
           {activeTab === 'endpoints' && <EndpointsTab />}
           {activeTab === 'mcompay' && <McomPayTab />}
+          {activeTab === 'recurring' && <RecurringTab />}
           {activeTab === 'hmac' && <HmacTab />}
           {activeTab === 'errors' && <ErrorsTab />}
           {activeTab === 'code' && <CodeTab />}
@@ -320,6 +323,8 @@ function OverviewTab() {
           <li><b>Cashback, rewards, refunds</b> → <code className="text-emerald-600 font-mono">/credit</code></li>
           <li><b>Reserve before confirming (e.g. order pre-auth)</b> → <code className="text-emerald-600 font-mono">/hold/place → /hold/capture</code></li>
           <li><b>Show balance in your UI</b> → <code className="text-emerald-600 font-mono">/balance/:userId</code> (cached 30s)</li>
+          <li><b>Charge the same user every month/year (your subscription)</b> → <b>your scheduler</b> + <code className="text-emerald-600 font-mono">/debit</code> or <b>MCOM Pay</b></li>
+          <li><b>Auto-renew an MCOM membership/platform plan</b> → <b>MCOM handles it</b> (not a partner API — see Recurring tab)</li>
           <li><b>Sell anything and collect real money (card / PayPal / wallet)</b> → <b>MCOM Pay</b> <code className="text-emerald-600 font-mono">/app-payments/charges</code></li>
           <li><b>Immutable ledger in pence with fee/net + webhooks</b> → <b>MCOM Pay</b></li>
         </ul>
@@ -378,7 +383,7 @@ function EndpointsTab() {
       <Section title="Partner endpoints — /api/v1/wallet/partner">
         <EndpointTable
           rows={[
-            ['POST', '/debit', 'Debit a wallet (subscription, purchase, fee)', 'Required'],
+            ['POST', '/debit', 'Debit a wallet (subscription renewal, purchase, fee)', 'Required'],
             ['POST', '/credit', 'Credit a wallet (reward, refund, cashback)', 'Required'],
             ['POST', '/hold/place', 'Reserve funds before confirming', 'Optional'],
             ['POST', '/hold/capture', 'Convert a hold into a real debit', 'Optional'],
@@ -535,6 +540,21 @@ Content-Type: application/json
   // wallet: settles immediately (status "paid"); 422 INSUFFICIENT_BALANCE if too low
 }`}
         />
+      </Section>
+
+      <Section title="Recurring / subscription charges">
+        <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-4 text-xs text-sky-900 space-y-2">
+          <p className="font-bold text-sky-950 flex items-center gap-1.5">
+            <RefreshCw className="w-4 h-4 text-sky-600" />
+            MCOM Pay charges are one-time.
+          </p>
+          <p className="leading-relaxed">
+            For a subscription, your backend creates a <b>new charge each billing period</b> with a new
+            idempotency key. MCOM does not store a partner card/PayPal mandate for unattended renewals — use your
+            own provider mandate if you need that, or bill from the MCOM Wallet. See the <b>Recurring</b> tab for
+            the scheduler pattern and dunning schedule.
+          </p>
+        </div>
       </Section>
 
       <Section title="⚠️ Frontend Gateway Handling & Sandbox Rules (Crucial)">
@@ -730,6 +750,149 @@ await mcom.createCharge({
   );
 }
 
+function RecurringTab() {
+  const base = (import.meta.env.VITE_API_URL || 'https://api.mcomsolutions.com/api/v1').replace(/\/$/, '');
+  return (
+    <div className="space-y-6">
+      <Section title="Who charges at renewal?">
+        <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 text-xs text-amber-900 space-y-2">
+          <p className="font-bold text-amber-950 flex items-center gap-1.5">
+            <ShieldAlert className="w-4 h-4 text-amber-600" />
+            MCOM does not store a mandate for partner subscriptions.
+          </p>
+          <p className="leading-relaxed">
+            MCOM's recurring engine auto-renews <b>MCOM-owned memberships and platform plans</b>. If your app sells
+            its own subscription, <b>your backend</b> schedules each renewal and charges through the Wallet or MCOM
+            Pay. The <code className="font-mono text-amber-800">/recurring</code> endpoints are for MCOM-owned plans and
+            are not available to partner apps.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+          <div className="p-3.5 bg-white rounded-xl border border-gray-200">
+            <p className="font-bold text-xs text-gray-900 mb-1">MCOM plan</p>
+            <p className="text-[11px] text-gray-600 leading-relaxed">MCOM charges the saved provider mandate (or wallet) and extends access automatically.</p>
+          </div>
+          <div className="p-3.5 bg-white rounded-xl border border-gray-200">
+            <p className="font-bold text-xs text-gray-900 mb-1">Your plan — wallet</p>
+            <p className="text-[11px] text-gray-600 leading-relaxed">Your cron calls <code className="font-mono text-emerald-600">/wallet/partner/debit</code> with <code className="font-mono text-emerald-600">category: "SUBSCRIPTION"</code> each period.</p>
+          </div>
+          <div className="p-3.5 bg-white rounded-xl border border-gray-200">
+            <p className="font-bold text-xs text-gray-900 mb-1">Your plan — card / PayPal</p>
+            <p className="text-[11px] text-gray-600 leading-relaxed">Your cron creates a new MCOM Pay charge each period. MCOM Pay is one-time; use your own provider mandate for unattended card renewals.</p>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Renewal loop (your backend)">
+        <ol className="text-xs text-gray-600 space-y-1.5 list-decimal pl-5">
+          <li>Store <code className="font-mono text-emerald-600">nextChargeAt</code> in UTC on each subscription.</li>
+          <li>Run a daily cron: find rows where <code className="font-mono text-emerald-600">nextChargeAt &lt;= now</code>.</li>
+          <li>Build a key for <b>this period</b>: <code className="font-mono text-emerald-600">{'`${CLIENT_ID}-sub-${sub.id}-${period}`'}</code>.</li>
+          <li>Charge (wallet) or create a new MCOM Pay charge, then confirm it.</li>
+          <li>On success: extend <code className="font-mono text-emerald-600">currentPeriodEnd</code>, advance <code className="font-mono text-emerald-600">nextChargeAt</code>, write your invoice and send a receipt.</li>
+          <li>On failure: set <code className="font-mono text-emerald-600">past_due</code>, notify, and retry per the dunning schedule.</li>
+          <li>After the final retry: set <code className="font-mono text-emerald-600">canceled</code> and revoke access.</li>
+        </ol>
+        <CodeBlock
+          label="renewals.cron.ts"
+          code={`@Cron('0 2 * * *') // daily 02:00 UTC
+async renewDueSubscriptions() {
+  const due = await db.subscription.findMany({
+    where: { status: 'active', nextChargeAt: { lte: new Date() } },
+  });
+
+  for (const sub of due) {
+    const period = sub.currentPeriodStart.toISOString().slice(0, 10);
+    const idempotencyKey = \`\${CLIENT_ID}-sub-\${sub.id}-\${period}\`;
+
+    try {
+      await mcom.debit(sub.userId, sub.amount, {
+        category: 'SUBSCRIPTION',
+        description: \`\${sub.planName} renewal\`,
+        reference: sub.invoiceId,
+        idempotencyKey,
+      });
+
+      await db.subscription.update({
+        where: { id: sub.id },
+        data: {
+          currentPeriodStart: sub.currentPeriodEnd,
+          currentPeriodEnd: addInterval(sub.currentPeriodEnd, sub.interval),
+          nextChargeAt: sub.currentPeriodEnd,
+        },
+      });
+    } catch (err) {
+      await markPastDue(sub, err); // retries + notification
+    }
+  }
+}`}
+        />
+      </Section>
+
+      <Section title="Wallet renewal request">
+        <CodeBlock
+          label="POST /api/v1/wallet/partner/debit"
+          code={`POST ${base}/wallet/partner/debit
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+X-Idempotency-Key: mcom-mall-sub-sub_42-2026-11-01
+Content-Type: application/json
+
+{
+  "userId": "user_abc123",
+  "amount": 50,
+  "category": "SUBSCRIPTION",
+  "description": "MCOM Mall Gold - November 2026",
+  "reference": "sub_42_2026_11",
+  "metadata": { "subscriptionId": "sub_42", "period": "2026-11" }
+}`}
+        />
+      </Section>
+
+      <Section title="Dunning schedule (recommended)">
+        <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-[10px] font-black uppercase tracking-widest text-gray-400 bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-2.5">Attempt</th>
+                <th className="px-4 py-2.5">When</th>
+                <th className="px-4 py-2.5">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ['1', 'Period end', 'Charge. On failure, notify the user and keep access for the grace period.'],
+                ['2', '+1 day', 'Retry with the same idempotency key (safe retry, not a new charge).'],
+                ['3', '+3 days', 'Retry; send a second reminder.'],
+                ['4', '+7 days', 'Final retry; then set canceled and revoke access.'],
+              ].map(([attempt, when, action]) => (
+                <tr key={attempt} className="border-b border-gray-100 last:border-0">
+                  <td className="px-4 py-2.5 text-[11px] font-black text-gray-800">{attempt}</td>
+                  <td className="px-4 py-2.5 text-[11px] text-gray-600">{when}</td>
+                  <td className="px-4 py-2.5 text-[11px] text-gray-600">{action}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Section title="Important rules">
+        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
+          <li><b>Never run renewals from the browser</b> — the scheduler and HMAC signing live in your backend.</li>
+          <li><b>One key per billing period.</b> Reusing last month's key returns last month's receipt instead of charging.</li>
+          <li><b>Store amounts server-side.</b> Never accept a renewal amount from the client.</li>
+          <li><b>UTC everywhere:</b> store and compare <code className="font-mono text-emerald-600">nextChargeAt</code> in UTC; render local dates in the UI.</li>
+          <li><b>Webhooks:</b> each successful renewal produces the normal <code className="font-mono text-emerald-600">payment.succeeded</code> event. There is no separate renewal event.</li>
+          <li><b>Cancellation:</b> stop scheduling. MCOM has no partner-side cancel endpoint for your own subscription.</li>
+          <li><b>Hosted partner mandates:</b> not available yet — contact MCOM support if you need MCOM to store and charge a mandate for your app.</li>
+        </ul>
+      </Section>
+    </div>
+  );
+}
+
 function HmacTab() {
   return (
     <div className="space-y-6">
@@ -859,7 +1022,7 @@ function CodeTab() {
       <Section title="Idempotency key generation">
         <CodeBlock
           label="keys.ts"
-          code={`const key = \`\${CLIENT_ID}-sub-\${invoiceId}\`;        // subscriptions
+          code={`const key = \`\${CLIENT_ID}-sub-\${subscriptionId}-\${period}\`; // one per renewal cycle
 const key = \`\${CLIENT_ID}-purchase-\${orderId}\`;     // purchases
 const key = \`\${CLIENT_ID}-refund-\${originalTxnId}\`;  // refunds
 const key = \`\${CLIENT_ID}-reward-\${campaignId}-\${userId}-\${date}\`;
@@ -867,6 +1030,7 @@ const key = \`\${CLIENT_ID}-reward-\${campaignId}-\${userId}-\${date}\`;
 // Rules:
 // - Max 255 chars, ASCII only
 // - Unique per BUSINESS EVENT, never per HTTP retry
+// - Renewals: new key per billing period; same key for retries within it
 // - Never reuse a key for a different amount or operation
 // - Same key + same body on retry → original receipt, no double charge`}
         />
@@ -958,6 +1122,10 @@ export class McomWalletService {
           <li><code className="text-emerald-600 font-mono">INSUFFICIENT_BALANCE</code> handled (top-up prompt)</li>
           <li>409/429/5xx retried with backoff, same key</li>
           <li>Captured holds are captured or released; rely on 24h auto-expiry as backstop</li>
+          <li><b>Recurring:</b> backend scheduler stores <code className="text-emerald-600 font-mono">nextChargeAt</code> in UTC and runs daily</li>
+          <li><b>Recurring:</b> new idempotency key per billing period; retries reuse the same key</li>
+          <li><b>Recurring:</b> wallet renewals use <code className="text-emerald-600 font-mono">category: "SUBSCRIPTION"</code>; card/PayPal renewals create a new charge</li>
+          <li><b>Recurring:</b> dunning (+1d / +3d / +7d) and a grace period are configured; failures eventually revoke access</li>
           <li><b>MCOM Pay:</b> charges created server-side only (amount never from the browser), sent as integer minor-unit strings</li>
           <li><b>MCOM Pay:</b> mount official <b>Stripe Elements</b> (<code className="text-emerald-600 font-mono">&lt;PaymentElement /&gt;</code>) with <code className="text-emerald-600 font-mono">clientSecret</code> — <b>no custom mock card forms</b></li>
           <li><b>MCOM Pay:</b> redirect to authentic <b>PayPal Sandbox</b> (<code className="text-emerald-600 font-mono">approvalUrl</code>) or use official PayPal Buttons SDK — <b>no mock login forms</b></li>

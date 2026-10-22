@@ -10,16 +10,27 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiBody, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { PaymentService } from './payment.service';
+import { RecurringService } from '../recurring/recurring.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SsoUserGuard } from '../auth/guards/sso-user.guard';
 import { CreatePlatformPurchaseDto } from './dto/create-platform-purchase.dto';
 import { MembershipInitiateDto, PaypalInitiateDto, PlatformConfirmDto, StripeConfirmDto } from './dto/membership-payment.dto';
+import {
+  AccessInitiateDto,
+  AccessPaypalCaptureDto,
+  AccessPaypalInitiateDto,
+  AccessStripeConfirmDto,
+} from './dto/access-payment.dto';
+import { AccessWalletPurchaseDto } from '../access/dto/access.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
 @Controller('payment')
 export class PaymentController {
-  constructor(private paymentService: PaymentService) {}
+  constructor(
+    private paymentService: PaymentService,
+    private recurringService: RecurringService,
+  ) {}
 
   private async getBusinessId(req: any): Promise<string> {
     if (req.user?.businessId) return req.user.businessId;
@@ -51,6 +62,7 @@ export class PaymentController {
       dto.paymentPlan || 'full',
       dto.couponCode,
       req.user?.userId,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -97,6 +109,7 @@ export class PaymentController {
       dto.paymentPlan || 'full',
       dto.couponCode,
       req.user?.userId,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -115,6 +128,80 @@ export class PaymentController {
     return this.paymentService.paypalCapture(orderId, req.user);
   }
 
+  // ─── ACCESS PASS PAYMENTS ───────────────────────────────────────────────────
+  @UseGuards(JwtAuthGuard)
+  @Post('access/stripe/initiate')
+  @ApiOperation({ summary: 'Initiate Stripe access-pass payment (one-time)' })
+  @ApiBody({ type: AccessInitiateDto })
+  async accessStripeInitiate(@Request() req: any, @Body() dto: AccessInitiateDto) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.accessStripeInitiate(
+      businessId,
+      dto.accessPlanId,
+      dto.couponCode,
+      req.user?.userId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('access/stripe/confirm')
+  @ApiOperation({ summary: 'Confirm Stripe access-pass payment' })
+  @ApiBody({ type: AccessStripeConfirmDto })
+  async accessStripeConfirm(@Request() req: any, @Body() dto: AccessStripeConfirmDto) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.accessStripeConfirm(
+      businessId,
+      dto.accessPlanId,
+      dto.paymentIntentId,
+      req.user,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('access/paypal/initiate')
+  @ApiOperation({ summary: 'Initiate PayPal access-pass payment (one-time)' })
+  @ApiBody({ type: AccessPaypalInitiateDto })
+  async accessPaypalInitiate(@Request() req: any, @Body() dto: AccessPaypalInitiateDto) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.accessPaypalInitiate(
+      businessId,
+      dto.accessPlanId,
+      dto.returnUrl,
+      dto.cancelUrl,
+      dto.couponCode,
+      req.user?.userId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('access/paypal/capture')
+  @ApiOperation({ summary: 'Capture PayPal access-pass payment' })
+  @ApiBody({ type: AccessPaypalCaptureDto })
+  async accessPaypalCapture(@Request() req: any, @Body() dto: AccessPaypalCaptureDto) {
+    return this.paymentService.accessPaypalCapture(dto.orderId, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('access/wallet')
+  @ApiOperation({
+    summary: 'Pay for an access pass with the MCOM Wallet (requires Idempotency-Key header)',
+  })
+  @ApiBody({ type: AccessWalletPurchaseDto })
+  async accessWalletPurchase(
+    @Request() req: any,
+    @Body() dto: AccessWalletPurchaseDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.accessWalletPurchase(
+      businessId,
+      req.user.userId,
+      dto.accessPlanId,
+      dto.couponCode,
+      idempotencyKey,
+    );
+  }
+
   // ─── PLATFORM PLAN PURCHASES (Stripe) ────────────────────────────────────────
 
   @UseGuards(SsoUserGuard)
@@ -131,6 +218,7 @@ export class PaymentController {
       dto.billingCycle,
       dto.returnUrl,
       dto.cancelUrl,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -165,6 +253,7 @@ export class PaymentController {
       dto.billingCycle,
       dto.returnUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/success`,
       dto.cancelUrl || `${process.env.APP_URL || 'http://localhost:3000'}/payment/cancel`,
+      dto.autoRenew ?? false,
     );
   }
 
@@ -194,6 +283,20 @@ export class PaymentController {
       throw new BadRequestException('Missing stripe-signature header');
     }
     return this.paymentService.handleStripeWebhook(rawBody, signature);
+  }
+
+  /**
+   * PayPal webhook: subscription lifecycle + recurring sale events.
+   * Verified with PAYPAL_WEBHOOK_ID; hidden from Swagger.
+   */
+  @Post('paypal/webhook')
+  @ApiExcludeEndpoint()
+  async paypalWebhook(@Req() req: any, @Headers() headers: Record<string, string>) {
+    const rawBody = req.rawBody as string | Buffer | undefined;
+    if (!rawBody) {
+      throw new BadRequestException('Missing request body');
+    }
+    return this.recurringService.handlePayPalWebhook(rawBody, headers);
   }
 
   // ─── VERIFICATION FEE (£1.00) ─────────────────────────────────────────────

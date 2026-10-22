@@ -36,6 +36,7 @@ enum MembershipStatus {
   active
   inactive
   trial
+  past_due
 }
 
 model User {
@@ -116,6 +117,11 @@ model BusinessProfile {
   membershipStatus       MembershipStatus     @default(active)
   membershipPlanName     String?              @map("membership_plan_name")
   membershipExpiresAt    DateTime?            @map("membership_expires_at")
+  // Recurring billing linkage. Loose ids on purpose (same precedent as
+  // EcosystemSubscription): historical rows may not have a matching record.
+  membershipRecurringId  String?              @map("membership_recurring_id")
+  stripeCustomerId       String?              @map("stripe_customer_id")
+  paypalPayerId          String?              @map("paypal_payer_id")
   hasPaidVerificationFee Boolean              @default(false) @map("has_paid_verification_fee")
   verificationFeePaidAt  DateTime?            @map("verification_fee_paid_at")
   trialAccessDays        Int                  @default(14) @map("trial_access_days")
@@ -129,6 +135,7 @@ model BusinessProfile {
   notifications          Notification[]
   supportTickets         SupportTicket[]
   couponRedemptions      CouponRedemption[]
+  accessPurchases        AccessPurchase[]
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   deletedAt              DateTime?            @map("deleted_at")
@@ -172,6 +179,8 @@ model PlatformPackage {
   expiresAt              DateTime? // When the subscription expires (null = no expiry)
   provider               String? // 'stripe' or 'paypal'
   providerSubscriptionId String? // Stripe subscription ID or PayPal subscription ID
+  autoRenew              Boolean         @default(false) @map("auto_renew")
+  nextChargeAt           DateTime?       @map("next_charge_at")
   amount                 Float? // Amount paid
   currency               String          @default("GBP")
   billingCycle           String? // monthly, quarterly, annual
@@ -719,6 +728,77 @@ model MembershipPlanAppBundle {
   @@map("membership_plan_app_bundles")
 }
 
+// ─── ACCESS PLANS (one-time, fixed-duration platform passes) ─────────────────
+// Unlike memberships, access plans have no tiers or instalment options. A
+// purchase grants the bundled platform plans for exactly `durationDays`.
+
+model AccessPlan {
+  id             String    @id @default(cuid())
+  name           String    @map("name")
+  description    String    @map("description")
+  price          Float     @map("price")
+  durationDays   Int       @map("duration_days")
+  platformAccess String[]  @default([]) @map("platform_access")
+  features       String[]  @default([])
+  whoItIsFor     String?   @map("who_it_is_for")
+  badge          String?
+  color          String?
+  archived       Boolean   @default(false) @map("archived")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  appBundles                AccessPlanAppBundle[]
+  couponLinks               CouponAccessPlan[]
+  taskRewardCouponPlanLinks TaskRewardCouponAccessPlan[]
+  couponRedemptions         CouponRedemption[]
+  purchases                 AccessPurchase[]
+
+  @@index([archived])
+  @@index([deletedAt])
+  @@map("access_plans")
+}
+
+model AccessPlanAppBundle {
+  id             String     @id @default(cuid())
+  accessPlanId   String     @map("access_plan_id")
+  accessPlan     AccessPlan @relation(fields: [accessPlanId], references: [id], onDelete: Cascade)
+  platform       String     @map("platform")
+  externalPlanId String?    @map("external_plan_id")
+  packageName    String     @map("package_name")
+  variantTier    PlanTier?  @map("variant_tier")
+  limits         Json?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  @@index([accessPlanId])
+  @@index([platform])
+  @@map("access_plan_app_bundles")
+}
+
+model AccessPurchase {
+  id                String          @id @default(cuid())
+  businessId        String          @map("business_id")
+  business          BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  accessPlanId      String          @map("access_plan_id")
+  accessPlan        AccessPlan      @relation(fields: [accessPlanId], references: [id], onDelete: Restrict)
+  accessPlanName    String          @map("access_plan_name")
+  durationDays      Int             @map("duration_days")
+  amount            Float           @map("amount")
+  currency          String          @default("GBP") @map("currency")
+  status            String          @default("ACTIVE") @map("status")
+  provider          String?         @map("provider")
+  providerPaymentId String?         @unique @map("provider_payment_id")
+  startsAt          DateTime        @map("starts_at")
+  expiresAt         DateTime        @map("expires_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@index([businessId, status, expiresAt])
+  @@index([accessPlanId])
+  @@map("access_purchases")
+}
+
 model MembershipInstallmentSubscription {
   // Recurring (pay-as-you-go, auto-charged) membership state.
   // businessId is intentionally FK-free (same precedent as
@@ -743,6 +823,117 @@ model MembershipInstallmentSubscription {
   @@map("membership_installment_subscriptions")
 }
 
+// ─── RECURRING BILLING MANDATES ──────────────────────────────────────────────
+// One row per auto-renewing agreement. Stripe/PayPal charge at the provider;
+// the local scheduler only reconciles + extends entitlements (and handles
+// wallet debits, where MCOM is the actual charger). `scope_key` is a stable
+// natural key so a business can never hold two mandates for the same target.
+
+enum RecurringScope {
+  MEMBERSHIP
+  PLATFORM
+}
+
+enum RecurringProvider {
+  stripe
+  paypal
+  wallet
+}
+
+enum RecurringStatus {
+  INCOMPLETE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum RecurringChargeStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model RecurringSubscription {
+  id                       String           @id @default(cuid())
+  scopeKey                 String           @unique @map("scope_key")
+  scope                    RecurringScope
+  businessId               String           @map("business_id")
+  userId                   String?          @map("user_id")
+
+  // Membership target
+  membershipPlanId         String?          @map("membership_plan_id")
+  membershipPlanName       String?          @map("membership_plan_name")
+  membershipTier           String?          @map("membership_tier")
+  level                    String?          @map("level")
+
+  // Platform target
+  platform                 String?
+  externalPlanId           String?          @map("external_plan_id")
+
+  // Provider linkage
+  provider                 RecurringProvider
+  providerCustomerId       String?          @map("provider_customer_id")
+  providerSubscriptionId   String?          @unique @map("provider_subscription_id")
+  providerPriceId          String?          @map("provider_price_id")
+  providerPaymentIntentId  String?          @unique @map("provider_payment_intent_id")
+
+  // Terms
+  planName                 String           @map("plan_name")
+  billingCycle             String           @map("billing_cycle")
+  intervalUnit             String           @default("month") @map("interval_unit")
+  intervalCount            Int              @default(1) @map("interval_count")
+  amount                   Float
+  currency                 String           @default("GBP")
+
+  // Lifecycle
+  status                   RecurringStatus  @default(INCOMPLETE)
+  autoRenew                Boolean          @default(true) @map("auto_renew")
+  cancelAtPeriodEnd        Boolean          @default(false) @map("cancel_at_period_end")
+  currentPeriodStart       DateTime?        @map("current_period_start")
+  currentPeriodEnd         DateTime?        @map("current_period_end")
+  nextChargeAt             DateTime?        @map("next_charge_at")
+  graceDays                Int              @default(3) @map("grace_days")
+  retryCount               Int              @default(0) @map("retry_count")
+  lastAttemptAt            DateTime?        @map("last_attempt_at")
+  lastError                String?          @map("last_error")
+  metadata                 Json?
+
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  charges RecurringCharge[]
+
+  @@index([status, nextChargeAt])
+  @@index([businessId, scope])
+  @@index([provider, status])
+  @@map("recurring_subscriptions")
+}
+
+model RecurringCharge {
+  id                String                 @id @default(cuid())
+  subscriptionId    String                 @map("subscription_id")
+  subscription      RecurringSubscription  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  periodStart       DateTime               @map("period_start")
+  periodEnd         DateTime               @map("period_end")
+  amount            Float
+  currency          String                 @default("GBP")
+  status            RecurringChargeStatus  @default(PENDING)
+  attempt           Int                    @default(1)
+  idempotencyKey    String                 @unique @map("idempotency_key")
+  providerInvoiceId String?                @unique @map("provider_invoice_id")
+  providerPaymentId String?                @unique @map("provider_payment_id")
+  error             String?
+  paidAt            DateTime?              @map("paid_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  @@unique([subscriptionId, periodStart])
+  @@index([status, createdAt])
+  @@map("recurring_charges")
+}
+
 // ─── COUPONS (admin codes + task rewards) ────────────────────────────────────
 // A coupon is redeemable against a membership payment. Task rewards are
 // issued as personal, single-use coupons locked to the completing user.
@@ -765,6 +956,11 @@ enum CouponRedemptionStatus {
   EXPIRED
 }
 
+enum CouponProductType {
+  MEMBERSHIP
+  ACCESS
+}
+
 model Coupon {
   id                      String              @id @default(cuid())
   code                    String              @unique
@@ -772,6 +968,7 @@ model Coupon {
   discountType            CouponDiscountType  @map("discount_type")
   discountValue           Float               @map("discount_value")
   appliesToAllMemberships Boolean             @default(true) @map("applies_to_all_memberships")
+  appliesToAllAccess      Boolean             @default(false) @map("applies_to_all_access")
   maxUses                 Int?                @map("max_uses")
   maxUsesPerUser          Int?                @default(1) @map("max_uses_per_user")
   timesRedeemed           Int                 @default(0) @map("times_redeemed")
@@ -791,6 +988,7 @@ model Coupon {
   updatedAt               DateTime            @updatedAt @map("updated_at")
 
   membershipPlans CouponMembershipPlan[]
+  accessPlans     CouponAccessPlan[]
   redemptions     CouponRedemption[]
 
   @@index([isActive, validFrom, expiresAt])
@@ -811,6 +1009,17 @@ model CouponMembershipPlan {
   @@map("coupon_membership_plans")
 }
 
+model CouponAccessPlan {
+  couponId     String     @map("coupon_id")
+  accessPlanId String     @map("access_plan_id")
+  coupon       Coupon     @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  accessPlan   AccessPlan @relation(fields: [accessPlanId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, accessPlanId])
+  @@index([accessPlanId])
+  @@map("coupon_access_plans")
+}
+
 model CouponRedemption {
   id                   String                 @id @default(cuid())
   couponId             String                 @map("coupon_id")
@@ -823,6 +1032,10 @@ model CouponRedemption {
   planId               String?                @map("plan_id")
   plan                 MembershipPlan?        @relation(fields: [planId], references: [id], onDelete: SetNull)
   planName             String?                @map("plan_name")
+  productType          CouponProductType      @default(MEMBERSHIP) @map("product_type")
+  accessPlanId         String?                @map("access_plan_id")
+  accessPlan           AccessPlan?            @relation(fields: [accessPlanId], references: [id], onDelete: SetNull)
+  accessPlanName       String?                @map("access_plan_name")
   billingTransactionId String?                @unique @map("billing_transaction_id")
   provider             String?
   providerPaymentId    String?                @map("provider_payment_id")
@@ -840,6 +1053,7 @@ model CouponRedemption {
   @@index([status, reservedUntil])
   @@index([businessId])
   @@index([planId])
+  @@index([accessPlanId])
   @@index([redeemedAt])
   @@map("coupon_redemptions")
 }
@@ -854,6 +1068,18 @@ model TaskRewardCouponPlan {
   @@id([taskId, planId])
   @@index([planId])
   @@map("task_reward_coupon_plans")
+}
+
+// Task reward coupon scope for access plans.
+model TaskRewardCouponAccessPlan {
+  taskId       String         @map("task_id")
+  accessPlanId String         @map("access_plan_id")
+  task         TaskDefinition @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  accessPlan   AccessPlan     @relation(fields: [accessPlanId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, accessPlanId])
+  @@index([accessPlanId])
+  @@map("task_reward_coupon_access_plans")
 }
 
 // ─── PACKAGE TEMPLATES — REMOVED ─────────────────────────────────────────────
@@ -1422,33 +1648,35 @@ enum TaskSource {
 }
 
 model TaskDefinition {
-  id                       String                 @id @default(cuid())
-  title                    String                 @map("title")
-  description              String                 @map("description")
-  targetAudience           TaskAudience           @default(BOTH) @map("target_audience")
-  featureKey               String?                @map("feature_key")
-  taskSource               TaskSource             @default(INTERNAL) @map("task_source")
-  externalClientId         String?                @map("external_client_id")
-  externalAppName          String?                @map("external_app_name")
-  externalPlatformSlug     String?                @map("external_platform_slug")
-  externalAppUrl           String?                @map("external_app_url")
-  deadlineDays             Int                    @default(7) @map("deadline_days")
-  rewardPoints             Int                    @default(50) @map("reward_points")
+  id                             String                       @id @default(cuid())
+  title                          String                       @map("title")
+  description                    String                       @map("description")
+  targetAudience                 TaskAudience                 @default(BOTH) @map("target_audience")
+  featureKey                     String?                      @map("feature_key")
+  taskSource                     TaskSource                   @default(INTERNAL) @map("task_source")
+  externalClientId               String?                      @map("external_client_id")
+  externalAppName                String?                      @map("external_app_name")
+  externalPlatformSlug           String?                      @map("external_platform_slug")
+  externalAppUrl                 String?                      @map("external_app_url")
+  deadlineDays                   Int                          @default(7) @map("deadline_days")
+  rewardPoints                   Int                          @default(50) @map("reward_points")
   // Optional completion reward: a personal single-use coupon issued when the
   // assignment is completed (user, admin, or event worker).
-  rewardCouponEnabled      Boolean                @default(false) @map("reward_coupon_enabled")
-  rewardCouponDiscountType CouponDiscountType?    @map("reward_coupon_discount_type")
-  rewardCouponValue        Float?                 @map("reward_coupon_value")
-  rewardCouponAppliesToAll Boolean                @default(true) @map("reward_coupon_applies_to_all")
-  rewardCouponValidDays    Int?                   @map("reward_coupon_valid_days")
-  rewardCouponExpiresAt    DateTime?              @map("reward_coupon_expires_at")
-  isActive                 Boolean                @default(true) @map("is_active")
-  platform                 String                 @default("mcom_central") @map("platform")
-  createdAt                DateTime               @default(now()) @map("created_at")
-  updatedAt                DateTime               @updatedAt @map("updated_at")
-  assignments              UserTaskAssignment[]
-  rewardCouponPlans        TaskRewardCouponPlan[]
-  issuedCoupons            Coupon[]
+  rewardCouponEnabled            Boolean                      @default(false) @map("reward_coupon_enabled")
+  rewardCouponDiscountType       CouponDiscountType?          @map("reward_coupon_discount_type")
+  rewardCouponValue              Float?                       @map("reward_coupon_value")
+  rewardCouponAppliesToAll       Boolean                      @default(true) @map("reward_coupon_applies_to_all")
+  rewardCouponAppliesToAllAccess Boolean                      @default(false) @map("reward_coupon_applies_to_all_access")
+  rewardCouponValidDays          Int?                         @map("reward_coupon_valid_days")
+  rewardCouponExpiresAt          DateTime?                    @map("reward_coupon_expires_at")
+  isActive                       Boolean                      @default(true) @map("is_active")
+  platform                       String                       @default("mcom_central") @map("platform")
+  createdAt                      DateTime                     @default(now()) @map("created_at")
+  updatedAt                      DateTime                     @updatedAt @map("updated_at")
+  assignments                    UserTaskAssignment[]
+  rewardCouponPlans              TaskRewardCouponPlan[]
+  rewardCouponAccessPlans        TaskRewardCouponAccessPlan[]
+  issuedCoupons                  Coupon[]
 
   @@index([featureKey])
   @@index([isActive])

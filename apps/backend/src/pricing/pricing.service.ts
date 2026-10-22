@@ -947,7 +947,7 @@ export class PricingService {
   }
 
   async getSubscriptions(businessId: string) {
-    const [ecosystemSubs, platformPackages] = await Promise.all([
+    const [ecosystemSubs, platformPackages, recurring] = await Promise.all([
       this.prisma.ecosystemSubscription.findMany({
         where: { businessId },
         orderBy: { createdAt: 'desc' },
@@ -956,10 +956,30 @@ export class PricingService {
         where: { businessId },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.recurringSubscription.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          scope: true,
+          provider: true,
+          planName: true,
+          platform: true,
+          amount: true,
+          currency: true,
+          status: true,
+          autoRenew: true,
+          cancelAtPeriodEnd: true,
+          currentPeriodEnd: true,
+          nextChargeAt: true,
+          lastError: true,
+        },
+      }),
     ]);
     return {
       subscriptions: ecosystemSubs,
       packages: platformPackages,
+      recurring,
     };
   }
 }

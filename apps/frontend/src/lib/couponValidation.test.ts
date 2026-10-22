@@ -27,11 +27,33 @@ describe('couponValidation', () => {
     expect(errors.discountValue).toContain('99%');
   });
 
-  it('requires membership plans when scope is restricted', () => {
+  it('requires at least one scope when both scopes are restricted', () => {
     const errors = validateCouponForm(
       form({ code: 'MCOM-GOLD', appliesToAllMemberships: false }),
     );
-    expect(errors.membershipPlanIds).toBeDefined();
+    expect(errors.scope).toBeDefined();
+  });
+
+  it('accepts an access-only coupon', () => {
+    const errors = validateCouponForm(
+      form({
+        code: 'MCOM-ACCESS',
+        appliesToAllMemberships: false,
+        accessPlanIds: ['access-plan-1'],
+      }),
+    );
+    expect(errors.scope).toBeUndefined();
+  });
+
+  it('accepts an all-access coupon without membership plans', () => {
+    const errors = validateCouponForm(
+      form({
+        code: 'MCOM-ALLACCESS',
+        appliesToAllMemberships: false,
+        appliesToAllAccess: true,
+      }),
+    );
+    expect(errors.scope).toBeUndefined();
   });
 
   it('rejects an expiry before the valid-from date', () => {

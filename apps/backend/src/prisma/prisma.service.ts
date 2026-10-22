@@ -93,6 +93,7 @@ type SoftDeleteModel =
   | 'consultantProfile'
   | 'accountManagerProfile'
   | 'membershipPlan'
+  | 'accessPlan'
   | 'businessProgramme'
   | 'conversation'
   | 'message';
@@ -177,6 +178,7 @@ const softDeleteExtension: any = {
     consultantProfile: softDeleteModelHooks('consultantProfile'),
     accountManagerProfile: softDeleteModelHooks('accountManagerProfile'),
     membershipPlan: softDeleteModelHooks('membershipPlan'),
+    accessPlan: softDeleteModelHooks('accessPlan'),
     businessProgramme: softDeleteModelHooks('businessProgramme'),
     conversation: softDeleteModelHooks('conversation'),
     message: softDeleteModelHooks('message'),
@@ -237,6 +239,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'consultantProfile',
       'accountManagerProfile',
       'membershipPlan',
+      'accessPlan',
       'businessProgramme',
       'conversation',
       'message',

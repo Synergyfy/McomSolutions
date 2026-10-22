@@ -249,7 +249,7 @@ export class PhaseMissionsDto {
 }
 
 export class UpdateProgrammeSettingsDto {
-  @ApiPropertyOptional({ example: 14, description: 'Default days of dashboard access granted upon £1 verification' })
+  @ApiPropertyOptional({ example: 14, description: 'Default days of dashboard access granted after verification, or the free-trial length when verification is optional' })
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -259,7 +259,7 @@ export class UpdateProgrammeSettingsDto {
   @IsOptional()
   verificationFeeAmount?: number;
 
-  @ApiPropertyOptional({ example: true, description: 'Whether verification fee is mandatory for platform access' })
+  @ApiPropertyOptional({ example: true, description: 'Whether the verification fee is mandatory. When false, businesses receive a free trial from signup.' })
   @IsOptional()
   @IsBoolean()
   verificationRequired?: boolean;

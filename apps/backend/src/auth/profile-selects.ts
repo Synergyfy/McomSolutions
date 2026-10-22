@@ -91,6 +91,7 @@ export const ssoUserInfoSelect = {
       verificationFeePaidAt: true,
       trialAccessDays: true,
       trialAccessExpiresAt: true,
+      createdAt: true,
       packages: {
         select: {
           id: true,

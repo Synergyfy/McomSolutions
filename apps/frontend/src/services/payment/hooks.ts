@@ -3,8 +3,8 @@ import { paymentApi } from './index';
 
 export const useStripeInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, isTrial, paymentPlan, couponCode }: { level: string; tier: string; billing: string; isTrial: boolean; paymentPlan?: string; couponCode?: string }) =>
-      paymentApi.stripeInitiate(level, tier, billing, isTrial, paymentPlan ?? 'full', couponCode),
+    mutationFn: ({ level, tier, billing, isTrial, paymentPlan, couponCode, autoRenew }: { level: string; tier: string; billing: string; isTrial: boolean; paymentPlan?: string; couponCode?: string; autoRenew?: boolean }) =>
+      paymentApi.stripeInitiate(level, tier, billing, isTrial, paymentPlan ?? 'full', couponCode, autoRenew ?? false),
   });
 };
 
@@ -23,8 +23,8 @@ export const useStripeConfirm = () => {
 
 export const usePaypalInitiate = () => {
   return useMutation({
-    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean; paymentPlan?: string; couponCode?: string }) =>
-      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan ?? 'full', couponCode),
+    mutationFn: ({ level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode, autoRenew }: { level: string; tier: string; billing: string; returnUrl: string; cancelUrl: string; isTrial: boolean; paymentPlan?: string; couponCode?: string; autoRenew?: boolean }) =>
+      paymentApi.paypalInitiate(level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan ?? 'full', couponCode, autoRenew ?? false),
   });
 };
 
@@ -76,6 +76,36 @@ export const usePlatformPaypalCapture = () => {
       queryClient.invalidateQueries({ queryKey: ['activePlans'] });
     },
   });
+};
+
+// ─── Recurring subscriptions ───────────────────────────────────────────
+export const useRecurringMutations = () => {
+  const queryClient = useQueryClient();
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+    queryClient.invalidateQueries({ queryKey: ['profile'] });
+  };
+  return {
+    cancel: useMutation({
+      mutationFn: ({ id, immediate }: { id: string; immediate?: boolean }) =>
+        paymentApi.cancelRecurring(id, immediate ?? false),
+      onSuccess: invalidate,
+    }),
+    resume: useMutation({
+      mutationFn: (id: string) => paymentApi.resumeRecurring(id),
+      onSuccess: invalidate,
+    }),
+    setAutoRenew: useMutation({
+      mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+        paymentApi.setRecurringAutoRenew(id, enabled),
+      onSuccess: invalidate,
+    }),
+    enableWallet: useMutation({
+      mutationFn: (data: { scope: 'MEMBERSHIP' | 'PLATFORM'; billingCycle: string; platform?: string }) =>
+        paymentApi.enableWalletRecurring(data),
+      onSuccess: invalidate,
+    }),
+  };
 };
 
 // ─── Public Platform Plans ──────────────────────────────────────────

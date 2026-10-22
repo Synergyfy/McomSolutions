@@ -576,6 +576,8 @@ function BusinessOnboardingInner() {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [trialConfigDays, setTrialConfigDays] = useState(14);
   const [verificationFeeAmount, setVerificationFeeAmount] = useState(1.00);
+  const [verificationRequired, setVerificationRequired] = useState(true);
+  const [accessPolicyLoaded, setAccessPolicyLoaded] = useState(false);
 
   useEffect(() => {
     // Fetch active programme trial access settings
@@ -584,9 +586,13 @@ function BusinessOnboardingInner() {
         if (res?.data?.data) {
           if (res.data.data.trialAccessDays) setTrialConfigDays(res.data.data.trialAccessDays);
           if (res.data.data.verificationFeeAmount) setVerificationFeeAmount(res.data.data.verificationFeeAmount);
+          if (typeof res.data.data.verificationRequired === 'boolean') {
+            setVerificationRequired(res.data.data.verificationRequired);
+          }
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setAccessPolicyLoaded(true));
   }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1544,10 +1550,10 @@ function BusinessOnboardingInner() {
     const hasPaidVerif = Boolean((currentUser as any)?.hasPaidVerificationFee || (currentUser as any)?.businessProfile?.hasPaidVerificationFee);
     const hasMembership = Boolean((currentUser as any)?.businessProfile?.membershipStatus === 'active' && (currentUser as any)?.businessProfile?.membershipLevel !== 'Bronze');
     
-    if (currentUser?.role === 'BUSINESS' && businessId && (hasPaidVerif || hasMembership)) {
+    if (currentUser?.role === 'BUSINESS' && businessId && (hasPaidVerif || hasMembership || (accessPolicyLoaded && !verificationRequired))) {
       router.replace('/dashboard');
     }
-  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal]);
+  }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal, accessPolicyLoaded, verificationRequired]);
 
   // ─── Platform Plans (from external services) ──────────
   const sourceParam = searchParams.get('source');
@@ -5052,13 +5058,30 @@ function BusinessOnboardingInner() {
                 <motion.button
                   whileHover={{ y: -1 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => { setShowProgrammeIntro(false); setShowVerificationModal(true); }}
+                  onClick={() => {
+                    setShowProgrammeIntro(false);
+                    if (verificationRequired) {
+                      setShowVerificationModal(true);
+                    } else {
+                      // Verification is optional — go straight to plan selection
+                      // and let the business start their free trial.
+                      setShowChoosePlan(true);
+                    }
+                  }}
                   className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-orange-600 px-5 py-4 text-center text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:text-base"
                 >
-                  <span>Verify Business &amp; Start Trial</span>
+                  <span>
+                    {verificationRequired
+                      ? 'Verify Business & Start Trial'
+                      : `Start ${trialConfigDays}-Day Free Trial`}
+                  </span>
                   <ArrowRight className="h-5 w-5 shrink-0" />
                 </motion.button>
-                <p className="mt-3 text-center text-xs font-medium text-slate-500">One-time verification fee: £{verificationFeeAmount.toFixed(2)}</p>
+                <p className="mt-3 text-center text-xs font-medium text-slate-500">
+                  {verificationRequired
+                    ? `One-time verification fee: £${verificationFeeAmount.toFixed(2)}`
+                    : `No card required — ${trialConfigDays} days of full access.`}
+                </p>
               </div>
             </motion.aside>
           </div>

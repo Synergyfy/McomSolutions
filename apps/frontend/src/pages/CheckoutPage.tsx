@@ -186,6 +186,7 @@ export default function CheckoutPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [appliedCoupon, setAppliedCoupon] = useState<CouponQuote | null>(null);
+  const [autoRenew, setAutoRenew] = useState(false);
 
   // Stripe client secret
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -273,7 +274,7 @@ export default function CheckoutPage() {
     setClientSecret(null);
     setErrorMessage(null);
 
-    stripeInitiate({ level: planId, tier, billing, isTrial, paymentPlan: selected.paymentPlan, couponCode })
+    stripeInitiate({ level: planId, tier, billing, isTrial, paymentPlan: selected.paymentPlan, couponCode, autoRenew })
       .then((data) => {
         if (isMounted && data?.clientSecret) {
           setClientSecret(data.clientSecret);
@@ -292,7 +293,7 @@ export default function CheckoutPage() {
     return () => {
       isMounted = false;
     };
-  }, [token, paymentProvider, planId, tier, billing, isTrial, paymentPlan, selected.paymentPlan, couponCode]);
+  }, [token, paymentProvider, planId, tier, billing, isTrial, paymentPlan, selected.paymentPlan, couponCode, autoRenew]);
 
   const handlePaypalPayment = async () => {
     setIsProcessing(true);
@@ -303,7 +304,7 @@ export default function CheckoutPage() {
       const returnUrl = `${origin}/checkout/paypal-return?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&paymentPlan=${encodeURIComponent(selected.paymentPlan)}&isTrial=${isTrial}`;
       const cancelUrl = `${origin}/checkout?plan=${encodeURIComponent(planId)}&tier=${encodeURIComponent(tier)}&billing=${encodeURIComponent(billing)}&isTrial=${isTrial}`;
 
-      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan: selected.paymentPlan, couponCode });
+      const initiated = await paypalInitiate({ level: planId, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan: selected.paymentPlan, couponCode, autoRenew });
 
       if (initiated?.approvalUrl) {
         window.location.href = initiated.approvalUrl;
@@ -385,6 +386,7 @@ export default function CheckoutPage() {
                 paymentPlan={selected.paymentPlan}
                 applied={appliedCoupon}
                 onApplied={setAppliedCoupon}
+                disabled={autoRenew}
               />
             </div>
 
@@ -397,8 +399,33 @@ export default function CheckoutPage() {
                 options={displayOptions}
                 value={selected.paymentPlan}
                 onChange={setPaymentPlan}
+                disabled={autoRenew}
               />
             </div>
+
+            {/* Auto-renew opt-in (full-term plans only) */}
+            <label className="mb-6 sm:mb-8 flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50/60 p-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-orange-600"
+                checked={autoRenew}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setAutoRenew(next);
+                  if (next) {
+                    setPaymentPlan('full');
+                    setAppliedCoupon(null);
+                  }
+                }}
+              />
+              <span className="text-xs sm:text-sm text-orange-950">
+                <span className="font-bold">Auto-renew this membership</span>
+                <span className="block text-[11px] sm:text-xs text-orange-800/80 mt-0.5">
+                  We will charge the same amount at the end of each term so access never lapses.
+                  Cancel anytime from Billing. Coupons and instalments are not available with auto-renew.
+                </span>
+              </span>
+            </label>
 
             {/* Pricing details */}
             <div className="space-y-3 sm:space-y-4 mb-6 sm:mb-8 text-xs sm:text-sm">

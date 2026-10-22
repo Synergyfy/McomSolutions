@@ -434,17 +434,23 @@ export class ProgrammeService {
   // ─── Settings & Trial Access Config ───────────────────
   async getSettings() {
     const settings = await this.prisma.programmeSetting.findMany();
-    const map = new Map(settings.map((s) => [s.key, s.value]));
+    const map = new Map(settings.map((s) => [s.key, s]));
 
-    const trialAccessDays = map.has('trial_access_days')
-      ? parseInt(map.get('trial_access_days') || '14', 10)
-      : 14;
-    const verificationFeeAmount = map.has('verification_fee_amount')
-      ? parseFloat(map.get('verification_fee_amount') || '1.00')
-      : 1.00;
-    const verificationRequired = map.has('verification_required')
-      ? map.get('verification_required') === 'true'
-      : true;
+    const trialSetting = map.get('trial_access_days');
+    const feeSetting = map.get('verification_fee_amount');
+    const verificationSetting = map.get('verification_required');
+
+    const trialAccessDays = trialSetting ? parseInt(trialSetting.value, 10) : 14;
+    const verificationFeeAmount = feeSetting ? parseFloat(feeSetting.value) : 1.00;
+    const verificationRequired = verificationSetting ? verificationSetting.value === 'true' : true;
+    // When verification is optional the free trial starts from signup, or from
+    // the moment verification was switched off for businesses that already
+    // existed. The setting's updatedAt is preserved while the value is
+    // unchanged (see updateSettings) so unrelated saves do not reset trials.
+    const verificationOptionalSince =
+      !verificationRequired && verificationSetting?.updatedAt
+        ? verificationSetting.updatedAt.toISOString()
+        : null;
 
     return {
       success: true,
@@ -452,6 +458,7 @@ export class ProgrammeService {
         trialAccessDays: isNaN(trialAccessDays) ? 14 : trialAccessDays,
         verificationFeeAmount: isNaN(verificationFeeAmount) ? 1.00 : verificationFeeAmount,
         verificationRequired,
+        verificationOptionalSince,
       },
     };
   }
@@ -505,21 +512,28 @@ export class ProgrammeService {
     }
 
     if (dto.verificationRequired !== undefined) {
-      updates.push(
-        this.prisma.programmeSetting.upsert({
-          where: { key: 'verification_required' },
-          create: {
-            key: 'verification_required',
-            value: String(dto.verificationRequired),
-            description: 'Whether verification fee is required for platform access',
-            updatedBy: adminName,
-          },
-          update: {
-            value: String(dto.verificationRequired),
-            updatedBy: adminName,
-          },
-        }),
-      );
+      // Only touch the row when the value actually changes so updatedAt keeps
+      // marking the moment verification became optional (the free-trial start).
+      const existingVerificationSetting = await this.prisma.programmeSetting.findUnique({
+        where: { key: 'verification_required' },
+      });
+      if (!existingVerificationSetting || existingVerificationSetting.value !== String(dto.verificationRequired)) {
+        updates.push(
+          this.prisma.programmeSetting.upsert({
+            where: { key: 'verification_required' },
+            create: {
+              key: 'verification_required',
+              value: String(dto.verificationRequired),
+              description: 'Whether verification fee is required for platform access',
+              updatedBy: adminName,
+            },
+            update: {
+              value: String(dto.verificationRequired),
+              updatedBy: adminName,
+            },
+          }),
+        );
+      }
     }
 
     await Promise.all(updates);

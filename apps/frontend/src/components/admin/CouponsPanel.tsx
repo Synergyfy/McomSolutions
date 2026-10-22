@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
+  useAdminAccessPlans,
   useAdminCoupons,
   useAdminPlans,
   useCouponRedemptions,
@@ -112,6 +113,7 @@ export default function CouponsPanel() {
   const [status, setStatus] = useState<CouponStatus | ''>('');
   const [source, setSource] = useState<CouponSource | ''>('');
   const [planId, setPlanId] = useState('');
+  const [accessPlanId, setAccessPlanId] = useState('');
   const [page, setPage] = useState(1);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -143,6 +145,8 @@ export default function CouponsPanel() {
 
   const { data: plansRes } = useAdminPlans();
   const plans = plansRes?.data ?? [];
+  const { data: accessPlansRes } = useAdminAccessPlans();
+  const accessPlans = (accessPlansRes?.data ?? []).filter((plan: any) => !plan.archived);
 
   const { data: statsRes, isLoading: statsLoading } = useCouponStats();
   const stats = statsRes?.data;
@@ -154,6 +158,7 @@ export default function CouponsPanel() {
     ...(status ? { status } : {}),
     ...(source ? { source } : {}),
     ...(planId ? { planId } : {}),
+    ...(accessPlanId ? { accessPlanId } : {}),
   });
 
   const { data: ledgerRes, isLoading: ledgerLoading, refetch: refetchLedger } = useCouponRedemptions({
@@ -308,6 +313,19 @@ export default function CouponsPanel() {
                   <option key={plan.id} value={plan.id}>{plan.name}</option>
                 ))}
               </select>
+              <select
+                value={accessPlanId}
+                onChange={(event) => {
+                  setAccessPlanId(event.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 max-w-[190px]"
+              >
+                <option value="">All access passes</option>
+                {accessPlans.map((plan: any) => (
+                  <option key={plan.id} value={plan.id}>{plan.name}</option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => refetchCoupons()}
@@ -382,9 +400,16 @@ export default function CouponsPanel() {
                         </span>
                       </td>
                       <td className="py-3 px-4 text-gray-600">
-                        {coupon.appliesToAllMemberships
-                          ? 'All memberships'
-                          : coupon.membershipPlans.map((plan) => plan.name).join(', ') || '—'}
+                        {[
+                          coupon.appliesToAllMemberships
+                            ? 'All memberships'
+                            : coupon.membershipPlans?.map((plan) => plan.name).join(', '),
+                          coupon.appliesToAllAccess
+                            ? 'All access passes'
+                            : coupon.accessPlans?.map((plan) => plan.name).join(', '),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || '—'}
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-bold text-gray-900">{coupon.timesRedeemed}</span>
@@ -623,7 +648,9 @@ export default function CouponsPanel() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-gray-600">
-                        {redemption.plan?.name ?? redemption.planName ?? '—'}
+                        {redemption.productType === 'ACCESS'
+                          ? redemption.accessPlan?.name ?? redemption.accessPlanName ?? '—'
+                          : redemption.plan?.name ?? redemption.planName ?? '—'}
                       </td>
                       <td className="py-3 px-4 text-gray-600">{formatMoney(redemption.originalAmount)}</td>
                       <td className="py-3 px-4 font-bold text-emerald-700">-{formatMoney(redemption.discountAmount)}</td>

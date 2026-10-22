@@ -23,6 +23,9 @@ import type {
   CreateAccountManagerInput,
   CreatePlanInput,
   UpdatePlanInput,
+  CreateAccessPlanInput,
+  UpdateAccessPlanInput,
+  AccessPlan,
   CreateSubscriptionInput,
   CreateLaunchRuleInput,
   RecordPaymentInput,
@@ -268,6 +271,49 @@ export const useDeletePlan = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'plans'] })
       queryClient.invalidateQueries({ queryKey: ['plans'] })
+    },
+  })
+}
+
+// ─── Access Plans ──────────────────────────────────────
+export const useAdminAccessPlans = () => {
+  return useQuery({
+    queryKey: ['admin', 'accessPlans'],
+    queryFn: () => adminApi.getAccessPlans(),
+    staleTime: 1000 * 60 * 10,
+  })
+}
+
+export const useCreateAccessPlan = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateAccessPlanInput) => adminApi.createAccessPlan(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPlans'] })
+      queryClient.invalidateQueries({ queryKey: ['accessPlans'] })
+    },
+  })
+}
+
+export const useUpdateAccessPlan = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateAccessPlanInput }) =>
+      adminApi.updateAccessPlan(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPlans'] })
+      queryClient.invalidateQueries({ queryKey: ['accessPlans'] })
+    },
+  })
+}
+
+export const useDeleteAccessPlan = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteAccessPlan(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPlans'] })
+      queryClient.invalidateQueries({ queryKey: ['accessPlans'] })
     },
   })
 }

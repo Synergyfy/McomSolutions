@@ -1,4 +1,4 @@
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useMatch } from 'react-router-dom';
 import AdminLayout, { AdminTab } from '../components/AdminLayout';
 import OverviewPanel from '../components/admin/OverviewPanel';
 import UserManagementPanel from '../components/admin/UserManagementPanel';
@@ -22,11 +22,13 @@ import { McomPayPanel } from '../components/admin/mcom-pay/McomPayPanel';
 import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
 import CouponsPanel from '../components/admin/CouponsPanel';
 import AdminMembershipEditor from './AdminMembershipEditor';
+import AdminAccessEditor from './AdminAccessEditor';
+import AccessPlansPanel from '../components/admin/AccessPlansPanel';
 import AdminCouponEditor from './AdminCouponEditor';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
-  'memberships', 'subscriptions',
+  'memberships', 'access', 'subscriptions',
   'coupons',
   'platform-access',
   'permissions', 'auth', 'registration-flow', 'business-profile',
@@ -51,14 +53,22 @@ export default function AdminDashboard() {
   const pathTab = segments[2] || 'dashboard';
   const activeTab = (ADMIN_TABS as readonly string[]).includes(pathTab) ? (pathTab as AdminTab) : 'dashboard';
 
-  // Dedicated membership editor pages (cleaner than a modal, mobile-first):
-  // /admin/memberships/new and /admin/memberships/:id/edit
-  const isMembershipEditor =
-    segments[2] === 'memberships' && (segments[3] === 'new' || segments[4] === 'edit');
-  const editorTitle = segments[3] === 'new' ? 'New Membership' : 'Edit Membership';
-  const isCouponEditor =
-    segments[2] === 'coupons' && (segments[3] === 'new' || segments[4] === 'edit');
-  const couponEditorTitle = segments[3] === 'new' ? 'New Coupon' : 'Edit Coupon';
+  // Dedicated editor pages use explicit route matches so nested paths are
+  // never mistaken for the list view.
+  const membershipNewMatch = useMatch('/admin/memberships/new');
+  const membershipEditMatch = useMatch('/admin/memberships/:id/edit');
+  const isMembershipEditor = !!(membershipNewMatch || membershipEditMatch);
+  const editorTitle = membershipNewMatch ? 'New Membership' : 'Edit Membership';
+
+  const couponNewMatch = useMatch('/admin/coupons/new');
+  const couponEditMatch = useMatch('/admin/coupons/:id/edit');
+  const isCouponEditor = !!(couponNewMatch || couponEditMatch);
+  const couponEditorTitle = couponNewMatch ? 'New Coupon' : 'Edit Coupon';
+
+  const accessNewMatch = useMatch('/admin/access/new');
+  const accessEditMatch = useMatch('/admin/access/:id/edit');
+  const isAccessEditor = !!(accessNewMatch || accessEditMatch);
+  const accessEditorTitle = accessNewMatch ? 'New Access Pass' : 'Edit Access Pass';
 
   const handleTabChange = (tab: AdminTab) => {
     navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
@@ -69,6 +79,7 @@ export default function AdminDashboard() {
       dashboard: { title: 'Ecosystem Dashboard', subtitle: 'Master overview of the entire MCOM ecosystem' },
       users: { title: 'User Management', subtitle: 'Manage all ecosystem users across roles' },
       memberships: { title: 'Membership Management', subtitle: 'Create and manage ecosystem membership tiers' },
+      access: { title: 'Access Passes', subtitle: 'Create fixed-duration, one-time access passes and bundle platform plans' },
       subscriptions: { title: 'Subscription Management', subtitle: 'Control all ecosystem subscriptions' },
       coupons: { title: 'Coupon Management', subtitle: 'Create codes, control redemption limits, and audit every discount' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
@@ -103,14 +114,18 @@ export default function AdminDashboard() {
   const tabInfo = getTabInfo(activeTab);
   const title = isMembershipEditor
     ? editorTitle
-    : isCouponEditor
-      ? couponEditorTitle
-      : tabInfo.title;
+    : isAccessEditor
+      ? accessEditorTitle
+      : isCouponEditor
+        ? couponEditorTitle
+        : tabInfo.title;
   const subtitle = isMembershipEditor
     ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
-    : isCouponEditor
-      ? 'Discount, membership scope, validity and redemption limits'
-      : tabInfo.subtitle;
+    : isAccessEditor
+      ? 'One-time pass — price, fixed duration, platform plans and variants'
+      : isCouponEditor
+        ? 'Discount, membership/access scope, validity and redemption limits'
+        : tabInfo.subtitle;
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -120,6 +135,8 @@ export default function AdminDashboard() {
         return <UserManagementPanel />;
       case 'memberships':
         return <PlanManagementPanel />;
+      case 'access':
+        return <AccessPlansPanel />;
       case 'subscriptions':
         return <SubscriptionManagementPanel />;
       case 'coupons':
@@ -174,6 +191,8 @@ export default function AdminDashboard() {
     <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
       {isMembershipEditor ? (
         <AdminMembershipEditor />
+      ) : isAccessEditor ? (
+        <AdminAccessEditor />
       ) : isCouponEditor ? (
         <AdminCouponEditor />
       ) : (

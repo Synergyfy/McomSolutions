@@ -37,6 +37,7 @@ export interface PlatformPurchase {
   billingCycle: string;
   returnUrl?: string;
   cancelUrl?: string;
+  autoRenew?: boolean;
 }
 
 export interface CreateSupportTicket {

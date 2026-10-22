@@ -908,7 +908,7 @@ function ConfigSection() {
             <div>
               <h3 className="font-bold text-gray-900 text-base">Dashboard Access & Verification Settings</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Configure the £1 verification fee and how many days of platform access businesses receive before needing a full membership.
+                Configure verification requirements, the one-time fee, and how many days of platform access businesses receive before needing a full membership.
               </p>
             </div>
           </div>
@@ -941,7 +941,7 @@ function ConfigSection() {
               </span>
             </div>
             <p className="text-[11px] text-gray-500">
-              Number of days a business can use the platform after paying the £1 fee without a membership.
+              Days of platform access after paying the verification fee. When verification is not mandatory, this is the free trial length from signup.
             </p>
           </div>
 
@@ -963,7 +963,7 @@ function ConfigSection() {
               </span>
             </div>
             <p className="text-[11px] text-gray-500">
-              One-time charge for identity & anti-fraud validation during onboarding.
+              One-time charge for identity & anti-fraud validation during onboarding. Only charged when verification is mandatory.
             </p>
           </div>
 
@@ -984,7 +984,7 @@ function ConfigSection() {
               </label>
             </div>
             <p className="text-[11px] text-gray-500">
-              When checked, businesses must verify their card before accessing the dashboard.
+              When checked, businesses must pay the verification fee before accessing the dashboard. When unchecked, they get a free trial of the configured days from signup.
             </p>
           </div>
         </div>
@@ -992,7 +992,9 @@ function ConfigSection() {
         {settingsSaved && (
           <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            Access settings successfully updated! New businesses will receive {trialDays} days trial access upon £{feeAmount.toFixed(2)} verification.
+            {verificationReq
+              ? `Access settings successfully updated! New businesses will receive ${trialDays} days of trial access after paying the £${feeAmount.toFixed(2)} verification fee.`
+              : `Access settings successfully updated! Verification is optional — new businesses get a ${trialDays}-day free trial, and existing unverified businesses start theirs now.`}
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsIn, IsBoolean } from 'class-validator';
 
 export class CreatePlatformPurchaseDto {
   @ApiProperty({ example: 'MCOM Mall', description: 'Target platform (a named platform or a Console-registered app slug, e.g. vcard)' })
@@ -27,4 +27,12 @@ export class CreatePlatformPurchaseDto {
   @IsOptional()
   @IsString()
   cancelUrl?: string
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Opt into automatic renewal for this platform plan',
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoRenew?: boolean
 }

@@ -46,6 +46,9 @@ export default function Dashboard() {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [trialConfigDays, setTrialConfigDays] = useState(14);
   const [verificationFeeAmount, setVerificationFeeAmount] = useState(1.00);
+  const [verificationRequired, setVerificationRequired] = useState(true);
+  const [verificationOptionalSince, setVerificationOptionalSince] = useState<string | null>(null);
+  const [accessPolicyLoaded, setAccessPolicyLoaded] = useState(false);
   const logout = useLogout();
   const [showFirstWelcome, setShowFirstWelcome] = useState(() => {
     return localStorage.getItem('firstDashboardLogin') === 'true';
@@ -59,9 +62,14 @@ export default function Dashboard() {
         if (res?.data?.data) {
           if (res.data.data.trialAccessDays) setTrialConfigDays(res.data.data.trialAccessDays);
           if (res.data.data.verificationFeeAmount) setVerificationFeeAmount(res.data.data.verificationFeeAmount);
+          if (typeof res.data.data.verificationRequired === 'boolean') {
+            setVerificationRequired(res.data.data.verificationRequired);
+          }
+          setVerificationOptionalSince(res.data.data.verificationOptionalSince ?? null);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setAccessPolicyLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -101,11 +109,28 @@ export default function Dashboard() {
     (profile?.membershipExpiresAt && new Date(profile.membershipExpiresAt) > new Date());
   
   const hasPaidVerification = Boolean(profile?.hasPaidVerificationFee);
-  const trialExpiresAt = profile?.trialAccessExpiresAt ? new Date(profile.trialAccessExpiresAt) : null;
-  const isTrialActive = !hasActiveMembership && hasPaidVerification && trialExpiresAt && trialExpiresAt > new Date();
+  const paidTrialExpiresAt = profile?.trialAccessExpiresAt ? new Date(profile.trialAccessExpiresAt) : null;
+
+  // When verification is optional, unpaid businesses get a free trial that
+  // starts at signup (or when verification was switched off, for businesses
+  // that already existed). Keep this in sync with SsoService.resolveEntitlements.
+  const profileCreatedAt = profile?.createdAt ? new Date(profile.createdAt) : null;
+  const optionalSince = verificationOptionalSince ? new Date(verificationOptionalSince) : null;
+  const freeTrialStartedAt = !profileCreatedAt
+    ? optionalSince
+    : optionalSince && optionalSince.getTime() > profileCreatedAt.getTime()
+      ? optionalSince
+      : profileCreatedAt;
+  const freeTrialExpiresAt = !verificationRequired && freeTrialStartedAt
+    ? new Date(freeTrialStartedAt.getTime() + trialConfigDays * 24 * 60 * 60 * 1000)
+    : null;
+  const trialExpiresAt = paidTrialExpiresAt ?? freeTrialExpiresAt;
+
+  const hasTrialEntitlement = hasPaidVerification || !verificationRequired;
+  const isTrialActive = !hasActiveMembership && hasTrialEntitlement && Boolean(trialExpiresAt) && trialExpiresAt!.getTime() > Date.now();
   const daysRemaining = trialExpiresAt ? Math.max(0, Math.ceil((trialExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
-  const isTrialExpired = !hasActiveMembership && hasPaidVerification && trialExpiresAt && trialExpiresAt <= new Date();
-  const isUnverified = Boolean(profile && !hasActiveMembership && !hasPaidVerification);
+  const isTrialExpired = !hasActiveMembership && hasTrialEntitlement && Boolean(trialExpiresAt) && trialExpiresAt!.getTime() <= Date.now();
+  const isUnverified = accessPolicyLoaded && Boolean(profile) && !hasActiveMembership && verificationRequired && !hasPaidVerification;
 
   const displayName = profile?.businessName || 'Business Owner';
   const displayEmail = profile?.email || 'owner@mcomsolutions.co.uk';

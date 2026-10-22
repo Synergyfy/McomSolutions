@@ -35,6 +35,14 @@ export class MembershipInitiateDto {
   @IsOptional()
   @IsBoolean()
   isTrial?: boolean;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Opt into automatic renewal (full-term plans only; not combinable with coupons yet)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoRenew?: boolean;
 }
 
 /** Phase 4: shared body for POST /payment/stripe/confirm. */

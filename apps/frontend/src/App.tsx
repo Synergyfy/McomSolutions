@@ -143,7 +143,7 @@ function AnimatedRoutes() {
             element={
               <ProtectedAdminRoute>
                 <PageWrapper>
-                  <AdminDashboard />
+                  <AdminDashboard key={location.pathname} />
                 </PageWrapper>
               </ProtectedAdminRoute>
             } 

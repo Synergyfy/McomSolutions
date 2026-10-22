@@ -32,7 +32,7 @@ export function calculatePermissions(
 
   // Build dynamic map from packages (new — no old consumer sees this key format)
   const dynamic: Record<string, boolean> = {};
-  if (membershipStatus === 'active') {
+  if (membershipStatus === 'active' || membershipStatus === 'past_due') {
     packages.forEach((pkg) => {
       if (pkg.status === 'active' && pkg.platform) {
         const slug = pkg.platform.toLowerCase().replace(/[^a-z0-9]/g, '_');

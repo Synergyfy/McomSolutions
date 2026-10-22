@@ -26,6 +26,8 @@ import {
   CreateConsultantUserDto,
   CreateAccountManagerDto,
   CreateMembershipPlanDto,
+  CreateAccessPlanDto,
+  UpdateAccessPlanDto,
   CreateSubscriptionDto,
   UpdateSubscriptionDto,
   UpdateEcosystemPlatformDto,
@@ -269,6 +271,42 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete membership plan' })
   async deletePlan(@Req() req: any, @Param('id') id: string) {
     await this.adminService.deletePlan(id, this.getAdminName(req));
+  }
+
+  // ─── Access Plans ─────────────────────────────────────
+  @Get('access-plans')
+  @ApiOperation({ summary: 'List access plans' })
+  async getAccessPlans() {
+    return this.adminService.getAccessPlans();
+  }
+
+  @Get('access-plans/:id')
+  @ApiOperation({ summary: 'Get an access plan' })
+  async getAccessPlan(@Param('id') id: string) {
+    return this.adminService.getAccessPlan(id);
+  }
+
+  @Post('access-plans')
+  @ApiOperation({ summary: 'Create access plan' })
+  async createAccessPlan(@Req() req: any, @Body() dto: CreateAccessPlanDto) {
+    return this.adminService.createAccessPlan(dto, this.getAdminName(req));
+  }
+
+  @Put('access-plans/:id')
+  @ApiOperation({ summary: 'Update access plan' })
+  async updateAccessPlan(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() updates: UpdateAccessPlanDto,
+  ) {
+    return this.adminService.updateAccessPlan(id, updates, this.getAdminName(req));
+  }
+
+  @Delete('access-plans/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete access plan' })
+  async deleteAccessPlan(@Req() req: any, @Param('id') id: string) {
+    await this.adminService.deleteAccessPlan(id, this.getAdminName(req));
   }
 
   // ─── Packages — REMOVED ──────────────────────────────────

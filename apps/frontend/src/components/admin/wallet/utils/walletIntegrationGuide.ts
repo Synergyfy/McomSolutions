@@ -9,7 +9,7 @@ const baseUrl = (import.meta.env.VITE_API_URL?.replace(/\/api\/v1\/?$/, '') || '
 export function generateWalletIntegrationGuide(): string {
   return `# MCOM Payments — Partner Integration Guide
 
-### Wallet (prepaid balance) + MCOM Pay (charge customers through MCOM)
+### Wallet (prepaid balance) + MCOM Pay (charge customers) + Recurring billing
 
 Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, MCOM Spin, VemTap, 247GBS, or any Console-registered app). MCOM exposes **two complementary payment capabilities**, both authenticated with the same app credentials and the same HMAC scheme:
 
@@ -23,6 +23,7 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 - Shared auth: HMAC via \`X-Mcom-Client-ID\` + \`X-Mcom-Signature\` (same \`hmacSecret\` for both)
 - Wallet currency: **MCOM credits** (displayed 2 dp, stored 4 dp)
 - MCOM Pay money: **minor units** (pence) stored as exact integers — never floats
+- Recurring: MCOM auto-renews **MCOM's own memberships/platform plans**. Partner apps remain responsible for their own renewal charges — see **Part C**.
 
 ---
 
@@ -34,9 +35,11 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 | Customer pays by card / PayPal for anything you sell | **MCOM Pay** | \`/app-payments/charges\` |
 | You reward, refund, or cashback credits into a user's wallet | **MCOM Wallet** | \`/wallet/partner/credit\` |
 | Reserve funds before confirming an order (pre-auth) | **MCOM Wallet** | \`/wallet/partner/hold/*\` |
+| Charge the same user every month/year (your subscription) | **Your scheduler + MCOM Wallet or MCOM Pay** | \`/wallet/partner/debit\` or \`/app-payments/charges\` |
+| Auto-renew an MCOM membership/platform plan | **MCOM handles it** | Not a partner API — see Part C |
 | You want an immutable, auditable money ledger in pence with MCOM fees/net | **MCOM Pay** | \`/app-payments/*\` |
 
-> Rule of thumb: **MCOM Wallet moves existing MCOM credits. MCOM Pay collects real money (or spends the wallet) and keeps the books.**
+> Rule of thumb: **MCOM Wallet moves existing MCOM credits. MCOM Pay collects real money (or spends the wallet) and keeps the books.** MCOM's recurring engine renews **MCOM-owned plans**; it does **not** store mandates for partner subscriptions.
 
 ---
 
@@ -120,7 +123,7 @@ All under \`${baseUrl}/api/v1/wallet/partner\`. HMAC + \`X-Mcom-Client-ID\` requ
 
 | Method | Path | Purpose | Idempotency-Key |
 |---|---|---|---|
-| POST | \`/debit\` | Debit a wallet (subscription, purchase, fee) | **Required** |
+| POST | \`/debit\` | Debit a wallet (subscription renewal, purchase, fee) | **Required** |
 | POST | \`/credit\` | Credit a wallet (reward, refund, cashback) | **Required** |
 | POST | \`/hold/place\` | Reserve funds before confirming | Optional |
 | POST | \`/hold/capture\` | Convert a hold into a real debit | Optional |
@@ -149,6 +152,8 @@ Content-Type: application/json
 \`\`\`
 
 **Categories:** \`SUBSCRIPTION\`, \`PURCHASE\`, \`SERVICE_FEE\` (debits); \`REWARD\`, \`REFUND\`, \`ADMIN_CREDIT\`, \`TRANSFER_IN\` (credits).
+
+> **Subscriptions:** MCOM does not auto-debit partner subscriptions. Your backend schedules each renewal and calls \`/debit\` with a **new idempotency key per billing period**. See **Part C — Recurring Billing**.
 
 Success (201):
 
@@ -232,6 +237,8 @@ MCOM Pay turns any Console-registered app into a merchant. Your **backend** (nev
 5. Refunds post the exact reverse ledger entries.
 
 **Trust model:** the amount always comes from your authenticated backend — the customer's browser can never set or alter it.
+
+> **Recurring:** MCOM Pay charges are **one-time**. For a subscription, your backend creates a **new charge each billing period** with a new idempotency key. MCOM does not store a partner card/PayPal mandate. See **Part C — Recurring Billing**.
 
 ## B1.1 Sandbox vs Production & Client-Side Handling (Critical)
 
@@ -489,12 +496,111 @@ Verify the signature before trusting the payload, and treat webhooks as **at-lea
 
 ---
 
-# Part C — Idempotency — Prevent Double Charges
+# Part C — Recurring Billing (Subscriptions)
+
+> **Who charges at renewal?** MCOM's recurring engine renews **MCOM-owned memberships and platform plans**. Partner apps remain responsible for their own subscription renewals: MCOM does not store a card or wallet mandate for partner charges.
+
+| Your plan | How renewal works |
+|---|---|
+| MCOM membership / platform plan | MCOM charges the saved provider mandate (or wallet) and extends access. You do not call partner APIs for this. |
+| Your app's subscription paid from MCOM Wallet | **Your backend** runs a scheduler and calls \`POST /wallet/partner/debit\` each period. |
+| Your app's subscription paid by card / PayPal | **Your backend** creates a new \`POST /app-payments/charges\` each period. MCOM Pay charges are one-time; for unattended card recurring you need a provider mandate on your side. |
+
+## C1. Renewal loop (your backend)
+
+Store \`nextChargeAt\` in UTC on your subscription row. A daily cron is enough:
+
+1. Find subscriptions where \`nextChargeAt <= now\`.
+2. Build a deterministic key for **this billing period** (never per retry):
+   \`\`\`ts
+   const period = sub.currentPeriodStart.toISOString().slice(0, 10);
+   const idempotencyKey = \`\${CLIENT_ID}-sub-\${sub.id}-\${period}\`;
+   \`\`\`
+3. Charge from your backend:
+
+   \`\`\`http
+   POST ${baseUrl}/api/v1/wallet/partner/debit
+   X-Mcom-Client-ID: mcom-mall
+   X-Mcom-Signature: sha256=<...>
+   X-Idempotency-Key: mcom-mall-sub-sub_42-2026-11-01
+   Content-Type: application/json
+
+   {
+     "userId": "user_abc123",
+     "amount": 50,
+     "category": "SUBSCRIPTION",
+     "description": "MCOM Mall Gold - November 2026",
+     "reference": "sub_42_2026_11",
+     "metadata": { "subscriptionId": "sub_42", "period": "2026-11" }
+   }
+   \`\`\`
+
+   For card / PayPal renewals, call \`POST /app-payments/charges\` with the same per-period key instead.
+4. On success, extend \`currentPeriodEnd\`, advance \`nextChargeAt\`, write your invoice, and send a receipt.
+5. On \`422 INSUFFICIENT_BALANCE\` or a provider failure, move the subscription to \`past_due\` and retry on your dunning schedule.
+6. After the final retry, set \`canceled\` and revoke access.
+
+\`\`\`ts
+@Cron('0 2 * * *') // daily 02:00 UTC
+async renewDueSubscriptions() {
+  const due = await db.subscription.findMany({
+    where: { status: 'active', nextChargeAt: { lte: new Date() } },
+  });
+
+  for (const sub of due) {
+    const period = sub.currentPeriodStart.toISOString().slice(0, 10);
+    const idempotencyKey = \`\${CLIENT_ID}-sub-\${sub.id}-\${period}\`;
+    try {
+      await mcom.debit(sub.userId, sub.amount, {
+        category: 'SUBSCRIPTION',
+        description: \`\${sub.planName} renewal\`,
+        reference: sub.invoiceId,
+        idempotencyKey,
+      });
+      await db.subscription.update({
+        where: { id: sub.id },
+        data: {
+          currentPeriodStart: sub.currentPeriodEnd,
+          currentPeriodEnd: addInterval(sub.currentPeriodEnd, sub.interval),
+          nextChargeAt: sub.currentPeriodEnd,
+        },
+      });
+    } catch (err) {
+      await markPastDue(sub, err); // retries + notification
+    }
+  }
+}
+\`\`\`
+
+## C2. Dunning (recommended)
+
+| Attempt | When | Action |
+|---|---|---|
+| 1 | Period end | Charge. On failure, notify the user and keep access for the grace period. |
+| 2 | +1 day | Retry with the **same** idempotency key (safe retry, not a new charge). |
+| 3 | +3 days | Retry; send a second reminder. |
+| 4 | +7 days | Final retry; then set \`canceled\` and revoke access. |
+
+Use the **same** key for retries of the same period, and a **new** key when the period changes.
+
+## C3. Important rules
+
+- **Never run renewals from the browser** — the scheduler and HMAC signing live in your backend.
+- **One key per billing period.** Reusing last month's key returns last month's receipt instead of charging.
+- **Store amounts server-side.** Never accept a renewal amount from the client.
+- **Time zones:** store and compare \`nextChargeAt\` in UTC; render local dates in the UI.
+- **Webhooks:** a successful renewal produces the normal \`payment.succeeded\` event. There is no separate renewal event.
+- **Cancellation:** stop scheduling; MCOM has no partner-side cancel endpoint for your own subscription. (MCOM's \`/recurring\` endpoints manage MCOM-owned plans and are not available to partner apps.)
+- **Hosted partner mandates:** not available yet. If you need MCOM to store and charge a mandate for your app, contact MCOM support.
+
+---
+
+# Part D — Idempotency — Prevent Double Charges
 
 Use a **deterministic** key derived from your internal record:
 
 \`\`\`ts
-const key = \`\${CLIENT_ID}-sub-\${invoiceId}\`;        // wallet subscription
+const key = \`\${CLIENT_ID}-sub-\${subscriptionId}-\${period}\`; // one per renewal cycle
 const key = \`\${CLIENT_ID}-purchase-\${orderId}\`;     // wallet purchase
 const key = \`\${CLIENT_ID}-refund-\${originalTxnId}\`;  // wallet refund
 const key = \`\${CLIENT_ID}-reward-\${campaignId}-\${userId}-\${date}\`;
@@ -505,13 +611,14 @@ const key = \`\${CLIENT_ID}-pay-\${orderId}\`;           // MCOM Pay charge
 Rules:
 - Max 255 chars, ASCII only.
 - Unique per **business event**, never per HTTP retry.
+- **Renewals:** a new key per billing period; the **same** key for retries within that period.
 - **Never reuse** a key for a different amount or operation.
 - Same key + same body on retry → you get the original result back, no second charge.
 - Keys are scoped to your platform — another platform's key never collides with yours.
 
 ---
 
-# Part D — Drop-In Client (TypeScript / NestJS)
+# Part E — Drop-In Client (TypeScript / NestJS)
 
 \`\`\`ts
 import * as crypto from 'crypto';
@@ -588,7 +695,7 @@ export class McomPaymentsService {
 
 ---
 
-# Part E — Go-Live Checklist
+# Part F — Go-Live Checklist
 
 **Shared**
 - [ ] App registered in MCOM Console with a per-app \`hmacSecret\` (and a Webhook URL for MCOM Pay events)
@@ -599,6 +706,16 @@ export class McomPaymentsService {
 - [ ] Every debit/credit uses a deterministic idempotency key
 - [ ] \`INSUFFICIENT_BALANCE\` handled (top-up prompt)
 - [ ] Captured holds are captured or released; rely on 24h auto-expiry as backstop
+
+**Recurring (your app's subscriptions)**
+- [ ] Renewal scheduler runs in your backend (UTC), never in the browser
+- [ ] Each plan stores \`nextChargeAt\`, amount, interval and status (\`active\` / \`past_due\` / \`canceled\`)
+- [ ] A new idempotency key is generated **per billing period**; retries reuse it
+- [ ] Wallet renewals call \`/wallet/partner/debit\` with \`category: "SUBSCRIPTION"\`
+- [ ] Card/PayPal renewals create a new MCOM Pay charge (or use your own provider mandate)
+- [ ] Dunning schedule configured (+1d, +3d, +7d) with user notifications and a grace period
+- [ ] Failed renewals eventually revoke access; successful ones extend it and send a receipt
+- [ ] \`payment.succeeded\` webhooks are idempotent per renewal cycle
 
 **MCOM Pay**
 - [ ] Charges are created **server-side** only (amount never comes from the browser)

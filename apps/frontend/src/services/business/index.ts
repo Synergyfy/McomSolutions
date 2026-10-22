@@ -18,6 +18,8 @@ export interface MyCoupon {
   discountValue: number;
   appliesToAllMemberships: boolean;
   membershipPlans: string[];
+  appliesToAllAccess: boolean;
+  accessPlans: string[];
   validFrom: string;
   expiresAt: string | null;
   source: 'ADMIN' | 'TASK_REWARD';

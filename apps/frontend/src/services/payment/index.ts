@@ -2,8 +2,8 @@ import { apiClient } from '../api';
 import type { PlatformConfirm, PlatformPurchase } from '../../types/contracts';
 
 export const paymentApi = {
-  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string) => {
-    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial, paymentPlan, couponCode });
+  stripeInitiate: async (level: string, tier: string, billing: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string, autoRenew: boolean = false) => {
+    const res = await apiClient.post('/payment/stripe/initiate', { level, tier, billing, isTrial, paymentPlan, couponCode, autoRenew });
     return res.data;
   },
 
@@ -12,8 +12,8 @@ export const paymentApi = {
     return res.data;
   },
 
-  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string) => {
-    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode });
+  paypalInitiate: async (level: string, tier: string, billing: string, returnUrl: string, cancelUrl: string, isTrial: boolean, paymentPlan: string = 'full', couponCode?: string, autoRenew: boolean = false) => {
+    const res = await apiClient.post('/payment/paypal/initiate', { level, tier, billing, returnUrl, cancelUrl, isTrial, paymentPlan, couponCode, autoRenew });
     return res.data;
   },
 
@@ -40,6 +40,36 @@ export const paymentApi = {
 
   platformPaypalCapture: async (orderId: string) => {
     const res = await apiClient.post('/payment/platform/paypal/capture', { orderId });
+    return res.data;
+  },
+
+  // ─── Recurring subscriptions ──────────────────────────────────────────
+  listRecurring: async () => {
+    const res = await apiClient.get('/recurring');
+    return res.data;
+  },
+
+  cancelRecurring: async (id: string, immediate = false) => {
+    const res = await apiClient.post(`/recurring/${id}/cancel`, { immediate });
+    return res.data;
+  },
+
+  resumeRecurring: async (id: string) => {
+    const res = await apiClient.post(`/recurring/${id}/resume`);
+    return res.data;
+  },
+
+  setRecurringAutoRenew: async (id: string, enabled: boolean) => {
+    const res = await apiClient.patch(`/recurring/${id}/auto-renew`, { enabled });
+    return res.data;
+  },
+
+  enableWalletRecurring: async (data: {
+    scope: 'MEMBERSHIP' | 'PLATFORM';
+    billingCycle: string;
+    platform?: string;
+  }) => {
+    const res = await apiClient.post('/recurring/wallet', data);
     return res.data;
   },
 
