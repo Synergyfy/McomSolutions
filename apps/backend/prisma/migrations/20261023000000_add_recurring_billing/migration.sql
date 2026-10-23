@@ -32,12 +32,14 @@ DO $$ BEGIN
 END $$;
 
 -- ─── Business / package linkage ────────────────────────────────────────────
-ALTER TABLE "business_profiles"
+-- BusinessProfile and PlatformPackage keep their legacy PascalCase table
+-- names in this schema (they have no @@map), unlike newer snake_case models.
+ALTER TABLE "BusinessProfile"
   ADD COLUMN IF NOT EXISTS "membership_recurring_id" TEXT,
   ADD COLUMN IF NOT EXISTS "stripe_customer_id" TEXT,
   ADD COLUMN IF NOT EXISTS "paypal_payer_id" TEXT;
 
-ALTER TABLE "platform_packages"
+ALTER TABLE "PlatformPackage"
   ADD COLUMN IF NOT EXISTS "auto_renew" BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS "next_charge_at" TIMESTAMP(3);
 
