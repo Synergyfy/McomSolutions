@@ -87,7 +87,7 @@ export class ConsoleService {
         isSystemApp: dto.isSystemApp ?? false,
         feePercent: dto.feePercent ?? null,
         feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
-        metadata: dto.planSchemaEndpoint ? { planSchemaEndpoint: dto.planSchemaEndpoint } : undefined,
+        metadata: this.buildMetadata(dto.planSchemaEndpoint, dto.accessPassPlansEndpoint),
         serviceEnabled: dto.serviceEnabled ?? true,
         serviceBaseUrl: dto.serviceBaseUrl ?? null,
         serviceScopes: dto.serviceScopes ?? [],
@@ -141,11 +141,16 @@ export class ConsoleService {
     if (dto.corsOrigins !== undefined) data.corsOrigins = dto.corsOrigins;
     if (dto.scopes !== undefined) data.scopes = dto.scopes;
     if (dto.webhookUrl !== undefined) data.webhookUrl = dto.webhookUrl ?? null;
-    if (dto.planSchemaEndpoint !== undefined) {
+    if (dto.planSchemaEndpoint !== undefined || dto.accessPassPlansEndpoint !== undefined) {
       const existingMetadata = (existing.metadata ?? {}) as Record<string, unknown>;
       data.metadata = {
         ...existingMetadata,
-        planSchemaEndpoint: dto.planSchemaEndpoint || null,
+        ...(dto.planSchemaEndpoint !== undefined
+          ? { planSchemaEndpoint: dto.planSchemaEndpoint || null }
+          : {}),
+        ...(dto.accessPassPlansEndpoint !== undefined
+          ? { accessPassPlansEndpoint: dto.accessPassPlansEndpoint || null }
+          : {}),
       };
     }
     if (dto.feePercent !== undefined) data.feePercent = dto.feePercent ?? null;
@@ -503,6 +508,16 @@ export class ConsoleService {
     return key;
   }
 
+  private buildMetadata(
+    planSchemaEndpoint?: string,
+    accessPassPlansEndpoint?: string,
+  ): Prisma.InputJsonValue | undefined {
+    const metadata: Record<string, string> = {};
+    if (planSchemaEndpoint) metadata.planSchemaEndpoint = planSchemaEndpoint;
+    if (accessPassPlansEndpoint) metadata.accessPassPlansEndpoint = accessPassPlansEndpoint;
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+  }
+
   private async getClientOrThrow(clientId: string) {
     const client = await this.prisma.ssoClient.findUnique({ where: { clientId } });
     if (!client) {
@@ -580,6 +595,7 @@ export class ConsoleService {
       'scopes',
       'webhookUrl',
       'planSchemaEndpoint',
+      'accessPassPlansEndpoint',
       'serviceEnabled',
       'serviceBaseUrl',
       'serviceScopes',
@@ -587,11 +603,12 @@ export class ConsoleService {
       'allowedCallers',
     ];
     for (const field of fields) {
-      const beforeVal = field === 'planSchemaEndpoint'
-        ? (before.metadata?.planSchemaEndpoint ?? null)
+      const isMetadataField = field === 'planSchemaEndpoint' || field === 'accessPassPlansEndpoint';
+      const beforeVal = isMetadataField
+        ? (before.metadata?.[field] ?? null)
         : before[field];
-      const afterVal = field === 'planSchemaEndpoint'
-        ? (after.metadata?.planSchemaEndpoint ?? null)
+      const afterVal = isMetadataField
+        ? (after.metadata?.[field] ?? null)
         : after[field];
       if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
         changes[field] = { before: beforeVal ?? null, after: afterVal ?? null };
@@ -673,6 +690,8 @@ export class ConsoleService {
       appUrl: client.appUrl,
       billingApiUrl: client.billingApiUrl,
       planSchemaEndpoint: (client.metadata?.planSchemaEndpoint as string | null | undefined) ?? null,
+      accessPassPlansEndpoint:
+        (client.metadata?.accessPassPlansEndpoint as string | null | undefined) ?? null,
       redirectUris: client.redirectUris,
       corsOrigins: client.corsOrigins,
       scopes: client.scopes,

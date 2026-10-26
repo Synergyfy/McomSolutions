@@ -22,6 +22,57 @@ export const paymentApi = {
     return res.data;
   },
 
+  // ─── Access Pass Purchases ────────────────────────────────────────────
+  accessStripeInitiate: async (data: {
+    accessPlanId: string;
+    couponCode?: string;
+    purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+    recipientEmail?: string;
+    entitlementChoice?: 'membership' | 'access_pass';
+  }) => {
+    const res = await apiClient.post('/payment/access/stripe/initiate', data);
+    return res.data;
+  },
+
+  accessStripeConfirm: async (data: { accessPlanId: string; paymentIntentId: string }) => {
+    const res = await apiClient.post('/payment/access/stripe/confirm', data);
+    return res.data;
+  },
+
+  accessPaypalInitiate: async (data: {
+    accessPlanId: string;
+    returnUrl: string;
+    cancelUrl: string;
+    couponCode?: string;
+    purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+    recipientEmail?: string;
+    entitlementChoice?: 'membership' | 'access_pass';
+  }) => {
+    const res = await apiClient.post('/payment/access/paypal/initiate', data);
+    return res.data;
+  },
+
+  accessPaypalCapture: async (orderId: string) => {
+    const res = await apiClient.post('/payment/access/paypal/capture', { orderId });
+    return res.data;
+  },
+
+  accessWalletPurchase: async (
+    data: {
+      accessPlanId: string;
+      couponCode?: string;
+      purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+      recipientEmail?: string;
+      entitlementChoice?: 'membership' | 'access_pass';
+    },
+    idempotencyKey: string,
+  ) => {
+    const res = await apiClient.post('/payment/access/wallet', data, {
+      headers: { 'X-Idempotency-Key': idempotencyKey },
+    });
+    return res.data;
+  },
+
   // ─── Platform Plan Purchases ──────────────────────────────────────────
   platformStripeInitiate: async (data: PlatformPurchase) => {
     const res = await apiClient.post('/payment/platform/stripe/initiate', data);

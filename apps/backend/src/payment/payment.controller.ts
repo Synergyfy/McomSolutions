@@ -140,6 +140,9 @@ export class PaymentController {
       dto.accessPlanId,
       dto.couponCode,
       req.user?.userId,
+      dto.purchaseMode,
+      dto.recipientEmail,
+      dto.entitlementChoice,
     );
   }
 
@@ -170,6 +173,9 @@ export class PaymentController {
       dto.cancelUrl,
       dto.couponCode,
       req.user?.userId,
+      dto.purchaseMode,
+      dto.recipientEmail,
+      dto.entitlementChoice,
     );
   }
 
@@ -184,13 +190,13 @@ export class PaymentController {
   @UseGuards(JwtAuthGuard)
   @Post('access/wallet')
   @ApiOperation({
-    summary: 'Pay for an access pass with the MCOM Wallet (requires Idempotency-Key header)',
+    summary: 'Pay for an access pass with the MCOM Wallet (requires X-Idempotency-Key header)',
   })
   @ApiBody({ type: AccessWalletPurchaseDto })
   async accessWalletPurchase(
     @Request() req: any,
     @Body() dto: AccessWalletPurchaseDto,
-    @Headers('idempotency-key') idempotencyKey: string,
+    @Headers('x-idempotency-key') idempotencyKey: string,
   ) {
     const businessId = await this.getBusinessId(req);
     return this.paymentService.accessWalletPurchase(
@@ -199,6 +205,9 @@ export class PaymentController {
       dto.accessPlanId,
       dto.couponCode,
       idempotencyKey,
+      dto.purchaseMode,
+      dto.recipientEmail,
+      dto.entitlementChoice,
     );
   }
 

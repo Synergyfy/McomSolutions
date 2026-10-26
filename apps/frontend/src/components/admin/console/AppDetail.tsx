@@ -527,6 +527,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [appUrl, setAppUrl] = useState(detail.appUrl ?? '');
   const [billingApiUrl, setBillingApiUrl] = useState(detail.billingApiUrl ?? '');
   const [planSchemaEndpoint, setPlanSchemaEndpoint] = useState(detail.planSchemaEndpoint ?? '');
+  const [accessPassPlansEndpoint, setAccessPassPlansEndpoint] = useState(detail.accessPassPlansEndpoint ?? '');
   const [platformSlug, setPlatformSlug] = useState(detail.platformSlug ?? '');
   const [webhookUrl, setWebhookUrl] = useState(detail.webhookUrl ?? '');
   const [feePercent, setFeePercent] = useState(detail.feePercent != null ? String(detail.feePercent) : '');
@@ -564,6 +565,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       appUrl: appUrl.trim() || undefined,
       billingApiUrl: billingApiUrl.trim() || undefined,
       planSchemaEndpoint: planSchemaEndpoint.trim() || undefined,
+      accessPassPlansEndpoint: accessPassPlansEndpoint.trim() || undefined,
       platformSlug: platformSlug.trim() || undefined,
       webhookUrl: webhookUrl.trim() || undefined,
       scopes,
@@ -664,6 +666,21 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
         />
         <p className="text-[10px] text-gray-400 mt-1">
           Plan configuration schema used by the plan form. Leave blank to auto-derive from the Billing API URL.
+        </p>
+      </div>
+
+      {/* Access Pass Plans Endpoint */}
+      <div>
+        <label className={labelCls}>Access Pass Plans Endpoint</label>
+        <input
+          value={accessPassPlansEndpoint}
+          onChange={(e) => setAccessPassPlansEndpoint(e.target.value)}
+          className={cn(inputCls, 'font-mono text-xs')}
+          placeholder="https://api.rewards.mcom.com/api/v1/access-passes/plans"
+        />
+        <p className="text-[10px] text-gray-400 mt-1">
+          Optional. Returns this platform&apos;s access pass plan catalogue. MCOM admins can bundle these
+          plans into a single central-hub access pass. Leave blank if the platform has no access passes.
         </p>
       </div>
 

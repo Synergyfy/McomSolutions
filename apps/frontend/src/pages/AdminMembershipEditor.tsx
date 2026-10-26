@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   Check,
   Plus,
   X,
@@ -12,7 +13,6 @@ import {
   AlertCircle,
   Calendar,
   Zap,
-  Shield,
   Layers,
   ListChecks,
   CreditCard,
@@ -40,8 +40,9 @@ import SplitEditor, {
   type OptionDraft,
   type TierKey,
 } from '../components/admin/SplitEditor';
+import EcosystemAccessSkillModal from '../components/admin/EcosystemAccessSkillModal';
 
-const STEPS = ['Basics', 'Pricing', 'Features', 'Entitlements', 'Bundles', 'Review'] as const;
+const STEPS = ['Basics', 'Pricing', 'Features', 'Bundles', 'Review'] as const;
 
 const COLOR_PRESETS = [
   { label: 'Amber', value: 'border-amber-600/20 text-amber-600 bg-amber-50', dotColor: 'bg-amber-500' },
@@ -125,6 +126,7 @@ export default function AdminMembershipEditor() {
   const [step, setStep] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [showSkillModal, setShowSkillModal] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const touch = (key: string) => setTouched((t) => (t[key] ? t : { ...t, [key]: true }));
   const initialized = useRef(false);
@@ -144,13 +146,12 @@ export default function AdminMembershipEditor() {
   });
   const [tierFeatures, setTierFeatures] = useState<Record<TierKey, string[]>>({ Standard: [], Pro: [], 'Pro+': [] });
   const [newFeatureText, setNewFeatureText] = useState<Record<TierKey, string>>({ Standard: '', Pro: '', 'Pro+': '' });
-  const [entitlements, setEntitlements] = useState<TierEntitlementResource[]>([]);
+  // Entitlements are no longer editable here, but existing quotas are carried
+  // through on edit so saving the plan does not wipe them.
+  const [preservedEntitlements, setPreservedEntitlements] = useState<TierEntitlementResource[]>([]);
   const [includedApps, setIncludedApps] = useState<IncludedAppPlan[]>([]);
   const [selectedBundlePlatform, setSelectedBundlePlatform] = useState('');
   const [selectedBundlePlanId, setSelectedBundlePlanId] = useState('');
-
-  const [newResName, setNewResName] = useState('');
-  const [newResValues, setNewResValues] = useState({ standard: '10', pro: '25', proPlus: '50' });
 
   // ── Bundles data ──
   const { data: platformsRes } = useSupportedPlatforms();
@@ -160,6 +161,14 @@ export default function AdminMembershipEditor() {
     const extPlans = (externalPlansRes as any)?.data ?? [];
     return extPlans.map((ep: any) => ({ id: ep.id, name: ep.name, price: ep.tierPrices?.Standard ?? ep.monthlyPrice ?? 0 }));
   }, [externalPlansRes]);
+
+  // One bundled plan per platform — platforms already in the bundle are hidden
+  // from the picker until their existing entry is removed.
+  const bundledPlatforms = useMemo(() => new Set(includedApps.map((a) => a.platform)), [includedApps]);
+  const availableBundlePlatforms = useMemo(
+    () => platforms.filter((p) => !bundledPlatforms.has(p.name)),
+    [platforms, bundledPlatforms],
+  );
 
   // ── Init from existing plan (edit mode) ──
   useEffect(() => {
@@ -213,7 +222,7 @@ export default function AdminMembershipEditor() {
     setTierOptions({ Standard: build('Standard'), Pro: build('Pro'), 'Pro+': build('Pro+') });
 
     if (Array.isArray(src.tierEntitlements) && src.tierEntitlements.length > 0) {
-      setEntitlements(src.tierEntitlements as TierEntitlementResource[]);
+      setPreservedEntitlements(src.tierEntitlements as TierEntitlementResource[]);
     }
     setIncludedApps(src.includedApps || []);
   }, [isNew, planId, plansLoading, editingPlan]);
@@ -248,31 +257,22 @@ export default function AdminMembershipEditor() {
     setTierFeatures({ ...tierFeatures, [tier]: tierFeatures[tier].filter((_, i) => i !== index) });
   };
 
-  const addResource = () => {
-    if (!newResName.trim()) return;
-    const key = newResName.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-    setEntitlements([
-      ...entitlements,
-      { resourceKey: key, name: newResName.trim(), standard: newResValues.standard, pro: newResValues.pro, proPlus: newResValues.proPlus },
-    ]);
-    setNewResName('');
-    setNewResValues({ standard: '10', pro: '25', proPlus: '50' });
-  };
-  const updateEntitlement = (index: number, field: 'standard' | 'pro' | 'proPlus', value: string) => {
-    const updated = [...entitlements];
-    updated[index] = { ...updated[index], [field]: value };
-    setEntitlements(updated);
-  };
-
   const addBundledApp = () => {
-    if (!selectedBundlePlanId) return;
+    if (!selectedBundlePlanId || !selectedBundlePlatform) return;
+    if (bundledPlatforms.has(selectedBundlePlatform)) {
+      setFormError(
+        `Only one plan per platform is allowed. Remove the existing ${selectedBundlePlatform} bundle before adding another.`,
+      );
+      return;
+    }
     const planObj = availablePlansForPlatform.find((p: any) => p.id === selectedBundlePlanId);
     if (!planObj) return;
-    if (includedApps.some((a) => a.platform === selectedBundlePlatform && a.planId === planObj.id)) return;
+    setFormError(null);
     setIncludedApps([
       ...includedApps,
       { platform: selectedBundlePlatform, planId: planObj.id, planName: planObj.name, standalonePrice: planObj.price },
     ]);
+    setSelectedBundlePlatform('');
     setSelectedBundlePlanId('');
   };
 
@@ -291,7 +291,7 @@ export default function AdminMembershipEditor() {
       fullPrice: tierPrices[tier],
       durationDays: TIER_DURATIONS[tier],
       features: tierFeatures[tier],
-      entitlements: entitlements.map((e) => ({
+      entitlements: preservedEntitlements.map((e) => ({
         resourceKey: e.resourceKey,
         quotaValue: String(tier === 'Standard' ? e.standard : tier === 'Pro' ? e.pro : e.proPlus),
       })),
@@ -323,7 +323,7 @@ export default function AdminMembershipEditor() {
       includedApps,
       tierPrices: { ...tierPrices },
       tierFeatures: { ...tierFeatures },
-      tierEntitlements: entitlements,
+      tierEntitlements: preservedEntitlements,
       tierDurations: { ...TIER_DURATIONS },
       tiers,
     };
@@ -389,12 +389,25 @@ export default function AdminMembershipEditor() {
         <ArrowLeft className="w-4 h-4" /> All memberships
       </button>
 
-      <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
-        {isNew ? 'Create membership' : `Edit ${editingPlan?.name || 'membership'}`}
-      </h1>
-      <p className="text-sm text-gray-500 mt-1 mb-5">
-        Step {step + 1} of {STEPS.length} · {STEPS[step]}
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+            {isNew ? 'Create membership' : `Edit ${editingPlan?.name || 'membership'}`}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Step {step + 1} of {STEPS.length} · {STEPS[step]}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowSkillModal(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-xs transition-all shadow-xs hover:shadow min-h-[44px] shrink-0"
+          title="AI skill that explains how platforms verify memberships, access passes, and trials over SSO"
+        >
+          <Bot className="w-4 h-4 text-indigo-600" />
+          Access Verification Skill
+        </button>
+      </div>
 
       {/* Progress */}
       <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1" role="list" aria-label="Setup progress">
@@ -611,79 +624,7 @@ export default function AdminMembershipEditor() {
           {step === 3 && (
             <>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Numeric limits enforced live per tier — e.g. campaigns, listings, API calls. <span className="font-semibold">Entirely optional — skip this step if the plan has no limits.</span>
-              </p>
-              {entitlements.map((e, i) => (
-                <div key={i} className="rounded-2xl border border-gray-200 p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-extrabold text-gray-900 flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-emerald-600" /> {e.name || e.resourceKey}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setEntitlements(entitlements.filter((_, j) => j !== i))}
-                      aria-label={`Remove ${e.resourceKey}`}
-                      className="p-2 text-gray-300 hover:text-red-500 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['standard', 'pro', 'proPlus'] as const).map((field) => (
-                      <div key={field}>
-                        <label htmlFor={`ent-${i}-${field}`} className="block text-xs font-bold text-gray-500 mb-1 capitalize">
-                          {field === 'proPlus' ? 'Pro+' : field}
-                        </label>
-                        <input
-                          id={`ent-${i}-${field}`}
-                          value={String(e[field] ?? '')}
-                          onChange={(ev) => updateEntitlement(i, field, ev.target.value)}
-                          inputMode="numeric"
-                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-base font-bold text-gray-900 min-h-[48px]"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div className="rounded-2xl border border-dashed border-gray-300 p-4 space-y-3">
-                <div className="text-sm font-extrabold text-gray-900">Add a resource <Requirement required={false} /></div>
-                <div>
-                  <label htmlFor="new-res-name" className={labelClass}>Resource name <Requirement required /></label>
-                  <input id="new-res-name" value={newResName} onChange={(e) => setNewResName(e.target.value)} placeholder="e.g. Campaigns" className={inputClass} />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['standard', 'pro', 'proPlus'] as const).map((field) => (
-                    <div key={field}>
-                      <label htmlFor={`new-res-${field}`} className="block text-xs font-bold text-gray-500 mb-1 capitalize">
-                        {field === 'proPlus' ? 'Pro+' : field} quota
-                      </label>
-                      <input
-                        id={`new-res-${field}`}
-                        value={newResValues[field]}
-                        onChange={(e) => setNewResValues({ ...newResValues, [field]: e.target.value })}
-                        inputMode="numeric"
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-base font-bold text-gray-900 min-h-[48px]"
-                      />
-                    </div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={addResource}
-                  disabled={!newResName.trim()}
-                  className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold disabled:opacity-40 min-h-[48px] flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" /> Add resource
-                </button>
-              </div>
-            </>
-          )}
-
-          {step === 4 && (
-            <>
-              <p className="text-sm text-gray-500 leading-relaxed">
-                Bundle platform plans into this membership. Buyers get them automatically on activation. <span className="font-semibold">Bundles are optional — save without any.</span>
+                Bundle platform plans into this membership. Buyers get them automatically on activation. <span className="font-semibold">Bundles are optional — save without any.</span> Only one plan can be bundled per platform.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -698,10 +639,15 @@ export default function AdminMembershipEditor() {
                     className={cn(inputClass, 'bg-white')}
                   >
                     <option value="">Choose platform…</option>
-                    {platforms.map((p) => (
+                    {availableBundlePlatforms.map((p) => (
                       <option key={p.name} value={p.name}>{p.name}</option>
                     ))}
                   </select>
+                  {availableBundlePlatforms.length === 0 && (
+                    <p className={hintClass}>
+                      Every platform already has a bundled plan. Remove one below to pick a different plan.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="bundle-plan" className={labelClass}>Plan <Requirement required={false} /></label>
@@ -752,7 +698,7 @@ export default function AdminMembershipEditor() {
             </>
           )}
 
-          {step === 5 && (
+          {step === 4 && (
             <>
               <div className="flex items-center gap-2 text-sm font-extrabold text-gray-900">
                 <Eye className="w-4 h-4 text-brand-blue" /> Review before saving
@@ -784,14 +730,10 @@ export default function AdminMembershipEditor() {
                   </div>
                 ))}
                 </div>
-                <div className="p-3.5 flex justify-between gap-3">
-                  <span className="text-gray-500 font-medium">Entitlements</span>
-                  <span className="font-bold text-gray-900">{entitlements.length} resources</span>
-                </div>
               </div>
               <p className="text-xs sm:text-sm text-gray-400 leading-relaxed flex items-start gap-1.5">
                 <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
-                Saving writes all tiers, splits, features, limits and bundles in one transaction — buyers see the new prices immediately.
+                Saving writes all tiers, splits, features and bundles in one transaction — buyers see the new prices immediately.
               </p>
             </>
           )}
@@ -847,6 +789,10 @@ export default function AdminMembershipEditor() {
           )}
         </div>
       </div>
+
+      {showSkillModal && (
+        <EcosystemAccessSkillModal onClose={() => setShowSkillModal(false)} />
+      )}
     </div>
   );
 }

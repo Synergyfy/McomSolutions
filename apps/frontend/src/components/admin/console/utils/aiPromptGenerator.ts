@@ -528,6 +528,11 @@ app.use('/api/v1/system/plans', (req, res, next) => {
 // 3. GET    /api/v1/system/plans/:id  -> Get single plan by ID
 // 4. PATCH  /api/v1/system/plans/:id  -> Update plan details
 // 5. DELETE /api/v1/system/plans/:id  -> Archive or delete plan
+//
+// Optional — if this platform sells standalone access passes, expose:
+// GET /api/v1/access-passes/plans -> Array of { id, name, price, currency, durationDays, features, configuration }
+// MCOM admins bundle these into a single central-hub access pass. Register the
+// full URL as the app's "Access Pass Plans Endpoint" in MCOM Console.
 \`\`\`
 
 ---

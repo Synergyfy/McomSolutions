@@ -25,11 +25,12 @@ import AdminMembershipEditor from './AdminMembershipEditor';
 import AdminAccessEditor from './AdminAccessEditor';
 import AccessPlansPanel from '../components/admin/AccessPlansPanel';
 import AdminCouponEditor from './AdminCouponEditor';
+import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
   'memberships', 'access', 'subscriptions',
-  'coupons',
+  'coupons', 'dashboard-access',
   'platform-access',
   'permissions', 'auth', 'registration-flow', 'business-profile',
   'payments', 'billing',
@@ -82,6 +83,7 @@ export default function AdminDashboard() {
       access: { title: 'Access Passes', subtitle: 'Create fixed-duration, one-time access passes and bundle platform plans' },
       subscriptions: { title: 'Subscription Management', subtitle: 'Control all ecosystem subscriptions' },
       coupons: { title: 'Coupon Management', subtitle: 'Create codes, control redemption limits, and audit every discount' },
+      'dashboard-access': { title: 'Dashboard Access & Verification', subtitle: 'Configure trial access duration, verification fee, and verification enforcement' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
       permissions: { title: 'Permission Management', subtitle: 'Role and permission control matrix' },
       auth: { title: 'Authentication Management', subtitle: 'Manage login, registration, and security policies' },
@@ -99,7 +101,7 @@ export default function AdminDashboard() {
       'console': { title: 'MCOM Console', subtitle: 'Register and manage ecosystem applications' },
       'wallet': { title: 'Wallet Management', subtitle: 'View and manage user wallets and transactions across all platforms' },
       'mcom-pay': { title: 'MCOM Pay Ledger', subtitle: 'Read-only ledger of every charge processed through registered apps' },
-      'programme': { title: '90-Day Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
+      'programme': { title: 'Activity Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
       'super-admin': { title: 'Super Admin Control Center', subtitle: 'Highest-level administrative control' },
@@ -141,6 +143,8 @@ export default function AdminDashboard() {
         return <SubscriptionManagementPanel />;
       case 'coupons':
         return <CouponsPanel />;
+      case 'dashboard-access':
+        return <DashboardAccessPanel />;
       case 'platform-access':
         return <PlatformPanel />;
       case 'permissions':

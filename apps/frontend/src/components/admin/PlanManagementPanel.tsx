@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Plus, X, Trash2, Edit3, Package, Gem, Archive, ExternalLink, Loader2, Trophy, Layers, Sparkles, Shield, Bot } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import MembershipProtocolModal from './MembershipProtocolModal';
+import EcosystemAccessSkillModal from './EcosystemAccessSkillModal';
 import {
   useAdminPlans,
   useUpdatePlan,
@@ -44,6 +45,7 @@ export default function PlanManagementPanel() {
   const [confirmEditPlan, setConfirmEditPlan] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
   const [deleteExternalPlanTarget, setDeleteExternalPlanTarget] = useState<{ plan: ExternalPlan; platform: PlatformInfo } | null>(null);
   const [showProtocolModal, setShowProtocolModal] = useState(false);
+  const [showAccessSkillModal, setShowAccessSkillModal] = useState(false);
 
   const membershipPlans = plansRes?.data ?? [];
   const platforms: PlatformInfo[] = platformsRes?.data ?? [];
@@ -79,7 +81,16 @@ export default function PlanManagementPanel() {
             <p className="text-sm text-gray-500 font-medium">
               {plansLoading ? 'Loading memberships...' : `${membershipPlans.length} membership plans configured`}
             </p>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowAccessSkillModal(true)}
+                className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-xs transition-all shadow-xs hover:shadow flex items-center gap-2 min-h-[44px]"
+                title="AI skill that explains how platforms verify memberships, access passes, and trials over SSO"
+              >
+                <Bot className="w-4 h-4 text-indigo-600" />
+                <span>Access Verification Skill</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setShowProtocolModal(true)}
@@ -87,7 +98,7 @@ export default function PlanManagementPanel() {
                 title="View AI Agent Integration Blueprint & Protocol Specifications"
               >
                 <Bot className="w-4 h-4 text-indigo-600" />
-                <span>AI Integration Skill & Blueprint</span>
+                <span>Protocol Blueprint</span>
               </button>
               <button
                 onClick={() => navigate('/admin/memberships/new')}
@@ -302,6 +313,9 @@ export default function PlanManagementPanel() {
         )}
         {showProtocolModal && (
           <MembershipProtocolModal onClose={() => setShowProtocolModal(false)} />
+        )}
+        {showAccessSkillModal && (
+          <EcosystemAccessSkillModal onClose={() => setShowAccessSkillModal(false)} />
         )}
       </AnimatePresence>
     </div>

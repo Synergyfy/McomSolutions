@@ -40,6 +40,79 @@ export const usePaypalCapture = () => {
   });
 };
 
+// ─── Access Pass Purchases ────────────────────────────────────────────
+export const useAccessStripeInitiate = () => {
+  return useMutation({
+    mutationFn: (data: {
+      accessPlanId: string;
+      couponCode?: string;
+      purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+      recipientEmail?: string;
+      entitlementChoice?: 'membership' | 'access_pass';
+    }) => paymentApi.accessStripeInitiate(data),
+  });
+};
+
+export const useAccessStripeConfirm = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { accessPlanId: string; paymentIntentId: string }) =>
+      paymentApi.accessStripeConfirm(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['access'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+};
+
+export const useAccessPaypalInitiate = () => {
+  return useMutation({
+    mutationFn: (data: {
+      accessPlanId: string;
+      returnUrl: string;
+      cancelUrl: string;
+      couponCode?: string;
+      purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+      recipientEmail?: string;
+      entitlementChoice?: 'membership' | 'access_pass';
+    }) => paymentApi.accessPaypalInitiate(data),
+  });
+};
+
+export const useAccessPaypalCapture = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => paymentApi.accessPaypalCapture(orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['access'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+};
+
+export const useAccessWalletPurchase = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      data,
+      idempotencyKey,
+    }: {
+      data: {
+        accessPlanId: string;
+        couponCode?: string;
+        purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+        recipientEmail?: string;
+        entitlementChoice?: 'membership' | 'access_pass';
+      };
+      idempotencyKey: string;
+    }) => paymentApi.accessWalletPurchase(data, idempotencyKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['access'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+  });
+};
+
 // ─── Platform Plan Purchases ──────────────────────────────────────────
 export const usePlatformStripeInitiate = () => {
   return useMutation({

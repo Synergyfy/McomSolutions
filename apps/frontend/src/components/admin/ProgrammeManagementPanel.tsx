@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  Rocket, Settings, Users, BarChart3, Shield, Crown,
+  Rocket, Users, BarChart3, Crown,
   Plus, Trash2, Save, RefreshCw, Search, Filter,
   PauseCircle, PlayCircle, FastForward, SkipForward,
   CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -14,34 +14,17 @@ import {
   Zap, Building2
 } from 'lucide-react';
 import TaskEngineSection from './TaskEngineSection';
-import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getTotalMissions } from '../../lib/programmeData';
-import type { ProgrammePhase, ProgrammeMission } from '../../lib/programmeData';
+import { PROGRAMME_PHASES, getPhaseForDay, getProgressForDay } from '../../lib/programmeData';
+import type { ProgrammePhase } from '../../lib/programmeData';
 import { cn } from '../../lib/utils';
 import {
-  useProgrammePhases,
-  useProgrammeGates,
   useProgrammeAgents,
   useProgrammeBusinesses,
   useProgrammeBusinessAction,
   useUpdateProgrammeBusiness,
-  useCreateProgrammePhase,
-  useUpdateProgrammePhase,
-  useDeleteProgrammePhase,
-  useCreateProgrammeGate,
-  useUpdateProgrammeGate,
-  useDeleteProgrammeGate,
-  useProgrammeSettings,
-  useUpdateProgrammeSettings,
 } from '../../services/admin/hooks';
 
 // ─── Types ────────────────────────────────────────────────
-
-interface ReadinessGate {
-  id: string;
-  name: string;
-  minProgressPercent: number;
-  isEnabled: boolean;
-}
 
 interface BusinessProgrammeRecord {
   id: string;
@@ -67,7 +50,7 @@ interface SupportAgent {
   email: string;
 }
 
-type SubTab = 'config' | 'tasks' | 'businesses' | 'monitoring';
+type SubTab = 'tasks' | 'businesses' | 'monitoring';
 
 const INTERNAL_PLATFORMS = [
   { id: 'mall', name: 'MCOM Mall' },
@@ -101,7 +84,7 @@ const ACTION_CONFIGS: Record<BusinessAction, {
   pause: {
     icon: PauseCircle,
     title: 'Pause Programme',
-    description: (b) => `This will pause ${b.businessName}'s 90-day programme. The business will not be able to progress or complete tasks until resumed.`,
+    description: (b) => `This will pause ${b.businessName}'s activity programme. The business will not be able to progress or complete tasks until resumed.`,
     inputType: 'none',
     confirmLabel: 'Pause Programme',
     confirmColor: 'bg-amber-500 hover:bg-amber-600',
@@ -109,7 +92,7 @@ const ACTION_CONFIGS: Record<BusinessAction, {
   resume: {
     icon: PlayCircle,
     title: 'Resume Programme',
-    description: (b) => `${b.businessName} will continue their 90-day programme from Day ${b.currentDay} as normal.`,
+    description: (b) => `${b.businessName} will continue their activity programme from Day ${b.currentDay} as normal.`,
     inputType: 'none',
     confirmLabel: 'Resume Programme',
     confirmColor: 'bg-green-500 hover:bg-green-600',
@@ -251,924 +234,6 @@ function BusinessActionModal({
 // ─── Support agents now come from API via useProgrammeAgents() ────────────────
 
 // ─── Business programme records now come from API via useProgrammeBusinesses() ────────────────
-
-// ─── Task Editor Modal ──────────────────────────────
-
-const SUBMISSION_TYPES = [
-  { id: 'internal_platform', label: 'Internal Platform', description: 'Task completed within an MCOM platform' },
-  { id: 'external_link', label: 'External Link', description: 'Task completed via external URL' },
-  { id: 'image_upload', label: 'Image Upload', description: 'User uploads an image to complete' },
-  { id: 'text_input', label: 'Text Input', description: 'User enters text to complete' },
-  { id: 'digit_input', label: 'Digit Input', description: 'User enters digits to complete' },
-] as const;
-
-type SubmissionTypeId = typeof SUBMISSION_TYPES[number]['id'];
-
-interface TaskFormData {
-  id: string;
-  title: string;
-  description: string;
-  instructions: string;
-  estimatedMinutes: number;
-  reward: string;
-  submissionType: SubmissionTypeId;
-  system: string;
-  systemUrl: string;
-  ctaLabel: string;
-  targetAudience: 'BUSINESS' | 'CUSTOMER' | 'BOTH';
-  featureKey: string;
-  deadlineDays: number;
-  rewardPoints: number;
-}
-
-const EMPTY_TASK: TaskFormData = {
-  id: '',
-  title: '',
-  description: '',
-  instructions: '',
-  estimatedMinutes: 10,
-  reward: '+50 points',
-  submissionType: 'internal_platform',
-  system: 'MCOM Central',
-  systemUrl: '',
-  ctaLabel: 'Continue',
-  targetAudience: 'BUSINESS',
-  featureKey: 'business.logo_uploaded',
-  deadlineDays: 7,
-  rewardPoints: 50,
-};
-
-function TaskEditorModal({
-  open,
-  formData,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  formData: TaskFormData;
-  onClose: () => void;
-  onSave: (data: TaskFormData) => void;
-}) {
-  const [local, setLocal] = useState<TaskFormData>(formData);
-  const [step, setStep] = useState(1);
-
-  useEffect(() => {
-    setLocal(formData);
-    setStep(1);
-  }, [formData, open]);
-
-  if (!open) return null;
-
-  const isValid = local.title.trim().length > 0;
-  const showPlatform = local.submissionType === 'internal_platform' || local.submissionType === 'external_link';
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          onClick={e => e.stopPropagation()}
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">{local.id ? 'Edit Task' : 'New Task'}</h3>
-              <p className="text-sm text-gray-500 mt-0.5">Configure the task details and how it's completed.</p>
-            </div>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Step Indicator */}
-          <div className="flex items-center gap-3 px-6 pt-5 pb-2">
-            <div className="flex items-center gap-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === 1 ? 'bg-brand-blue text-white shadow-sm' : 'bg-gray-200 text-gray-400'}`}>1</div>
-              <span className={`text-xs font-bold transition-colors ${step === 1 ? 'text-brand-blue' : 'text-gray-400'}`}>Task Details</span>
-            </div>
-            <div className="w-10 h-px bg-gray-200" />
-            <div className="flex items-center gap-2">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${step === 2 ? 'bg-brand-blue text-white shadow-sm' : 'bg-gray-200 text-gray-400'}`}>2</div>
-              <span className={`text-xs font-bold transition-colors ${step === 2 ? 'text-brand-blue' : 'text-gray-400'}`}>Instructions</span>
-            </div>
-          </div>
-
-          {/* Step 1: Task Details */}
-          {step === 1 && (
-            <motion.div
-              key="step1"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-6 py-5 space-y-5"
-            >
-              {/* Task Name */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Task Name</label>
-                <input
-                  value={local.title}
-                  onChange={e => setLocal({ ...local, title: e.target.value })}
-                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300"
-                  placeholder="e.g. Complete Business Profile"
-                  autoFocus
-                />
-              </div>
-
-              {/* Short Description */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Short Description</label>
-                <p className="text-[11px] text-gray-400 -mt-1">A one-line summary shown in the task list.</p>
-                <input
-                  value={local.description}
-                  onChange={e => setLocal({ ...local, description: e.target.value })}
-                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300"
-                  placeholder="Brief description for the task list"
-                />
-              </div>
-
-              {/* Target Audience */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Target Audience</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'BUSINESS', label: 'Business', icon: Building2 },
-                    { id: 'CUSTOMER', label: 'Customer', icon: User },
-                    { id: 'BOTH', label: 'Both', icon: Users },
-                  ].map(aud => (
-                    <button
-                      key={aud.id}
-                      type="button"
-                      onClick={() => setLocal({ ...local, targetAudience: aud.id as any })}
-                      className={cn(
-                        'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
-                        local.targetAudience === aud.id
-                          ? 'bg-brand-blue text-white border-brand-blue shadow-sm'
-                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                      )}
-                    >
-                      <aud.icon className="w-3.5 h-3.5" />
-                      {aud.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Task Type / Module Trigger Feature */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-brand-blue" />
-                  Task Type / Module Trigger Feature (BullMQ Worker)
-                </label>
-                <p className="text-[11px] text-gray-400 -mt-1">
-                  Specify what feature action in MCOM Central auto-completes this task and issues rewards.
-                </p>
-                <select
-                  value={local.featureKey || 'business.logo_uploaded'}
-                  onChange={e => setLocal({ ...local, featureKey: e.target.value })}
-                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 font-medium"
-                >
-                  <optgroup label="Business Actions">
-                    <option value="business.logo_uploaded">Upload Business Logo & Assets</option>
-                    <option value="business.profile_completed">Complete Master Business Profile</option>
-                    <option value="business.opening_hours_set">Set Operating Opening Hours</option>
-                    <option value="business.social_linked">Connect Social Media Accounts</option>
-                    <option value="business.google_verified">Connect Google Business Listing</option>
-                    <option value="business.membership_purchased">Purchase Business Membership</option>
-                  </optgroup>
-                  <optgroup label="Customer Actions">
-                    <option value="customer.profile_completed">Complete Customer Profile Info</option>
-                    <option value="customer.membership_purchased">Purchase Customer Membership</option>
-                  </optgroup>
-                  <optgroup label="Other / Manual">
-                    <option value="custom_action">Custom Action - Manual / External Verification</option>
-                  </optgroup>
-                </select>
-                <div className="text-[11px] text-brand-blue bg-blue-50/70 border border-blue-200/60 p-2 rounded-lg flex items-center gap-1.5 mt-1">
-                  <Zap className="w-3 h-3 text-brand-blue shrink-0" />
-                  <span>Connected to background message queue workers for automated completion verification.</span>
-                </div>
-              </div>
-
-              {/* Submission Type */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Submission Type</label>
-                <p className="text-[11px] text-gray-400 -mt-1">Determines how the business completes this task.</p>
-                <select
-                  value={local.submissionType}
-                  onChange={e => setLocal({ ...local, submissionType: e.target.value as SubmissionTypeId })}
-                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                >
-                  {SUBMISSION_TYPES.map(st => (
-                    <option key={st.id} value={st.id}>{st.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Conditional Platform / URL Fields */}
-              {showPlatform && (
-                <>
-                  <div className="border-t border-gray-100" />
-                  <div className="space-y-3">
-                    {local.submissionType === 'internal_platform' ? (
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Platform</label>
-                        <p className="text-[11px] text-gray-400 -mt-1">Select the internal MCOM platform for this task.</p>
-                        <select
-                          value={local.system}
-                          onChange={e => setLocal({ ...local, system: e.target.value })}
-                          className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40"
-                        >
-                          <option value="">Select a platform</option>
-                          {INTERNAL_PLATFORMS.map(p => (
-                            <option key={p.id} value={p.name}>{p.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">External Platform</label>
-                        <p className="text-[11px] text-gray-400 -mt-1">Enter the external URL where the task is completed.</p>
-                        <input
-                          value={local.systemUrl}
-                          onChange={e => setLocal({ ...local, systemUrl: e.target.value })}
-                          className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
-                          placeholder="https://example.com/tool"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* CTA Button Label */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">CTA Button Text</label>
-                <p className="text-[11px] text-gray-400 -mt-1">What the action button should say (e.g. "Continue", "Start", "Open Platform").</p>
-                <input
-                  value={local.ctaLabel}
-                  onChange={e => setLocal({ ...local, ctaLabel: e.target.value })}
-                  className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
-                  placeholder="Continue"
-                />
-              </div>
-
-              <div className="border-t border-gray-100" />
-
-              {/* Time to Complete & Reward Points */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Time to Complete (Deadline)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={local.deadlineDays || 7}
-                      onChange={e => setLocal({ ...local, deadlineDays: parseInt(e.target.value) || 1 })}
-                      className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
-                      min="1"
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-bold">Days</span>
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    {[3, 7, 14, 30].map(d => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => setLocal({ ...local, deadlineDays: d })}
-                        className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 text-[10px] font-semibold"
-                      >
-                        {d}d
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Reward in Points (Wallet)</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={local.rewardPoints ?? 50}
-                      onChange={e => {
-                        const pts = parseInt(e.target.value) || 0;
-                        setLocal({ ...local, rewardPoints: pts, reward: `+${pts} points` });
-                      }}
-                      className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all"
-                      min="0"
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-amber-500 font-bold">MCOM Pts</span>
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    {[25, 50, 100, 250].map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setLocal({ ...local, rewardPoints: p, reward: `+${p} points` })}
-                        className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 text-[10px] font-bold"
-                      >
-                        +{p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 2: Instructions */}
-          {step === 2 && (
-            <motion.div
-              key="step2"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-6 py-5 space-y-5"
-            >
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">Instructions</label>
-                <p className="text-[11px] text-gray-400 -mt-1">Explain step-by-step how the business should complete this task. This appears on the task detail screen.</p>
-                <textarea
-                  value={local.instructions}
-                  onChange={e => setLocal({ ...local, instructions: e.target.value })}
-                  rows={8}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue transition-all placeholder:text-gray-300 resize-none"
-                  placeholder="Describe step-by-step how to complete this task..."
-                  autoFocus
-                />
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <p className="text-xs font-semibold text-amber-700">
-                  These instructions will be shown to the business when they open this task.
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Footer */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-            {step === 1 ? (
-              <>
-                <button onClick={onClose} className="px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => setStep(2)}
-                  disabled={!isValid}
-                  className="px-8 py-2.5 text-sm font-bold text-white bg-brand-blue rounded-xl hover:bg-brand-dark transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-brand-blue/20 flex items-center gap-2"
-                >
-                  Next: Instructions
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setStep(1)} className="flex items-center gap-2 px-6 py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all">
-                  <ChevronLeft className="w-4 h-4" />
-                  Back
-                </button>
-                <button
-                  onClick={() => onSave(local)}
-                  className="px-8 py-2.5 text-sm font-bold text-white bg-brand-blue rounded-xl hover:bg-brand-dark transition-all shadow-lg shadow-brand-blue/20"
-                >
-                  {local.id ? 'Save Changes' : 'Add Task'}
-                </button>
-              </>
-            )}
-          </div>
-        </motion.div>
-      </div>
-    </>
-  );
-}
-
-// ─── Config Section ─────────────────────────────────
-
-function ConfigSection() {
-
-  const { data: settingsRes } = useProgrammeSettings();
-  const updateSettingsMutation = useUpdateProgrammeSettings();
-  const [trialDays, setTrialDays] = useState(14);
-  const [feeAmount, setFeeAmount] = useState(1.00);
-  const [verificationReq, setVerificationReq] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsSaved, setSettingsSaved] = useState(false);
-
-  useEffect(() => {
-    if (settingsRes?.data) {
-      setTrialDays(settingsRes.data.trialAccessDays ?? 14);
-      setFeeAmount(settingsRes.data.verificationFeeAmount ?? 1.00);
-      setVerificationReq(settingsRes.data.verificationRequired ?? true);
-    }
-  }, [settingsRes]);
-
-  const handleSaveSettings = async () => {
-    setSavingSettings(true);
-    setSettingsSaved(false);
-    try {
-      await updateSettingsMutation.mutateAsync({
-        trialAccessDays: trialDays,
-        verificationFeeAmount: feeAmount,
-        verificationRequired: verificationReq,
-      });
-      setSettingsSaved(true);
-      setTimeout(() => setSettingsSaved(false), 5000);
-    } catch (err) {
-      console.error('Failed to update programme settings:', err);
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const { data: phasesRes, isLoading: phasesLoading } = useProgrammePhases();
-  const { data: gatesRes, isLoading: gatesLoading } = useProgrammeGates();
-  const [phases, setPhases] = useState<ProgrammePhase[]>([]);
-  const [editingPhase, setEditingPhase] = useState<string | null>(null);
-  const [gates, setGates] = useState<ReadinessGate[]>([]);
-  const [saving, setSaving] = useState(false);
-
-  const createPhase = useCreateProgrammePhase();
-  const updatePhaseMutation = useUpdateProgrammePhase();
-  const deletePhaseMutation = useDeleteProgrammePhase();
-  const createGate = useCreateProgrammeGate();
-  const updateGateMutation = useUpdateProgrammeGate();
-  const deleteGateMutation = useDeleteProgrammeGate();
-
-  const initialPhases = useRef<ProgrammePhase[]>([]);
-  const initialGates = useRef<ReadinessGate[]>([]);
-
-  useEffect(() => {
-    if (phasesRes?.data) {
-      initialPhases.current = phasesRes.data;
-      setPhases(phasesRes.data);
-    } else if (!phasesLoading) {
-      initialPhases.current = [];
-      setPhases([]);
-    }
-  }, [phasesRes, phasesLoading]);
-
-  useEffect(() => {
-    if (gatesRes?.data) {
-      initialGates.current = gatesRes.data;
-      setGates(gatesRes.data);
-    } else if (!gatesLoading) {
-      initialGates.current = [];
-      setGates([]);
-    }
-  }, [gatesRes, gatesLoading]);
-
-  // Modal state
-  const [modalOpen, setModalOpen] = useState(false);
-  const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
-  const [taskFormData, setTaskFormData] = useState<TaskFormData>(EMPTY_TASK);
-
-  const totalMissions = phases.reduce((s, p) => s + p.missions.length, 0);
-
-  const updatePhase = (id: string, field: string, value: any) => {
-    setPhases(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
-  };
-
-  const addPhase = () => {
-    const newPhase: ProgrammePhase = {
-      id: `phase-${Date.now()}`,
-      name: 'New Phase',
-      dayStart: 1,
-      dayEnd: 14,
-      description: 'Describe this phase',
-      icon: Rocket,
-      color: 'gray',
-      missions: [],
-    };
-    setPhases(prev => [...prev, newPhase]);
-    setEditingPhase(newPhase.id);
-  };
-
-  const removePhase = (id: string) => {
-    if (phases.length <= 1) return;
-    setPhases(prev => prev.filter(p => p.id !== id));
-  };
-
-  const removeMission = (phaseId: string, missionId: string) => {
-    if (!confirm('Delete this task?')) return;
-    setPhases(prev => prev.map(p => p.id === phaseId ? {
-      ...p,
-      missions: p.missions.filter(m => m.id !== missionId),
-    } : p));
-  };
-
-  const movePhase = (index: number, direction: 'up' | 'down') => {
-    const newIndex = direction === 'up' ? index - 1 : index + 1;
-    if (newIndex < 0 || newIndex >= phases.length) return;
-    const newPhases = [...phases];
-    [newPhases[index], newPhases[newIndex]] = [newPhases[newIndex], newPhases[index]];
-    setPhases(newPhases);
-  };
-
-  const updateGate = (id: string, field: string, value: any) => {
-    setGates(prev => prev.map(g => g.id === id ? { ...g, [field]: value } : g));
-  };
-
-  const resetToDefault = () => {
-    setPhases(initialPhases.current);
-    setGates(initialGates.current);
-  };
-
-  const toPhasePayload = (phase: ProgrammePhase, order: number) => ({
-    name: phase.name,
-    dayStart: phase.dayStart,
-    dayEnd: phase.dayEnd,
-    description: phase.description,
-    color: phase.color,
-    order,
-    missions: phase.missions as unknown as Record<string, unknown>[],
-  });
-
-  const handleSaveAll = async () => {
-    const initialPhaseIds = new Set(initialPhases.current.map(p => p.id));
-    const initialGateIds = new Set(initialGates.current.map(g => g.id));
-    const ops: Promise<unknown>[] = [];
-
-    phases.forEach((phase, index) => {
-      if (initialPhaseIds.has(phase.id)) {
-        ops.push(updatePhaseMutation.mutateAsync({ id: phase.id, data: toPhasePayload(phase, index) }));
-      } else {
-        ops.push(createPhase.mutateAsync(toPhasePayload(phase, index)));
-      }
-    });
-    initialPhases.current.forEach(p => {
-      if (!phases.some(lp => lp.id === p.id)) {
-        ops.push(deletePhaseMutation.mutateAsync(p.id));
-      }
-    });
-
-    gates.forEach(gate => {
-      if (initialGateIds.has(gate.id)) {
-        ops.push(updateGateMutation.mutateAsync({
-          id: gate.id,
-          data: { name: gate.name, minProgressPercent: gate.minProgressPercent, isEnabled: gate.isEnabled },
-        }));
-      } else {
-        ops.push(createGate.mutateAsync({
-          name: gate.name,
-          minProgressPercent: gate.minProgressPercent,
-          isEnabled: gate.isEnabled,
-        }));
-      }
-    });
-    initialGates.current.forEach(g => {
-      if (!gates.some(lg => lg.id === g.id)) {
-        ops.push(deleteGateMutation.mutateAsync(g.id));
-      }
-    });
-
-    setSaving(true);
-    try {
-      await Promise.all(ops);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openAddTask = (phaseId: string) => {
-    setActivePhaseId(phaseId);
-    setTaskFormData({ ...EMPTY_TASK, id: `mission-${Date.now()}` });
-    setModalOpen(true);
-  };
-
-  const openEditTask = (phaseId: string, mission: ProgrammeMission) => {
-    setActivePhaseId(phaseId);
-    setTaskFormData({
-      id: mission.id,
-      title: mission.title,
-      description: mission.description,
-      instructions: mission.instructions || '',
-      estimatedMinutes: mission.estimatedMinutes,
-      reward: mission.reward,
-      submissionType: mission.submissionType || 'internal_platform',
-      system: mission.system || '',
-      systemUrl: mission.systemUrl || '',
-      ctaLabel: mission.ctaLabel || 'Continue',
-      targetAudience: (mission as any).targetAudience || 'BUSINESS',
-      featureKey: (mission as any).featureKey || 'business.logo_uploaded',
-      deadlineDays: (mission as any).deadlineDays || 7,
-      rewardPoints: (mission as any).rewardPoints || 50,
-    });
-    setModalOpen(true);
-  };
-
-  const saveTask = (data: TaskFormData) => {
-    if (!activePhaseId) return;
-    const mission: any = {
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      instructions: data.instructions,
-      estimatedMinutes: data.estimatedMinutes,
-      reward: data.reward,
-      submissionType: data.submissionType,
-      system: data.submissionType === 'internal_platform' ? data.system : undefined,
-      systemUrl: data.submissionType === 'external_link' ? data.systemUrl : undefined,
-      ctaLabel: data.ctaLabel,
-      targetAudience: data.targetAudience,
-      featureKey: data.featureKey,
-      deadlineDays: data.deadlineDays,
-      rewardPoints: data.rewardPoints,
-    };
-
-    setPhases(prev => prev.map(p => {
-      if (p.id !== activePhaseId) return p;
-      const exists = p.missions.find(m => m.id === data.id);
-      if (exists) {
-        return { ...p, missions: p.missions.map(m => m.id === data.id ? mission : m) };
-      }
-      return { ...p, missions: [...p.missions, mission] };
-    }));
-
-    setModalOpen(false);
-    setActivePhaseId(null);
-  };
-
-  return (
-    <div className="space-y-8">
-      {/* Task Editor Modal */}
-      <TaskEditorModal
-        open={modalOpen}
-        formData={taskFormData}
-        onClose={() => { setModalOpen(false); setActivePhaseId(null); }}
-        onSave={saveTask}
-      />
-
-      
-      {/* ─── Dashboard Access & Verification Settings Card ─── */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shrink-0">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-gray-900 text-base">Dashboard Access & Verification Settings</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Configure verification requirements, the one-time fee, and how many days of platform access businesses receive before needing a full membership.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleSaveSettings}
-            disabled={savingSettings}
-            className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-500/10 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
-          >
-            {savingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            Save Access Settings
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-5">
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-              Trial Access Duration (Days)
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={trialDays}
-                onChange={e => setTrialDays(parseInt(e.target.value) || 1)}
-                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50/50 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white transition-all"
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400 pointer-events-none">
-                days
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-500">
-              Days of platform access after paying the verification fee. When verification is not mandatory, this is the free trial length from signup.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-              Verification Fee Amount (£)
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                step="0.01"
-                min="0.00"
-                value={feeAmount}
-                onChange={e => setFeeAmount(parseFloat(e.target.value) || 0)}
-                className="w-full h-11 px-4 rounded-xl border border-gray-200 bg-gray-50/50 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:bg-white transition-all"
-              />
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400 pointer-events-none">
-                GBP
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-500">
-              One-time charge for identity & anti-fraud validation during onboarding. Only charged when verification is mandatory.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-              Status & Enforcement
-            </label>
-            <div className="flex items-center gap-3 h-11 px-4 rounded-xl border border-gray-200 bg-gray-50/50">
-              <input
-                type="checkbox"
-                id="reqCheck"
-                checked={verificationReq}
-                onChange={e => setVerificationReq(e.target.checked)}
-                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300"
-              />
-              <label htmlFor="reqCheck" className="text-xs font-bold text-gray-800 cursor-pointer">
-                Mandatory Verification Required
-              </label>
-            </div>
-            <p className="text-[11px] text-gray-500">
-              When checked, businesses must pay the verification fee before accessing the dashboard. When unchecked, they get a free trial of the configured days from signup.
-            </p>
-          </div>
-        </div>
-
-        {settingsSaved && (
-          <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            {verificationReq
-              ? `Access settings successfully updated! New businesses will receive ${trialDays} days of trial access after paying the £${feeAmount.toFixed(2)} verification fee.`
-              : `Access settings successfully updated! Verification is optional — new businesses get a ${trialDays}-day free trial, and existing unverified businesses start theirs now.`}
-          </div>
-        )}
-      </div>
-
-
-      {/* Summary Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Phases</p>
-          <p className="text-2xl font-black text-brand-dark mt-1">{phases.length}</p>
-        </div>
-        <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Total Tasks</p>
-          <p className="text-2xl font-black text-brand-dark mt-1">{totalMissions}</p>
-        </div>
-        <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Duration</p>
-          <p className="text-2xl font-black text-brand-dark mt-1">
-            {phases.length > 0 ? `${phases[0].dayStart}–${phases[phases.length - 1].dayEnd} days` : '—'}
-          </p>
-        </div>
-        <div className="bg-brand-dark/5 rounded-xl p-4 border border-brand-dark/10">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Gates</p>
-          <p className="text-2xl font-black text-brand-dark mt-1">{gates.filter(g => g.isEnabled).length} active</p>
-        </div>
-      </div>
-
-      {/* Phase Editor */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-gray-900">Phases & Tasks</h3>
-          <div className="flex items-center gap-2">
-            <button onClick={resetToDefault} className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Revert
-            </button>
-            <button onClick={handleSaveAll} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs hover:bg-emerald-700 transition-colors disabled:opacity-50">
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save Changes
-            </button>
-            <button onClick={addPhase} className="flex items-center gap-1.5 px-4 py-2 bg-brand-blue text-white rounded-lg font-bold text-xs hover:bg-brand-dark transition-colors">
-              <Plus className="w-3.5 h-3.5" /> Add Phase
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {phases.map((phase, pi) => (
-            <motion.div key={phase.id} layout className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-              {/* Phase Header */}
-              <div className="flex items-center gap-3 p-4 bg-gray-50/80 border-b border-gray-100">
-                <div className="flex flex-col gap-0.5 text-gray-300">
-                  <button onClick={() => movePhase(pi, 'up')} disabled={pi === 0} className="disabled:opacity-30 hover:text-brand-blue"><ChevronLeft className="w-3 h-3 rotate-90" /></button>
-                  <button onClick={() => movePhase(pi, 'down')} disabled={pi === phases.length - 1} className="disabled:opacity-30 hover:text-brand-blue"><ChevronLeft className="w-3 h-3 -rotate-90" /></button>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  {editingPhase === phase.id ? (
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <input value={phase.name} onChange={e => updatePhase(phase.id, 'name', e.target.value)} className="px-2 py-1 text-sm font-bold rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white" />
-                      <div className="flex items-center gap-1 text-xs text-gray-400">
-                        <span>Days</span>
-                        <input type="number" value={phase.dayStart} onChange={e => updatePhase(phase.id, 'dayStart', parseInt(e.target.value) || 1)} className="w-14 px-2 py-1 text-sm rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white text-center" />
-                        <span>–</span>
-                        <input type="number" value={phase.dayEnd} onChange={e => updatePhase(phase.id, 'dayEnd', parseInt(e.target.value) || 1)} className="w-14 px-2 py-1 text-sm rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white text-center" />
-                      </div>
-                      <input value={phase.description} onChange={e => updatePhase(phase.id, 'description', e.target.value)} className="px-2 py-1 text-xs rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 bg-white flex-1 min-w-[200px]" />
-                      <button onClick={() => setEditingPhase(null)} className="p-1.5 rounded-lg bg-green-100 text-green-600 hover:bg-green-200"><Check className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-gray-900 text-sm">{phase.name}</span>
-                      <span className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Days {phase.dayStart}–{phase.dayEnd}</span>
-                      <span className="text-xs text-gray-400 truncate hidden sm:block">{phase.description}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setEditingPhase(editingPhase === phase.id ? null : phase.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-brand-blue transition-colors">
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </button>
-                  {!editingPhase && (
-                    <button onClick={() => openAddTask(phase.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-green-600 transition-colors" title="Add task">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button onClick={() => removePhase(phase.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30" disabled={phases.length <= 1}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Missions List */}
-              <div className="divide-y divide-gray-50">
-                {phase.missions.length === 0 && (
-                  <div className="p-6 text-center">
-                    <p className="text-sm text-gray-400 font-medium">No tasks yet.</p>
-                    <button onClick={() => openAddTask(phase.id)} className="mt-2 text-xs font-bold text-brand-blue hover:underline">+ Add your first task</button>
-                  </div>
-                )}
-                {phase.missions.map((mission, mi) => (
-                  <div key={mission.id} className="flex items-center gap-3 p-3 pl-8 hover:bg-gray-50/50 group transition-colors">
-                    <div className="w-6 h-6 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-400 shrink-0">{mi + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-800 text-sm">{mission.title}</p>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-[10px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {(mission as any).deadlineDays ? `${(mission as any).deadlineDays}d deadline` : `${mission.estimatedMinutes} min`}</span>
-                        <span className="text-[10px] text-amber-600 font-semibold">{mission.reward}</span>
-                        {(mission as any).targetAudience && (
-                          <span className="text-[10px] text-brand-blue bg-blue-50 px-1.5 py-0.5 rounded font-bold">{(mission as any).targetAudience}</span>
-                        )}
-                        {(mission as any).featureKey && (
-                          <span className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-mono font-medium flex items-center gap-1">
-                            <Zap className="w-2.5 h-2.5 text-indigo-600" />
-                            {(mission as any).featureKey}
-                          </span>
-                        )}
-                        {mission.submissionType === 'internal_platform' && mission.system ? (
-                          <span className="text-[10px] text-sky-600 font-semibold">{mission.system}</span>
-                        ) : mission.submissionType === 'external_link' ? (
-                          <span className="text-[10px] text-purple-600 font-semibold">External Link</span>
-                        ) : mission.submissionType === 'image_upload' ? (
-                          <span className="text-[10px] text-green-600 font-semibold">Image Upload</span>
-                        ) : mission.submissionType === 'text_input' ? (
-                          <span className="text-[10px] text-orange-600 font-semibold">Text Input</span>
-                        ) : mission.submissionType === 'digit_input' ? (
-                          <span className="text-[10px] text-blue-600 font-semibold">Digit Input</span>
-                        ) : null}
-                        {mission.ctaLabel && mission.ctaLabel !== 'Continue' && (
-                          <span className="text-[10px] text-gray-400 font-mono">CTA: "{mission.ctaLabel}"</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => openEditTask(phase.id, mission)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-brand-blue transition-colors" title="Edit task">
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => removeMission(phase.id, mission.id)} className="p-1.5 rounded-lg hover:bg-white text-gray-400 hover:text-red-500 transition-colors" title="Delete task">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-
-      {/* Readiness Gates */}
-      <div>
-        <h3 className="font-bold text-gray-900 mb-4">Readiness Gates</h3>
-        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-          {gates.map(gate => (
-            <div key={gate.id} className="flex items-center gap-4 p-4">
-              <div className="flex-1">
-                <p className="font-semibold text-gray-800 text-sm">{gate.name}</p>
-                <p className="text-xs text-gray-400">Min progress: <strong>{gate.minProgressPercent}%</strong></p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1">
-                  <input type="number" value={gate.minProgressPercent} onChange={e => updateGate(gate.id, 'minProgressPercent', parseInt(e.target.value) || 0)} className="w-16 px-2 py-1 text-xs rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 text-center" min="0" max="100" />
-                  <span className="text-xs text-gray-400">%</span>
-                </div>
-                <button onClick={() => updateGate(gate.id, 'isEnabled', !gate.isEnabled)} className={cn("relative w-10 h-5 rounded-full transition-colors", gate.isEnabled ? 'bg-green-500' : 'bg-gray-300')}>
-                  <div className={cn("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform", gate.isEnabled ? 'translate-x-5' : 'translate-x-0.5')} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function BusinessesSection() {
   const { data: bizRes, isLoading } = useProgrammeBusinesses();
@@ -1426,7 +491,7 @@ function SupportSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">Assign support personnel to businesses on the 90-day programme.</p>
+      <p className="text-sm text-gray-500">Assign support personnel to businesses on the activity programme.</p>
       <div className="space-y-3">
         {businesses.map(b => (
           <div key={b.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1894,7 +959,6 @@ function MonitoringSection() {
 // ─── Main Panel ───────────────────────────────────────────
 
 const SUB_TABS: { id: SubTab; label: string; icon: any }[] = [
-  { id: 'config', label: 'Programme Config', icon: Settings },
   { id: 'tasks', label: 'Task Engine & Rewards', icon: Target },
   { id: 'businesses', label: 'Business Override', icon: Users },
   { id: 'monitoring', label: 'Monitoring', icon: BarChart3 },
@@ -1905,14 +969,15 @@ export default function ProgrammeManagementPanel() {
   const urlTab = searchParams.get('subTab') as SubTab;
 
   const [subTab, setSubTab] = useState<SubTab>(() => {
-    if (urlTab && ['config', 'tasks', 'businesses', 'monitoring'].includes(urlTab)) {
+    if (urlTab && ['tasks', 'businesses', 'monitoring'].includes(urlTab)) {
       return urlTab;
     }
-    return (localStorage.getItem('adminProgrammeSubTab') as SubTab) || 'tasks';
+    const stored = localStorage.getItem('adminProgrammeSubTab') as SubTab | null;
+    return stored && ['tasks', 'businesses', 'monitoring'].includes(stored) ? stored : 'tasks';
   });
 
   useEffect(() => {
-    if (urlTab && ['config', 'tasks', 'businesses', 'monitoring'].includes(urlTab) && urlTab !== subTab) {
+    if (urlTab && ['tasks', 'businesses', 'monitoring'].includes(urlTab) && urlTab !== subTab) {
       setSubTab(urlTab);
     }
   }, [urlTab]);
@@ -1931,10 +996,10 @@ export default function ProgrammeManagementPanel() {
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
             <Rocket className="w-5 h-5 text-white/80" />
-            <h2 className="text-lg font-black">90-Day Programme Control Center</h2>
+            <h2 className="text-lg font-black">Activity Programme Control Center</h2>
           </div>
           <p className="text-sm text-white/70 max-w-2xl">
-            Configure programme phases and tasks, override individual business progress, assign support personnel, and monitor all businesses in the programme.
+            Configure programme tasks and rewards, override individual business progress, assign support personnel, and monitor all businesses in the programme.
           </p>
         </div>
       </div>
@@ -1967,7 +1032,6 @@ export default function ProgrammeManagementPanel() {
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.2 }}
         >
-          {subTab === 'config' && <ConfigSection />}
           {subTab === 'tasks' && <TaskEngineSection />}
           {subTab === 'businesses' && <BusinessesSection />}
           {subTab === 'monitoring' && <MonitoringSection />}

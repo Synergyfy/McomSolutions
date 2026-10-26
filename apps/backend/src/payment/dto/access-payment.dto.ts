@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+
+export type AccessPurchaseMode = 'SELF' | 'GIFT' | 'CODE';
 
 export class AccessInitiateDto {
   @ApiProperty({ example: 'access-plan-id', description: 'Access plan ID' })
@@ -11,6 +13,29 @@ export class AccessInitiateDto {
   @IsOptional()
   @IsString()
   couponCode?: string;
+
+  @ApiPropertyOptional({
+    enum: ['SELF', 'GIFT', 'CODE'],
+    default: 'SELF',
+    description: 'SELF activates immediately; GIFT emails a locked code; CODE returns a transferable code',
+  })
+  @IsOptional()
+  @IsIn(['SELF', 'GIFT', 'CODE'], { message: 'purchaseMode must be SELF, GIFT or CODE' })
+  purchaseMode?: AccessPurchaseMode;
+
+  @ApiPropertyOptional({ example: 'recipient@example.com', description: 'Required for GIFT purchases' })
+  @IsOptional()
+  @IsEmail()
+  recipientEmail?: string;
+
+  @ApiPropertyOptional({
+    enum: ['membership', 'access_pass'],
+    description:
+      'When the pass overlaps an active membership: keep the membership (defer the pass) or switch to the pass now',
+  })
+  @IsOptional()
+  @IsIn(['membership', 'access_pass'])
+  entitlementChoice?: 'membership' | 'access_pass';
 }
 
 export class AccessStripeConfirmDto extends AccessInitiateDto {

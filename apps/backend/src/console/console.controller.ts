@@ -34,6 +34,7 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConsoleAdminGuard } from './guards/console-admin.guard';
 import { ConsoleService } from './console.service';
+import { AccessPassCatalogService } from './access-pass-catalog.service';
 import { RegisterAppDto } from './dto/register-app.dto';
 import { UpdateAppDto } from './dto/update-app.dto';
 import { RotateSecretDto } from './dto/rotate-secret.dto';
@@ -45,7 +46,10 @@ import { SetServicePolicyDto } from './dto/service-policy.dto';
 @UseGuards(JwtAuthGuard, ConsoleAdminGuard, ThrottlerGuard)
 @Controller('admin/console')
 export class ConsoleController {
-  constructor(private readonly consoleService: ConsoleService) {}
+  constructor(
+    private readonly consoleService: ConsoleService,
+    private readonly accessPassCatalog: AccessPassCatalogService,
+  ) {}
 
   @Post('apps')
   @HttpCode(201)
@@ -240,6 +244,29 @@ export class ConsoleController {
   @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
   listAuditLogs(@Query() query: ConsoleAuditQueryDto) {
     return this.consoleService.listAuditLogs(query);
+  }
+
+  // ─── Access Pass Catalogues ────────────────────────────
+  @Get('access-pass-plans/platforms')
+  @ApiOperation({ summary: 'List apps with an access pass plan catalogue endpoint configured' })
+  @ApiOkResponse({ description: 'Platforms that can contribute access pass plans to MCOM bundles' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  listAccessPassPlatforms() {
+    return this.accessPassCatalog.listPlatforms();
+  }
+
+  @Get('access-pass-plans')
+  @ApiOperation({ summary: 'Fetch a platform access pass plan catalogue (live)' })
+  @ApiQuery({ name: 'platform', required: true, example: 'MCOM Rewards', description: 'Platform name, slug or clientId' })
+  @ApiOkResponse({ description: 'Access pass plans published by the platform' })
+  @ApiBadRequestResponse({ description: 'Platform has no access pass plans endpoint configured' })
+  @ApiNotFoundResponse({ description: 'Platform not found in the Console registry' })
+  @ApiBadGatewayResponse({ description: 'Platform catalogue is unreachable or rejected the request' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
+  @ApiForbiddenResponse({ description: 'Requires ADMIN role' })
+  getAccessPassPlans(@Query('platform') platform: string) {
+    return this.accessPassCatalog.getPlans(platform);
   }
 
   // ─── Service Mesh Policy ───────────────────────────────
