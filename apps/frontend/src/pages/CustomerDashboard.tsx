@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
   ArrowDownLeft, ArrowRight, ArrowUpRight, Archive, Award, BadgeCheck, Bell, Box, Camera,
   Check, CheckCheck, ChevronDown, ChevronLeft, Compass, Copy, ExternalLink, Eye, EyeOff,
   Filter, Gamepad2, Gift, Globe2, Grid2X2, Headphones, Home, KeyRound, Link2, LogOut,
-  Mail, MapPin, MessageCircle, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PiggyBank,
+  Mail, MapPin, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PiggyBank,
   Plus, Search, Send, Settings, ShieldCheck, SlidersHorizontal, Smile, Ticket, UserRound, WalletCards, X,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -83,7 +83,7 @@ export default function CustomerDashboard() {
   };
 
   return (
-    <div className="customer-dashboard-ui min-h-screen bg-[#f6f8fb] pt-16 font-sans text-slate-900">
+    <div className="customer-dashboard-ui min-h-screen bg-[#f6f8fb] pt-16 text-slate-900">
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <CHSLogo variant="full" size="sm" imageClassName="h-8 w-auto" />
@@ -154,7 +154,7 @@ export default function CustomerDashboard() {
         </div>
       </header>
 
-      <div className={`flex w-full ${page === 'messages' ? 'h-[calc(100dvh-4rem)] min-h-0 overflow-hidden' : 'min-h-[calc(100vh-4rem)]'}`}>
+      <div className="flex min-h-[calc(100vh-4rem)] w-full">
         <aside className="fixed left-0 top-16 z-20 hidden h-[calc(100dvh-4rem)] min-h-0 w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 lg:flex">
           <nav className="space-y-1" aria-label="Customer dashboard">
             {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
@@ -170,7 +170,7 @@ export default function CustomerDashboard() {
           </button>
         </aside>
 
-        <main className={`min-w-0 flex-1 overflow-x-hidden ${page === 'messages' ? 'h-[calc(100dvh-8rem)] overflow-y-hidden p-0 lg:ml-60 lg:h-full' : 'px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:ml-60 lg:px-8 lg:pb-8'}`}>
+        <main className="min-w-0 flex-1 overflow-x-hidden px-4 pb-24 pt-5 sm:px-6 sm:pt-7 lg:ml-60 lg:px-8 lg:pb-8">
           {page === 'overview' && <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{page === 'overview' ? `Welcome back, ${name}` : title.title}</h1>
@@ -531,7 +531,7 @@ function PreviewOverview({ balance, onNavigate }: { balance: number; onNavigate:
     </section>
 
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col items-start justify-between gap-2 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:px-5"><div className="min-w-0"><h2 className="font-semibold">Recent Activity</h2><p className="text-sm text-slate-500">Recent wallet funding and MCOM partner rewards.</p></div><button onClick={() => onNavigate('wallet')} className="inline-flex min-h-9 shrink-0 items-center gap-1 text-sm font-semibold text-slate-700">View wallet <ArrowRight className="h-4 w-4" /></button></div>
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="font-semibold">Recent Activity</h2><p className="text-sm text-slate-500">Recent wallet funding and MCOM partner rewards.</p></div><button onClick={() => onNavigate('wallet')} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700">View wallet <ArrowRight className="h-4 w-4" /></button></div>
       <TransactionTable compact />
     </section>
   </div>;
@@ -545,11 +545,11 @@ function PreviewEcosystem() {
   const categories = ['All Products', 'Loyalty & Rewards', 'Local Perks', 'Gamification & Play', 'Utilities & Gift Cards'];
   const filtered = CUSTOMER_PRODUCTS.filter((product) => (category === 'All Products' || product.category === category) && (!connectedOnly || product.state === 'Connected') && (!query || `${product.name} ${product.description}`.toLowerCase().includes(query.toLowerCase())));
   return <div className="space-y-5">
-    <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="text-2xl font-semibold tracking-tight">MCOM Ecosystem Marketplace</h2><p className="mt-1 text-sm text-slate-600">Discover, connect, and launch apps across MCOM rewards and local business network.</p></div><div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3"><label className="flex h-10 min-w-0 w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 sm:w-auto sm:flex-1 xl:flex-none"><Search className="h-4 w-4 shrink-0 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search apps" className="w-full min-w-0 bg-transparent text-base outline-none sm:w-52 sm:text-sm" /></label><button className="min-h-10 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-sm">Most Popular⌄</button><button onClick={() => setConnectedOnly(!connectedOnly)} className="flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm sm:flex-none">Connected only <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${connectedOnly ? 'bg-emerald-500' : 'bg-slate-300'}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${connectedOnly ? 'left-[18px]' : 'left-0.5'}`} /></span></button></div></div>
+    <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 className="text-2xl font-semibold tracking-tight">MCOM Ecosystem Marketplace</h2><p className="mt-1 text-sm text-slate-600">Discover, connect, and launch apps across MCOM rewards and local business network.</p></div><div className="flex flex-wrap items-center gap-3"><label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 sm:flex-none"><Search className="h-4 w-4 shrink-0 text-slate-400" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search apps" className="w-full min-w-0 bg-transparent text-base outline-none sm:w-52 sm:text-sm" /></label><button className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm">Most Popular⌄</button><button onClick={() => setConnectedOnly(!connectedOnly)} className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm">Connected only <span className={`relative h-5 w-9 rounded-full transition ${connectedOnly ? 'bg-emerald-500' : 'bg-slate-300'}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition ${connectedOnly ? 'left-[18px]' : 'left-0.5'}`} /></span></button></div></div>
     <div className="flex gap-2 overflow-x-auto pb-1">{categories.map((item) => <button key={item} onClick={() => setCategory(item)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${category === item ? 'bg-[#1e3147] text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}>{item}</button>)}</div>
     <section className="grid gap-5 rounded-2xl bg-[#1e3147] p-5 text-white sm:p-7 xl:grid-cols-[1.4fr_0.8fr] xl:items-center">
       <div><span className="rounded-full bg-orange-600 px-3 py-1 text-[10px] font-bold uppercase tracking-wider">✦ New discovery engine</span><h3 className="mt-4 max-w-2xl text-2xl font-semibold sm:text-3xl">MCOM Rewards Expo &amp; Offline Quests</h3><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-200">Gather with local businesses, complete offline quests in your area, and claim exclusive ticket rewards directly inside your synced digital wallet.</p><div className="mt-5 flex flex-wrap gap-3"><button className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700">Explore Expo Details <ArrowRight className="h-4 w-4" /></button><span className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white/10 px-4 text-sm text-slate-200"><Award className="h-4 w-4" />+2,400 XP available</span></div></div>
-      <div className="rounded-xl border border-white/10 bg-white/10 p-4"><div className="flex items-center justify-between gap-2 text-xs font-semibold"><span className="text-orange-400">● &nbsp;METRO ARENA PASS</span><span className="shrink-0 rounded bg-amber-900/50 px-2 py-1 text-amber-200">VIP ACCESS</span></div><div className="mt-4 rounded-lg bg-[#18283b] p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><Compass className="h-5 w-5 shrink-0 text-orange-300" /><div className="min-w-0"><p className="break-words text-sm font-semibold">Downtown Coffee Trail</p><p className="text-xs text-slate-400">4 of 5 stops visited</p></div></div><span className="shrink-0 text-sm font-semibold text-orange-300">+500 PTS</span></div></div><div className="mt-4 flex items-center justify-between gap-2 text-xs"><span>Quest Progression</span><span className="shrink-0">80% Complete</span></div><div className="mt-2 h-1.5 rounded-full bg-white/20"><div className="h-full w-4/5 rounded-full bg-orange-500" /></div></div>
+      <div className="rounded-xl border border-white/10 bg-white/10 p-4"><div className="flex items-center justify-between text-xs font-semibold"><span className="text-orange-400">● &nbsp;METRO ARENA PASS</span><span className="rounded bg-amber-900/50 px-2 py-1 text-amber-200">VIP ACCESS</span></div><div className="mt-4 rounded-lg bg-[#18283b] p-3"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><Compass className="h-5 w-5 text-orange-300" /><div><p className="text-sm font-semibold">Downtown Coffee Trail</p><p className="text-xs text-slate-400">4 of 5 stops visited</p></div></div><span className="text-sm font-semibold text-orange-300">+500 PTS</span></div></div><div className="mt-4 flex items-center justify-between text-xs"><span>Quest Progression</span><span>80% Complete</span></div><div className="mt-2 h-1.5 rounded-full bg-white/20"><div className="h-full w-4/5 rounded-full bg-orange-500" /></div></div>
     </section>
     {notice && <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss"><X className="h-4 w-4" /></button></div>}
     <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">{filtered.map((product) => { const Icon = previewIcon(product.icon); const tone = product.tone === 'blue' ? 'text-blue-700' : 'text-orange-700'; return <article key={product.id} className="flex min-h-64 flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><Icon className={`h-6 w-6 ${tone}`} /><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${product.state === 'Connected' ? 'bg-emerald-50 text-emerald-700' : product.state === 'Available' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'}`}>{product.state}</span></div><h3 className="mt-4 font-semibold">{product.name}</h3><p className="mt-1 flex-1 text-sm leading-5 text-slate-600">{product.description}</p><div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-600"><span>{product.detail}</span><span>{product.state === 'Connected' ? 'v3.4.1' : ''}</span></div><button onClick={() => setNotice(`${product.name}: app launch will be connected when the backend integration is ready.`)} className={`mt-3 flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold ${product.state === 'Connected' || product.action === 'Play now' || product.action === 'Upgrade status' ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-blue-50 text-slate-800 hover:bg-blue-100'}`}>{product.action} {product.state === 'Connected' && <ExternalLink className="h-4 w-4" />}</button></article>; })}</div>
@@ -619,93 +619,21 @@ function PreviewMessages() {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
   const [notice, setNotice] = useState('');
-  const [bubblePosition, setBubblePosition] = useState(() => ({
-    side: 'right' as 'left' | 'right',
-    top: typeof window === 'undefined' ? 400 : Math.max(12, window.innerHeight - (window.matchMedia('(min-width: 1024px)').matches ? 80 : 136)),
-  }));
-  const [dragPoint, setDragPoint] = useState<{ left: number; top: number } | null>(null);
-  const bubbleDrag = useRef<{ pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number; moved: boolean } | null>(null);
-  const suppressBubbleClick = useRef(false);
-  const messageListRef = useRef<HTMLDivElement>(null);
   const selected = conversations.find((item) => item.id === selectedId);
   const visible = conversations.filter((item) => (filter === 'All' || (filter === 'Unread' ? item.unread > 0 : item.kind === filter)) && item.name.toLowerCase().includes(query.toLowerCase()));
   const send = () => { if (!draft.trim()) return; const message = { id: `local-${Date.now()}`, from: 'me' as const, text: draft.trim(), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }; setConversations((items) => items.map((item) => item.id === selectedId ? { ...item, preview: message.text, time: 'Now', messages: [...item.messages, message] } : item)); setDraft(''); };
-  useEffect(() => {
-    const list = messageListRef.current;
-    if (selected && list) list.scrollTop = list.scrollHeight;
-  }, [selected?.id, selected?.messages.length]);
-
-  useEffect(() => {
-    const clampToViewport = () => setBubblePosition((position) => ({
-      ...position,
-      top: Math.max(8, Math.min(position.top, window.innerHeight - 64)),
-    }));
-    window.addEventListener('resize', clampToViewport);
-    return () => window.removeEventListener('resize', clampToViewport);
-  }, []);
-
-  const startBubbleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    bubbleDrag.current = {
-      pointerId: event.pointerId,
-      offsetX: event.clientX - bounds.left,
-      offsetY: event.clientY - bounds.top,
-      startX: event.clientX,
-      startY: event.clientY,
-      moved: false,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const moveBubble = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = bubbleDrag.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) drag.moved = true;
-    if (!drag.moved) return;
-    setDragPoint({
-      left: Math.max(8, Math.min(event.clientX - drag.offsetX, window.innerWidth - 64)),
-      top: Math.max(8, Math.min(event.clientY - drag.offsetY, window.innerHeight - 64)),
-    });
-  };
-
-  const finishBubbleDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = bubbleDrag.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (drag.moved) {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const side = bounds.left + bounds.width / 2 < window.innerWidth / 2 ? 'left' : 'right';
-      setBubblePosition({ side, top: Math.max(8, Math.min(bounds.top, window.innerHeight - bounds.height - 8)) });
-      suppressBubbleClick.current = true;
-      window.setTimeout(() => { suppressBubbleClick.current = false; }, 350);
-    }
-    bubbleDrag.current = null;
-    setDragPoint(null);
-  };
-
-  return <div className="relative flex h-full min-h-0 flex-col">
-    <button
-      onClick={() => { if (suppressBubbleClick.current) { suppressBubbleClick.current = false; return; } setNotice('New chat creation will be connected to the messaging API.'); }}
-      onPointerDown={startBubbleDrag}
-      onPointerMove={moveBubble}
-      onPointerUp={finishBubbleDrag}
-      onPointerCancel={finishBubbleDrag}
-      aria-label="Start new chat; drag to move"
-      title="Start new chat · Drag to move"
-      style={dragPoint
-        ? { left: dragPoint.left, top: dragPoint.top, right: 'auto', bottom: 'auto', transition: 'none' }
-        : { left: bubblePosition.side === 'left' ? 16 : 'auto', right: bubblePosition.side === 'right' ? 16 : 'auto', top: bubblePosition.top, bottom: 'auto' }}
-      className={`fixed z-30 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-orange-600 text-white shadow-lg transition-[left,top] duration-300 ease-out hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 ${dragPoint ? 'cursor-grabbing' : 'cursor-grab'}`}
-    ><MessageCircle className="h-6 w-6" /></button>
-    {notice && <div role="status" className="fixed bottom-36 right-5 z-30 flex max-w-[min(24rem,calc(100vw-2.5rem))] items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-lg lg:bottom-24 lg:right-6">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss message"><X className="h-4 w-4 shrink-0" /></button></div>}
-    <section className="grid min-h-0 flex-1 overflow-hidden border-y border-slate-200 bg-white lg:grid-cols-[360px_minmax(0,1fr)]">
+  return <div className="space-y-4">
+    <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center"><div className="min-w-0"><h2 className="text-xl font-semibold tracking-tight sm:text-2xl">Messages &amp; Support Inbox</h2><p className="mt-1 text-sm text-slate-600">Message CHS Concierge, MCOM support, and partner businesses.</p></div><button onClick={() => setNotice('New chat creation will be connected to the messaging API.')} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"><Plus className="h-4 w-4" />Start new chat</button></div>
+    {notice && <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{notice}<button onClick={() => setNotice('')}><X className="h-4 w-4" /></button></div>}
+    <section className="grid h-[min(640px,calc(100dvh-15rem))] min-h-[360px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:h-[min(740px,calc(100dvh-230px))] lg:min-h-[500px] lg:grid-cols-[360px_minmax(0,1fr)]">
       <aside className={`${selectedId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r border-slate-200`}>
         <div className="border-b border-slate-200 p-4"><label className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3"><Search className="h-4 w-4 shrink-0 text-slate-500" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search conversations…" className="min-w-0 flex-1 text-base outline-none sm:text-sm" /><button aria-label="Search filters" className="min-h-9 min-w-9"><Filter className="mx-auto h-4 w-4 text-slate-500" /></button></label><div className="mt-3 flex gap-1.5 overflow-x-auto">{['All', 'Unread', 'Support', 'Merchants'].map((item) => <button key={item} onClick={() => setFilter(item)} className={`min-h-9 shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold ${filter === item ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 text-slate-700'}`}>{item}{item === 'All' && ' (5)'}{item === 'Unread' && ' (3)'}</button>)}</div></div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{visible.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full border-b border-slate-100 px-4 py-4 text-left transition hover:bg-slate-50 ${selectedId === item.id ? 'border-l-4 border-l-orange-600 bg-[#fff9f4]' : ''}`}><div className="flex gap-3"><ConversationAvatar avatar={item.avatar} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-[13px] font-semibold sm:text-sm">{item.name}</span><span className="shrink-0 text-[9px] text-slate-500 sm:text-[10px]">{item.time}</span></div><p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-600 sm:text-xs">{item.preview}</p><div className="mt-2 flex items-center justify-between"><span className="rounded-full bg-orange-50 px-2 py-1 text-[9px] text-orange-900 sm:text-[10px]">{item.tag}</span>{item.unread > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-600 px-1 text-[10px] font-bold text-white">{item.unread}</span>}</div></div></div></button>)}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{visible.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full border-b border-slate-100 px-4 py-4 text-left transition hover:bg-slate-50 ${selectedId === item.id ? 'border-l-4 border-l-orange-600 bg-[#fff9f4]' : ''}`}><div className="flex gap-3"><ConversationAvatar avatar={item.avatar} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold">{item.name}</span><span className="shrink-0 text-[10px] text-slate-500">{item.time}</span></div><p className="mt-1 line-clamp-2 text-xs leading-4 text-slate-600">{item.preview}</p><div className="mt-2 flex items-center justify-between"><span className="rounded-full bg-orange-50 px-2 py-1 text-[10px] text-orange-900">{item.tag}</span>{item.unread > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-600 px-1 text-[10px] font-bold text-white">{item.unread}</span>}</div></div></div></button>)}</div>
       </aside>
-      <div className={`${selectedId ? 'flex' : 'hidden lg:flex'} min-h-0 min-w-0 flex-col bg-[#f8fbfc]`}>
-        {selected && <><header className="flex min-h-[62px] items-center justify-between border-b border-slate-200 bg-white px-3 py-2 sm:px-6"><div className="flex min-w-0 items-center gap-2 sm:gap-3"><button className="lg:hidden" onClick={() => setSelectedId('')} aria-label="Back to conversations"><ChevronLeft className="h-5 w-5" /></button><ConversationAvatar avatar={selected.avatar} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="truncate text-[13px] font-semibold sm:text-sm">{selected.name}</span>{selected.label && <span className="rounded bg-blue-100 px-2 py-1 text-[9px] font-semibold text-blue-800">{selected.label} support</span>}</div><p className="mt-0.5 text-[10px] text-emerald-700 sm:text-[11px]">● Online · Avg response &lt; 5 min</p></div></div><div className="flex shrink-0 items-center gap-1.5 text-slate-500 sm:gap-2"><button className="hidden rounded-lg border border-slate-200 p-2 sm:inline-flex" aria-label="Search chat"><Search className="h-4 w-4" /></button><button className="hidden rounded-lg border border-slate-200 p-2 sm:inline-flex" aria-label="Notifications"><Bell className="h-4 w-4" /></button><button className="rounded-lg p-1.5 hover:text-slate-900 sm:border sm:border-slate-200 sm:p-2" aria-label="More options"><MoreVertical className="h-4 w-4" /></button></div></header>
-        <div ref={messageListRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-7 sm:py-5"><div className="mx-auto mb-5 w-fit text-center text-[9px] text-slate-500 sm:text-[10px]">Today, October 19, 2026</div>{selected.messages.map((message) => <div key={message.id} className={`mb-4 flex items-start gap-2 sm:mb-5 sm:gap-3 ${message.from === 'me' ? 'justify-end' : ''}`}>{message.from === 'them' && <ConversationAvatar avatar={selected.avatar} small />}<div className={`min-w-0 ${message.from === 'me' ? 'max-w-[88%] text-right sm:max-w-[78%]' : 'max-w-[calc(100%-2.5rem)] sm:max-w-[78%]'}`}><p className="mb-1 text-[9px] text-slate-500 sm:text-[10px]">{message.from === 'me' ? 'You' : `${selected.name} · ${selected.kind === 'Support' ? 'Support Agent' : 'Partner'}`}</p><div className={`break-words rounded-2xl border px-3 py-2.5 text-[13px] leading-5 sm:px-4 sm:py-3 sm:text-sm sm:leading-6 ${message.from === 'me' ? 'rounded-tr-sm border-orange-600 bg-orange-600 text-white' : 'rounded-tl-sm border-slate-200 bg-white text-slate-800'}`}>{message.text}{message.perk && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 p-3 text-left text-xs text-slate-700"><Award className="h-4 w-4 shrink-0 text-orange-700" /><span className="min-w-0 flex-1">{message.perk}</span><button onClick={() => setNotice('Wallet activity opened in preview mode.')} className="shrink-0 font-semibold text-orange-800">View wallet ↗</button></div>}</div><p className="mt-1 text-[9px] text-slate-400 sm:text-[10px]">{message.time} {message.from === 'me' && <CheckCheck className="ml-1 inline h-3 w-3" />}</p></div></div>)}</div>
-        <div className="shrink-0 border-t border-slate-200 bg-white p-2.5 sm:px-4 sm:py-3"><div className="mb-2 flex gap-2 overflow-x-auto">{['Thank you so much! 🙌', 'How do I redeem points?', 'Check another transaction'].map((reply) => <button key={reply} onClick={() => setDraft(reply)} className="min-h-8 shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-[10px] text-slate-700 sm:min-h-9 sm:text-[11px]">{reply}</button>)}</div><div className="flex min-w-0 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1.5 sm:gap-2 sm:p-2"><button aria-label="Attach file" className="min-h-9 min-w-8 shrink-0 text-slate-500"><Paperclip className="mx-auto h-4 w-4" /></button><button aria-label="Add emoji" className="hidden min-h-9 min-w-8 shrink-0 text-slate-500 sm:block"><Smile className="mx-auto h-4 w-4" /></button><input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Type a message…" className="min-w-0 flex-1 bg-transparent px-1 text-base outline-none sm:px-2 sm:text-sm" /><button onClick={send} aria-label="Send message" title="Send message" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-600 text-white hover:bg-orange-700 sm:h-10 sm:w-10"><Send className="h-4 w-4" /></button></div><p className="mt-1.5 text-center text-[9px] text-slate-400 sm:text-[10px]">Messages are saved in this browser preview only.</p></div></>}
+      <div className={`${selectedId ? 'flex' : 'hidden lg:flex'} min-w-0 flex-col bg-[#f8fbfc]`}>
+        {selected && <><header className="flex min-h-[62px] items-center justify-between border-b border-slate-200 bg-white px-4 py-2 sm:px-6"><div className="flex min-w-0 items-center gap-3"><button className="lg:hidden" onClick={() => setSelectedId('')} aria-label="Back to conversations"><ChevronLeft className="h-5 w-5" /></button><ConversationAvatar avatar={selected.avatar} /><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-semibold">{selected.name}</span>{selected.label && <span className="rounded bg-blue-100 px-2 py-1 text-[9px] font-semibold text-blue-800">{selected.label} support</span>}</div><p className="mt-0.5 text-[11px] text-emerald-700">● Online · Avg response &lt; 5 min</p></div></div><div className="flex items-center gap-2 text-slate-500"><button className="rounded-lg border border-slate-200 p-2" aria-label="Search chat"><Search className="h-4 w-4" /></button><button className="rounded-lg border border-slate-200 p-2" aria-label="Notifications"><Bell className="h-4 w-4" /></button><button className="rounded-lg border border-slate-200 p-2" aria-label="More options"><MoreVertical className="h-4 w-4" /></button></div></header>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5 sm:px-7"><div className="mb-5 self-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-600">Today, October 19, 2026</div>{selected.messages.map((message) => <div key={message.id} className={`mb-5 flex items-start gap-3 ${message.from === 'me' ? 'justify-end' : ''}`}>{message.from === 'them' && <ConversationAvatar avatar={selected.avatar} small />}<div className={`min-w-0 ${message.from === 'me' ? 'max-w-[88%] text-right sm:max-w-[78%]' : 'max-w-[calc(100%-2.75rem)] sm:max-w-[78%]'}`}><p className="mb-1 text-[10px] text-slate-500">{message.from === 'me' ? 'You' : `${selected.name} · ${selected.kind === 'Support' ? 'Support Agent' : 'Partner'}`}</p><div className={`break-words rounded-2xl border px-4 py-3 text-sm leading-6 ${message.from === 'me' ? 'rounded-tr-sm border-orange-600 bg-orange-600 text-white' : 'rounded-tl-sm border-slate-200 bg-white text-slate-800'}`}>{message.text}{message.perk && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-orange-100 bg-orange-50 p-3 text-left text-xs text-slate-700"><Award className="h-4 w-4 shrink-0 text-orange-700" /><span className="min-w-0 flex-1">{message.perk}</span><button onClick={() => setNotice('Wallet activity opened in preview mode.')} className="shrink-0 font-semibold text-orange-800">View wallet ↗</button></div>}</div><p className="mt-1 text-[10px] text-slate-400">{message.time} {message.from === 'me' && <CheckCheck className="ml-1 inline h-3 w-3" />}</p></div></div>)}</div>
+        <div className="border-t border-slate-200 bg-white p-3 sm:px-4 sm:py-3"><div className="mb-2 flex gap-2 overflow-x-auto">{['Thank you so much! 🙌', 'How do I redeem points?', 'Check another transaction'].map((reply) => <button key={reply} onClick={() => setDraft(reply)} className="min-h-9 shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-[11px] text-slate-700">{reply}</button>)}</div><div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:gap-2"><button aria-label="Attach file" className="min-h-9 min-w-8 text-slate-500"><Paperclip className="mx-auto h-4 w-4" /></button><button aria-label="Add emoji" className="hidden min-h-9 min-w-8 text-slate-500 sm:block"><Smile className="mx-auto h-4 w-4" /></button><input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder={`Type your message to ${selected.name}…`} className="min-w-0 flex-1 bg-transparent px-1 text-base outline-none sm:px-2 sm:text-sm" /><button onClick={send} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-orange-600 px-3 text-xs font-semibold text-white sm:px-4 sm:text-sm">Send <span className="hidden sm:inline">Message</span><Send className="h-4 w-4" /></button></div><p className="mt-1.5 text-center text-[10px] text-slate-400">Messages are saved in this browser preview only.</p></div></>}
       </div>
     </section>
   </div>;

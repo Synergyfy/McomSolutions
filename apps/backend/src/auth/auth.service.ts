@@ -1026,28 +1026,6 @@ export class AuthService {
       phoneNumber: user.businessProfile?.phone || null,
       postcode: user.businessProfile?.postcode || null,
       address: user.businessProfile?.address || null,
-      // MCOM Rewards uses this source profile to prefill its business
-      // onboarding review after the account is launched through SSO.
-      businessProfile: user.businessProfile
-        ? {
-            businessName: user.businessProfile.businessName,
-            jobTitle: user.jobTitle,
-            businessType: user.businessProfile.businessType,
-            email: user.businessProfile.email,
-            phone: user.businessProfile.phone,
-            address: user.businessProfile.address,
-            postcode: user.businessProfile.postcode,
-            country: user.businessProfile.country,
-            industry: user.businessProfile.industry,
-            category: user.businessProfile.category,
-            subCategory: user.businessProfile.subCategory,
-            description: user.businessProfile.description,
-            website: user.businessProfile.website,
-            logoUrl: user.businessProfile.logoUrl,
-            openingHours: user.businessProfile.openingHours,
-            socialMedia: user.businessProfile.socialMedia,
-          }
-        : null,
       platforms,
     };
 

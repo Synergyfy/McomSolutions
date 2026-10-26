@@ -23,8 +23,6 @@ import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
 import { persistReferralCodeFromSearchParams } from '../../lib/referral';
 import { isAuthOrOnboardingRedirect } from '../../lib/redirects';
-import { assertSignupEmailAvailable, isDuplicateSignupError, signupErrorMessage } from './businessOnboardingAuth';
-import BusinessCategorySelectors from './BusinessCategorySelectors';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -32,8 +30,6 @@ import GoogleMapSection from '../../components/GoogleMapSection';
 import WizardProgressBar from '../../components/WizardProgressBar';
 import ImageCropModal from '../../components/ImageCropModal';
 import ChsLogoPattern from '../../components/ChsLogoPattern';
-import LegalConsentDialog from '../../components/onboarding/LegalConsentDialog';
-import FieldRequirementHint from '../../components/onboarding/FieldRequirementHint';
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const BUSINESS_IMAGE_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp';
@@ -888,9 +884,19 @@ function BusinessOnboardingInner() {
   const { data: sectors, isLoading: sectorsLoading, error: sectorsError } = useGetSectors();
   const { data: categories, isLoading: categoriesLoading, error: categoriesError } = useGetCategoriesBySector(formData.sectorId);
   const { data: subcategories, isLoading: subcategoriesLoading, error: subcategoriesError } = useGetSubCategoriesByCategory(formData.categoryId);
-  const catalogSectors = sectors ?? [];
-  const catalogCategories = categories ?? [];
-  const catalogSubcategories = subcategories ?? [];
+  const preferLocalCatalog = import.meta.env.DEV;
+  const onboardingSectors = !preferLocalCatalog && sectors?.length ? sectors : SECTORS;
+  const onboardingCategories = !preferLocalCatalog && categories?.length
+    ? categories
+    : CATEGORIES.filter((category) => category.sectorId === formData.sectorId);
+  const onboardingSubcategories = !preferLocalCatalog && subcategories?.length
+    ? subcategories
+    : SUBCATEGORIES.filter((subcategory) => subcategory.categoryId === formData.categoryId);
+  const isUsingLocalCatalog = Boolean(
+    preferLocalCatalog || sectorsError || (!sectorsLoading && !sectors?.length) ||
+    (formData.sectorId && (categoriesError || (!categoriesLoading && !categories?.length))) ||
+    (formData.categoryId && (subcategoriesError || (!subcategoriesLoading && !subcategories?.length))),
+  );
 
   // --- Google Onboarding State ---
   const getSafeParam = (params: URLSearchParams | null, key: string): string => {
@@ -1308,6 +1314,10 @@ function BusinessOnboardingInner() {
 
   const handleGoogleFailSafeSubmit = () => {
     setSubmitError(null);
+    if (!googlePhoneInput) {
+      setSubmitError('Phone number is required.');
+      return;
+    }
     if (!googleSectorId || !googleCategoryId || !googleSubCategoryId) {
       setSubmitError('All category levels must be selected.');
       return;
@@ -1612,7 +1622,6 @@ function BusinessOnboardingInner() {
   const [storefrontLive, setStorefrontLive] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
-  const [legalDocumentOpen, setLegalDocumentOpen] = useState<'terms' | 'privacy' | null>(null);
   const [termsError, setTermsError] = useState(false);
   const [lockedFeatureAttempt, setLockedFeatureAttempt] = useState<string | null>(null);
   const [cobrandedTab, setCobrandedTab] = useState<'standard' | 'pro' | 'plus'>('standard');
@@ -2225,7 +2234,8 @@ function BusinessOnboardingInner() {
         setParticleTrigger((p) => p + 1);
         setTimeout(() => setCurrentStep(1), 300);
       } catch (err: unknown) {
-        setSubmitError(signupErrorMessage(err, 'Failed to send verification code. Please try again.'));
+        const e = err as { message?: string };
+        setSubmitError(e?.message || 'Failed to send verification code. Please try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -2243,14 +2253,16 @@ function BusinessOnboardingInner() {
           return;
         }
 
+        // Check if an account with this email already exists
         try {
-          await assertSignupEmailAvailable(checkEmail, formData.email);
-        } catch (err: unknown) {
-          setSubmitError(signupErrorMessage(
-            err,
-            'Could not check whether this email is available. Please try again.',
-          ));
-          return;
+          const emailCheck = await checkEmail(formData.email);
+          if (emailCheck?.exists) {
+            setSubmitError('An account with this email already exists. Please log in instead.');
+            setIsSubmitting(false);
+            return;
+          }
+        } catch {
+          // If check-email endpoint fails, allow the user to continue
         }
 
         const next = new Set(completedSteps);
@@ -2259,7 +2271,8 @@ function BusinessOnboardingInner() {
         setParticleTrigger((p) => p + 1);
         setTimeout(() => setCurrentStep(2), 300);
       } catch (err: unknown) {
-        setSubmitError(signupErrorMessage(err, 'Invalid or expired verification code. Please check and try again.'));
+        const e = err as { message?: string };
+        setSubmitError(e?.message || 'Invalid code. Please check and try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -2315,12 +2328,8 @@ function BusinessOnboardingInner() {
 
     // ── Category Step Validation ───────────────────────────
     if (currentQuest.id === 'category') {
-      const selectedSectorExists = catalogSectors.some((sector) => sector.id === formData.sectorId);
-      const selectedCategory = catalogCategories.find((category) => category.id === formData.categoryId);
-      const selectedSubcategory = catalogSubcategories.find((subcategory) => subcategory.id === formData.subCategoryId);
-      if (!selectedSectorExists || !selectedCategory || selectedCategory.sectorId !== formData.sectorId ||
-          (formData.subCategoryId && (!selectedSubcategory || selectedSubcategory.categoryId !== formData.categoryId))) {
-        setSubmitError('Select a sector and primary category from the loaded CHS catalog.');
+      if (!formData.sectorId || !formData.categoryId) {
+        setSubmitError('Please select your sector and primary category.');
         return;
       }
     }
@@ -2359,12 +2368,8 @@ function BusinessOnboardingInner() {
 
     // ── Final step: register + auto-login + create profile ──────────────────
     if (currentStep === activeQuests.length - 1) {
-      const selectedSectorExists = catalogSectors.some((sector) => sector.id === formData.sectorId);
-      const selectedCategory = catalogCategories.find((category) => category.id === formData.categoryId);
-      const selectedSubcategory = catalogSubcategories.find((subcategory) => subcategory.id === formData.subCategoryId);
-      if (!selectedSectorExists || !selectedCategory || selectedCategory.sectorId !== formData.sectorId ||
-          (formData.subCategoryId && (!selectedSubcategory || selectedSubcategory.categoryId !== formData.categoryId))) {
-        setSubmitError('Select a sector and primary category from the loaded CHS catalog.');
+      if (!formData.sectorId || !formData.categoryId) {
+        setSubmitError('Please select your sector and primary category.');
         return;
       }
 
@@ -2382,10 +2387,21 @@ function BusinessOnboardingInner() {
               role: UserRole.OWNER,
             });
           } catch (err: any) {
-            if (isDuplicateSignupError(err)) {
-              throw new Error('An account with this email already exists. Please log in instead.');
+            const msg = err?.response?.data?.message || err?.message || '';
+            const code = err?.response?.data?.code || err?.code || '';
+            if (
+              msg.toLowerCase().includes('email has been used') ||
+              msg.toLowerCase().includes('email_exists') ||
+              code === 'EMAIL_EXISTS'
+            ) {
+              await login({
+                email: formData.email,
+                password: formData.password,
+                role: UserRole.OWNER,
+              });
+            } else {
+              throw err;
             }
-            throw err;
           }
 
           if (!api.defaults.headers.common['Authorization']) {
@@ -2553,7 +2569,8 @@ function BusinessOnboardingInner() {
         localStorage.setItem('businessOnboardingState', 'plan_selection');
         setShowProgrammeIntro(true);
       } catch (err: unknown) {
-        setSubmitError(signupErrorMessage(err, 'Registration and profile creation failed. Please try again.'));
+        const e = err as { message?: string };
+        setSubmitError(e?.message || 'Registration and profile creation failed. Please try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -6026,7 +6043,6 @@ function BusinessOnboardingInner() {
   // Main Onboarding Flow
   // ═══════════════════════════════════════════════════════
   return (
-    <>
     <div className="registration-page relative flex min-h-dvh flex-col overflow-x-hidden overflow-y-auto bg-[#fafafa] font-sans">
       <ChsLogoPattern className={`opacity-[0.09] ${!isGoogleOnboarding && ['storefront', 'details'].includes(currentQuest.id) ? 'fixed' : ''}`} />
 
@@ -6235,7 +6251,7 @@ function BusinessOnboardingInner() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Phone Number<FieldRequirementHint kind="important" />
+                        Phone Number {(!selectedGoogleBranch?.businessPhone) && <span className="text-red-500">*</span>}
                       </label>
                       <Input
                         value={googlePhoneInput}
@@ -6256,7 +6272,7 @@ function BusinessOnboardingInner() {
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Sector<FieldRequirementHint kind="required" /></label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Sector</label>
                           <select
                             value={googleSectorId}
                             onChange={(e) => {
@@ -6274,7 +6290,7 @@ function BusinessOnboardingInner() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Category<FieldRequirementHint kind="required" /></label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Category</label>
                           <select
                             value={googleCategoryId}
                             onChange={(e) => {
@@ -6292,7 +6308,7 @@ function BusinessOnboardingInner() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Subcategory<FieldRequirementHint kind="required" /></label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Subcategory</label>
                           <select
                             value={googleSubCategoryId}
                             onChange={(e) => setGoogleSubCategoryId(e.target.value)}
@@ -6344,11 +6360,11 @@ function BusinessOnboardingInner() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">First Name<FieldRequirementHint kind="required" /></label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">First Name</label>
                           <Input value={ownerFirstName} onChange={(e) => setOwnerFirstName(e.target.value)} placeholder="Jane" className="h-10 rounded-lg text-xs" />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Last Name<FieldRequirementHint kind="required" /></label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Last Name</label>
                           <Input value={ownerLastName} onChange={(e) => setOwnerLastName(e.target.value)} placeholder="Smith" className="h-10 rounded-lg text-xs" />
                         </div>
                       </div>
@@ -6392,7 +6408,7 @@ function BusinessOnboardingInner() {
                   <div className="space-y-5">
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">
-                        Business Email Address<FieldRequirementHint kind="required" />
+                        Business Email Address
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6445,7 +6461,6 @@ function BusinessOnboardingInner() {
                 {/* ─── Step 1: OTP Verification ─────── */}
                 {!isGoogleOnboarding && currentQuest.id === 'otp' && (
                   <div className="space-y-6">
-                    <p className="text-sm font-bold text-gray-800">Verification code<FieldRequirementHint kind="required" /></p>
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
                       <p className="text-sm text-orange-900 font-medium leading-relaxed">
                         {otpMode === 'mock'
@@ -6493,7 +6508,8 @@ function BusinessOnboardingInner() {
                           setDevOtpCode(res?.code ?? null);
                           setOtpResendCooldown(60);
                         } catch (err: unknown) {
-                          setSubmitError(signupErrorMessage(err, 'Failed to resend verification code. Please try again.'));
+                          const e = err as { message?: string };
+                          setSubmitError(e?.message || 'Failed to resend verification code. Please try again.');
                         } finally {
                           setOtpResending(false);
                         }
@@ -6519,7 +6535,7 @@ function BusinessOnboardingInner() {
                     </div>
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">
-                        Business Postcode<FieldRequirementHint kind="important" />
+                        Business Postcode
                       </label>
                       <p className="text-xs text-gray-500 -mt-1">Enter the postcode where your business operates from</p>
                       <button
@@ -6885,7 +6901,7 @@ function BusinessOnboardingInner() {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">First Name<FieldRequirementHint kind="required" /></label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">First Name</label>
                       <p className="text-xs text-gray-500 -mt-1">Your personal first name for the account</p>
                       <div className="relative">
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6901,7 +6917,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Last Name<FieldRequirementHint kind="required" /></label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Last Name</label>
                       <p className="text-xs text-gray-500 -mt-1">Your personal last name for the account</p>
                       <div className="relative">
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6916,7 +6932,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Phone Number<FieldRequirementHint kind="important" /></label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Phone Number</label>
                       <p className="text-xs text-gray-500 -mt-1">A contact number where customers and partners can reach you</p>
                       <div className="relative">
                         <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6931,7 +6947,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Password<FieldRequirementHint kind="required" /></label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Password</label>
                       <p className="text-xs text-gray-500 -mt-1">Choose a strong password to protect your account</p>
                       <div className="relative">
                         <Input
@@ -6949,7 +6965,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Confirm Password<FieldRequirementHint kind="required" /></label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Confirm Password</label>
                       <p className="text-xs text-gray-500 -mt-1">Re-enter your password to make sure it's correct</p>
                       <div className="relative">
                         <Input
@@ -6972,26 +6988,24 @@ function BusinessOnboardingInner() {
                         <input
                           type="checkbox"
                           checked={termsAccepted}
-                          onChange={(e) => { if (e.target.checked && !termsAccepted) setLegalDocumentOpen('terms'); else if (!e.target.checked) setTermsAccepted(false); }}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
                           className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
                         />
                         <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                          I agree to the{' '}
-                          <button type="button" onClick={() => setLegalDocumentOpen('terms')} className="text-orange-600 font-bold hover:underline">Terms of Service</button>
-                          <FieldRequirementHint kind="required" />
+                          I accept the{' '}
+                          <a href="/terms" target="_blank" className="text-orange-600 font-bold hover:underline">Terms of Service</a>
                         </span>
                       </label>
                       <label className="flex items-start gap-3 cursor-pointer group">
                         <input
                           type="checkbox"
                           checked={privacyAccepted}
-                          onChange={(e) => { if (e.target.checked && !privacyAccepted) setLegalDocumentOpen('privacy'); else if (!e.target.checked) setPrivacyAccepted(false); }}
+                          onChange={(e) => setPrivacyAccepted(e.target.checked)}
                           className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
                         />
                         <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                          I understand the{' '}
-                          <button type="button" onClick={() => setLegalDocumentOpen('privacy')} className="text-orange-600 font-bold hover:underline">Privacy Policy</button>
-                          <FieldRequirementHint kind="required" />
+                          I accept the{' '}
+                          <a href="/privacy" target="_blank" className="text-orange-600 font-bold hover:underline">Privacy Policy</a>
                         </span>
                       </label>
                     </div>
@@ -7004,7 +7018,7 @@ function BusinessOnboardingInner() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Business Name<FieldRequirementHint kind="required" />
+                        Business Name
                       </label>
                       <Input
                         value={formData.businessName}
@@ -7032,7 +7046,7 @@ function BusinessOnboardingInner() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Business Phone Number<FieldRequirementHint kind="important" />
+                        Business Phone Number
                       </label>
                       <Input
                         value={formData.businessPhone}
@@ -7099,16 +7113,14 @@ function BusinessOnboardingInner() {
                         Tell us how you operate so we can tailor your dashboard, set the right shipping and tax defaults, and recommend the best tools for your business.
                       </p>
                     </div>
-                    <p className="text-sm font-bold text-gray-800">Choose how your business operates<FieldRequirementHint kind="required" /></p>
-                    <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                       {/* Option: Physical Store */}
                       <button
                         type="button"
-                        aria-pressed={formData.businessOperation === 'physical'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'physical', businessType: 'products' })}
-                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'physical'
-                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
-                            : 'border-gray-200 hover:border-orange-400'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'physical'
+                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
+                            : 'border-gray-200 hover:border-orange-300'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'physical'
@@ -7119,22 +7131,21 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Physical Store</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Brick-and-mortar retail space or showroom for customers.</p>
-                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'physical'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'physical'
+                            ? 'opacity-100 scale-100'
+                            : 'opacity-0 scale-50'
                           }`}>
-                          {formData.businessOperation === 'physical' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
+                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
 
                       {/* Option: Home Business */}
                       <button
                         type="button"
-                        aria-pressed={formData.businessOperation === 'home'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'home', businessType: 'both' })}
-                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'home'
-                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
-                            : 'border-gray-200 hover:border-orange-400'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'home'
+                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
+                            : 'border-gray-200 hover:border-orange-300'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'home'
@@ -7145,22 +7156,21 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Home Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Operated from a private residence with or without visitors.</p>
-                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'home'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'home'
+                            ? 'opacity-100 scale-100'
+                            : 'opacity-0 scale-50'
                           }`}>
-                          {formData.businessOperation === 'home' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
+                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
 
                       {/* Option: Mobile Business */}
                       <button
                         type="button"
-                        aria-pressed={formData.businessOperation === 'mobile'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'mobile', businessType: 'services' })}
-                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'mobile'
-                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
-                            : 'border-gray-200 hover:border-orange-400'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'mobile'
+                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
+                            : 'border-gray-200 hover:border-orange-300'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'mobile'
@@ -7171,22 +7181,21 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Mobile Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Services provided at client locations or on-the-go.</p>
-                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'mobile'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'mobile'
+                            ? 'opacity-100 scale-100'
+                            : 'opacity-0 scale-50'
                           }`}>
-                          {formData.businessOperation === 'mobile' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
+                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
 
                       {/* Option: Online Business */}
                       <button
                         type="button"
-                        aria-pressed={formData.businessOperation === 'online'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'online', businessType: 'products' })}
-                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'online'
-                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
-                            : 'border-gray-200 hover:border-orange-400'
+                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'online'
+                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
+                            : 'border-gray-200 hover:border-orange-300'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'online'
@@ -7197,11 +7206,11 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Online Business</h3>
                         <p className="text-xs text-gray-550 mt-1 leading-relaxed">E-commerce, digital services, or remote operations.</p>
-                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'online'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
+                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'online'
+                            ? 'opacity-100 scale-100'
+                            : 'opacity-0 scale-50'
                           }`}>
-                          {formData.businessOperation === 'online' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
+                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
                         </div>
                       </button>
                     </div>
@@ -7218,23 +7227,75 @@ function BusinessOnboardingInner() {
                       </p>
                     </div>
 
-                    <BusinessCategorySelectors
-                      sectors={catalogSectors}
-                      categories={catalogCategories}
-                      subcategories={catalogSubcategories}
-                      sectorId={formData.sectorId}
-                      categoryId={formData.categoryId}
-                      subcategoryId={formData.subCategoryId}
-                      sectorsLoading={sectorsLoading}
-                      categoriesLoading={categoriesLoading}
-                      subcategoriesLoading={subcategoriesLoading}
-                      sectorsError={!!sectorsError}
-                      categoriesError={!!categoriesError}
-                      subcategoriesError={!!subcategoriesError}
-                      onSectorChange={(sectorId) => setFormData({ ...formData, sectorId, categoryId: '', subCategoryId: '' })}
-                      onCategoryChange={(categoryId) => setFormData({ ...formData, categoryId, subCategoryId: '' })}
-                      onSubcategoryChange={(subCategoryId) => setFormData({ ...formData, subCategoryId })}
-                    />
+                    {isUsingLocalCatalog && (
+                      <div className="flex items-start gap-2.5 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
+                        <p className="text-sm font-medium text-orange-900">
+                          {preferLocalCatalog
+                            ? 'Using the built-in sample categories for development.'
+                            : 'The category service is unavailable. Showing built-in sample categories so you can continue.'}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Sector</label>
+                      <p className="text-xs text-gray-500 -mt-1">Choose the broad industry your business belongs to</p>
+                      {sectorsLoading && !preferLocalCatalog ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.sectorId}
+                          onChange={(e) => setFormData({ ...formData, sectorId: e.target.value, categoryId: '', subCategoryId: '' })}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
+                        >
+                          <option value="">Select a Sector</option>
+                          {onboardingSectors.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Primary Category</label>
+                      <p className="text-xs text-gray-500 -mt-1">Narrow down to the specific group within your sector</p>
+                      {categoriesLoading && !preferLocalCatalog ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.categoryId}
+                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subCategoryId: '' })}
+                          disabled={!formData.sectorId}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select a Category</option>
+                          {onboardingCategories.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Type</label>
+                      <p className="text-xs text-gray-500 -mt-1">Pick the exact type that matches your operations (optional)</p>
+                      {subcategoriesLoading && !preferLocalCatalog ? (
+                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
+                      ) : (
+                        <select
+                          value={formData.subCategoryId}
+                          onChange={(e) => setFormData({ ...formData, subCategoryId: e.target.value })}
+                          disabled={!formData.categoryId}
+                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                        >
+                          <option value="">Select a Business Type</option>
+                          {onboardingSubcategories.map(sc => (
+                            <option key={sc.id} value={sc.id}>{sc.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -7820,8 +7881,6 @@ function BusinessOnboardingInner() {
         }}
       />
     </div>
-    {legalDocumentOpen && <LegalConsentDialog kind={legalDocumentOpen} onClose={() => setLegalDocumentOpen(null)} onAccept={() => { if (legalDocumentOpen === 'terms') setTermsAccepted(true); else setPrivacyAccepted(true); setLegalDocumentOpen(null); }} />}
-    </>
   );
 }
 
