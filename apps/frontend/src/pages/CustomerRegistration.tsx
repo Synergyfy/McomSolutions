@@ -6,6 +6,7 @@ import { Eye, EyeOff, ShieldCheck, RefreshCw, X, ArrowRight, Gift, MapPin, Compa
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
 import CHSLogo from '../components/CHSLogo';
+import FieldRequirementHint from '../components/onboarding/FieldRequirementHint';
 
 import { apiClient, setSharedAuthCookies } from '../services/api';
 import { validateEmailAddress } from '../lib/validation';
@@ -699,7 +700,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label htmlFor="signup-email" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Email address</label>
+                    <label htmlFor="signup-email" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Email address<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
                       <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <input 
@@ -744,6 +745,7 @@ export default function CustomerRegistration() {
                     <p className="text-sm text-gray-500 font-medium">
                       We've sent a 6-digit code to <span className="font-bold text-gray-800">{formData.email}</span>.
                     </p>
+                    <p className="mt-2 text-xs font-bold uppercase tracking-wider text-gray-500">Verification code<FieldRequirementHint kind="required" /></p>
                   </div>
                   {otpMode === 'mock' && devOtpCode && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
@@ -791,7 +793,7 @@ export default function CustomerRegistration() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">First Name</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">First Name<FieldRequirementHint kind="required" /></label>
                       <input 
                         name="firstName" 
                         value={formData.firstName} 
@@ -802,7 +804,7 @@ export default function CustomerRegistration() {
                       {errors.firstName && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.firstName}</p>}
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Last Name</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Last Name<FieldRequirementHint kind="required" /></label>
                       <input 
                         name="lastName" 
                         value={formData.lastName} 
@@ -815,7 +817,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number<FieldRequirementHint kind="required" /></label>
                     <input 
                       name="phoneNumber" 
                       value={formData.phoneNumber} 
@@ -827,7 +829,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Password<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
                       <input 
                         name="password" 
@@ -848,7 +850,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirm Password</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirm Password<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
                       <input 
                         name="confirmPassword" 
@@ -915,7 +917,7 @@ export default function CustomerRegistration() {
                       and{' '}
                       <Link to="/privacy" className="text-orange-600 font-bold hover:underline">
                         Privacy Policy
-                      </Link>.
+                      </Link>.<FieldRequirementHint kind="required" />
                     </label>
                   </div>
                   {errors.terms && <p className="text-red-500 text-xs font-semibold">{errors.terms}</p>}
