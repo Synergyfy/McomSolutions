@@ -8,6 +8,7 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 import { isAuthOrOnboardingRedirect } from '../lib/redirects';
 import CHSLogo from '../components/CHSLogo';
+import ChsLogoPattern from '../components/ChsLogoPattern';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -457,13 +458,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-dvh items-start justify-center overflow-x-hidden bg-[#f5f7fb] px-4 pb-8 pt-20 sm:items-center sm:px-8 sm:py-24">
-      <div className="pointer-events-none absolute -right-40 -top-44 h-[30rem] w-[30rem] rounded-full bg-orange-100/70 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-48 -left-40 h-[28rem] w-[28rem] rounded-full bg-blue-100/60 blur-3xl" />
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-x-clip bg-gray-50 p-4 sm:p-6 md:p-8">
+      <ChsLogoPattern />
       <button
         type="button"
         onClick={() => navigate(-1)}
-        className="absolute left-4 top-4 z-20 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white/90 px-3.5 text-sm font-semibold text-slate-600 shadow-sm backdrop-blur transition hover:border-orange-200 hover:text-slate-950 sm:left-8 sm:top-7 sm:px-4"
+        className="absolute left-4 top-4 z-20 hidden min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white/90 px-3.5 text-sm font-semibold text-slate-600 shadow-sm backdrop-blur transition hover:border-orange-200 hover:text-slate-950 sm:left-8 sm:top-6 sm:inline-flex sm:px-4"
       >
         <ArrowRight className="h-4 w-4 rotate-180 text-orange-600" />
         Back
@@ -471,6 +471,7 @@ export default function LoginPage() {
       <motion.div 
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
+        style={{ zoom: 0.85 }}
         className="relative z-10 grid w-full max-w-6xl overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_28px_90px_rgba(20,30,48,0.16)] sm:rounded-[2rem] md:grid-cols-[0.86fr_1.14fr] lg:min-h-[650px]"
       >
         <section className="relative flex flex-col justify-between overflow-hidden bg-[#14243a] px-5 py-5 text-white sm:px-8 sm:py-7 md:px-9 md:py-10 lg:px-12 lg:py-12" aria-label="Welcome">

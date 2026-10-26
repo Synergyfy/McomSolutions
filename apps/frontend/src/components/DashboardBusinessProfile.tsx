@@ -6,6 +6,7 @@ import {
   Edit2, Upload, ShieldCheck, Camera, Plus, ExternalLink, Loader2
 } from 'lucide-react';
 import { useProfile, useUpdateProfile, useGenerateApiKey, useUploadBusinessFile } from '../services/business/hooks';
+import { apiClient } from '../services/api';
 import { useReferralInfo } from '../services/referrals/hooks';
 import ReferralLinkCard from './ReferralLinkCard';
 
@@ -20,6 +21,7 @@ export default function DashboardBusinessProfile() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logoSuccess, setLogoSuccess] = useState(false);
+  const [logoDisplayUrl, setLogoDisplayUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     businessName: '',
@@ -62,6 +64,42 @@ export default function DashboardBusinessProfile() {
       });
     }
   }, [profile]);
+
+  // Local backend uploads are protected by Bearer auth. An <img> request cannot
+  // attach the token from localStorage, so fetch local /uploads assets through
+  // the authenticated API client and render the resulting object URL instead.
+  useEffect(() => {
+    const logoUrl = formData.logoUrl;
+    if (!logoUrl) {
+      setLogoDisplayUrl('');
+      return;
+    }
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    const isLocalUpload = /\/uploads\//.test(logoUrl);
+
+    if (!isLocalUpload) {
+      setLogoDisplayUrl(logoUrl);
+      return;
+    }
+
+    setLogoDisplayUrl('');
+    apiClient.get(logoUrl, { responseType: 'blob' })
+      .then(({ data }) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(data);
+        setLogoDisplayUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setLogoDisplayUrl('');
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [formData.logoUrl]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -179,9 +217,9 @@ export default function DashboardBusinessProfile() {
           <div className="flex flex-col items-center flex-shrink-0">
             <div className="relative group">
               <div className="w-32 h-32 rounded-3xl border-2 border-gray-100 bg-gray-50 flex items-center justify-center shadow-xl overflow-hidden relative group-hover:border-orange-300 transition-all">
-                {formData.logoUrl ? (
+                {logoDisplayUrl ? (
                   <img
-                    src={formData.logoUrl}
+                    src={logoDisplayUrl}
                     alt={formData.businessName || 'Business Logo'}
                     className="w-full h-full object-contain p-2 bg-white"
                   />

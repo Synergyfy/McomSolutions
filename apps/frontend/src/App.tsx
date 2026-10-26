@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
+import LegalPage from './pages/LegalPage';
 import MembershipPage from './pages/MembershipPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
@@ -156,6 +157,8 @@ function AnimatedRoutes() {
               </PageWrapper>
             } 
           />
+          <Route path="/terms" element={<PageWrapper><LegalPage type="terms" /></PageWrapper>} />
+          <Route path="/privacy" element={<PageWrapper><LegalPage type="privacy" /></PageWrapper>} />
           <Route 
             path="/pricing" 
             element={<Navigate to="/register" replace />}
