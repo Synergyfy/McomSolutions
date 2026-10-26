@@ -115,7 +115,7 @@ async function bootstrap() {
     },
     credentials: true,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mcom-Client-ID', 'X-Mcom-Signature', 'X-Idempotency-Key', 'ngrok-skip-browser-warning'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mcom-Client-ID', 'X-Mcom-Signature', 'X-Idempotency-Key', 'Idempotency-Key', 'ngrok-skip-browser-warning'],
   });
 
   // Global prefix. The JWKS discovery endpoint is deliberately served at the

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class AccessCouponQuoteDto {
   @ApiProperty({ example: 'access-plan-id' })
@@ -23,4 +23,26 @@ export class AccessWalletPurchaseDto {
   @IsOptional()
   @IsString()
   couponCode?: string;
+
+  @ApiPropertyOptional({ enum: ['SELF', 'GIFT', 'CODE'], default: 'SELF' })
+  @IsOptional()
+  @IsIn(['SELF', 'GIFT', 'CODE'])
+  purchaseMode?: 'SELF' | 'GIFT' | 'CODE';
+
+  @ApiPropertyOptional({ example: 'recipient@example.com' })
+  @IsOptional()
+  @IsEmail()
+  recipientEmail?: string;
+
+  @ApiPropertyOptional({ enum: ['membership', 'access_pass'] })
+  @IsOptional()
+  @IsIn(['membership', 'access_pass'])
+  entitlementChoice?: 'membership' | 'access_pass';
+}
+
+export class RedeemAccessCodeDto {
+  @ApiProperty({ example: 'MCOM-ABCD-2345' })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
 }

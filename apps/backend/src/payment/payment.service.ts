@@ -16,10 +16,10 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { Role, Prisma, MembershipPaymentPlan, CouponProductType, RecurringScope } from '@prisma/client';
+import { Role, Prisma, MembershipPaymentPlan, CouponProductType, RecurringScope, MembershipStatus } from '@prisma/client';
 import { PricingService } from '../pricing/pricing.service';
 import { CouponService } from '../coupon/coupon.service';
-import { AccessService } from '../access/access.service';
+import { AccessService, type AccessEntitlementChoice } from '../access/access.service';
 import { normalizePaymentPlan } from '../pricing/payment-option.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -85,22 +85,39 @@ function parsePlatformCustomId(customId: string): {
 }
 
 /**
- * Parse `ACCESS|businessId|accessPlanId|couponCode?`. The access-plan ID is a
- * cuid (never contains `|`); coupon codes are alphanumeric + `-`/`_`.
+ * Parse `ACCESS|businessId|accessPlanId|couponCode?` for self purchases and
+ * `ACCESS_GIFT|businessId|accessPlanId|accessPassCodeId` for gift/code
+ * purchases. IDs never contain `|`.
  */
 function parseAccessCustomId(customId: string): {
+  kind: 'ACCESS' | 'ACCESS_GIFT';
   businessId: string;
   accessPlanId: string;
   couponCode?: string;
+  accessPassCodeId?: string;
+  entitlementChoice?: AccessEntitlementChoice;
 } {
-  const [kind, businessId, accessPlanId, couponCode] = (customId || '').split('|');
-  if (kind !== 'ACCESS' || !businessId || !accessPlanId) {
+  const [kind, businessId, accessPlanId, fourth, fifth] = (customId || '').split('|');
+  if (
+    (kind !== 'ACCESS' && kind !== 'ACCESS_GIFT') ||
+    !businessId ||
+    !accessPlanId
+  ) {
     throw new BadRequestException('PayPal order metadata is missing. Cannot activate access pass.');
   }
+  if (kind === 'ACCESS_GIFT') {
+    if (!fourth) {
+      throw new BadRequestException('PayPal order metadata is missing the access pass code.');
+    }
+    return { kind, businessId, accessPlanId, accessPassCodeId: fourth };
+  }
   return {
+    kind,
     businessId,
     accessPlanId,
-    couponCode: couponCode?.trim() ? couponCode.trim().toUpperCase() : undefined,
+    couponCode: fourth?.trim() ? fourth.trim().toUpperCase() : undefined,
+    entitlementChoice:
+      fifth === 'access_pass' || fifth === 'membership' ? fifth : undefined,
   };
 }
 
@@ -980,15 +997,126 @@ export class PaymentService {
 
   // ─── ACCESS PASS PURCHASES ──────────────────────────────────────────────────
 
+  /**
+   * Stops an active membership immediately when the buyer explicitly chooses to
+   * switch to an access pass. Cancels the provider mandate (best effort) and
+   * marks the membership inactive so entitlement resolution falls through to
+   * the newly provisioned access pass.
+   */
+  private async stopActiveMembershipForAccessPass(businessId: string): Promise<void> {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      select: {
+        membershipRecurringId: true,
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipExpiresAt: true,
+      },
+    });
+    if (!business) return;
+
+    const status = String(business.membershipStatus || '').toLowerCase();
+    const isActive =
+      ['active', 'trial', 'past_due'].includes(status) &&
+      Boolean(business.membershipPlanName) &&
+      (!business.membershipExpiresAt ||
+        new Date(business.membershipExpiresAt).getTime() > Date.now());
+    if (!isActive) return;
+
+    if (business.membershipRecurringId) {
+      try {
+        await this.recurringService.cancel(
+          business.membershipRecurringId,
+          businessId,
+          true,
+          true,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Could not cancel membership mandate ${business.membershipRecurringId} for business ${businessId}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
+    await this.prisma.businessProfile.updateMany({
+      where: { id: businessId },
+      data: { membershipStatus: MembershipStatus.inactive },
+    });
+  }
+
   async accessStripeInitiate(
     businessId: string,
     accessPlanId: string,
     couponCode?: string,
     userId?: string,
+    purchaseMode: 'SELF' | 'GIFT' | 'CODE' = 'SELF',
+    recipientEmail?: string,
+    entitlementChoice?: AccessEntitlementChoice,
   ) {
     if (!this.stripe) {
       throw new InternalServerErrorException('Stripe is not configured on this server.');
     }
+    const mode = purchaseMode ?? 'SELF';
+
+    if (mode !== 'SELF') {
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be used when buying a gift or access code.');
+      }
+      if (mode === 'GIFT' && !recipientEmail?.trim()) {
+        throw new BadRequestException('A recipient email is required for a gifted access pass.');
+      }
+
+      const quote = await this.accessService.resolveQuote(accessPlanId);
+      const pending = await this.accessService.createPendingAccessCode({
+        businessId,
+        userId,
+        accessPlanId: quote.accessPlan.id,
+        mode,
+        recipientEmail,
+        amount: quote.finalAmount,
+        currency: quote.currency,
+        provider: 'stripe',
+      });
+
+      try {
+        const paymentIntent = await this.stripe.paymentIntents.create({
+          amount: Math.round(quote.finalAmount * 100),
+          currency: 'gbp',
+          automatic_payment_methods: { enabled: true },
+          metadata: {
+            kind: 'access',
+            businessId,
+            accessPlanId: quote.accessPlan.id,
+            purchaseMode: mode,
+            accessPassCodeId: pending.code.id,
+          },
+          description: `MCOM Access Pass ${mode === 'GIFT' ? 'gift' : 'code'} — ${quote.accessPlan.name}`,
+        });
+
+        await this.accessService.attachProviderPaymentToCode(pending.code.id, paymentIntent.id);
+
+        return {
+          clientSecret: paymentIntent.client_secret,
+          type: 'payment',
+          purchaseMode: mode,
+          pricing: {
+            originalAmount: quote.originalAmount,
+            discountAmount: quote.discountAmount,
+            finalAmount: quote.finalAmount,
+            couponCode: null,
+            currency: quote.currency,
+            walletCredits: quote.walletCredits,
+            walletCurrency: quote.walletCurrency,
+          },
+        };
+      } catch (err) {
+        await this.accessService.cancelPendingAccessCode(pending.code.id);
+        throw err;
+      }
+    }
+
     if (couponCode && !userId) {
       throw new BadRequestException('A signed-in user is required to use a coupon.');
     }
@@ -1002,7 +1130,9 @@ export class PaymentService {
         kind: 'access',
         businessId,
         accessPlanId: quote.accessPlan.id,
+        purchaseMode: 'SELF',
         planName: quote.accessPlan.name,
+        ...(entitlementChoice ? { entitlementChoice } : {}),
         ...(quote.coupon
           ? {
               couponId: quote.coupon.id,
@@ -1035,6 +1165,7 @@ export class PaymentService {
     return {
       clientSecret: paymentIntent.client_secret,
       type: 'payment',
+      purchaseMode: 'SELF',
       pricing: {
         originalAmount: quote.originalAmount,
         discountAmount: quote.discountAmount,
@@ -1078,10 +1209,35 @@ export class PaymentService {
     }
 
     const meta = intent.metadata ?? {};
+    const entitlementChoice: AccessEntitlementChoice | undefined =
+      meta.entitlementChoice === 'access_pass' || meta.entitlementChoice === 'membership'
+        ? meta.entitlementChoice
+        : undefined;
     const effectiveAccessPlanId = meta.accessPlanId || accessPlanId;
     if (!effectiveAccessPlanId) {
       throw new BadRequestException('Payment is missing access plan metadata.');
     }
+
+    if (meta.accessPassCodeId) {
+      const code = await this.accessService.getAccessCode(meta.accessPassCodeId);
+      if (code.purchaserBusinessId !== businessId) {
+        throw new ForbiddenException('This payment belongs to a different business.');
+      }
+      if (code.providerPaymentId && code.providerPaymentId !== paymentIntentId) {
+        throw new ConflictException('This access pass code payment has already been processed.');
+      }
+      if (
+        intent.currency?.toLowerCase() !== 'gbp' ||
+        intent.amount !== Math.round(Number(code.amount) * 100)
+      ) {
+        throw new BadRequestException('Paid amount does not match the access pass price.');
+      }
+      return this.accessService.completeAccessCode(code.id, {
+        provider: 'stripe',
+        providerPaymentId: paymentIntentId,
+      });
+    }
+
     const couponCode = meta.couponCode?.toUpperCase();
     const reservation = couponCode
       ? await this.couponService.findReservationForPayment('stripe', paymentIntentId)
@@ -1141,7 +1297,20 @@ export class PaymentService {
       discountAmount,
       couponCode,
       couponRedemptionId: redemptionId,
+      entitlementChoice,
     });
+
+    if (entitlementChoice === 'access_pass') {
+      try {
+        await this.stopActiveMembershipForAccessPass(businessId);
+      } catch (err) {
+        this.logger.warn(
+          `Access pass activated for ${businessId} but membership stop failed: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
 
     if (couponCode && !redemptionId) {
       await this.couponService
@@ -1177,15 +1346,97 @@ export class PaymentService {
     cancelUrl: string,
     couponCode?: string,
     userId?: string,
+    purchaseMode: 'SELF' | 'GIFT' | 'CODE' = 'SELF',
+    recipientEmail?: string,
+    entitlementChoice?: AccessEntitlementChoice,
   ) {
+    const mode = purchaseMode ?? 'SELF';
+    const token = await this.getPayPalAccessToken();
+
+    if (mode !== 'SELF') {
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be used when buying a gift or access code.');
+      }
+      if (mode === 'GIFT' && !recipientEmail?.trim()) {
+        throw new BadRequestException('A recipient email is required for a gifted access pass.');
+      }
+
+      const quote = await this.accessService.resolveQuote(accessPlanId);
+      const pending = await this.accessService.createPendingAccessCode({
+        businessId,
+        userId,
+        accessPlanId: quote.accessPlan.id,
+        mode,
+        recipientEmail,
+        amount: quote.finalAmount,
+        currency: quote.currency,
+        provider: 'paypal',
+      });
+      const customId = `ACCESS_GIFT|${businessId}|${quote.accessPlan.id}|${pending.code.id}`;
+
+      try {
+        const order = await axios.post(
+          `${this.paypalBaseUrl}/v2/checkout/orders`,
+          {
+            intent: 'CAPTURE',
+            purchase_units: [
+              {
+                amount: {
+                  currency_code: 'GBP',
+                  value: quote.finalAmount.toFixed(2),
+                },
+                description: `MCOM Access Pass ${mode === 'GIFT' ? 'gift' : 'code'} — ${quote.accessPlan.name}`,
+                custom_id: customId,
+              },
+            ],
+            application_context: {
+              return_url: returnUrl,
+              cancel_url: cancelUrl,
+              brand_name: 'MCOM Solutions',
+              landing_page: 'BILLING',
+              user_action: 'PAY_NOW',
+            },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+
+        await this.accessService.attachProviderPaymentToCode(pending.code.id, order.data.id);
+        const approveLink = order.data.links?.find((l: any) => l.rel === 'approve')?.href;
+        return {
+          orderId: order.data.id,
+          approvalUrl: approveLink,
+          purchaseMode: mode,
+          pricing: {
+            originalAmount: quote.originalAmount,
+            discountAmount: quote.discountAmount,
+            finalAmount: quote.finalAmount,
+            couponCode: null,
+            currency: quote.currency,
+            walletCredits: quote.walletCredits,
+            walletCurrency: quote.walletCurrency,
+          },
+        };
+      } catch (err) {
+        await this.accessService.cancelPendingAccessCode(pending.code.id);
+        throw err;
+      }
+    }
+
     if (couponCode && !userId) {
       throw new BadRequestException('A signed-in user is required to use a coupon.');
     }
-    const token = await this.getPayPalAccessToken();
     const quote = await this.accessService.resolveQuote(accessPlanId, couponCode, userId);
 
     const customIdParts = ['ACCESS', businessId, quote.accessPlan.id];
-    if (quote.coupon) customIdParts.push(quote.coupon.code);
+    if (quote.coupon || entitlementChoice) {
+      customIdParts.push(quote.coupon?.code ?? '');
+    }
+    if (entitlementChoice) customIdParts.push(entitlementChoice);
     const customId = customIdParts.join('|');
 
     const order = await axios.post(
@@ -1238,6 +1489,7 @@ export class PaymentService {
     return {
       orderId: order.data.id,
       approvalUrl: approveLink,
+      purchaseMode: 'SELF',
       pricing: {
         originalAmount: quote.originalAmount,
         discountAmount: quote.discountAmount,
@@ -1282,10 +1534,85 @@ export class PaymentService {
     }
 
     const unit = order.purchase_units?.[0];
-    const { businessId, accessPlanId, couponCode } = parseAccessCustomId(
-      unit?.custom_id || '',
-    );
+    const {
+      kind,
+      businessId,
+      accessPlanId,
+      couponCode,
+      accessPassCodeId,
+      entitlementChoice,
+    } = parseAccessCustomId(unit?.custom_id || '');
     this.assertCaptureOwnership(businessId, caller, orderId);
+
+    if (kind === 'ACCESS_GIFT') {
+      if (!accessPassCodeId) {
+        throw new BadRequestException('PayPal order metadata is missing the access pass code.');
+      }
+      const code = await this.accessService.getAccessCode(accessPassCodeId);
+      if (code.purchaserBusinessId !== businessId) {
+        throw new ForbiddenException('This payment belongs to a different business.');
+      }
+      if (code.providerPaymentId && code.providerPaymentId !== orderId) {
+        throw new ConflictException('This access pass code payment has already been processed.');
+      }
+
+      const approvedValue = Number(unit?.amount?.value);
+      const approvedCurrency = (unit?.amount?.currency_code || '').toUpperCase();
+      if (
+        approvedCurrency !== 'GBP' ||
+        !Number.isFinite(approvedValue) ||
+        Math.abs(approvedValue - Number(code.amount)) > 0.005
+      ) {
+        this.logger.warn(
+          `PayPal access code capture amount mismatch: order ${orderId} approved ${unit?.amount?.value} ${approvedCurrency}, expected ${Number(code.amount).toFixed(2)} GBP`,
+        );
+        throw new BadRequestException('Approved amount does not match the access pass price.');
+      }
+
+      const codeCapture = await axios
+        .post(
+          `${this.paypalBaseUrl}/v2/checkout/orders/${orderId}/capture`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+        .catch(async (err: any) => {
+          if (this.isAlreadyCapturedError(err)) {
+            this.logger.warn(
+              `PayPal access code order ${orderId} already captured upstream — completing from read data`,
+            );
+            return { data: { purchase_units: [{ custom_id: unit?.custom_id }] } };
+          }
+          throw err;
+        });
+
+      const capturedCodeUnit = codeCapture.data.purchase_units?.[0];
+      if (capturedCodeUnit?.custom_id && capturedCodeUnit.custom_id !== unit?.custom_id) {
+        this.logger.warn(
+          `PayPal access code capture metadata drift on order ${orderId} — refusing to complete.`,
+        );
+        throw new BadRequestException('PayPal order metadata changed during capture.');
+      }
+
+      try {
+        return await this.accessService.completeAccessCode(code.id, {
+          provider: 'paypal',
+          providerPaymentId: orderId,
+        });
+      } catch (dbErr) {
+        await this.parkForReconcile(
+          'access',
+          orderId,
+          businessId,
+          { accessPassCodeId: code.id },
+          dbErr,
+        );
+      }
+    }
 
     const reservation = couponCode
       ? await this.couponService.findReservationForPayment('paypal', orderId)
@@ -1367,6 +1694,7 @@ export class PaymentService {
     const payload = {
       accessPlanId,
       expectedGBP,
+      ...(entitlementChoice ? { entitlementChoice } : {}),
       ...(couponCode
         ? {
             couponCode,
@@ -1388,7 +1716,20 @@ export class PaymentService {
         discountAmount,
         couponCode,
         couponRedemptionId: redemptionId,
+        entitlementChoice,
       });
+
+      if (entitlementChoice === 'access_pass') {
+        try {
+          await this.stopActiveMembershipForAccessPass(businessId);
+        } catch (err) {
+          this.logger.warn(
+            `Access pass activated for ${businessId} but membership stop failed: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
+      }
     } catch (dbErr) {
       await this.parkForReconcile('access', orderId, businessId, payload, dbErr);
     }
@@ -1433,14 +1774,50 @@ export class PaymentService {
     accessPlanId: string,
     couponCode: string | undefined,
     idempotencyKey: string,
+    purchaseMode: 'SELF' | 'GIFT' | 'CODE' = 'SELF',
+    recipientEmail?: string,
+    entitlementChoice?: AccessEntitlementChoice,
   ) {
-    return this.accessService.purchaseWithWallet(
+    const mode = purchaseMode ?? 'SELF';
+    if (mode !== 'SELF') {
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be used when buying a gift or access code.');
+      }
+      if (mode === 'GIFT' && !recipientEmail?.trim()) {
+        throw new BadRequestException('A recipient email is required for a gifted access pass.');
+      }
+      return this.accessService.purchaseAccessCodeWithWallet(
+        businessId,
+        userId,
+        accessPlanId,
+        mode,
+        recipientEmail,
+        idempotencyKey,
+      );
+    }
+
+    const purchase = await this.accessService.purchaseWithWallet(
       businessId,
       userId,
       accessPlanId,
       couponCode,
       idempotencyKey,
+      entitlementChoice,
     );
+
+    if (entitlementChoice === 'access_pass') {
+      try {
+        await this.stopActiveMembershipForAccessPass(businessId);
+      } catch (err) {
+        this.logger.warn(
+          `Access pass activated for ${businessId} but membership stop failed: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
+    return purchase;
   }
 
   // ─── PLATFORM PLAN PURCHASES ──────────────────────────────────────────────────
@@ -1981,6 +2358,8 @@ export class PaymentService {
         couponRedemptionId,
         originalAmount,
         discountAmount,
+        accessPassCodeId,
+        entitlementChoice,
       } = row.payload as {
         accessPlanId: string;
         expectedGBP?: number;
@@ -1988,11 +2367,21 @@ export class PaymentService {
         couponRedemptionId?: string;
         originalAmount?: number;
         discountAmount?: number;
+        accessPassCodeId?: string;
+        entitlementChoice?: AccessEntitlementChoice;
       };
+      if (accessPassCodeId) {
+        await this.accessService.completeAccessCode(String(accessPassCodeId), {
+          provider: 'paypal',
+          providerPaymentId: row.providerPaymentId,
+        });
+        return;
+      }
       await this.accessService.activateAccess(row.businessId, String(accessPlanId), {
         provider: 'paypal',
         providerPaymentId: row.providerPaymentId,
         chargedAmount: Number(expectedGBP ?? 0),
+        entitlementChoice,
         ...(couponCode
           ? {
               couponCode: String(couponCode),
@@ -2002,6 +2391,18 @@ export class PaymentService {
             }
           : {}),
       });
+
+      if (entitlementChoice === 'access_pass') {
+        try {
+          await this.stopActiveMembershipForAccessPass(row.businessId);
+        } catch (err) {
+          this.logger.warn(
+            `Access pass activated for ${row.businessId} but membership stop failed: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
+      }
       if (couponCode && !couponRedemptionId) {
         await this.couponService
           .recordPaidRedemption({
@@ -2353,6 +2754,10 @@ export class PaymentService {
       this.assertStripeIntentAmount(intent, expectedGBP);
 
       const chargedAmount = intent.amount / 100;
+      const entitlementChoice: AccessEntitlementChoice | undefined =
+        meta.entitlementChoice === 'access_pass' || meta.entitlementChoice === 'membership'
+          ? meta.entitlementChoice
+          : undefined;
       await this.accessService.activateAccess(businessId, accessPlanId, {
         provider: 'stripe',
         providerPaymentId: intent.id,
@@ -2361,7 +2766,20 @@ export class PaymentService {
         discountAmount,
         couponCode,
         couponRedemptionId: redemptionId,
+        entitlementChoice,
       });
+
+      if (entitlementChoice === 'access_pass') {
+        try {
+          await this.stopActiveMembershipForAccessPass(businessId);
+        } catch (err) {
+          this.logger.warn(
+            `Access pass activated for ${businessId} but membership stop failed: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
+      }
 
       if (couponCode && !redemptionId) {
         await this.couponService

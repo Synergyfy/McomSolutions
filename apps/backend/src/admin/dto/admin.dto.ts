@@ -274,12 +274,12 @@ export class AccessIncludedAppPlanDto {
   @IsString()
   clientId?: string;
 
-  @ApiProperty({ example: 'plan-family-id', description: 'External plan family ID' })
+  @ApiProperty({ example: 'plan-family-id', description: 'External plan family ID or platform access pass plan ID' })
   @IsString()
   @IsNotEmpty()
   planId: string;
 
-  @ApiPropertyOptional({ example: 'variant-id', description: 'Resolved external plan variant ID (defaults to planId)' })
+  @ApiPropertyOptional({ example: 'variant-id', description: 'Resolved external plan variant ID or access pass plan ID (defaults to planId)' })
   @IsOptional()
   @IsString()
   externalPlanId?: string;
@@ -288,6 +288,16 @@ export class AccessIncludedAppPlanDto {
   @IsString()
   @IsNotEmpty()
   planName: string;
+
+  @ApiPropertyOptional({
+    example: 30,
+    description: 'Duration published by the source platform access pass plan. Drives this bundle\'s expiry.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(800)
+  durationDays?: number;
 
   @ApiPropertyOptional({ example: 29.99 })
   @IsOptional()
@@ -321,11 +331,16 @@ export class CreateAccessPlanDto {
   @Min(0.01, { message: 'Price must be greater than zero.' })
   price: number;
 
-  @ApiProperty({ example: 30, description: 'Access duration in days (1–800)' })
+  @ApiPropertyOptional({
+    example: 30,
+    description:
+      'Deprecated: access duration is derived from the bundled platform access pass plans. Kept for backwards compatibility.',
+  })
+  @IsOptional()
   @IsInt({ message: 'Duration must be a whole number of days.' })
   @Min(1, { message: 'Duration must be at least 1 day.' })
   @Max(800, { message: 'Duration looks too long. Please check the number of days.' })
-  durationDays: number;
+  durationDays?: number;
 
   @ApiPropertyOptional({ example: 'Businesses testing the ecosystem' })
   @IsOptional()
@@ -375,7 +390,11 @@ export class UpdateAccessPlanDto {
   @Min(0.01, { message: 'Price must be greater than zero.' })
   price?: number;
 
-  @ApiPropertyOptional({ example: 30 })
+  @ApiPropertyOptional({
+    example: 30,
+    description:
+      'Deprecated: derived from the bundled platform access pass plans when includedApps is provided.',
+  })
   @IsOptional()
   @IsInt({ message: 'Duration must be a whole number of days.' })
   @Min(1, { message: 'Duration must be at least 1 day.' })

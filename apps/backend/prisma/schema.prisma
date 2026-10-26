@@ -753,6 +753,7 @@ model AccessPlan {
   taskRewardCouponPlanLinks TaskRewardCouponAccessPlan[]
   couponRedemptions         CouponRedemption[]
   purchases                 AccessPurchase[]
+  codes                     AccessPassCode[]
 
   @@index([archived])
   @@index([deletedAt])
@@ -766,6 +767,7 @@ model AccessPlanAppBundle {
   platform       String     @map("platform")
   externalPlanId String?    @map("external_plan_id")
   packageName    String     @map("package_name")
+  durationDays   Int?       @map("duration_days")
   variantTier    PlanTier?  @map("variant_tier")
   limits         Json?
   createdAt      DateTime   @default(now()) @map("created_at")
@@ -797,6 +799,43 @@ model AccessPurchase {
   @@index([businessId, status, expiresAt])
   @@index([accessPlanId])
   @@map("access_purchases")
+}
+
+enum AccessPassCodeStatus {
+  PENDING_PAYMENT
+  UNUSED
+  REDEEMED
+  REVOKED
+}
+
+// A paid-but-not-yet-activated access pass. Codes are created either for a
+// recipient email (gift) or as a transferable code. They are only redeemed
+// after payment completes and expiry starts at redemption time.
+model AccessPassCode {
+  id                   String               @id @default(cuid())
+  code                 String               @unique
+  accessPlanId         String               @map("access_plan_id")
+  accessPlan           AccessPlan           @relation(fields: [accessPlanId], references: [id], onDelete: Restrict)
+  purchaserBusinessId  String               @map("purchaser_business_id")
+  purchaserUserId      String?              @map("purchaser_user_id")
+  recipientEmail       String?              @map("recipient_email")
+  mode                 String               @default("CODE") // GIFT | CODE
+  status               AccessPassCodeStatus @default(PENDING_PAYMENT)
+  amount               Float                @default(0)
+  currency             String               @default("GBP")
+  provider             String?
+  providerPaymentId    String?              @unique @map("provider_payment_id")
+  purchasedAt          DateTime?            @map("purchased_at")
+  emailSentAt          DateTime?            @map("email_sent_at")
+  redeemedAt           DateTime?            @map("redeemed_at")
+  redeemedByBusinessId String?              @map("redeemed_by_business_id")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  @@index([purchaserBusinessId])
+  @@index([recipientEmail])
+  @@index([status])
+  @@map("access_pass_codes")
 }
 
 model MembershipInstallmentSubscription {
@@ -1647,11 +1686,27 @@ enum TaskSource {
   EXTERNAL
 }
 
+enum TaskAccessScope {
+  ALL
+  PAID
+  TRIAL
+}
+
+enum TaskSubmissionType {
+  AUTO
+  EXTERNAL_LINK
+  TEXT_INPUT
+  DIGIT_INPUT
+  IMAGE_UPLOAD
+}
+
 model TaskDefinition {
   id                             String                       @id @default(cuid())
   title                          String                       @map("title")
   description                    String                       @map("description")
   targetAudience                 TaskAudience                 @default(BOTH) @map("target_audience")
+  accessScope                    TaskAccessScope              @default(ALL) @map("access_scope")
+  submissionType                 TaskSubmissionType           @default(AUTO) @map("submission_type")
   featureKey                     String?                      @map("feature_key")
   taskSource                     TaskSource                   @default(INTERNAL) @map("task_source")
   externalClientId               String?                      @map("external_client_id")

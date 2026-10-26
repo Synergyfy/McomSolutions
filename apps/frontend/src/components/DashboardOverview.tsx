@@ -7,12 +7,12 @@ import {
   BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Gift
 } from 'lucide-react';
 import {
-  PROGRAMME_PHASES, getPhaseForDay, getProgressForDay, getProgrammeDay,
+  PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay,
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
 import { cn } from '../lib/utils';
-import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases } from '../services/business/hooks';
+import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile } from '../services/business/hooks';
 
 function TaskStartModal({
   mission,
@@ -20,14 +20,84 @@ function TaskStartModal({
   onClose,
   onStart,
   onCancel,
+  onSubmit,
+  onUploadImage,
 }: {
   mission: any;
   open: boolean;
   onClose: () => void;
   onStart: () => void;
   onCancel: () => void;
+  onSubmit?: (submissionData: Record<string, unknown>) => Promise<void> | void;
+  onUploadImage?: (file: File) => Promise<string>;
 }) {
+  const [value, setValue] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submissionType = String(mission?.submissionType || '').toLowerCase();
+  const requiresSubmission = ['external_link', 'text_input', 'digit_input', 'image_upload'].includes(submissionType);
+
+  useEffect(() => {
+    setValue('');
+    setFile(null);
+    setError(null);
+    setSubmitting(false);
+  }, [mission?.id, open]);
+
   if (!open || !mission) return null;
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (!onSubmit) return;
+    setSubmitting(true);
+    try {
+      if (submissionType === 'image_upload') {
+        if (!file) {
+          setError('Choose an image to upload.');
+          return;
+        }
+        if (!onUploadImage) {
+          setError('Image upload is unavailable right now.');
+          return;
+        }
+        const imageUrl = await onUploadImage(file);
+        await onSubmit({ imageUrl });
+        return;
+      }
+
+      const trimmed = value.trim();
+      if (!trimmed) {
+        setError(
+          submissionType === 'external_link'
+            ? 'Paste the link before submitting.'
+            : submissionType === 'digit_input'
+              ? 'Enter the requested digits.'
+              : 'Enter the requested text.',
+        );
+        return;
+      }
+      if (submissionType === 'external_link') {
+        try {
+          const url = new URL(trimmed);
+          if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid');
+        } catch {
+          setError('Enter a valid http(s) link.');
+          return;
+        }
+      }
+      if (submissionType === 'digit_input' && !/^\d+$/.test(trimmed)) {
+        setError('Only digits are allowed.');
+        return;
+      }
+      await onSubmit({ value: trimmed });
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || 'Could not submit this task.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -102,19 +172,86 @@ function TaskStartModal({
               </p>
             </div>
           )}
+
+          {requiresSubmission && (
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                {submissionType === 'external_link' && 'Your Link'}
+                {submissionType === 'text_input' && 'Your Answer'}
+                {submissionType === 'digit_input' && 'Your Digits'}
+                {submissionType === 'image_upload' && 'Your Image'}
+              </label>
+
+              {submissionType === 'external_link' && (
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                />
+              )}
+
+              {submissionType === 'text_input' && (
+                <textarea
+                  rows={4}
+                  placeholder="Type your answer here..."
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                />
+              )}
+
+              {submissionType === 'digit_input' && (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Enter digits only"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                />
+              )}
+
+              {submissionType === 'image_upload' && (
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-orange-100 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-orange-700"
+                />
+              )}
+
+              {error && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{error}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 px-4 sm:px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
           <button onClick={onCancel} className="px-6 py-3 sm:py-2.5 text-sm font-bold text-gray-500 hover:text-gray-900 hover:bg-white rounded-xl transition-all text-center">
             Cancel
           </button>
-          <button
-            onClick={onStart}
-            className="px-8 py-3 sm:py-2.5 text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-xl hover:from-orange-600 hover:to-red-600 transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
-          >
-            <Play className="w-4 h-4" />
-            {mission.featureKey ? 'Start & Open Feature' : 'Confirm & Start'}
-          </button>
+          {requiresSubmission ? (
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="px-8 py-3 sm:py-2.5 text-sm font-bold text-white bg-gradient-to-r from-emerald-500 to-green-600 rounded-xl hover:from-emerald-600 hover:to-green-700 transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {submitting ? <RotateCcw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {submitting ? 'Submitting...' : 'Submit & Complete'}
+            </button>
+          ) : (
+            <button
+              onClick={onStart}
+              className="px-8 py-3 sm:py-2.5 text-sm font-bold text-white bg-gradient-to-r from-orange-500 to-red-500 rounded-xl hover:from-orange-600 hover:to-red-600 transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
+            >
+              <Play className="w-4 h-4" />
+              {mission.featureKey ? 'Start & Open Feature' : 'Confirm & Start'}
+            </button>
+          )}
         </div>
       </motion.div>
     </div>
@@ -143,6 +280,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   const { data: myTasksRes, isLoading: loadingMyTasks } = useMyTasks();
   const startTaskMutation = useStartMyTask();
   const completeTaskMutation = useCompleteMyTask();
+  const uploadFileMutation = useUploadBusinessFile();
 
   const { data: myProgrammeRes } = useMyProgramme();
   const completeMissionMutation = useCompleteMission();
@@ -152,6 +290,11 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   const completedMissionIds: string[] = Array.isArray(programmeData?.completedMissions)
     ? programmeData.completedMissions
     : [];
+  const taskMeta = (myTasksRes as any)?.meta;
+  const configuredProgrammeDays = Number(taskMeta?.totalProgrammeDays);
+  const programmeDays = Number.isFinite(configuredProgrammeDays) && configuredProgrammeDays > 0
+    ? configuredProgrammeDays
+    : 90;
 
   // DB phases are the source of truth; static PROGRAMME_PHASES is the fallback.
   // Merge DB day-ranges/missions over static icons so the UI never breaks.
@@ -194,7 +337,9 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   }, [taskStatuses]);
 
   const apiTasks = myTasksRes?.data;
-  const hasApiTasks = Array.isArray(apiTasks) && apiTasks.length > 0;
+  const hasApiTasks =
+    (Array.isArray(apiTasks) && apiTasks.length > 0) ||
+    Number((myTasksRes as any)?.meta?.configuredTaskCount ?? 0) > 0;
 
   const allMissions = useMemo(() => {
     if (hasApiTasks) {
@@ -220,6 +365,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           rewardPoints: t.rewardPoints,
           rewardCouponEnabled: !!t.rewardCouponEnabled,
           rewardCoupon: t.rewardCoupon || null,
+          submissionType: t.submissionType || 'AUTO',
           estimatedMinutes: t.daysRemaining !== undefined ? `${t.daysRemaining}d left` : '7d',
           deadlineDays: t.daysRemaining,
           status: st,
@@ -238,7 +384,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     if (completedMissionIds.includes(m.id)) return true;
     return (taskStatuses[m.id] || 'not_started') === 'completed';
   }).length;
-  const computedProgress = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : getProgressForDay(currentDay);
+  const computedProgress = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : Math.min(100, Math.round((currentDay / programmeDays) * 100));
 
   const isMissionCompleted = (missionId: string) => {
     if (completedMissionIds.includes(missionId)) return true;
@@ -255,6 +401,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   };
 
   const handleGoToAction = (mission: any) => {
+    // Proof-submission tasks are completed from the modal, not by navigating.
+    if (['external_link', 'text_input', 'digit_input', 'image_upload'].includes(String(mission.submissionType || '').toLowerCase())) {
+      setActiveMission(mission);
+      setModalOpen(true);
+      return;
+    }
     // External platform tasks: open the console-registered app URL (frontend URL
     // from /admin/console). Completion stays manual — no worker touches these.
     if (mission.externalAppUrl) {
@@ -311,6 +463,17 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     setTaskStatuses(prev => ({ ...prev, [missionOrTaskId]: 'completed' }));
   };
 
+  const submitMission = async (mission: any, submissionData: Record<string, unknown>) => {
+    if (hasApiTasks) {
+      await completeTaskMutation.mutateAsync({ assignmentId: mission.id, submissionData });
+    } else {
+      await completeMissionMutation.mutateAsync(mission.id);
+    }
+    setTaskStatuses(prev => ({ ...prev, [mission.id]: 'completed' }));
+    setModalOpen(false);
+    setActiveMission(null);
+  };
+
   const handleCloseModal = () => {
     setModalOpen(false);
     setActiveMission(null);
@@ -329,6 +492,11 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             onClose={handleCloseModal}
             onStart={confirmStart}
             onCancel={cancelStart}
+            onSubmit={(submissionData) => activeMission ? submitMission(activeMission, submissionData) : Promise.resolve()}
+            onUploadImage={async (file: File) => {
+              const res: any = await uploadFileMutation.mutateAsync(file);
+              return res?.secure_url || res?.url;
+            }}
           />
         )}
       </AnimatePresence>
@@ -343,7 +511,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
         <div className="p-4 sm:p-6 md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">90-day business success programme</p>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">Business success programme</p>
               <h2 className="mt-1 text-xl font-bold leading-tight text-gray-900 sm:text-2xl">Welcome, {businessName}</h2>
               <p className="mt-1 text-sm text-gray-500">Your guided plan to strengthen and grow your business.</p>
             </div>
@@ -364,7 +532,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             </div>
             <div className="col-span-2 rounded-xl bg-gray-50 px-3 py-2.5 sm:col-span-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Programme day</p>
-              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of 90</span></p>
+              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of {programmeDays}</span></p>
             </div>
           </div>
 

@@ -213,6 +213,7 @@ export interface AccessPlanAppBundle {
   platform: string
   externalPlanId?: string | null
   packageName: string
+  durationDays?: number | null
   variantTier?: string | null
   limits?: Record<string, any> | null
 }
@@ -519,6 +520,7 @@ export interface AccessIncludedAppPlan {
   planId: string
   externalPlanId?: string
   planName: string
+  durationDays?: number
   standalonePrice?: number
   variantTier?: TierName
   limits?: Record<string, any>
@@ -528,7 +530,8 @@ export interface CreateAccessPlanInput {
   name: string
   description: string
   price: number
-  durationDays: number
+  /** Derived server-side from the bundled platform access pass plans. */
+  durationDays?: number
   whoItIsFor?: string
   badge?: string
   color?: string
@@ -708,6 +711,35 @@ export interface ExternalPlan {
   updated_at?: string
 }
 
+export interface AccessPassPlatform {
+  name: string
+  clientId: string
+  platformSlug: string | null
+  endpoint: string
+}
+
+export interface AccessPassCataloguePlan {
+  id: string
+  name: string
+  slug?: string | null
+  description?: string | null
+  price?: number | null
+  currency?: string | null
+  durationDays?: number | null
+  features?: string[]
+  configuration?: PlanConfiguration & { disabledNavIds?: string[]; [key: string]: any }
+  isActive?: boolean
+  purchaseEnabled?: boolean
+  codeRedemptionEnabled?: boolean
+  [key: string]: any
+}
+
+export interface AccessPassCatalogueResponse {
+  success: boolean
+  platform: Pick<AccessPassPlatform, 'name' | 'clientId' | 'platformSlug'>
+  data: AccessPassCataloguePlan[]
+}
+
 export interface CreateExternalPlanInput {
   name: string
   platform: string
@@ -781,6 +813,7 @@ export interface SsoClientDetail extends SsoClientListItem {
   appUrl: string | null
   billingApiUrl: string | null
   planSchemaEndpoint: string | null
+  accessPassPlansEndpoint: string | null
   redirectUris: string[]
   corsOrigins: string[]
   scopes: string[]
@@ -809,6 +842,7 @@ export interface RegisterAppInput {
   appUrl?: string
   billingApiUrl?: string
   planSchemaEndpoint?: string
+  accessPassPlansEndpoint?: string
   redirectUris: string[]
   corsOrigins: string[]
   scopes: string[]
