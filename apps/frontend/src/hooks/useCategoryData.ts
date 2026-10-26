@@ -2,20 +2,18 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../services/api';
 import type { Sector, Category, Subcategory } from '../data/sectors';
 
-async function fetchSectors(): Promise<Sector[]> {
+export async function fetchSectors(): Promise<Sector[]> {
   const res = await apiClient.get('/sectors');
   return res.data;
 }
 
-async function fetchCategories(sectorId?: string): Promise<Category[]> {
-  const url = sectorId ? `/categories?sectorId=${sectorId}` : '/categories';
-  const res = await apiClient.get(url);
+export async function fetchCategories(sectorId?: string): Promise<Category[]> {
+  const res = await apiClient.get('/categories', { params: sectorId ? { sectorId } : undefined });
   return res.data;
 }
 
-async function fetchSubCategories(categoryId?: string): Promise<Subcategory[]> {
-  const url = categoryId ? `/subcategories?categoryId=${categoryId}` : '/subcategories';
-  const res = await apiClient.get(url);
+export async function fetchSubCategories(categoryId?: string): Promise<Subcategory[]> {
+  const res = await apiClient.get('/subcategories', { params: categoryId ? { categoryId } : undefined });
   return res.data;
 }
 

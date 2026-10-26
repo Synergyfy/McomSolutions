@@ -79,8 +79,8 @@ function StripeVerificationForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="min-h-[160px] rounded-2xl border border-slate-200 bg-white p-4">
+    <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+      <div className="min-h-[160px] rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
         <PaymentElement
           onReady={() => setIsStripeReady(true)}
           options={{
@@ -211,7 +211,7 @@ export default function VerificationPaymentModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="verification-modal-title"
-        className="my-auto flex max-h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white shadow-[0_32px_100px_rgba(2,6,23,0.38)]"
+        className="my-auto flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white shadow-[0_32px_100px_rgba(2,6,23,0.38)]"
       >
         <div className="relative overflow-hidden bg-slate-950 px-5 py-6 text-white sm:px-8 sm:py-7">
           <div className="absolute -right-12 -top-20 h-52 w-52 rounded-full border-[28px] border-blue-500/10" />
@@ -237,8 +237,8 @@ export default function VerificationPaymentModal({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[0.88fr_1.12fr]">
-          <section className="flex flex-col justify-center border-b border-slate-100 bg-slate-50/70 p-5 sm:p-7 lg:border-b-0 lg:border-r lg:p-8">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain lg:grid lg:grid-cols-[minmax(270px,0.78fr)_minmax(0,1.22fr)] lg:overflow-hidden">
+          <section className="flex flex-col justify-center border-b border-slate-100 bg-slate-50/70 p-5 sm:p-7 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-8">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Business profile</p>
             <div className="mt-4 flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
@@ -260,7 +260,7 @@ export default function VerificationPaymentModal({
             </div>
           </section>
 
-          <section className="p-5 sm:p-7 lg:p-8">
+          <section className="min-h-0 p-5 sm:p-7 lg:overflow-y-auto lg:p-7">
                 <div className="mb-4">
                   <h3 className="text-lg font-extrabold tracking-tight text-slate-950">Choose a payment method</h3>
                   <p className="mt-1 text-xs leading-5 text-slate-500">Your payment is handled securely by our checkout provider.</p>
