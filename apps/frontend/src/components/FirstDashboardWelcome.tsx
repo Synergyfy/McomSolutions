@@ -4,10 +4,15 @@ import {
   Users, User, HeadphonesIcon, Target
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay, getTaskStatus, getTotalMissions } from '../lib/programmeData';
-import { useProfile } from '../services/business/hooks';
+import { useProfile, useMyTasks } from '../services/business/hooks';
 
 export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => void }) {
   const { data: profile } = useProfile();
+  const { data: myTasksRes } = useMyTasks();
+  const configuredProgrammeDays = Number((myTasksRes as any)?.meta?.totalProgrammeDays);
+  const programmeDays = Number.isFinite(configuredProgrammeDays) && configuredProgrammeDays > 0
+    ? configuredProgrammeDays
+    : 90;
 
   let businessName = profile?.businessName || '';
   let sector = profile?.sector || '';
@@ -66,7 +71,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
         <div className="p-4 sm:p-6 md:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">90-day business success programme</p>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600">Business success programme</p>
               <h2 className="mt-1 text-xl font-bold leading-tight text-gray-900 sm:text-2xl">Welcome, {businessName}</h2>
               {(sector || category) && <p className="mt-1 text-sm text-gray-500">{sector}{sector && category ? ' · ' : ''}{category}</p>}
             </div>
@@ -83,7 +88,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
             </div>
             <div className="rounded-xl bg-gray-50 px-3 py-2.5">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Programme day</p>
-              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of 90</span></p>
+              <p className="mt-1 text-sm font-bold text-gray-900">Day {currentDay} <span className="font-medium text-gray-500">of {programmeDays}</span></p>
             </div>
             <div className="col-span-2 rounded-xl bg-gray-50 px-3 py-2.5 sm:col-span-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tasks completed</p>

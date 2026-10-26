@@ -28,6 +28,8 @@ import {
   HelpCircle,
   Globe,
   ExternalLink,
+  FileText,
+  Upload,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { toDateTimeLocal } from '../../lib/couponValidation';
@@ -50,6 +52,8 @@ interface TaskFormData {
   title: string;
   description: string;
   targetAudience: 'BUSINESS' | 'CUSTOMER' | 'BOTH';
+  accessScope: 'ALL' | 'PAID' | 'TRIAL';
+  submissionType: 'AUTO' | 'EXTERNAL_LINK' | 'TEXT_INPUT' | 'DIGIT_INPUT' | 'IMAGE_UPLOAD';
   taskSource: 'INTERNAL' | 'EXTERNAL';
   featureKey: string;
   externalClientId: string;
@@ -72,6 +76,8 @@ const DEFAULT_FORM: TaskFormData = {
   title: '',
   description: '',
   targetAudience: 'BUSINESS',
+  accessScope: 'ALL',
+  submissionType: 'AUTO',
   taskSource: 'INTERNAL',
   featureKey: 'business.logo_uploaded',
   externalClientId: '',
@@ -99,7 +105,7 @@ export default function TaskEngineSection() {
   const [selectedTaskForProgress, setSelectedTaskForProgress] = useState<any | null>(null);
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [audienceFilter, setAudienceFilter] = useState<'ALL' | 'BUSINESS' | 'CUSTOMER' | 'BOTH'>('ALL');
+  const [audienceFilter, setAudienceFilter] = useState<'ALL' | 'BUSINESS' | 'CUSTOMER'>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [progressSearch, setProgressSearch] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -174,6 +180,8 @@ export default function TaskEngineSection() {
       title: task.title,
       description: task.description,
       targetAudience: task.targetAudience,
+      accessScope: task.accessScope || 'ALL',
+      submissionType: task.submissionType || 'AUTO',
       taskSource,
       featureKey: task.featureKey || 'business.logo_uploaded',
       externalClientId: task.externalClientId || '',
@@ -237,6 +245,8 @@ export default function TaskEngineSection() {
       title: formData.title.trim(),
       description: formData.description.trim(),
       targetAudience: formData.targetAudience,
+      accessScope: formData.accessScope,
+      submissionType: formData.taskSource === 'INTERNAL' ? formData.submissionType : 'AUTO',
       taskSource: formData.taskSource,
       deadlineDays: formData.deadlineDays,
       rewardPoints: formData.rewardPoints,
@@ -262,7 +272,9 @@ export default function TaskEngineSection() {
         : {}),
     };
     if (formData.taskSource === 'INTERNAL') {
-      payload.featureKey = formData.featureKey;
+      if (formData.submissionType === 'AUTO') {
+        payload.featureKey = formData.featureKey;
+      }
     } else {
       payload.externalClientId = formData.externalClientId;
     }
@@ -419,7 +431,7 @@ export default function TaskEngineSection() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Audience filter tabs */}
             <div className="flex bg-gray-100 p-1 rounded-xl text-xs font-medium text-gray-600">
-              {(['ALL', 'BUSINESS', 'CUSTOMER', 'BOTH'] as const).map((aud) => (
+              {(['ALL', 'BUSINESS', 'CUSTOMER'] as const).map((aud) => (
                 <button
                   key={aud}
                   onClick={() => setAudienceFilter(aud)}
@@ -515,6 +527,42 @@ export default function TaskEngineSection() {
                         {task.targetAudience}
                       </span>
 
+                      <span
+                        className={cn(
+                          'px-2.5 py-0.5 rounded-full text-xs font-bold border flex items-center gap-1',
+                          task.accessScope === 'PAID'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200/60'
+                            : task.accessScope === 'TRIAL'
+                              ? 'bg-sky-50 text-sky-700 border-sky-200/60'
+                              : 'bg-slate-100 text-slate-700 border-slate-200/60',
+                        )}
+                      >
+                        {task.accessScope === 'PAID' && <Award className="w-3 h-3" />}
+                        {task.accessScope === 'TRIAL' && <Clock className="w-3 h-3" />}
+                        {(!task.accessScope || task.accessScope === 'ALL') && <Users className="w-3 h-3" />}
+                        {task.accessScope === 'PAID'
+                          ? 'Paid only'
+                          : task.accessScope === 'TRIAL'
+                            ? 'Trial only'
+                            : 'Paid & Trial'}
+                      </span>
+
+                      {task.submissionType && task.submissionType !== 'AUTO' && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60 flex items-center gap-1">
+                          {task.submissionType === 'EXTERNAL_LINK' && <ExternalLink className="w-3 h-3" />}
+                          {task.submissionType === 'TEXT_INPUT' && <FileText className="w-3 h-3" />}
+                          {task.submissionType === 'DIGIT_INPUT' && <Clock className="w-3 h-3" />}
+                          {task.submissionType === 'IMAGE_UPLOAD' && <Upload className="w-3 h-3" />}
+                          {task.submissionType === 'EXTERNAL_LINK'
+                            ? 'External link'
+                            : task.submissionType === 'TEXT_INPUT'
+                              ? 'Text input'
+                              : task.submissionType === 'DIGIT_INPUT'
+                                ? 'Digit input'
+                                : 'Image upload'}
+                        </span>
+                      )}
+
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 flex items-center gap-1">
                         <Clock className="w-3 h-3 text-gray-500" />
                         {task.deadlineDays} Days
@@ -578,6 +626,21 @@ export default function TaskEngineSection() {
                               Open app <ExternalLink className="w-3 h-3" />
                             </a>
                           )}
+                        </div>
+                      ) : task.submissionType && task.submissionType !== 'AUTO' ? (
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Type:</span>
+                          <span className="text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold text-[11px]">
+                            {task.submissionType === 'EXTERNAL_LINK'
+                              ? 'External link'
+                              : task.submissionType === 'TEXT_INPUT'
+                                ? 'Text input'
+                                : task.submissionType === 'DIGIT_INPUT'
+                                  ? 'Digit input'
+                                  : 'Image upload'}
+                          </span>
+                          <span className="text-gray-400">(completed when the user submits)</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5 font-medium">
@@ -959,6 +1022,38 @@ export default function TaskEngineSection() {
                   </div>
                 </div>
 
+                {/* Access Scope */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Available To
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { id: 'ALL', label: 'Paid & Trial', icon: Users },
+                      { id: 'PAID', label: 'Paid only', icon: Award },
+                      { id: 'TRIAL', label: 'Trial only', icon: Clock },
+                    ].map((scope) => (
+                      <button
+                        key={scope.id}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, accessScope: scope.id as any })}
+                        className={cn(
+                          'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
+                          formData.accessScope === scope.id
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+                        )}
+                      >
+                        <scope.icon className="w-3.5 h-3.5" />
+                        {scope.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Trial users are determined by the Dashboard Access settings. Paid users have an active membership.
+                  </p>
+                </div>
+
                 {/* Task Source */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -980,7 +1075,7 @@ export default function TaskEngineSection() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, taskSource: 'EXTERNAL' })}
+                      onClick={() => setFormData({ ...formData, taskSource: 'EXTERNAL', submissionType: 'AUTO' })}
                       className={cn(
                         'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
                         isExternalForm
@@ -994,28 +1089,85 @@ export default function TaskEngineSection() {
                   </div>
                 </div>
 
-                {/* Feature Key Trigger (internal only) */}
-                {!isExternalForm ? (
+                {/* Task Type (MCOM Central only) */}
+                {!isExternalForm && (
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                      Platform Trigger Feature (Event Worker) *
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                      Task Type
                     </label>
-                    <select
-                      value={formData.featureKey}
-                      onChange={(e) => setFormData({ ...formData, featureKey: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    >
-                      {features.map((feat: any) => (
-                        <option key={feat.key} value={feat.key}>
-                          {feat.label}
-                        </option>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: 'AUTO', label: 'Auto Event', description: 'Completes automatically via platform event worker', icon: Zap },
+                        { id: 'EXTERNAL_LINK', label: 'External Link', description: 'User submits a link as proof', icon: ExternalLink },
+                        { id: 'TEXT_INPUT', label: 'Text Input', description: 'User submits a written answer', icon: FileText },
+                        { id: 'DIGIT_INPUT', label: 'Digit Input', description: 'User submits digits only', icon: Clock },
+                        { id: 'IMAGE_UPLOAD', label: 'Image Upload', description: 'User uploads an image as proof', icon: Upload },
+                      ].map((type) => (
+                        <button
+                          key={type.id}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, submissionType: type.id as any })}
+                          className={cn(
+                            'p-2.5 rounded-xl border text-left transition-all',
+                            formData.submissionType === type.id
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
+                          )}
+                        >
+                          <span className="flex items-center gap-1.5 text-xs font-bold">
+                            <type.icon className="w-3.5 h-3.5" />
+                            {type.label}
+                          </span>
+                          <span
+                            className={cn(
+                              'mt-0.5 block text-[10px] font-medium',
+                              formData.submissionType === type.id ? 'text-white/75' : 'text-gray-400',
+                            )}
+                          >
+                            {type.description}
+                          </span>
+                        </button>
                       ))}
-                    </select>
-                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-blue-600" />
-                      When a user performs this action in MCOM Central, the BullMQ worker automatically completes this task.
-                    </p>
+                    </div>
+                    {formData.submissionType !== 'AUTO' && (
+                      <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200/70 rounded-lg p-2 mt-2">
+                        The description above is what the user sees. Explain exactly what they must do and how to complete the task; their submission will automatically mark it done.
+                      </p>
+                    )}
                   </div>
+                )}
+
+                {/* Feature Key Trigger (internal auto tasks only) */}
+                {!isExternalForm ? (
+                  formData.submissionType === 'AUTO' ? (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                        Platform Trigger Feature (Event Worker) *
+                      </label>
+                      <select
+                        value={formData.featureKey}
+                        onChange={(e) => setFormData({ ...formData, featureKey: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      >
+                        {features.map((feat: any) => (
+                          <option key={feat.key} value={feat.key}>
+                            {feat.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-blue-600" />
+                        When a user performs this action in MCOM Central, the BullMQ worker automatically completes this task.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-blue-50/70 border border-blue-200/60 rounded-xl text-[11px] text-blue-800 font-medium flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <span>
+                        This task completes when the user submits the requested {formData.submissionType === 'EXTERNAL_LINK' ? 'link' : formData.submissionType === 'TEXT_INPUT' ? 'text' : formData.submissionType === 'DIGIT_INPUT' ? 'digits' : 'image'} from their dashboard.
+                      </span>
+                    </div>
+                  )
                 ) : (
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">

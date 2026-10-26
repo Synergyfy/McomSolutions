@@ -28,6 +28,7 @@ export const useRegisterApp = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPassPlatforms'] })
     },
   })
 }
@@ -41,6 +42,8 @@ export const useUpdateApp = () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.invalidateQueries({ queryKey: appKey(vars.clientId) })
       queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPassPlatforms'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPassCatalogue'] })
     },
   })
 }
@@ -52,6 +55,7 @@ export const useDeactivateApp = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPassPlatforms'] })
     },
   })
 }
@@ -64,6 +68,7 @@ export const useDeleteApp = () => {
       queryClient.invalidateQueries({ queryKey: appsKey })
       queryClient.removeQueries({ queryKey: appKey(clientId) })
       queryClient.invalidateQueries({ queryKey: ['admin', 'supportedPlatforms'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accessPassPlatforms'] })
     },
   })
 }

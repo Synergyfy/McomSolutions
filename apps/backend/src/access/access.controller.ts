@@ -1,18 +1,20 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AccessService } from './access.service';
-import { AccessCouponQuoteDto } from './dto/access.dto';
+import { AccessCouponQuoteDto, RedeemAccessCodeDto } from './dto/access.dto';
 
 @ApiTags('Access')
 @Controller('access')
@@ -59,6 +61,21 @@ export class AccessController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Get('conflict')
+  @ApiOperation({ summary: 'Check whether an access pass overlaps the business active membership' })
+  @ApiQuery({ name: 'accessPlanId', required: true, description: 'Access plan to check' })
+  async getConflict(@Req() req: any, @Query('accessPlanId') accessPlanId: string) {
+    if (!req.user?.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    if (!accessPlanId) {
+      throw new BadRequestException('accessPlanId is required');
+    }
+    return this.accessService.getMembershipConflict(req.user.businessId, accessPlanId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get('purchases')
   @ApiOperation({ summary: 'List access purchases for the current business' })
   async getPurchases(@Req() req: any) {
@@ -66,5 +83,32 @@ export class AccessController {
       throw new NotFoundException('User does not have an active business profile');
     }
     return this.accessService.getPurchaseHistory(req.user.businessId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('codes')
+  @ApiOperation({ summary: 'List access pass codes purchased by or assigned to this business' })
+  async getCodes(@Req() req: any) {
+    if (!req.user?.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.accessService.listAccessCodes(req.user.businessId, req.user.email);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('codes/redeem')
+  @ApiOperation({ summary: 'Redeem an access pass code and start the pass now' })
+  async redeemCode(@Req() req: any, @Body() dto: RedeemAccessCodeDto) {
+    if (!req.user?.businessId) {
+      throw new NotFoundException('User does not have an active business profile');
+    }
+    return this.accessService.redeemAccessCode(
+      req.user.businessId,
+      req.user.userId,
+      req.user.email,
+      dto.code,
+    );
   }
 }

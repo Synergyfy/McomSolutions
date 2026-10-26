@@ -6,7 +6,7 @@ import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   Wallet, Building2, ShieldCheck,
-  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare, Ticket
+  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare, Ticket, KeyRound
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
@@ -20,6 +20,7 @@ import DashboardAllProducts from '../components/DashboardAllProducts';
 import DashboardBilling from '../components/DashboardBilling';
 import DashboardBusinessProfile from '../components/DashboardBusinessProfile';
 import DashboardAccess from '../components/DashboardAccess';
+import DashboardAccessPasses from '../components/DashboardAccessPasses';
 import DashboardNotifications from '../components/DashboardNotifications';
 import DashboardSupport from '../components/DashboardSupport';
 import DashboardSettings from '../components/DashboardSettings';
@@ -30,7 +31,7 @@ import VerificationPaymentModal from '../components/payment/VerificationPaymentM
 import { apiClient } from '../services/api';
 
 const DASHBOARD_TABS = [
-  'overview', 'all-products', 'access', 'notifications', 'messages',
+  'overview', 'all-products', 'access', 'access-passes', 'notifications', 'messages',
   'memberships', 'billing', 'business-profile',
   'referrals', 'support', 'settings', 'wallet', 'coupons',
 ] as const;
@@ -175,6 +176,7 @@ export default function Dashboard() {
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Billing & Plans</span>
           </div>
           <NavItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
+          <NavItem icon={KeyRound} label="Access Passes" active={activeTab === 'access-passes'} onClick={() => handleNav('access-passes')} />
           <NavItem icon={Ticket} label="My Coupons" active={activeTab === 'coupons'} onClick={() => handleNav('coupons')} />
 
           <div className="pt-8 pb-4 px-4">
@@ -396,6 +398,7 @@ export default function Dashboard() {
           )}
           {activeTab === 'all-products' && <DashboardAllProducts />}
           {activeTab === 'access' && <DashboardAccess />}
+          {activeTab === 'access-passes' && <DashboardAccessPasses />}
           {activeTab === 'notifications' && <DashboardNotifications />}
           {activeTab === 'messages' && <DashboardMessages />}
           {activeTab === 'memberships' && <DashboardMemberships />}
@@ -479,6 +482,7 @@ export default function Dashboard() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 mb-2">Billing & Plans</p>
                   <div className="grid grid-cols-3 gap-2">
                     <SheetItem icon={CreditCard} label="Memberships" active={activeTab === 'memberships'} onClick={() => handleNav('memberships')} />
+                    <SheetItem icon={KeyRound} label="Access Passes" active={activeTab === 'access-passes'} onClick={() => handleNav('access-passes')} />
                     <SheetItem icon={Ticket} label="My Coupons" active={activeTab === 'coupons'} onClick={() => handleNav('coupons')} />
 
                     <SheetItem icon={Wallet} label="Billing" active={activeTab === 'billing'} onClick={() => handleNav('billing')} />

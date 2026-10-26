@@ -33,6 +33,7 @@ import type {
   UpdateTicketInput,
   ExternalPlan,
   CreateExternalPlanInput,
+  AccessPassCataloguePlan,
   CreateCampaignInput,
   CreateSectorInput,
   UpdateSectorInput,
@@ -677,6 +678,25 @@ export const useSupportedPlatforms = () => {
     queryKey: ['admin', 'supportedPlatforms'],
     queryFn: () => adminApi.getSupportedPlatforms(),
     staleTime: 1000 * 60 * 2,
+  })
+}
+
+// ─── Access Pass Catalogues (Console-registered platforms) ─────────────
+export const useAccessPassPlatforms = () => {
+  return useQuery({
+    queryKey: ['admin', 'accessPassPlatforms'],
+    queryFn: () => adminApi.getAccessPassPlatforms(),
+    staleTime: 1000 * 60 * 2,
+  })
+}
+
+export const useAccessPassCatalogue = (platform: string) => {
+  return useQuery({
+    queryKey: ['admin', 'accessPassCatalogue', platform],
+    queryFn: () => adminApi.getAccessPassPlans(platform),
+    staleTime: 1000 * 60 * 2,
+    enabled: !!platform,
+    retry: false,
   })
 }
 

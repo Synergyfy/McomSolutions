@@ -12,7 +12,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { CouponDiscountType, TaskAudience, TaskAssignmentStatus, TaskSource } from '@prisma/client';
+import { CouponDiscountType, TaskAccessScope, TaskAudience, TaskAssignmentStatus, TaskSource, TaskSubmissionType } from '@prisma/client';
 
 export class CreateTaskDefinitionDto {
   @ApiProperty({ example: 'Upload Business Logo', description: 'Task title shown to the user' })
@@ -32,6 +32,26 @@ export class CreateTaskDefinitionDto {
   })
   @IsEnum(TaskAudience)
   targetAudience: TaskAudience;
+
+  @ApiPropertyOptional({
+    enum: TaskAccessScope,
+    example: TaskAccessScope.ALL,
+    description:
+      'Access scope: ALL (paid members and trial users), PAID (paid members only), or TRIAL (trial users only)',
+  })
+  @IsOptional()
+  @IsEnum(TaskAccessScope)
+  accessScope?: TaskAccessScope;
+
+  @ApiPropertyOptional({
+    enum: TaskSubmissionType,
+    example: TaskSubmissionType.AUTO,
+    description:
+      'How the task is completed: AUTO (event worker), EXTERNAL_LINK, TEXT_INPUT, DIGIT_INPUT, or IMAGE_UPLOAD',
+  })
+  @IsOptional()
+  @IsEnum(TaskSubmissionType)
+  submissionType?: TaskSubmissionType;
 
   @ApiPropertyOptional({
     enum: TaskSource,

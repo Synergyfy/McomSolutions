@@ -67,6 +67,14 @@ export class RegisterAppDto {
   @IsUrl({ require_tld: false })
   planSchemaEndpoint?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://api.rewards.mcom.com/api/v1/access-passes/plans',
+    description: 'Optional endpoint that returns the platform access pass plan catalogue used by MCOM access bundles',
+  })
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  accessPassPlansEndpoint?: string;
+
   @ApiProperty({ example: ['https://vcard.mcom.com/auth/callback'], description: 'Allowed OAuth redirect callback URLs' })
   @IsArray()
   @IsUrl({ require_tld: false }, { each: true, message: 'Invalid redirect URI' })

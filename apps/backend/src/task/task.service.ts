@@ -28,9 +28,11 @@ import {
   CouponDiscountType,
   Prisma,
   Role,
+  TaskAccessScope,
   TaskAssignmentStatus,
   TaskAudience,
   TaskSource,
+  TaskSubmissionType,
 } from '@prisma/client';
 
 @Injectable()
@@ -329,6 +331,12 @@ export class TaskService {
 
   async createTaskDefinition(dto: CreateTaskDefinitionDto, adminName = 'Admin') {
     const source = dto.taskSource ?? TaskSource.INTERNAL;
+    // Proof-submission types only apply to MCOM Central tasks. External tasks
+    // keep their existing manual-completion behaviour.
+    const submissionType =
+      source === TaskSource.EXTERNAL
+        ? TaskSubmissionType.AUTO
+        : dto.submissionType ?? TaskSubmissionType.AUTO;
     const title = this.sanitizeText(dto.title);
     const description = this.sanitizeText(dto.description);
     if (!title || !description) {
@@ -358,14 +366,16 @@ export class TaskService {
       if (dto.externalClientId !== undefined && dto.externalClientId !== null && String(dto.externalClientId).trim() !== '') {
         throw new BadRequestException('Internal tasks run on MCOM Central — omit the external app selection');
       }
-      const key = dto.featureKey?.trim();
-      if (!key) {
-        throw new BadRequestException('Select a platform trigger feature for internal tasks');
+      if (submissionType === TaskSubmissionType.AUTO) {
+        const key = dto.featureKey?.trim();
+        if (!key) {
+          throw new BadRequestException('Select a platform trigger feature for internal tasks');
+        }
+        if (!this.isKnownFeatureKey(key)) {
+          throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
+        }
+        featureKey = key;
       }
-      if (!this.isKnownFeatureKey(key)) {
-        throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
-      }
-      featureKey = key;
       platform = 'mcom_central';
     }
 
@@ -398,6 +408,8 @@ export class TaskService {
         title,
         description,
         targetAudience: dto.targetAudience,
+        accessScope: dto.accessScope ?? TaskAccessScope.ALL,
+        submissionType,
         taskSource: source,
         featureKey,
         externalClientId: external?.externalClientId ?? null,
@@ -471,17 +483,25 @@ export class TaskService {
       data.description = description;
     }
     if (dto.targetAudience !== undefined) data.targetAudience = dto.targetAudience;
+    if (dto.accessScope !== undefined) data.accessScope = dto.accessScope;
     if (dto.deadlineDays !== undefined) data.deadlineDays = dto.deadlineDays;
     if (dto.rewardPoints !== undefined) data.rewardPoints = dto.rewardPoints;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
-    // Source transitions: re-validate trigger/app pairing whenever touched.
+    // Source/submission transitions: re-validate trigger/app pairing whenever
+    // any of them is touched.
     const sourceTouched = dto.taskSource !== undefined;
     const triggerTouched = dto.featureKey !== undefined;
     const appTouched = dto.externalClientId !== undefined;
-    if (sourceTouched || triggerTouched || appTouched) {
+    const submissionTouched = dto.submissionType !== undefined;
+    if (sourceTouched || triggerTouched || appTouched || submissionTouched) {
       const effectiveSource = dto.taskSource ?? existing.taskSource ?? TaskSource.INTERNAL;
+      const effectiveSubmission =
+        effectiveSource === TaskSource.EXTERNAL
+          ? TaskSubmissionType.AUTO
+          : dto.submissionType ?? existing.submissionType ?? TaskSubmissionType.AUTO;
       data.taskSource = effectiveSource;
+      data.submissionType = effectiveSubmission;
       if (effectiveSource === TaskSource.EXTERNAL) {
         const rawKey = dto.featureKey !== undefined ? dto.featureKey : existing.featureKey;
         if (rawKey !== undefined && rawKey !== null && String(rawKey).trim() !== '') {
@@ -503,15 +523,19 @@ export class TaskService {
         if (rawApp !== undefined && rawApp !== null && String(rawApp).trim() !== '') {
           throw new BadRequestException('Internal tasks run on MCOM Central — omit the external app selection');
         }
-        const rawKey = dto.featureKey !== undefined ? dto.featureKey : existing.featureKey;
-        const key = rawKey?.trim();
-        if (!key) {
-          throw new BadRequestException('Select a platform trigger feature for internal tasks');
+        if (effectiveSubmission === TaskSubmissionType.AUTO) {
+          const rawKey = dto.featureKey !== undefined ? dto.featureKey : existing.featureKey;
+          const key = rawKey?.trim();
+          if (!key) {
+            throw new BadRequestException('Select a platform trigger feature for internal tasks');
+          }
+          if (!this.isKnownFeatureKey(key)) {
+            throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
+          }
+          data.featureKey = key;
+        } else {
+          data.featureKey = null;
         }
-        if (!this.isKnownFeatureKey(key)) {
-          throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
-        }
-        data.featureKey = key;
         data.externalClientId = null;
         data.externalAppName = null;
         data.externalPlatformSlug = null;
@@ -882,23 +906,154 @@ export class TaskService {
     return { success: true, data: updated };
   }
 
+  // ─── Programme Access (paid membership vs trial) ──────
+  private async getProgrammeAccessSettings() {
+    const rows = await this.prisma.programmeSetting.findMany({
+      where: { key: { in: ['verification_required', 'trial_access_days'] } },
+      select: { key: true, value: true, updatedAt: true },
+    });
+    const map = new Map(rows.map((row) => [row.key, row]));
+    const verificationSetting = map.get('verification_required');
+    const trialSetting = map.get('trial_access_days');
+    const configuredTrialDays = trialSetting ? parseInt(trialSetting.value, 10) : 14;
+
+    return {
+      verificationRequired: verificationSetting ? verificationSetting.value === 'true' : true,
+      trialDays: Number.isNaN(configuredTrialDays) ? 14 : configuredTrialDays,
+      verificationOptionalSince: verificationSetting?.updatedAt ?? null,
+    };
+  }
+
+  private resolveUserAccess(
+    user: {
+      role: Role;
+      businessProfile: {
+        membershipStatus: string;
+        membershipPlanName: string | null;
+        membershipExpiresAt: Date | null;
+        hasPaidVerificationFee: boolean;
+        verificationFeePaidAt: Date | null;
+        trialAccessDays: number;
+        trialAccessExpiresAt: Date | null;
+        createdAt: Date;
+      } | null;
+      customerProfile: { membershipStatus: string } | null;
+    },
+    settings: {
+      verificationRequired: boolean;
+      trialDays: number;
+      verificationOptionalSince: Date | null;
+    },
+  ): { isPaid: boolean; isTrial: boolean } {
+    const now = new Date();
+    const businessProfile = user.businessProfile;
+
+    const membershipStatus = (businessProfile?.membershipStatus ?? '').toLowerCase();
+    const membershipExpiresAt = businessProfile?.membershipExpiresAt
+      ? new Date(businessProfile.membershipExpiresAt)
+      : null;
+    const hasActiveMembership =
+      Boolean(businessProfile?.membershipPlanName) &&
+      ['active', 'trial', 'past_due'].includes(membershipStatus) &&
+      (!membershipExpiresAt || membershipExpiresAt.getTime() > now.getTime());
+
+    if (hasActiveMembership) {
+      return { isPaid: true, isTrial: false };
+    }
+
+    if (user.role === Role.CUSTOMER) {
+      const customerStatus = (user.customerProfile?.membershipStatus ?? '').toLowerCase();
+      return {
+        isPaid: customerStatus === 'active' || customerStatus === 'past_due',
+        isTrial: false,
+      };
+    }
+
+    if (!businessProfile) {
+      return { isPaid: false, isTrial: false };
+    }
+
+    // Mirrors the dashboard-access configuration: verification is mandatory
+    // unless an admin turns it off, and the trial length comes from settings.
+    const hasTrialEntitlement =
+      Boolean(businessProfile.hasPaidVerificationFee) || !settings.verificationRequired;
+
+    let trialExpiresAt = businessProfile.trialAccessExpiresAt
+      ? new Date(businessProfile.trialAccessExpiresAt)
+      : null;
+
+    if (!trialExpiresAt && businessProfile.hasPaidVerificationFee && businessProfile.verificationFeePaidAt) {
+      const paidAt = new Date(businessProfile.verificationFeePaidAt);
+      const days = businessProfile.trialAccessDays || settings.trialDays;
+      trialExpiresAt = new Date(paidAt.getTime() + days * 24 * 60 * 60 * 1000);
+    }
+
+    if (!trialExpiresAt && !settings.verificationRequired) {
+      const profileCreatedAt = businessProfile.createdAt ? new Date(businessProfile.createdAt) : null;
+      const optionalSince = settings.verificationOptionalSince;
+      const trialStartedAt =
+        !profileCreatedAt
+          ? optionalSince
+          : optionalSince && optionalSince.getTime() > profileCreatedAt.getTime()
+            ? optionalSince
+            : profileCreatedAt;
+      if (trialStartedAt && !Number.isNaN(trialStartedAt.getTime())) {
+        trialExpiresAt = new Date(
+          trialStartedAt.getTime() + settings.trialDays * 24 * 60 * 60 * 1000,
+        );
+      }
+    }
+
+    const isTrial =
+      hasTrialEntitlement &&
+      Boolean(trialExpiresAt && trialExpiresAt.getTime() > now.getTime());
+
+    return { isPaid: false, isTrial };
+  }
+
   // ─── User-Facing View: List My Tasks ──────────────────
   async getMyTasks(userId: string) {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        businessProfile: {
+          select: {
+            membershipStatus: true,
+            membershipPlanName: true,
+            membershipExpiresAt: true,
+            hasPaidVerificationFee: true,
+            verificationFeePaidAt: true,
+            trialAccessDays: true,
+            trialAccessExpiresAt: true,
+            createdAt: true,
+          },
+        },
+        customerProfile: { select: { membershipStatus: true } },
+      },
+    });
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     const audience = user.role === Role.CUSTOMER ? TaskAudience.CUSTOMER : TaskAudience.BUSINESS;
+    const accessSettings = await this.getProgrammeAccessSettings();
+    const access = this.resolveUserAccess(user, accessSettings);
 
-    // Find all active task definitions matching this audience or BOTH
+    const accessScopes: TaskAccessScope[] = [TaskAccessScope.ALL];
+    if (access.isPaid) accessScopes.push(TaskAccessScope.PAID);
+    if (access.isTrial) accessScopes.push(TaskAccessScope.TRIAL);
+
+    // Find all active task definitions this user is eligible to see.
     const activeTasks = await this.prisma.taskDefinition.findMany({
       where: {
         isActive: true,
         targetAudience: { in: [audience, TaskAudience.BOTH] },
+        accessScope: { in: accessScopes },
       },
     });
 
@@ -929,7 +1084,13 @@ export class TaskService {
     }
 
     const assignments = await this.prisma.userTaskAssignment.findMany({
-      where: { userId },
+      where: {
+        userId,
+        task: {
+          accessScope: { in: accessScopes },
+          targetAudience: { in: [audience, TaskAudience.BOTH] },
+        },
+      },
       include: {
         task: true,
         rewardCoupon: {
@@ -949,6 +1110,19 @@ export class TaskService {
         { deadlineAt: 'asc' },
       ],
     });
+
+    // The programme length is driven by the task engine: every configured task
+    // contributes its completion window (deadlineDays).
+    const programmeAggregate = await this.prisma.taskDefinition.aggregate({
+      where: {
+        isActive: true,
+        targetAudience: { in: [audience, TaskAudience.BOTH] },
+      },
+      _sum: { deadlineDays: true },
+      _count: { _all: true },
+    });
+    const totalProgrammeDays = programmeAggregate._sum.deadlineDays ?? 0;
+    const configuredTaskCount = programmeAggregate._count._all;
 
     return {
       success: true,
@@ -971,6 +1145,9 @@ export class TaskService {
           externalAppUrl: a.task.externalAppUrl,
           externalClientId: a.task.externalClientId,
           externalPlatformSlug: a.task.externalPlatformSlug,
+          accessScope: a.task.accessScope,
+          submissionType: a.task.submissionType,
+          deadlineDays: a.task.deadlineDays,
           status: a.status,
           assignedAt: a.assignedAt,
           deadlineAt: a.deadlineAt,
@@ -992,6 +1169,11 @@ export class TaskService {
             : null,
         };
       }),
+      meta: {
+        totalProgrammeDays,
+        configuredTaskCount,
+        accessScope: access.isPaid ? 'PAID' : access.isTrial ? 'TRIAL' : 'NONE',
+      },
     };
   }
 
@@ -1015,6 +1197,58 @@ export class TaskService {
     }
 
     return { success: true, data: assignment };
+  }
+
+  // ─── Validate proof submission based on task type ─────
+  private validateTaskSubmission(
+    task: { submissionType: TaskSubmissionType; title: string },
+    submission?: { submissionData?: unknown },
+  ) {
+    if (!task.submissionType || task.submissionType === TaskSubmissionType.AUTO) return;
+
+    const raw = (submission?.submissionData ?? {}) as Record<string, unknown>;
+    const value = typeof raw.value === 'string' ? raw.value.trim() : '';
+
+    if (task.submissionType === TaskSubmissionType.EXTERNAL_LINK) {
+      if (!value) {
+        throw new BadRequestException('Submit the external link to complete this task');
+      }
+      try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid protocol');
+      } catch {
+        throw new BadRequestException('Enter a valid http(s) link');
+      }
+      return;
+    }
+
+    if (task.submissionType === TaskSubmissionType.TEXT_INPUT) {
+      if (!value) {
+        throw new BadRequestException('Enter the requested text to complete this task');
+      }
+      if (value.length > 5000) {
+        throw new BadRequestException('Text submission is too long (maximum 5000 characters)');
+      }
+      return;
+    }
+
+    if (task.submissionType === TaskSubmissionType.DIGIT_INPUT) {
+      if (!value) {
+        throw new BadRequestException('Enter the requested digits to complete this task');
+      }
+      if (!/^\d+$/.test(value)) {
+        throw new BadRequestException('Only digits are allowed for this task');
+      }
+      return;
+    }
+
+    if (task.submissionType === TaskSubmissionType.IMAGE_UPLOAD) {
+      const imageUrl = typeof raw.imageUrl === 'string' ? raw.imageUrl.trim() : '';
+      if (!imageUrl) {
+        throw new BadRequestException('Upload an image to complete this task');
+      }
+      return;
+    }
   }
 
   // ─── User-Facing: Complete & Claim Reward ────────────
@@ -1051,6 +1285,8 @@ export class TaskService {
       });
       throw new BadRequestException('Task deadline has expired');
     }
+
+    this.validateTaskSubmission(assignment.task, submission);
 
     // 1. Mark assignment completed (persist proof when the column exists)
     let updated;

@@ -6,6 +6,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Bot,
   Calendar,
   Check,
   CreditCard,
@@ -19,22 +20,22 @@ import {
 import { cn } from '../lib/utils';
 import {
   useAdminAccessPlans,
+  useAccessPassCatalogue,
+  useAccessPassPlatforms,
   useCreateAccessPlan,
-  useExternalPlans,
-  useSupportedPlatforms,
   useUpdateAccessPlan,
 } from '../services/admin/hooks';
 import type {
   AccessIncludedAppPlan,
+  AccessPassCataloguePlan,
+  AccessPassPlatform,
   AccessPlan,
   CreateAccessPlanInput,
-  PlatformInfo,
   TierName,
 } from '../services/admin/types';
+import EcosystemAccessSkillModal from '../components/admin/EcosystemAccessSkillModal';
 
-const STEPS = ['Basics', 'Price & Duration', 'Platform Access', 'Review'] as const;
-const VARIANTS: TierName[] = ['Standard', 'Pro', 'Pro+'];
-const DURATION_PRESETS = [3, 7, 14, 30, 90, 180, 365, 400];
+const STEPS = ['Basics', 'Pricing', 'Platform Access', 'Review'] as const;
 
 const COLOR_PRESETS = [
   { label: 'Amber', value: 'border-amber-600/20 text-amber-600 bg-amber-50', dotColor: 'bg-amber-500' },
@@ -90,6 +91,7 @@ export default function AdminAccessEditor() {
   const [step, setStep] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
+  const [showSkillModal, setShowSkillModal] = useState(false);
   const initialized = useRef(false);
 
   const [name, setName] = useState('');
@@ -98,30 +100,28 @@ export default function AdminAccessEditor() {
   const [badge, setBadge] = useState('');
   const [colorPreset, setColorPreset] = useState(COLOR_PRESETS[4].value);
   const [price, setPrice] = useState(19.99);
-  const [durationDays, setDurationDays] = useState(30);
   const [features, setFeatures] = useState<string[]>([]);
   const [newFeatureText, setNewFeatureText] = useState('');
   const [includedApps, setIncludedApps] = useState<AccessIncludedAppPlan[]>([]);
 
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState('');
-  const [selectedVariant, setSelectedVariant] = useState<TierName>('Standard');
 
-  const { data: platformsRes } = useSupportedPlatforms();
-  const platforms: PlatformInfo[] = platformsRes?.data ?? [];
-  const { data: externalPlansRes, isLoading: externalPlansLoading } = useExternalPlans(selectedPlatform);
+  const { data: platformsRes, isLoading: platformsLoading } = useAccessPassPlatforms();
+  const platforms: AccessPassPlatform[] = platformsRes?.data ?? [];
+  const {
+    data: catalogueRes,
+    isLoading: catalogueLoading,
+    isError: catalogueIsError,
+    error: catalogueError,
+  } = useAccessPassCatalogue(selectedPlatform);
 
-  const availablePlans = useMemo(() => {
-    const extPlans = (externalPlansRes as any)?.data ?? [];
-    return extPlans.map((ep: any) => ({
-      id: ep.id,
-      name: ep.name,
-      variants: Array.isArray(ep.variants) ? ep.variants : [],
-    }));
-  }, [externalPlansRes]);
+  const availablePlans: AccessPassCataloguePlan[] = useMemo(
+    () => catalogueRes?.data ?? [],
+    [catalogueRes],
+  );
 
-  const selectedPlan = availablePlans.find((p: any) => p.id === selectedPlanId);
-  const hasVariants = Array.isArray(selectedPlan?.variants) && selectedPlan!.variants.length > 0;
+  const selectedPlan = availablePlans.find((plan) => plan.id === selectedPlanId);
 
   useEffect(() => {
     if (initialized.current) return;
@@ -137,7 +137,6 @@ export default function AdminAccessEditor() {
     setBadge(src.badge || '');
     setColorPreset(src.color || COLOR_PRESETS[4].value);
     setPrice(Number(src.price ?? 0));
-    setDurationDays(Number(src.durationDays ?? 30));
     setFeatures(Array.isArray(src.features) ? src.features : []);
     setIncludedApps(
       (src.appBundles ?? []).map((bundle) => ({
@@ -145,6 +144,7 @@ export default function AdminAccessEditor() {
         planId: bundle.externalPlanId || '',
         externalPlanId: bundle.externalPlanId || undefined,
         planName: bundle.packageName,
+        durationDays: bundle.durationDays ?? undefined,
         variantTier: normalizeVariantTier(bundle.variantTier),
         limits: (bundle.limits as Record<string, any> | null) ?? undefined,
       })),
@@ -157,13 +157,9 @@ export default function AdminAccessEditor() {
   const descriptionError = !description.trim() ? 'Add a short description.' : null;
   const priceError =
     !Number.isFinite(price) || price <= 0 ? 'Enter a price greater than £0.' : null;
-  const durationError =
-    !Number.isInteger(durationDays) || durationDays < 1 || durationDays > 800
-      ? 'Duration must be a whole number between 1 and 800 days.'
-      : null;
-  const bundlesError = includedApps.length === 0 ? 'Add at least one platform plan.' : null;
+  const bundlesError = includedApps.length === 0 ? 'Add at least one platform access pass.' : null;
   const basicsError = nameError || descriptionError;
-  const pricingError = priceError || durationError;
+  const pricingError = priceError;
 
   const canContinue =
     step === 0 ? !basicsError : step === 1 ? !pricingError : step === 2 ? !bundlesError : true;
@@ -177,20 +173,21 @@ export default function AdminAccessEditor() {
 
   const addBundle = () => {
     if (!selectedPlan || !selectedPlatform) return;
-    if (includedApps.some((app) => app.platform === selectedPlatform)) {
-      setFormError(`Only one plan per platform is allowed. Remove the existing ${selectedPlatform} bundle first.`);
+    if (selectedPlan.durationDays == null || selectedPlan.durationDays < 1) {
+      setFormError(
+        `${selectedPlatform} does not publish a duration for "${selectedPlan.name}". Ask the platform to include durationDays in its access pass catalogue.`,
+      );
       return;
     }
-    const variant = hasVariants
-      ? selectedPlan.variants.find(
-          (v: any) => normalizeVariantTier(v.tier || v.tierLevel?.name) === selectedVariant,
-        )
-      : undefined;
-    const externalPlanId = String(variant?.id ?? selectedPlan.id);
-    const limits = variant?.configuration
+    if (includedApps.some((app) => app.platform === selectedPlatform)) {
+      setFormError(`Only one access pass plan per platform is allowed. Remove the existing ${selectedPlatform} bundle first.`);
+      return;
+    }
+    const configuration = selectedPlan.configuration ?? undefined;
+    const limits = configuration
       ? {
-          ...(variant.configuration.quotas ?? {}),
-          ...(variant.configuration.featureFlags ?? {}),
+          ...(configuration.quotas ?? {}),
+          ...(configuration.featureFlags ?? {}),
         }
       : undefined;
 
@@ -199,15 +196,15 @@ export default function AdminAccessEditor() {
       {
         platform: selectedPlatform,
         planId: selectedPlan.id,
-        externalPlanId,
+        externalPlanId: selectedPlan.id,
         planName: selectedPlan.name,
-        variantTier: hasVariants ? selectedVariant : 'Standard',
+        durationDays: selectedPlan.durationDays,
+        variantTier: 'Standard',
         limits,
       },
     ]);
     setFormError(null);
     setSelectedPlanId('');
-    setSelectedVariant('Standard');
   };
 
   const handleSave = () => {
@@ -224,7 +221,6 @@ export default function AdminAccessEditor() {
       name: name.trim(),
       description: description.trim(),
       price,
-      durationDays,
       whoItIsFor: whoItIsFor.trim() || undefined,
       badge: badge.trim() || undefined,
       color: colorPreset,
@@ -234,6 +230,7 @@ export default function AdminAccessEditor() {
         planId: app.planId,
         externalPlanId: app.externalPlanId || app.planId,
         planName: app.planName,
+        durationDays: app.durationDays,
         variantTier: app.variantTier || 'Standard',
         limits: app.limits,
       })),
@@ -298,12 +295,25 @@ export default function AdminAccessEditor() {
         <ArrowLeft className="w-4 h-4" /> All access passes
       </button>
 
-      <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
-        {isNew ? 'Create access pass' : `Edit ${editingPlan?.name || 'access pass'}`}
-      </h1>
-      <p className="text-sm text-gray-500 mt-1 mb-5">
-        Step {step + 1} of {STEPS.length} · {STEPS[step]}
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+            {isNew ? 'Create access pass' : `Edit ${editingPlan?.name || 'access pass'}`}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Step {step + 1} of {STEPS.length} · {STEPS[step]}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowSkillModal(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-xs transition-all shadow-xs hover:shadow min-h-[44px] shrink-0"
+          title="AI skill that explains how platforms verify memberships, access passes, and trials over SSO"
+        >
+          <Bot className="w-4 h-4 text-indigo-600" />
+          Access Verification Skill
+        </button>
+      </div>
 
       <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1" role="list" aria-label="Setup progress">
         {STEPS.map((label, i) => (
@@ -459,7 +469,7 @@ export default function AdminAccessEditor() {
           {step === 1 && (
             <>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Access passes are one-time payments. The buyer gets the bundled platform plans for exactly the number of days you set here — no membership tiers or instalment options.
+                Access passes are one-time payments. The buyer gets the bundled platform access passes — no membership tiers or instalment options. Each platform pass keeps the duration published by that platform.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -476,46 +486,11 @@ export default function AdminAccessEditor() {
                   />
                   {showErrors && <FieldError message={priceError} />}
                 </div>
-                <div>
-                  <label htmlFor="access-days" className={labelClass}>Access duration (days)</label>
-                  <input
-                    id="access-days"
-                    type="number"
-                    min={1}
-                    max={800}
-                    step="1"
-                    value={durationDays}
-                    onChange={(e) => setDurationDays(Number(e.target.value))}
-                    aria-invalid={showErrors && !!durationError}
-                    className={cn(inputClass, 'text-2xl font-black', showErrors && durationError && 'border-red-300')}
-                  />
-                  {showErrors && <FieldError message={durationError} />}
-                </div>
-              </div>
-              <div>
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Quick presets</span>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {DURATION_PRESETS.map((days) => (
-                    <button
-                      key={days}
-                      type="button"
-                      onClick={() => setDurationDays(days)}
-                      className={cn(
-                        'px-3 py-2 rounded-xl border text-sm font-bold min-h-[44px]',
-                        durationDays === days
-                          ? 'border-orange-500 bg-orange-50 text-orange-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
-                      )}
-                    >
-                      {days} days
-                    </button>
-                  ))}
-                </div>
               </div>
               <div className="rounded-2xl bg-emerald-50/70 border border-emerald-100 p-4 text-sm text-emerald-800 flex items-start gap-2">
                 <Calendar className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  At checkout, the platform plans are granted for <strong>{durationDays || 0} days</strong>. Existing active plans that last longer are never shortened.
+                  Access duration is inherited from the platform access pass plans you select in the next step. Each platform pass expires on its own schedule; the bundle stays active for the longest duration.
                 </span>
               </div>
             </>
@@ -524,8 +499,34 @@ export default function AdminAccessEditor() {
           {step === 2 && (
             <>
               <p className="text-sm text-gray-500 leading-relaxed">
-                Pick the platform plans this access pass unlocks. Choose a variant when the platform exposes Standard / Pro / Pro+ plans — the access duration still overrides the platform plan's own duration.
+                Pick an access pass plan published by each platform. This central-hub pass is a bundle: the business pays once and receives every selected platform access pass. Each platform pass keeps its own published duration.
               </p>
+
+              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <Bot className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-extrabold text-indigo-950">How will these platforms verify the buyer's access?</p>
+                    <p className="text-xs text-indigo-800/80 leading-relaxed mt-0.5">
+                      Give their engineers the AI skill that explains the SSO check across memberships, access passes, and trials — including the pass ID, active status, expiry, and limits to provision.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSkillModal(true)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all shadow-glow min-h-[44px] shrink-0"
+                >
+                  <Bot className="w-4 h-4" /> Open skill
+                </button>
+              </div>
+
+              {!platformsLoading && platforms.length === 0 && (
+                <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4 text-sm text-amber-800">
+                  No platform has an access pass catalogue endpoint configured yet. Add one in Admin → Console → app → Configuration &amp; URLs.
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="bundle-platform" className={labelClass}>Platform</label>
@@ -535,56 +536,75 @@ export default function AdminAccessEditor() {
                     onChange={(e) => {
                       setSelectedPlatform(e.target.value);
                       setSelectedPlanId('');
-                      setSelectedVariant('Standard');
                     }}
                     className={cn(inputClass, 'bg-white')}
                   >
-                    <option value="">Choose platform…</option>
+                    <option value="">{platformsLoading ? 'Loading platforms…' : 'Choose platform…'}</option>
                     {platforms.map((p) => (
-                      <option key={p.name} value={p.name}>{p.name}</option>
+                      <option key={p.clientId || p.name} value={p.name}>{p.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="bundle-plan" className={labelClass}>Plan</label>
+                  <label htmlFor="bundle-plan" className={labelClass}>Access pass plan</label>
                   <select
                     id="bundle-plan"
                     value={selectedPlanId}
-                    onChange={(e) => {
-                      setSelectedPlanId(e.target.value);
-                      setSelectedVariant('Standard');
-                    }}
-                    disabled={!selectedPlatform || externalPlansLoading}
+                    onChange={(e) => setSelectedPlanId(e.target.value)}
+                    disabled={!selectedPlatform || catalogueLoading || catalogueIsError}
                     className={cn(inputClass, 'bg-white disabled:opacity-50')}
                   >
-                    <option value="">{externalPlansLoading ? 'Loading plans…' : 'Choose plan…'}</option>
-                    {availablePlans.map((p: any) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
+                    <option value="">
+                      {catalogueLoading
+                        ? 'Loading access passes…'
+                        : !selectedPlatform
+                          ? 'Choose a platform first…'
+                          : availablePlans.length === 0
+                            ? 'No access passes published'
+                            : 'Choose access pass plan…'}
+                    </option>
+                    {availablePlans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name}
+                        {plan.durationDays != null ? ` · ${plan.durationDays} days` : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {hasVariants && (
-                <div>
-                  <span className={labelClass}>Variant</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {VARIANTS.map((variant) => (
-                      <button
-                        key={variant}
-                        type="button"
-                        onClick={() => setSelectedVariant(variant)}
-                        className={cn(
-                          'py-2.5 rounded-xl border text-sm font-bold min-h-[48px]',
-                          selectedVariant === variant
-                            ? 'border-brand-blue bg-blue-50 text-brand-blue'
-                            : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
-                        )}
-                      >
-                        {variant}
-                      </button>
-                    ))}
+              {catalogueIsError && (
+                <div className="rounded-2xl bg-red-50 border border-red-200 p-3.5 text-xs font-semibold text-red-700">
+                  {friendlyError(catalogueError)}
+                </div>
+              )}
+
+              {selectedPlan && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-extrabold text-gray-900">{selectedPlan.name}</span>
+                    {selectedPlan.durationDays != null && (
+                      <span className="text-[11px] font-bold text-blue-700 bg-white border border-blue-100 px-2 py-0.5 rounded-full">
+                        {selectedPlan.durationDays} days
+                      </span>
+                    )}
+                    {selectedPlan.price != null && (
+                      <span className="text-[11px] font-bold text-gray-600">
+                        {selectedPlan.currency || 'GBP'} {Number(selectedPlan.price).toFixed(2)}
+                      </span>
+                    )}
                   </div>
+                  {selectedPlan.description && (
+                    <p className="text-xs text-gray-500">{selectedPlan.description}</p>
+                  )}
+                  {!!selectedPlan.features?.length && (
+                    <p className="text-xs text-gray-500">
+                      {selectedPlan.features.slice(0, 3).join(' · ')}
+                    </p>
+                  )}
+                  <p className="text-[11px] font-medium text-blue-700/80">
+                    This platform pass runs for its published {selectedPlan.durationDays}-day duration.
+                  </p>
                 </div>
               )}
 
@@ -599,7 +619,7 @@ export default function AdminAccessEditor() {
 
               {includedApps.length === 0 ? (
                 <p className={cn('text-sm text-center py-4', showErrors && bundlesError ? 'text-red-600 font-semibold' : 'text-gray-400')}>
-                  {showErrors && bundlesError ? bundlesError : 'No platform plans added yet.'}
+                  {showErrors && bundlesError ? bundlesError : 'No platform access passes added yet.'}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -609,7 +629,8 @@ export default function AdminAccessEditor() {
                         <Layers className="w-4 h-4 text-brand-blue shrink-0" />
                         <span className="truncate">
                           <span className="text-brand-blue">{app.platform}:</span> {app.planName}
-                          {app.variantTier ? ` · ${app.variantTier}` : ''}
+                          {app.durationDays ? ` · ${app.durationDays} days` : ''}
+                          {app.variantTier && app.variantTier !== 'Standard' ? ` · ${app.variantTier}` : ''}
                         </span>
                       </span>
                       <button
@@ -641,22 +662,20 @@ export default function AdminAccessEditor() {
                   <span className="text-gray-500 font-medium">For</span>
                   <span className="font-bold text-gray-900 text-right">{whoItIsFor || '—'}</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 p-3.5">
+                <div className="p-3.5">
                   <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
                     <div className="text-xs text-gray-500 font-medium">One-time price</div>
                     <div className="text-xl font-black text-gray-900">£{price}</div>
                   </div>
-                  <div className="rounded-xl bg-gray-50 border border-gray-100 p-3">
-                    <div className="text-xs text-gray-500 font-medium">Duration</div>
-                    <div className="text-xl font-black text-gray-900">{durationDays} days</div>
-                  </div>
                 </div>
                 <div className="p-3.5">
-                  <div className="text-gray-500 font-medium mb-2">Platform plans</div>
+                  <div className="text-gray-500 font-medium mb-2">Platform access passes</div>
                   <div className="flex flex-wrap gap-1.5">
                     {includedApps.map((app, i) => (
                       <span key={`${app.platform}-${i}`} className="px-2 py-1 bg-blue-50 text-brand-blue rounded-lg text-xs font-bold">
-                        {app.platform}: {app.planName}{app.variantTier ? ` (${app.variantTier})` : ''}
+                        {app.platform}: {app.planName}
+                        {app.durationDays ? ` · ${app.durationDays} days` : ''}
+                        {app.variantTier && app.variantTier !== 'Standard' ? ` (${app.variantTier})` : ''}
                       </span>
                     ))}
                     {includedApps.length === 0 && <span className="text-gray-400 text-xs">None</span>}
@@ -669,7 +688,7 @@ export default function AdminAccessEditor() {
               </div>
               <p className="text-xs sm:text-sm text-gray-400 leading-relaxed flex items-start gap-1.5">
                 <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
-                Saving writes the access pass and its platform bundles transactionally. Buyers pay once and receive access for the configured number of days.
+                Saving writes the access pass and its platform access pass bundles transactionally. Buyers pay once and each bundled platform pass runs for the duration published by that platform.
               </p>
             </>
           )}
@@ -724,6 +743,10 @@ export default function AdminAccessEditor() {
           )}
         </div>
       </div>
+
+      {showSkillModal && (
+        <EcosystemAccessSkillModal onClose={() => setShowSkillModal(false)} />
+      )}
     </div>
   );
 }

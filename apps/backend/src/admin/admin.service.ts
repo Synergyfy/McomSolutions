@@ -1492,6 +1492,11 @@ export class AdminService implements OnModuleInit {
       if (!platform || !externalPlanId) {
         throw new BadRequestException('Each bundled platform needs a platform and a plan.');
       }
+      const durationRaw = app['durationDays'];
+      const durationDays =
+        durationRaw != null && Number.isFinite(Number(durationRaw)) && Number(durationRaw) > 0
+          ? Math.round(Number(durationRaw))
+          : null;
       const key = platform.toLowerCase();
       if (seenPlatforms.has(key)) {
         throw new BadRequestException(
@@ -1503,6 +1508,7 @@ export class AdminService implements OnModuleInit {
         platform,
         externalPlanId,
         packageName,
+        durationDays,
         variantTier: this.normalizeAccessVariantTier(
           typeof app['variantTier'] === 'string' ? app['variantTier'] : null,
         ),
@@ -1515,6 +1521,31 @@ export class AdminService implements OnModuleInit {
       };
     });
     return { rows, platformAccess: Array.from(new Set(rows.map((r) => r.platform))) };
+  }
+
+  /**
+   * The central pass duration is derived from the bundled platform access pass
+   * plans. The longest bundled plan defines how long the purchase stays active,
+   * while each bundle keeps its own duration for provisioning.
+   */
+  private resolveAccessPlanDuration(
+    rows: Array<{ durationDays: number | null }>,
+    fallback?: number | null,
+  ): number {
+    const durations = rows
+      .map((row) => row.durationDays)
+      .filter((days): days is number => typeof days === 'number' && days > 0);
+
+    if (durations.length > 0) {
+      return Math.max(...durations);
+    }
+    if (fallback != null && Number.isFinite(fallback) && fallback > 0) {
+      return Math.round(fallback);
+    }
+
+    throw new BadRequestException(
+      'Could not determine the access duration. The selected platform access pass plans must publish a duration.',
+    );
   }
 
   private async syncAccessPlanBundlesTx(
@@ -1549,6 +1580,7 @@ export class AdminService implements OnModuleInit {
 
   async createAccessPlan(dto: CreateAccessPlanDto, adminName?: string) {
     const { rows, platformAccess } = this.normalizeAccessBundles(dto.includedApps);
+    const durationDays = this.resolveAccessPlanDuration(rows, dto.durationDays);
 
     const plan = await this.prisma.$transaction(async (tx) => {
       const created = await tx.accessPlan.create({
@@ -1556,7 +1588,7 @@ export class AdminService implements OnModuleInit {
           name: dto.name.trim(),
           description: dto.description.trim(),
           price: dto.price,
-          durationDays: dto.durationDays,
+          durationDays,
           platformAccess,
           features: (dto.features ?? []).map((f) => f.trim()).filter(Boolean),
           whoItIsFor: dto.whoItIsFor?.trim() || undefined,
@@ -1573,7 +1605,7 @@ export class AdminService implements OnModuleInit {
         'Access Plan Created',
         'AccessPlan',
         created.name,
-        `Created ${created.name} access pass (${dto.durationDays} days)`,
+        `Created ${created.name} access pass (${durationDays} days)`,
         adminName,
       );
       return created;
@@ -1589,6 +1621,9 @@ export class AdminService implements OnModuleInit {
     const bundleData = updates.includedApps
       ? this.normalizeAccessBundles(updates.includedApps)
       : null;
+    const derivedDuration = bundleData
+      ? this.resolveAccessPlanDuration(bundleData.rows, updates.durationDays ?? existing.durationDays)
+      : updates.durationDays;
 
     const plan = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.accessPlan.update({
@@ -1599,7 +1634,7 @@ export class AdminService implements OnModuleInit {
             ? { description: updates.description.trim() }
             : {}),
           ...(updates.price !== undefined ? { price: updates.price } : {}),
-          ...(updates.durationDays !== undefined ? { durationDays: updates.durationDays } : {}),
+          ...(derivedDuration !== undefined ? { durationDays: derivedDuration } : {}),
           ...(updates.whoItIsFor !== undefined
             ? { whoItIsFor: updates.whoItIsFor.trim() || null }
             : {}),

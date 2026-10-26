@@ -40,6 +40,8 @@ import type {
   AccessPlan,
   ExternalPlan,
   CreateExternalPlanInput,
+  AccessPassPlatform,
+  AccessPassCatalogueResponse,
   PlatformInfo,
   PlanSchema,
   ExternalSeason,
@@ -448,6 +450,17 @@ export const adminApi = {
   getSupportedPlatforms: async () => {
     const res = await apiClient.get('/admin/packages/external/platforms')
     return res.data as ApiResponse<PlatformInfo[]>
+  },
+
+  // ─── Access Pass Catalogues (Console-registered platforms) ─────────────
+  getAccessPassPlatforms: async () => {
+    const res = await apiClient.get('/admin/console/access-pass-plans/platforms')
+    return res.data as ApiResponse<AccessPassPlatform[]>
+  },
+
+  getAccessPassPlans: async (platform: string) => {
+    const res = await apiClient.get('/admin/console/access-pass-plans', { params: { platform } })
+    return res.data as AccessPassCatalogueResponse
   },
 
   getExternalPlanSchema: async (platform: string) => {
