@@ -222,8 +222,39 @@ export class TaskService {
     return value.replace(/<[^>]*>/g, '').trim();
   }
 
+  private getFeatureMeta(key: string) {
+    return CENTRAL_FEATURE_KEYS.find((f) => f.key === key);
+  }
+
   private isKnownFeatureKey(key: string): boolean {
-    return CENTRAL_FEATURE_KEYS.some((f) => f.key === key);
+    return this.getFeatureMeta(key) !== undefined;
+  }
+
+  // Audience capabilities: a platform trigger can only fire for the audience it
+  // belongs to (or BOTH), and customers never resolve as trial users.
+  private assertAudienceCapabilities(params: {
+    targetAudience: TaskAudience;
+    accessScope: TaskAccessScope;
+    submissionType: TaskSubmissionType;
+    taskSource: TaskSource;
+    featureKey?: string | null;
+  }): void {
+    const { targetAudience, accessScope, submissionType, taskSource, featureKey } = params;
+
+    if (targetAudience === TaskAudience.CUSTOMER && accessScope === TaskAccessScope.TRIAL) {
+      throw new BadRequestException(
+        'Customers never resolve as trial users — use "All customers" or "Members only" for customer tasks',
+      );
+    }
+
+    if (taskSource !== TaskSource.INTERNAL || submissionType !== TaskSubmissionType.AUTO) return;
+
+    const meta = featureKey ? this.getFeatureMeta(featureKey) : undefined;
+    if (meta && meta.targetAudience !== targetAudience && meta.targetAudience !== 'BOTH') {
+      throw new BadRequestException(
+        `"${meta.label}" only applies to ${meta.targetAudience.toLowerCase()} users — pick a trigger that matches the task audience`,
+      );
+    }
   }
 
   // ─── Task reward coupon config ─────────────────────────
@@ -303,6 +334,20 @@ export class TaskService {
     }
   }
 
+  // Normalise + validate the admin-supplied destination link for EXTERNAL_LINK
+  // tasks. Returns null when no link is configured.
+  private normalizeActionUrl(raw?: string | null): string | null {
+    const value = typeof raw === 'string' ? raw.trim() : '';
+    if (!value) return null;
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid protocol');
+      return url.toString();
+    } catch {
+      throw new BadRequestException('Enter a valid http(s) link for the task action URL');
+    }
+  }
+
   // Resolve + validate a console-registered app for EXTERNAL tasks.
   // Returns denormalized snapshot fields (no FK — tasks survive app deletion).
   private async resolveExternalApp(externalClientId: string) {
@@ -344,6 +389,8 @@ export class TaskService {
     }
 
     let featureKey: string | null = null;
+    let actionUrl: string | null = null;
+    let actionLabel: string | null = null;
     let external: {
       externalClientId: string;
       externalAppName: string;
@@ -375,9 +422,27 @@ export class TaskService {
           throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
         }
         featureKey = key;
+      } else if (submissionType === TaskSubmissionType.EXTERNAL_LINK) {
+        // Admin-supplied destination: the user opens this link, then confirms
+        // completion from their dashboard.
+        actionUrl = this.normalizeActionUrl(dto.actionUrl);
+        if (!actionUrl) {
+          throw new BadRequestException(
+            'Add the destination link users must open to complete this task',
+          );
+        }
+        actionLabel = this.sanitizeText(dto.actionLabel ?? '') || null;
       }
       platform = 'mcom_central';
     }
+
+    this.assertAudienceCapabilities({
+      targetAudience: dto.targetAudience,
+      accessScope: dto.accessScope ?? TaskAccessScope.ALL,
+      submissionType,
+      taskSource: source,
+      featureKey,
+    });
 
     const rewardEnabled = dto.rewardCouponEnabled ?? false;
     const rewardAppliesToAll = dto.rewardCouponAppliesToAll ?? true;
@@ -412,6 +477,8 @@ export class TaskService {
         submissionType,
         taskSource: source,
         featureKey,
+        actionUrl,
+        actionLabel,
         externalClientId: external?.externalClientId ?? null,
         externalAppName: external?.externalAppName ?? null,
         externalPlatformSlug: external?.externalPlatformSlug ?? null,
@@ -452,7 +519,7 @@ export class TaskService {
       task.title,
       source === TaskSource.EXTERNAL
         ? `Created EXTERNAL task "${task.title}" for app ${task.externalAppName} (${task.externalClientId}), manual completion, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`
-        : `Created task "${task.title}" with target=${task.targetAudience}, feature=${task.featureKey}, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`,
+        : `Created task "${task.title}" with target=${task.targetAudience}, trigger=${task.featureKey ?? task.actionUrl ?? 'none'}, deadline=${task.deadlineDays}d, points=${task.rewardPoints}`,
       adminName,
     );
 
@@ -494,7 +561,8 @@ export class TaskService {
     const triggerTouched = dto.featureKey !== undefined;
     const appTouched = dto.externalClientId !== undefined;
     const submissionTouched = dto.submissionType !== undefined;
-    if (sourceTouched || triggerTouched || appTouched || submissionTouched) {
+    const actionTouched = dto.actionUrl !== undefined || dto.actionLabel !== undefined;
+    if (sourceTouched || triggerTouched || appTouched || submissionTouched || actionTouched) {
       const effectiveSource = dto.taskSource ?? existing.taskSource ?? TaskSource.INTERNAL;
       const effectiveSubmission =
         effectiveSource === TaskSource.EXTERNAL
@@ -513,6 +581,8 @@ export class TaskService {
         }
         const external = await this.resolveExternalApp(String(rawApp));
         data.featureKey = null;
+        data.actionUrl = null;
+        data.actionLabel = null;
         data.externalClientId = external.externalClientId;
         data.externalAppName = external.externalAppName;
         data.externalPlatformSlug = external.externalPlatformSlug;
@@ -533,8 +603,24 @@ export class TaskService {
             throw new BadRequestException(`Unknown feature key "${key}" — select one from the available triggers`);
           }
           data.featureKey = key;
+          data.actionUrl = null;
+          data.actionLabel = null;
+        } else if (effectiveSubmission === TaskSubmissionType.EXTERNAL_LINK) {
+          const rawAction = dto.actionUrl !== undefined ? dto.actionUrl : existing.actionUrl;
+          const actionUrl = this.normalizeActionUrl(rawAction);
+          if (!actionUrl) {
+            throw new BadRequestException(
+              'Add the destination link users must open to complete this task',
+            );
+          }
+          data.featureKey = null;
+          data.actionUrl = actionUrl;
+          const labelSource = dto.actionLabel !== undefined ? dto.actionLabel : existing.actionLabel;
+          data.actionLabel = this.sanitizeText(labelSource ?? '') || null;
         } else {
           data.featureKey = null;
+          data.actionUrl = null;
+          data.actionLabel = null;
         }
         data.externalClientId = null;
         data.externalAppName = null;
@@ -545,6 +631,26 @@ export class TaskService {
     } else if (dto.platform !== undefined) {
       // Platform is derived (mcom_central | console platformSlug) — ignore manual edits.
       this.logger.warn(`Ignoring manual platform edit on task ${id}: platform is derived from task source`);
+    }
+
+    const capabilitiesTouched =
+      dto.targetAudience !== undefined ||
+      dto.accessScope !== undefined ||
+      dto.submissionType !== undefined ||
+      dto.featureKey !== undefined ||
+      dto.taskSource !== undefined;
+    if (capabilitiesTouched) {
+      this.assertAudienceCapabilities({
+        targetAudience: dto.targetAudience ?? existing.targetAudience,
+        accessScope: dto.accessScope ?? existing.accessScope,
+        submissionType:
+          (data.submissionType as TaskSubmissionType | undefined) ?? existing.submissionType,
+        taskSource: (data.taskSource as TaskSource | undefined) ?? existing.taskSource,
+        featureKey:
+          data.featureKey !== undefined
+            ? (data.featureKey as string | null)
+            : existing.featureKey,
+      });
     }
 
     const couponTouched =
@@ -1147,6 +1253,8 @@ export class TaskService {
           externalPlatformSlug: a.task.externalPlatformSlug,
           accessScope: a.task.accessScope,
           submissionType: a.task.submissionType,
+          actionUrl: a.task.actionUrl,
+          actionLabel: a.task.actionLabel,
           deadlineDays: a.task.deadlineDays,
           status: a.status,
           assignedAt: a.assignedAt,
@@ -1201,8 +1309,13 @@ export class TaskService {
 
   // ─── Validate proof submission based on task type ─────
   private validateTaskSubmission(
-    task: { submissionType: TaskSubmissionType; title: string },
+    task: {
+      submissionType: TaskSubmissionType;
+      title: string;
+      actionUrl?: string | null;
+    },
     submission?: { submissionData?: unknown },
+    assignmentStatus?: TaskAssignmentStatus,
   ) {
     if (!task.submissionType || task.submissionType === TaskSubmissionType.AUTO) return;
 
@@ -1210,6 +1323,23 @@ export class TaskService {
     const value = typeof raw.value === 'string' ? raw.value.trim() : '';
 
     if (task.submissionType === TaskSubmissionType.EXTERNAL_LINK) {
+      // MCOM Central link tasks: the admin supplies the destination link and the
+      // user completes the task after opening it. Opening the link marks the
+      // assignment IN_PROGRESS (or the dashboard sends `openedAt`), which is the
+      // proof we record.
+      if (task.actionUrl) {
+        const openedAt = typeof raw.openedAt === 'string' ? raw.openedAt.trim() : '';
+        const hasOpened =
+          Boolean(openedAt) || assignmentStatus === TaskAssignmentStatus.IN_PROGRESS;
+        if (!hasOpened) {
+          throw new BadRequestException(
+            'Open the task link before marking this task as complete',
+          );
+        }
+        return;
+      }
+      // Legacy tasks created before action links existed still ask the user for
+      // the link they completed the work at.
       if (!value) {
         throw new BadRequestException('Submit the external link to complete this task');
       }
@@ -1286,7 +1416,23 @@ export class TaskService {
       throw new BadRequestException('Task deadline has expired');
     }
 
-    this.validateTaskSubmission(assignment.task, submission);
+    this.validateTaskSubmission(assignment.task, submission, assignment.status);
+
+    // Record the link visit as proof for admin-supplied action links so admins
+    // can audit that the user actually opened the destination.
+    if (
+      assignment.task.submissionType === TaskSubmissionType.EXTERNAL_LINK &&
+      assignment.task.actionUrl &&
+      submission?.submissionData === undefined
+    ) {
+      submission = {
+        ...(submission ?? {}),
+        submissionData: {
+          actionUrl: assignment.task.actionUrl,
+          openedAt: now.toISOString(),
+        },
+      };
+    }
 
     // 1. Mark assignment completed (persist proof when the column exists)
     let updated;

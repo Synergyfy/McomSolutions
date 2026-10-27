@@ -55,6 +55,8 @@ interface TaskFormData {
   accessScope: 'ALL' | 'PAID' | 'TRIAL';
   submissionType: 'AUTO' | 'EXTERNAL_LINK' | 'TEXT_INPUT' | 'DIGIT_INPUT' | 'IMAGE_UPLOAD';
   taskSource: 'INTERNAL' | 'EXTERNAL';
+  actionUrl: string;
+  actionLabel: string;
   featureKey: string;
   externalClientId: string;
   deadlineDays: number;
@@ -79,6 +81,8 @@ const DEFAULT_FORM: TaskFormData = {
   accessScope: 'ALL',
   submissionType: 'AUTO',
   taskSource: 'INTERNAL',
+  actionUrl: '',
+  actionLabel: '',
   featureKey: 'business.logo_uploaded',
   externalClientId: '',
   deadlineDays: 7,
@@ -99,6 +103,10 @@ const DEFAULT_FORM: TaskFormData = {
 export default function TaskEngineSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [audiencePicked, setAudiencePicked] = useState(false);
+  const [pickedAudience, setPickedAudience] = useState<'BUSINESS' | 'CUSTOMER' | 'BOTH' | null>(
+    null,
+  );
   const [formData, setFormData] = useState<TaskFormData>(DEFAULT_FORM);
   const rewardCouponAccessPlanIds = formData.rewardCouponAccessPlanIds ?? [];
   const rewardCouponAppliesToAllAccess = formData.rewardCouponAppliesToAllAccess ?? false;
@@ -152,6 +160,106 @@ export default function TaskEngineSection() {
   };
   const tasks = tasksRes?.data || [];
 
+  // ─── Audience capabilities ────────────────────────────────────
+  // A platform trigger can only fire for the audience it belongs to (or BOTH),
+  // and customers never resolve as trial users.
+  const audienceFeatures = features.filter(
+    (feat: any) =>
+      feat.targetAudience === formData.targetAudience || feat.targetAudience === 'BOTH',
+  );
+  const autoAvailable = audienceFeatures.length > 0;
+  const isCustomerAudience = formData.targetAudience === 'CUSTOMER';
+  const audienceMeta =
+    formData.targetAudience === 'BUSINESS'
+      ? {
+          label: 'Businesses',
+          icon: Building2,
+          blurb: 'Business owners & their teams',
+        }
+      : formData.targetAudience === 'CUSTOMER'
+        ? {
+            label: 'Customers',
+            icon: User,
+            blurb: 'Everyday members and shoppers',
+          }
+        : {
+            label: 'Businesses & Customers',
+            icon: Users,
+            blurb: 'Shared mission for both audiences',
+          };
+  const accessScopeOptions = isCustomerAudience
+    ? [
+        { id: 'ALL', label: 'All customers', icon: Users },
+        { id: 'PAID', label: 'Members only', icon: Award },
+      ]
+    : [
+        { id: 'ALL', label: 'Paid & Trial', icon: Users },
+        { id: 'PAID', label: 'Paid only', icon: Award },
+        { id: 'TRIAL', label: 'Trial only', icon: Clock },
+      ];
+  const taskTypeOptions = [
+    ...(autoAvailable
+      ? [
+          {
+            id: 'AUTO',
+            label: 'Auto Event',
+            description: 'Completes automatically via platform event worker',
+            icon: Zap,
+          },
+        ]
+      : []),
+    {
+      id: 'EXTERNAL_LINK',
+      label: 'External Link',
+      description: 'Admin sets a link; user opens it, then marks complete',
+      icon: ExternalLink,
+    },
+    {
+      id: 'TEXT_INPUT',
+      label: 'Text Input',
+      description: 'User submits a written answer',
+      icon: FileText,
+    },
+    {
+      id: 'DIGIT_INPUT',
+      label: 'Digit Input',
+      description: 'User submits digits only',
+      icon: Clock,
+    },
+    {
+      id: 'IMAGE_UPLOAD',
+      label: 'Image Upload',
+      description: 'User uploads an image as proof',
+      icon: Upload,
+    },
+  ];
+
+  const handleSelectAudience = (audience: 'BUSINESS' | 'CUSTOMER' | 'BOTH') => {
+    if (loadingFeatures) return;
+    const available = features.filter(
+      (feat: any) => feat.targetAudience === audience || feat.targetAudience === 'BOTH',
+    );
+    const featureStillValid = available.some((feat: any) => feat.key === formData.featureKey);
+    setFormData({
+      ...formData,
+      targetAudience: audience,
+      // Customers never resolve as trial users.
+      accessScope:
+        audience === 'CUSTOMER' && formData.accessScope === 'TRIAL'
+          ? 'ALL'
+          : formData.accessScope,
+      // No auto trigger for this audience → fall back to a manual proof type.
+      submissionType:
+        available.length === 0 && formData.submissionType === 'AUTO'
+          ? 'TEXT_INPUT'
+          : formData.submissionType,
+      featureKey: featureStillValid ? formData.featureKey : available[0]?.key || '',
+    });
+    setAudiencePicked(true);
+    setPickedAudience(audience);
+    setFormError(null);
+  };
+
   const filteredTasks = tasks.filter((t: any) => {
     const q = searchQuery.toLowerCase();
     const matchesSearch =
@@ -167,6 +275,8 @@ export default function TaskEngineSection() {
   const handleOpenCreateModal = () => {
     setEditingTaskId(null);
     setFormData(DEFAULT_FORM);
+    setAudiencePicked(false);
+    setPickedAudience(null);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -183,6 +293,8 @@ export default function TaskEngineSection() {
       accessScope: task.accessScope || 'ALL',
       submissionType: task.submissionType || 'AUTO',
       taskSource,
+      actionUrl: task.actionUrl || '',
+      actionLabel: task.actionLabel || '',
       featureKey: task.featureKey || 'business.logo_uploaded',
       externalClientId: task.externalClientId || '',
       deadlineDays: task.deadlineDays,
@@ -203,6 +315,8 @@ export default function TaskEngineSection() {
       isActive: task.isActive,
       platform: task.platform || 'mcom_central',
     });
+    setAudiencePicked(true);
+    setPickedAudience(task.targetAudience ?? 'BUSINESS');
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -210,8 +324,39 @@ export default function TaskEngineSection() {
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+    if (!audiencePicked) {
+      setFormError('Choose who this task is for first.');
+      return;
+    }
     if (!formData.title.trim() || !formData.description.trim()) return;
-    if (formData.taskSource === 'INTERNAL' && !formData.featureKey) return;
+    if (isCustomerAudience && formData.accessScope === 'TRIAL') {
+      setFormError(
+        'Customers never resolve as trial users — choose "All customers" or "Members only".',
+      );
+      return;
+    }
+    if (
+      formData.taskSource === 'INTERNAL' &&
+      formData.submissionType === 'AUTO' &&
+      !audienceFeatures.some((feat: any) => feat.key === formData.featureKey)
+    ) {
+      setFormError('Pick a platform trigger that matches this task audience.');
+      return;
+    }
+    if (formData.taskSource === 'INTERNAL' && formData.submissionType === 'EXTERNAL_LINK') {
+      const rawLink = formData.actionUrl.trim();
+      if (!rawLink) {
+        setFormError('Add the link users must open to complete this task.');
+        return;
+      }
+      try {
+        const url = new URL(rawLink);
+        if (!['http:', 'https:'].includes(url.protocol)) throw new Error('invalid');
+      } catch {
+        setFormError('Enter a valid http(s) link for the task.');
+        return;
+      }
+    }
     if (formData.taskSource === 'EXTERNAL' && !formData.externalClientId) return;
     if (formData.rewardCouponEnabled) {
       if (!Number.isFinite(formData.rewardCouponValue) || formData.rewardCouponValue <= 0) {
@@ -274,6 +419,10 @@ export default function TaskEngineSection() {
     if (formData.taskSource === 'INTERNAL') {
       if (formData.submissionType === 'AUTO') {
         payload.featureKey = formData.featureKey;
+      }
+      if (formData.submissionType === 'EXTERNAL_LINK') {
+        payload.actionUrl = formData.actionUrl.trim();
+        payload.actionLabel = formData.actionLabel.trim() || undefined;
       }
     } else {
       payload.externalClientId = formData.externalClientId;
@@ -554,7 +703,7 @@ export default function TaskEngineSection() {
                           {task.submissionType === 'DIGIT_INPUT' && <Clock className="w-3 h-3" />}
                           {task.submissionType === 'IMAGE_UPLOAD' && <Upload className="w-3 h-3" />}
                           {task.submissionType === 'EXTERNAL_LINK'
-                            ? 'External link'
+                            ? 'Link task'
                             : task.submissionType === 'TEXT_INPUT'
                               ? 'Text input'
                               : task.submissionType === 'DIGIT_INPUT'
@@ -627,18 +776,35 @@ export default function TaskEngineSection() {
                             </a>
                           )}
                         </div>
+                      ) : task.submissionType === 'EXTERNAL_LINK' ? (
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <ExternalLink className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Link:</span>
+                          {task.actionUrl ? (
+                            <a
+                              href={task.actionUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline inline-flex items-center gap-0.5 max-w-[280px] truncate"
+                              title={task.actionUrl}
+                            >
+                              {task.actionLabel || task.actionUrl} <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                          ) : (
+                            <span className="text-amber-600 text-[11px] font-bold">No link set</span>
+                          )}
+                          <span className="text-gray-400">(user opens the link, then marks complete)</span>
+                        </div>
                       ) : task.submissionType && task.submissionType !== 'AUTO' ? (
                         <div className="flex items-center gap-1.5 font-medium">
                           <FileText className="w-3.5 h-3.5 text-indigo-600" />
                           <span>Type:</span>
                           <span className="text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold text-[11px]">
-                            {task.submissionType === 'EXTERNAL_LINK'
-                              ? 'External link'
-                              : task.submissionType === 'TEXT_INPUT'
-                                ? 'Text input'
-                                : task.submissionType === 'DIGIT_INPUT'
-                                  ? 'Digit input'
-                                  : 'Image upload'}
+                            {task.submissionType === 'TEXT_INPUT'
+                              ? 'Text input'
+                              : task.submissionType === 'DIGIT_INPUT'
+                                ? 'Digit input'
+                                : 'Image upload'}
                           </span>
                           <span className="text-gray-400">(completed when the user submits)</span>
                         </div>
@@ -734,6 +900,8 @@ export default function TaskEngineSection() {
                 <span className="text-xs text-gray-500">
                   {(selectedTaskForProgress.taskSource === 'EXTERNAL' || selectedTaskForProgress.externalClientId) ? (
                     <>App: <strong className="text-violet-700">{selectedTaskForProgress.externalAppName || selectedTaskForProgress.externalClientId}</strong> (manual)</>
+                  ) : selectedTaskForProgress.submissionType === 'EXTERNAL_LINK' ? (
+                    <>Link: <strong className="text-blue-700">{selectedTaskForProgress.actionUrl || 'not set'}</strong> (user opens it, then confirms)</>
                   ) : (
                     <>Trigger: <code className="font-mono text-blue-700 font-bold">{selectedTaskForProgress.featureKey}</code></>
                   )}
@@ -950,7 +1118,7 @@ export default function TaskEngineSection() {
                       {editingTaskId ? 'Edit Programme Task' : 'Create Programme Task'}
                     </h3>
                     <p className="text-xs text-gray-500">
-                      Internal tasks auto-complete via event trigger; external tasks link a console app and complete manually
+                      Audience-first setup — triggers and completion types adapt to what each role can actually do
                     </p>
                   </div>
                 </div>
@@ -962,7 +1130,125 @@ export default function TaskEngineSection() {
                 </button>
               </div>
 
+              {!audiencePicked ? (
+                <div className="pt-5 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-black text-gray-900">Who is this task for?</h4>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Pick the audience first — we&apos;ll only show the actions that audience can
+                      actually perform.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {[
+                      {
+                        id: 'BUSINESS' as const,
+                        label: 'Businesses',
+                        icon: Building2,
+                        blurb:
+                          'Auto triggers for logo, profile, socials, opening hours, Google and membership — plus link, text, digit and image tasks.',
+                      },
+                      {
+                        id: 'CUSTOMER' as const,
+                        label: 'Customers',
+                        icon: User,
+                        blurb:
+                          'Auto triggers for customer profile and membership — plus link, text, digit and image tasks. No trial access.',
+                      },
+                      {
+                        id: 'BOTH' as const,
+                        label: 'Businesses & Customers',
+                        icon: Users,
+                        blurb:
+                          'One shared mission for both audiences. Manual proof tasks only — there is no shared auto trigger yet.',
+                      },
+                    ].map((aud) => (
+                      <button
+                        key={aud.id}
+                        type="button"
+                        onClick={() => handleSelectAudience(aud.id)}
+                        disabled={loadingFeatures}
+                        className={cn(
+                          'w-full p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all group disabled:opacity-60 disabled:cursor-wait',
+                          pickedAudience === aud.id
+                            ? 'border-blue-500 bg-blue-50/60'
+                            : 'border-gray-200 bg-gray-50 hover:border-blue-400 hover:bg-blue-50/50',
+                        )}
+                      >
+                        <span className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-600 flex items-center justify-center shrink-0 group-hover:border-blue-300">
+                          <aud.icon className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1">
+                          <span className="block text-sm font-bold text-gray-900">{aud.label}</span>
+                          <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
+                            {aud.blurb}
+                          </span>
+                        </span>
+                        {pickedAudience === aud.id ? (
+                          <CheckCircle2 className="w-4 h-4 text-blue-600 mt-2 shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-400 mt-2 shrink-0 group-hover:text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {loadingFeatures && (
+                    <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Loading the actions each audience can perform…
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                    {editingTaskId && (
+                      <button
+                        type="button"
+                        onClick={() => setAudiencePicked(true)}
+                        className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-semibold text-xs hover:bg-gray-50"
+                      >
+                        Back
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-semibold text-xs hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <form onSubmit={handleSubmitForm} className="space-y-4 pt-4">
+                {/* Audience summary (picked in step 1) */}
+                <div className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-blue-600 flex items-center justify-center shrink-0">
+                      <audienceMeta.icon className="w-4 h-4" />
+                    </span>
+                    <div>
+                      <p className="text-xs font-bold text-gray-900">{audienceMeta.label}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {audienceMeta.blurb}
+                        {isCustomerAudience
+                          ? ' · no trial access'
+                          : formData.targetAudience === 'BOTH'
+                            ? ' · manual tasks only'
+                            : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAudiencePicked(false)}
+                    className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-[11px] font-bold text-gray-600 hover:bg-gray-50"
+                  >
+                    Change
+                  </button>
+                </div>
+
                 {/* Title */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
@@ -993,46 +1279,13 @@ export default function TaskEngineSection() {
                   />
                 </div>
 
-                {/* Target Audience */}
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Target Audience
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: 'BUSINESS', label: 'Business', icon: Building2 },
-                      { id: 'CUSTOMER', label: 'Customer', icon: User },
-                      { id: 'BOTH', label: 'Both', icon: Users },
-                    ].map((aud) => (
-                      <button
-                        key={aud.id}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, targetAudience: aud.id as any })}
-                        className={cn(
-                          'p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all',
-                          formData.targetAudience === aud.id
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100',
-                        )}
-                      >
-                        <aud.icon className="w-3.5 h-3.5" />
-                        {aud.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Access Scope */}
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                     Available To
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: 'ALL', label: 'Paid & Trial', icon: Users },
-                      { id: 'PAID', label: 'Paid only', icon: Award },
-                      { id: 'TRIAL', label: 'Trial only', icon: Clock },
-                    ].map((scope) => (
+                  <div className={cn('grid gap-2', isCustomerAudience ? 'grid-cols-2' : 'grid-cols-3')}>
+                    {accessScopeOptions.map((scope) => (
                       <button
                         key={scope.id}
                         type="button"
@@ -1050,7 +1303,9 @@ export default function TaskEngineSection() {
                     ))}
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Trial users are determined by the Dashboard Access settings. Paid users have an active membership.
+                    {isCustomerAudience
+                      ? 'Customers are either members with an active membership or non-members — trial access does not apply to them.'
+                      : 'Trial users are determined by the Dashboard Access settings. Paid users have an active membership.'}
                   </p>
                 </div>
 
@@ -1096,13 +1351,7 @@ export default function TaskEngineSection() {
                       Task Type
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {[
-                        { id: 'AUTO', label: 'Auto Event', description: 'Completes automatically via platform event worker', icon: Zap },
-                        { id: 'EXTERNAL_LINK', label: 'External Link', description: 'User submits a link as proof', icon: ExternalLink },
-                        { id: 'TEXT_INPUT', label: 'Text Input', description: 'User submits a written answer', icon: FileText },
-                        { id: 'DIGIT_INPUT', label: 'Digit Input', description: 'User submits digits only', icon: Clock },
-                        { id: 'IMAGE_UPLOAD', label: 'Image Upload', description: 'User uploads an image as proof', icon: Upload },
-                      ].map((type) => (
+                      {taskTypeOptions.map((type) => (
                         <button
                           key={type.id}
                           type="button"
@@ -1129,9 +1378,18 @@ export default function TaskEngineSection() {
                         </button>
                       ))}
                     </div>
+                    {!autoAvailable && (
+                      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200/70 rounded-lg p-2 mt-2">
+                        {formData.targetAudience === 'BOTH'
+                          ? 'There is no automatic trigger shared by businesses and customers yet — choose a manual task type.'
+                          : 'No automatic trigger is available for this audience — choose a manual task type.'}
+                      </p>
+                    )}
                     {formData.submissionType !== 'AUTO' && (
                       <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200/70 rounded-lg p-2 mt-2">
-                        The description above is what the user sees. Explain exactly what they must do and how to complete the task; their submission will automatically mark it done.
+                        {formData.submissionType === 'EXTERNAL_LINK'
+                          ? 'Add the link the user must open. They click it in their dashboard, complete the step on that page, then mark the task complete — their click is recorded as proof.'
+                          : 'The description above is what the user sees. Explain exactly what they must do and how to complete the task; their submission will automatically mark it done.'}
                       </p>
                     )}
                   </div>
@@ -1149,7 +1407,7 @@ export default function TaskEngineSection() {
                         onChange={(e) => setFormData({ ...formData, featureKey: e.target.value })}
                         className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                       >
-                        {features.map((feat: any) => (
+                        {audienceFeatures.map((feat: any) => (
                           <option key={feat.key} value={feat.key}>
                             {feat.label}
                           </option>
@@ -1160,11 +1418,43 @@ export default function TaskEngineSection() {
                         When a user performs this action in MCOM Central, the BullMQ worker automatically completes this task.
                       </p>
                     </div>
+                  ) : formData.submissionType === 'EXTERNAL_LINK' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Task Link (user must open this) *
+                        </label>
+                        <input
+                          type="url"
+                          required
+                          placeholder="https://example.com/complete-this-step"
+                          value={formData.actionUrl}
+                          onChange={(e) => setFormData({ ...formData, actionUrl: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                          <ExternalLink className="w-3 h-3 text-blue-600" />
+                          Users click this link from their dashboard, finish the step there, then mark the task complete.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Button Label (optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Open link"
+                          value={formData.actionLabel}
+                          onChange={(e) => setFormData({ ...formData, actionLabel: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <div className="p-3 bg-blue-50/70 border border-blue-200/60 rounded-xl text-[11px] text-blue-800 font-medium flex items-start gap-2">
                       <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
                       <span>
-                        This task completes when the user submits the requested {formData.submissionType === 'EXTERNAL_LINK' ? 'link' : formData.submissionType === 'TEXT_INPUT' ? 'text' : formData.submissionType === 'DIGIT_INPUT' ? 'digits' : 'image'} from their dashboard.
+                        This task completes when the user submits the requested {formData.submissionType === 'TEXT_INPUT' ? 'text' : formData.submissionType === 'DIGIT_INPUT' ? 'digits' : 'image'} from their dashboard.
                       </span>
                     </div>
                   )
@@ -1197,12 +1487,14 @@ export default function TaskEngineSection() {
                           <Globe className="w-3 h-3 text-violet-600" />
                           No event worker — the user opens the app, completes the work there, then manually marks this task done.
                         </p>
-                        <div className="mt-2 p-2.5 bg-violet-50/80 border border-violet-200/60 rounded-xl text-[11px] text-violet-800 font-medium flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-violet-600 flex-shrink-0" />
-                          <span>
-                            <strong className="font-bold">Trial Access Protocol:</strong> Assigning a task to this app automatically unlocks access to this platform for verified businesses during their trial period.
-                          </span>
-                        </div>
+                        {!isCustomerAudience && (
+                          <div className="mt-2 p-2.5 bg-violet-50/80 border border-violet-200/60 rounded-xl text-[11px] text-violet-800 font-medium flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-violet-600 flex-shrink-0" />
+                            <span>
+                              <strong className="font-bold">Trial Access Protocol:</strong> Assigning a task to this app automatically unlocks access to this platform for verified businesses during their trial period.
+                            </span>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
@@ -1525,8 +1817,12 @@ export default function TaskEngineSection() {
                 <div className="text-[11px] text-gray-400 bg-gray-50 p-2.5 rounded-xl border border-dashed border-gray-200">
                   {isExternalForm ? (
                     <>Scope: <strong className="text-gray-700 font-mono">external platform</strong> (manual completion — no event worker).</>
-                  ) : (
+                  ) : formData.submissionType === 'EXTERNAL_LINK' ? (
+                    <>Scope: <strong className="text-gray-700 font-mono">MCOM Central</strong> (user opens the link, then confirms completion).</>
+                  ) : formData.submissionType === 'AUTO' ? (
                     <>Scope: <strong className="text-gray-700 font-mono">MCOM Central</strong> (auto-completed by event worker).</>
+                  ) : (
+                    <>Scope: <strong className="text-gray-700 font-mono">MCOM Central</strong> (completed when the user submits proof).</>
                   )}
                 </div>
 
@@ -1559,6 +1855,7 @@ export default function TaskEngineSection() {
                   </button>
                 </div>
               </form>
+              )}
             </motion.div>
           </div>
         )}

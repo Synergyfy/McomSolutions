@@ -1,18 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, X, ChevronDown, LayoutGrid, ExternalLink } from 'lucide-react';
+import { Menu, X, ChevronDown, LayoutGrid, LogOut } from 'lucide-react';
 import { PRODUCTS } from '../constants';
 import { cn } from '../lib/utils';
+import { getAuthUserDisplay, readStoredAuthUser, type StoredAuthUser } from '../lib/authUser';
+import { useLogout } from '../services/auth/hooks';
 
 import CHSLogo from './CHSLogo';
+import NavbarUserMenu, { UserAvatar, getUserShortcuts, type UserShortcut } from './NavbarUserMenu';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authUser, setAuthUser] = useState<StoredAuthUser | null>(() => readStoredAuthUser());
+  const [hasSession, setHasSession] = useState<boolean>(
+    () => typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token'))
+  );
   const location = useLocation();
+  const logout = useLogout();
+
+  const isLoggedIn = hasSession || Boolean(authUser);
+  const userDisplay = getAuthUserDisplay(authUser);
+  const mobileShortcuts: UserShortcut[] = authUser
+    ? getUserShortcuts(authUser.role)
+    : [{ label: 'Dashboard', description: 'Your workspace', to: '/dashboard', icon: LayoutGrid }];
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -23,8 +36,16 @@ export default function Navbar() {
   useEffect(() => {
     setIsOpen(false);
     setActiveDropdown(null);
-    setIsLoggedIn(!!localStorage.getItem('auth_token'));
+    setAuthUser(readStoredAuthUser());
+    setHasSession(Boolean(localStorage.getItem('auth_token')));
   }, [location]);
+
+  const handleLogout = () => {
+    setIsOpen(false);
+    setAuthUser(null);
+    setHasSession(false);
+    logout('/');
+  };
 
   const gbsProducts = PRODUCTS.filter(p => p.type === 'GBS');
   const mcomProducts = PRODUCTS.filter(p => p.type === 'Mcom');
@@ -126,9 +147,13 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-4">
           {isLoggedIn ? (
-            <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
-              Dashboard
-            </Link>
+            authUser ? (
+              <NavbarUserMenu user={authUser} onLoggedOut={() => { setAuthUser(null); setHasSession(false); }} />
+            ) : (
+              <Link to="/dashboard" className="bg-brand-blue text-white px-5 py-2 rounded-full font-semibold hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 active:scale-95">
+                Dashboard
+              </Link>
+            )
           ) : (
             <>
               <Link to="/login" className="font-medium text-gray-600 hover:text-brand-blue transition-colors">Sign In</Link>
@@ -217,13 +242,67 @@ export default function Navbar() {
               </div>
               <div className="pt-2">
                 {isLoggedIn ? (
-                  <Link 
-                    to="/dashboard" 
-                    onClick={() => setIsOpen(false)}
-                    className="block w-full bg-brand-blue text-white px-5 py-3 rounded-xl font-semibold text-center hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
-                  >
-                    Dashboard
-                  </Link>
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-3">
+                    {userDisplay && (
+                      <div className="flex items-center gap-3 px-1 pb-3">
+                        <UserAvatar initials={userDisplay.initials} className="h-11 w-11 text-sm" />
+                        <div className="min-w-0">
+                          <span className="block truncate text-sm font-bold text-gray-900">{userDisplay.name}</span>
+                          <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                            {userDisplay.roleLabel}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1">
+                      {mobileShortcuts.map(shortcut => {
+                        const Icon = shortcut.icon;
+                        const content = (
+                          <>
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-gray-500">
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-semibold text-gray-900">{shortcut.label}</span>
+                              <span className="block truncate text-xs text-gray-500">{shortcut.description}</span>
+                            </span>
+                          </>
+                        );
+                        return shortcut.external ? (
+                          <a
+                            key={shortcut.label}
+                            href={shortcut.to}
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 rounded-xl bg-white p-2 transition-colors hover:bg-gray-100"
+                          >
+                            {content}
+                          </a>
+                        ) : (
+                          <Link
+                            key={shortcut.label}
+                            to={shortcut.to}
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center gap-3 rounded-xl bg-white p-2 transition-colors hover:bg-gray-100"
+                          >
+                            {content}
+                          </Link>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="mt-1 flex items-center gap-3 rounded-xl bg-white p-2 text-left transition-colors hover:bg-red-50"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                          <LogOut className="h-4 w-4" />
+                        </span>
+                        <span>
+                          <span className="block text-sm font-semibold text-red-600">Log out</span>
+                          <span className="block text-xs text-gray-500">End this session</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex flex-col gap-2.5">
                     <Link 
