@@ -83,6 +83,7 @@ export const authApi = {
   logout: () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('business_user');
+    localStorage.removeItem('admin_user');
     localStorage.removeItem('businessOnboarding');
     localStorage.removeItem('businessOnboardingStep');
     localStorage.removeItem('businessOnboardingCompleted');

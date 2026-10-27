@@ -36,6 +36,10 @@ const DASHBOARD_TABS = [
   'referrals', 'support', 'settings', 'wallet', 'coupons',
 ] as const;
 
+// Tabs a business can still reach once their trial/access period has expired.
+// These are the purchase flows needed to restore access.
+const EXPIRED_ACCESS_ALLOWED_TABS = ['memberships', 'access-passes'] as const;
+
 export default function Dashboard() {
   const location = useLocation();
   const pathTab = location.pathname.replace(/^\/dashboard\/?/, '').split('/')[0] || 'overview';
@@ -130,8 +134,26 @@ export default function Dashboard() {
   const hasTrialEntitlement = hasPaidVerification || !verificationRequired;
   const isTrialActive = !hasActiveMembership && hasTrialEntitlement && Boolean(trialExpiresAt) && trialExpiresAt!.getTime() > Date.now();
   const daysRemaining = trialExpiresAt ? Math.max(0, Math.ceil((trialExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
-  const isTrialExpired = !hasActiveMembership && hasTrialEntitlement && Boolean(trialExpiresAt) && trialExpiresAt!.getTime() <= Date.now();
   const isUnverified = accessPolicyLoaded && Boolean(profile) && !hasActiveMembership && verificationRequired && !hasPaidVerification;
+
+  // An access pass (or any directly purchased platform package) is provisioned
+  // as an active, unexpired `packages` row on the business profile.
+  const hasActiveAccessPass = ((profile as any)?.packages ?? []).some((pkg: any) => {
+    const status = String(pkg?.status || 'active').toLowerCase();
+    if (status !== 'active') return false;
+    if (!pkg?.expiresAt) return true; // lifetime pass
+    const expiresAt = new Date(pkg.expiresAt);
+    return !isNaN(expiresAt.getTime()) && expiresAt.getTime() > Date.now();
+  });
+
+  // Dashboard access requires one of: active membership, active trial, active access pass.
+  const hasDashboardAccess = hasActiveMembership || isTrialActive || hasActiveAccessPass;
+  const isAccessExpired = accessPolicyLoaded && Boolean(profile) && !hasDashboardAccess && !isUnverified;
+
+  // Expired businesses are locked to the purchase flows (memberships / access passes)
+  // so they can actually restore access instead of being trapped behind the modal.
+  const isExpiredAccessTab = (EXPIRED_ACCESS_ALLOWED_TABS as readonly string[]).includes(activeTab);
+  const showAccessExpiredGate = isAccessExpired && !isExpiredAccessTab;
 
   const displayName = profile?.businessName || 'Business Owner';
   const displayEmail = profile?.email || 'owner@mcomsolutions.co.uk';
@@ -308,6 +330,26 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Access Expired Notice (shown on the purchase pages so context isn't lost) */}
+        {isAccessExpired && isExpiredAccessTab && (
+          <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white px-4 sm:px-8 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
+            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium">
+              <span className="text-base">⏳</span>
+              <span>
+                You don't have an active trial, membership, or access pass. Activate one below to restore full access to your dashboard.
+              </span>
+            </div>
+            {activeTab !== 'memberships' && (
+              <button
+                onClick={() => handleNav('memberships')}
+                className="px-3.5 py-1.5 rounded-lg bg-white text-amber-800 hover:bg-amber-50 text-xs font-bold transition-all shrink-0 self-start sm:self-auto shadow-sm cursor-pointer"
+              >
+                View Membership Plans →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Unverified Account Gating Modal */}
         {isUnverified && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
@@ -351,17 +393,17 @@ export default function Dashboard() {
           }}
         />
 
-        {/* Trial Expired Gating Modal */}
-        {isTrialExpired && (
+        {/* Access Expired Gating Modal */}
+        {showAccessExpiredGate && (
           <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 text-center space-y-4 shadow-2xl border border-gray-100">
               <div className="w-16 h-16 rounded-3xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto text-2xl font-bold">
                 ⏳
               </div>
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Your Access Period Has Expired</h3>
+                <h3 className="text-xl font-bold text-gray-900">Your Access Has Expired</h3>
                 <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">
-                  Your trial access has ended. To continue managing your business storefront, products, and campaign tools, please activate an ongoing membership plan.
+                  You don't have an active trial, membership, or access pass. To continue managing your business storefront, products, and campaign tools, please activate an ongoing membership plan or an access pass.
                 </p>
               </div>
               <div className="pt-2 space-y-2">
@@ -370,6 +412,12 @@ export default function Dashboard() {
                   className="w-full py-3.5 px-4 bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-orange-500/20 transition-all cursor-pointer"
                 >
                   View & Activate Membership
+                </button>
+                <button
+                  onClick={() => handleNav('access-passes')}
+                  className="w-full py-3 px-4 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-sm rounded-xl border border-amber-200 transition-all cursor-pointer"
+                >
+                  Buy an Access Pass
                 </button>
                 <button
                   onClick={handleLogout}

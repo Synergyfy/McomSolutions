@@ -7,8 +7,10 @@ export interface CouponFormValues {
   description: string;
   discountType: CouponDiscountType;
   discountValue: string;
+  membershipScopeEnabled: boolean;
   appliesToAllMemberships: boolean;
   membershipPlanIds: string[];
+  accessScopeEnabled: boolean;
   appliesToAllAccess: boolean;
   accessPlanIds: string[];
   maxUses: string;
@@ -37,9 +39,11 @@ export function defaultCouponForm(): CouponFormValues {
     description: '',
     discountType: 'PERCENTAGE',
     discountValue: '10',
+    membershipScopeEnabled: true,
     appliesToAllMemberships: true,
     membershipPlanIds: [],
-    appliesToAllAccess: false,
+    accessScopeEnabled: false,
+    appliesToAllAccess: true,
     accessPlanIds: [],
     maxUses: '',
     maxUsesPerUser: '1',
@@ -78,10 +82,13 @@ export function validateCouponForm(values: CouponFormValues): CouponFormErrors {
   }
 
   const hasMembershipScope =
-    values.appliesToAllMemberships || values.membershipPlanIds.length > 0;
-  const hasAccessScope = values.appliesToAllAccess || values.accessPlanIds.length > 0;
+    values.membershipScopeEnabled &&
+    (values.appliesToAllMemberships || values.membershipPlanIds.length > 0);
+  const hasAccessScope =
+    values.accessScopeEnabled &&
+    (values.appliesToAllAccess || values.accessPlanIds.length > 0);
   if (!hasMembershipScope && !hasAccessScope) {
-    errors.scope = 'Select at least one membership or access pass.';
+    errors.scope = 'Turn on membership or access pass scope and choose at least one option.';
   }
 
   const maxUses = values.maxUses.trim() === '' ? null : Number(values.maxUses);

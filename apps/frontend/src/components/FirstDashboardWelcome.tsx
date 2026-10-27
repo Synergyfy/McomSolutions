@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import {
   Lock, CheckCircle2, ArrowRight, Sparkles, Clock,
-  Users, User, HeadphonesIcon, Target
+  Users, User, HeadphonesIcon, Target, Briefcase
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay, getTaskStatus, getTotalMissions } from '../lib/programmeData';
 import { useProfile, useMyTasks } from '../services/business/hooks';
@@ -249,6 +249,15 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
             <div className="min-w-0 flex-1">
               <p className="font-bold text-gray-900 text-sm leading-tight">Account Manager</p>
               <p className="text-xs text-gray-400 leading-tight">Book a session</p>
+            </div>
+          </button>
+          <button className="flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
+              <Briefcase className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-gray-900 text-sm leading-tight">Consultant</p>
+              <p className="text-xs text-gray-400 leading-tight">Specialist advice</p>
             </div>
           </button>
           <button className="flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">

@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  RefreshCw,
   ShieldCheck,
   Ticket,
   Wallet,
@@ -48,8 +49,19 @@ interface AccessCodePaymentResult {
 
 interface AccessPassPaymentModalProps {
   plan: BusinessAccessPlan
+  /** ISO date / timestamp the plan is already active until, when renewing. */
+  activeUntil?: string | number | null
   onClose: () => void
   onSuccess: (result: AccessCodePaymentResult | Record<string, unknown>) => void
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const formatDate = (value?: string | number | Date | null) => {
+  if (value === null || value === undefined) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 const newIdempotencyKey = () =>
@@ -69,6 +81,7 @@ const paymentErrorMessage = (err: any, fallback: string) => {
 
 export default function AccessPassPaymentModal({
   plan,
+  activeUntil,
   onClose,
   onSuccess,
 }: AccessPassPaymentModalProps) {
@@ -98,6 +111,19 @@ export default function AccessPassPaymentModal({
     : undefined
 
   const amountText = `£${Number(plan.price).toFixed(2)}`
+  const renewalActiveUntil =
+    activeUntil !== null && activeUntil !== undefined ? new Date(activeUntil) : null
+  const isRenewal =
+    mode === 'SELF' &&
+    !!renewalActiveUntil &&
+    !Number.isNaN(renewalActiveUntil.getTime()) &&
+    renewalActiveUntil.getTime() > Date.now()
+  const renewalEndsAt = isRenewal
+    ? new Date(renewalActiveUntil!.getTime() + plan.durationDays * DAY_MS)
+    : null
+  const resultRecord = result as Record<string, any> | null
+  const resultRenewal = Boolean(resultRecord?.renewal)
+  const resultExpiresAt = resultRecord?.expiresAt ?? null
   const busy = stripeInitiate.isPending || paypalInitiate.isPending || walletPurchase.isPending
   const codeResult = result && (result as AccessCodePaymentResult).type === 'access_code'
     ? (result as AccessCodePaymentResult)
@@ -271,12 +297,18 @@ export default function AccessPassPaymentModal({
               </div>
               <div>
                 <h3 className="text-xl font-black text-gray-900">
-                  {pendingActivation ? 'Access pass saved' : 'Access pass activated'}
+                  {pendingActivation
+                    ? 'Access pass saved'
+                    : resultRenewal
+                      ? 'Access pass renewed'
+                      : 'Access pass activated'}
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
                   {pendingActivation
                     ? `Your ${plan.name} pass is paid and reserved. It will start automatically when your membership ends.`
-                    : `Your business now has the ${plan.name} access pass for ${plan.durationDays} days.`}
+                    : resultRenewal && resultExpiresAt
+                      ? `Your ${plan.name} pass has been extended — you're now covered until ${formatDate(resultExpiresAt)}.`
+                      : `Your business now has the ${plan.name} access pass for ${plan.durationDays} days.`}
                 </p>
               </div>
               <button
@@ -297,6 +329,22 @@ export default function AccessPassPaymentModal({
                   <p className="text-2xl font-black text-gray-900">{amountText}</p>
                 </div>
               </div>
+
+              {isRenewal && (
+                <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                  <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <div>
+                    <p className="text-sm font-extrabold text-emerald-950">
+                      Renewing your {plan.name} pass
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
+                      You're already covered until {formatDate(renewalActiveUntil)}. This adds{' '}
+                      {plan.durationDays} days, so your pass will run until{' '}
+                      {formatDate(renewalEndsAt)}.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {hasMembershipConflict && conflict?.membership && (
                 <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">

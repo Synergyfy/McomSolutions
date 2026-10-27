@@ -260,14 +260,20 @@ export default function DashboardCoupons() {
                       <span className="font-bold text-orange-600 text-sm">{discountLabel(coupon)}</span>
                       <span className="flex items-center gap-1">
                         <Gift className="w-3.5 h-3.5 text-gray-400" />
-                        {coupon.appliesToAllMemberships
-                          ? 'All memberships'
-                          : coupon.membershipPlans.join(', ') || 'Selected memberships'}
-                        {coupon.appliesToAllAccess
-                          ? ' · All access passes'
-                          : coupon.accessPlans?.length
-                            ? ` · ${coupon.accessPlans.join(', ')}`
-                            : ''}
+                        {[
+                          coupon.appliesToAllMemberships
+                            ? 'All memberships'
+                            : coupon.membershipPlans.length > 0
+                              ? coupon.membershipPlans.join(', ')
+                              : null,
+                          coupon.appliesToAllAccess
+                            ? 'All access passes'
+                            : coupon.accessPlans?.length
+                              ? coupon.accessPlans.join(', ')
+                              : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || 'Selected plans'}
                       </span>
                       <span className="flex items-center gap-1">
                         <CalendarDays className="w-3.5 h-3.5 text-gray-400" />
