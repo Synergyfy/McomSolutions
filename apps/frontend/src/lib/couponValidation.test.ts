@@ -27,9 +27,20 @@ describe('couponValidation', () => {
     expect(errors.discountValue).toContain('99%');
   });
 
-  it('requires at least one scope when both scopes are restricted', () => {
+  it('requires at least one enabled scope', () => {
     const errors = validateCouponForm(
       form({ code: 'MCOM-GOLD', appliesToAllMemberships: false }),
+    );
+    expect(errors.scope).toBeDefined();
+  });
+
+  it('ignores a scope that is toggled off', () => {
+    const errors = validateCouponForm(
+      form({
+        code: 'MCOM-NOMEMBERSHIP',
+        membershipScopeEnabled: false,
+        appliesToAllMemberships: true,
+      }),
     );
     expect(errors.scope).toBeDefined();
   });
@@ -38,9 +49,18 @@ describe('couponValidation', () => {
     const errors = validateCouponForm(
       form({
         code: 'MCOM-ACCESS',
-        appliesToAllMemberships: false,
+        membershipScopeEnabled: false,
+        accessScopeEnabled: true,
+        appliesToAllAccess: false,
         accessPlanIds: ['access-plan-1'],
       }),
+    );
+    expect(errors.scope).toBeUndefined();
+  });
+
+  it('accepts a membership-only coupon with access toggled off', () => {
+    const errors = validateCouponForm(
+      form({ code: 'MCOM-MEMBER', membershipScopeEnabled: true }),
     );
     expect(errors.scope).toBeUndefined();
   });
@@ -50,6 +70,7 @@ describe('couponValidation', () => {
       form({
         code: 'MCOM-ALLACCESS',
         appliesToAllMemberships: false,
+        accessScopeEnabled: true,
         appliesToAllAccess: true,
       }),
     );

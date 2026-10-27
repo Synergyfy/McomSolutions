@@ -335,12 +335,27 @@ export class AccessService {
   private async activatePendingAccessPurchase(purchase: AccessPurchase): Promise<void> {
     const plan = await this.getPlanIncludingArchived(purchase.accessPlanId);
     const now = new Date();
-    const expiresAt = this.addDaysUtc(now, purchase.durationDays);
+
+    // Same stacking rule as activateAccess: if the business already holds this
+    // pass, the pending term starts when the current one ends.
+    const existingTerm = await this.prisma.accessPurchase.findFirst({
+      where: {
+        businessId: purchase.businessId,
+        accessPlanId: purchase.accessPlanId,
+        id: { not: purchase.id },
+        status: 'ACTIVE',
+        expiresAt: { gt: now },
+      },
+      orderBy: { expiresAt: 'desc' },
+      select: { expiresAt: true },
+    });
+    const termStart = existingTerm ? new Date(existingTerm.expiresAt) : now;
+    const expiresAt = this.addDaysUtc(termStart, purchase.durationDays);
 
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.accessPurchase.updateMany({
         where: { id: purchase.id, status: 'PENDING_ACTIVATION' },
-        data: { status: 'ACTIVE', startsAt: now, expiresAt },
+        data: { status: 'ACTIVE', startsAt: termStart, expiresAt },
       });
       if (claimed.count === 0) return;
 
@@ -356,14 +371,14 @@ export class AccessService {
           type: 'Access',
           itemName: `${purchase.accessPlanName} (${purchase.durationDays} days)`,
           status: 'Active',
-          startDate: now,
+          startDate: termStart,
           endDate: expiresAt,
           amount: purchase.amount,
           billingCycle: 'One-time',
         },
       });
 
-      await this.provisionPackagesTx(tx, purchase.businessId, plan, now, {
+      await this.provisionPackagesTx(tx, purchase.businessId, plan, termStart, {
         provider: (purchase.provider as AccessProvider) || 'manual',
         providerPaymentId: purchase.providerPaymentId ?? `pending:${purchase.id}`,
       });
@@ -1013,7 +1028,25 @@ export class AccessService {
       .map((bundle) => bundle.durationDays ?? plan.durationDays)
       .filter((days) => Number.isFinite(days) && days > 0);
     const purchaseDurationDays = Math.max(plan.durationDays, ...bundleDurations);
-    const expiresAt = this.addDaysUtc(now, purchaseDurationDays);
+
+    // Renewals stack instead of overlapping. When the business already holds
+    // this pass, the new term starts the moment the current one ends so that
+    // buying the same pass again extends cover rather than resetting it.
+    // Pending purchases are ignored here because their dates are provisional
+    // until the membership ends; they chain onto active passes when they start.
+    const existingTerm = await this.prisma.accessPurchase.findFirst({
+      where: {
+        businessId,
+        accessPlanId: plan.id,
+        status: 'ACTIVE',
+        expiresAt: { gt: now },
+      },
+      orderBy: { expiresAt: 'desc' },
+      select: { expiresAt: true },
+    });
+    const termStart = existingTerm ? new Date(existingTerm.expiresAt) : now;
+    const isRenewal = Boolean(existingTerm);
+    const expiresAt = this.addDaysUtc(termStart, purchaseDurationDays);
     const couponSuffix =
       opts.couponCode && opts.discountAmount
         ? `, coupon ${opts.couponCode} -£${Number(opts.discountAmount).toFixed(2)}`
@@ -1036,7 +1069,7 @@ export class AccessService {
             status: deferForMembership ? 'PENDING_ACTIVATION' : 'ACTIVE',
             provider: opts.provider,
             providerPaymentId: opts.providerPaymentId,
-            startsAt: now,
+            startsAt: termStart,
             expiresAt,
           },
         });
@@ -1047,9 +1080,9 @@ export class AccessService {
             amount: chargedAmount,
             description: deferForMembership
               ? `Access Pass: ${plan.name} (${purchaseDurationDays} days, pending until membership ends)${couponSuffix}`
-              : `Access Pass: ${plan.name} (${purchaseDurationDays} days, valid until ${expiresAt
-                  .toISOString()
-                  .split('T')[0]})${couponSuffix}`,
+              : `Access Pass: ${plan.name} (${purchaseDurationDays} days${
+                  isRenewal ? ', renewal' : ''
+                }, valid until ${expiresAt.toISOString().split('T')[0]})${couponSuffix}`,
             status: 'paid',
             provider: opts.provider === 'manual' ? 'manual' : opts.provider,
             providerPaymentId: opts.providerPaymentId,
@@ -1076,16 +1109,16 @@ export class AccessService {
             businessId,
             businessName: business.businessName,
             type: 'Access',
-            itemName: `${plan.name} (${purchaseDurationDays} days)`,
+            itemName: `${plan.name} (${purchaseDurationDays} days${isRenewal ? ', renewal' : ''})`,
             status: 'Active',
-            startDate: now,
+            startDate: termStart,
             endDate: expiresAt,
             amount: chargedAmount,
             billingCycle: 'One-time',
           },
         });
 
-        const packages = await this.provisionPackagesTx(tx, businessId, plan, now, opts);
+        const packages = await this.provisionPackagesTx(tx, businessId, plan, termStart, opts);
 
         return { purchase, billingId: billing.id, packages };
       });
@@ -1097,7 +1130,10 @@ export class AccessService {
         conflict,
         planName: plan.name,
         durationDays: purchaseDurationDays,
+        startsAt: termStart,
         expiresAt,
+        renewal: isRenewal,
+        previousExpiresAt: existingTerm?.expiresAt ?? null,
         pricing: {
           originalAmount: this.roundMoney(opts.originalAmount ?? chargedAmount),
           discountAmount: this.roundMoney(opts.discountAmount ?? 0),

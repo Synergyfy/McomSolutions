@@ -47,7 +47,7 @@ export class CreateTaskDefinitionDto {
     enum: TaskSubmissionType,
     example: TaskSubmissionType.AUTO,
     description:
-      'How the task is completed: AUTO (event worker), EXTERNAL_LINK, TEXT_INPUT, DIGIT_INPUT, or IMAGE_UPLOAD',
+      'How the task is completed: AUTO (event worker), EXTERNAL_LINK (user opens the admin-supplied link then confirms completion), TEXT_INPUT, DIGIT_INPUT, or IMAGE_UPLOAD',
   })
   @IsOptional()
   @IsEnum(TaskSubmissionType)
@@ -61,6 +61,24 @@ export class CreateTaskDefinitionDto {
   @IsOptional()
   @IsEnum(TaskSource)
   taskSource?: TaskSource;
+
+  @ApiPropertyOptional({
+    example: 'https://mcomsolutions.com/grow-your-business',
+    description:
+      'Destination link the user must open for EXTERNAL_LINK tasks. Required when submissionType is EXTERNAL_LINK; the task completes once the user opens it and confirms completion.',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  actionUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'Open the guide',
+    description: 'Optional label for the button that opens the action link (defaults to "Open link")',
+  })
+  @IsOptional()
+  @IsString()
+  actionLabel?: string;
 
   @ApiPropertyOptional({
     example: 'business.logo_uploaded',

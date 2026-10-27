@@ -6,6 +6,7 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  ChevronDown,
   Loader2,
   Lock,
   RefreshCw,
@@ -52,6 +53,160 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
+interface ScopeOption {
+  id: string;
+  name: string;
+}
+
+function ScopeMultiSelect({
+  label,
+  allLabel,
+  placeholder,
+  emptyMessage,
+  options,
+  loading,
+  allSelected,
+  selectedIds,
+  onSelectAll,
+  onToggleOption,
+  error,
+}: {
+  label: string;
+  allLabel: string;
+  placeholder: string;
+  emptyMessage: string;
+  options: ScopeOption[];
+  loading: boolean;
+  allSelected: boolean;
+  selectedIds: string[];
+  onSelectAll: () => void;
+  onToggleOption: (id: string) => void;
+  error?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const selectedNames = options
+    .filter((option) => selectedIds.includes(option.id))
+    .map((option) => option.name);
+  const hasSelection = allSelected || selectedNames.length > 0;
+  const summary = allSelected
+    ? allLabel
+    : selectedNames.length > 0
+      ? selectedNames.join(', ')
+      : placeholder;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label className={labelClass}>{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className={cn(inputClass, 'flex items-center justify-between gap-2 text-left')}
+      >
+        <span
+          className={cn(
+            'truncate',
+            hasSelection ? 'text-gray-900' : 'text-gray-400 font-normal',
+          )}
+        >
+          {summary}
+        </span>
+        <ChevronDown
+          className={cn(
+            'w-4 h-4 text-gray-400 shrink-0 transition-transform',
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-multiselectable
+          className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={allSelected}
+            onClick={onSelectAll}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-gray-50 border-b border-gray-100 text-left"
+          >
+            <span
+              className={cn(
+                'w-4 h-4 rounded border flex items-center justify-center shrink-0',
+                allSelected
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'border-gray-300 bg-white',
+              )}
+            >
+              {allSelected && <Check className="w-3 h-3" />}
+            </span>
+            <span className="text-xs font-bold text-gray-900">{allLabel}</span>
+          </button>
+
+          {loading ? (
+            <div className="px-3.5 py-2.5 text-xs text-gray-400 flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...
+            </div>
+          ) : options.length === 0 ? (
+            <div className="px-3.5 py-2.5 text-xs text-gray-400">{emptyMessage}</div>
+          ) : (
+            options.map((option) => {
+              const checked = !allSelected && selectedIds.includes(option.id);
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={checked}
+                  onClick={() => onToggleOption(option.id)}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-gray-50 text-left"
+                >
+                  <span
+                    className={cn(
+                      'w-4 h-4 rounded border flex items-center justify-center shrink-0',
+                      checked
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'border-gray-300 bg-white',
+                    )}
+                  >
+                    {checked && <Check className="w-3 h-3" />}
+                  </span>
+                  <span className="text-xs font-semibold text-gray-700">{option.name}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      <FieldError message={error} />
+    </div>
+  );
+}
+
 export default function AdminCouponEditor() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -66,6 +221,8 @@ export default function AdminCouponEditor() {
   const updateCoupon = useUpdateCoupon();
 
   const [form, setForm] = useState<CouponFormValues>(defaultCouponForm);
+  const membershipScopeEnabled = form.membershipScopeEnabled ?? false;
+  const accessScopeEnabled = form.accessScopeEnabled ?? false;
   const membershipPlanIds = form.membershipPlanIds ?? [];
   const accessPlanIds = form.accessPlanIds ?? [];
   const appliesToAllAccess = form.appliesToAllAccess ?? false;
@@ -102,8 +259,12 @@ export default function AdminCouponEditor() {
       description: coupon.description ?? '',
       discountType: coupon.discountType,
       discountValue: String(coupon.discountValue),
+      membershipScopeEnabled:
+        coupon.appliesToAllMemberships || (coupon.membershipPlanIds ?? []).length > 0,
       appliesToAllMemberships: coupon.appliesToAllMemberships,
       membershipPlanIds: coupon.membershipPlanIds ?? [],
+      accessScopeEnabled:
+        (coupon.appliesToAllAccess ?? false) || (coupon.accessPlanIds ?? []).length > 0,
       appliesToAllAccess: coupon.appliesToAllAccess ?? false,
       accessPlanIds: coupon.accessPlanIds ?? [],
       maxUses: coupon.maxUses === null ? '' : String(coupon.maxUses),
@@ -132,8 +293,10 @@ export default function AdminCouponEditor() {
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
     if (
       errors.scope &&
-      (key === 'appliesToAllMemberships' ||
+      (key === 'membershipScopeEnabled' ||
+        key === 'appliesToAllMemberships' ||
         key === 'membershipPlanIds' ||
+        key === 'accessScopeEnabled' ||
         key === 'appliesToAllAccess' ||
         key === 'accessPlanIds')
     ) {
@@ -154,6 +317,48 @@ export default function AdminCouponEditor() {
       ? accessPlanIds.filter((id) => id !== planId)
       : [...accessPlanIds, planId];
     update('accessPlanIds', next);
+  };
+
+  const toggleMembershipScope = (enabled: boolean) => {
+    update('membershipScopeEnabled', enabled);
+    if (enabled && membershipPlanIds.length === 0) {
+      update('appliesToAllMemberships', true);
+    }
+  };
+
+  const toggleAccessScope = (enabled: boolean) => {
+    update('accessScopeEnabled', enabled);
+    if (enabled && accessPlanIds.length === 0) {
+      update('appliesToAllAccess', true);
+    }
+  };
+
+  const selectAllMemberships = () => {
+    update('appliesToAllMemberships', true);
+    update('membershipPlanIds', []);
+  };
+
+  const selectAllAccessPasses = () => {
+    update('appliesToAllAccess', true);
+    update('accessPlanIds', []);
+  };
+
+  const toggleMembershipOption = (planId: string) => {
+    if (form.appliesToAllMemberships) {
+      update('appliesToAllMemberships', false);
+      update('membershipPlanIds', [planId]);
+      return;
+    }
+    togglePlan(planId);
+  };
+
+  const toggleAccessOption = (planId: string) => {
+    if (appliesToAllAccess) {
+      update('appliesToAllAccess', false);
+      update('accessPlanIds', [planId]);
+      return;
+    }
+    toggleAccessPlan(planId);
   };
 
   const selectUser = (user: CouponUserLookup) => {
@@ -187,10 +392,11 @@ export default function AdminCouponEditor() {
       description: form.description.trim() || undefined,
       discountType: form.discountType,
       discountValue: Number(form.discountValue),
-      appliesToAllMemberships: form.appliesToAllMemberships,
-      membershipPlanIds: form.appliesToAllMemberships ? [] : membershipPlanIds,
-      appliesToAllAccess,
-      accessPlanIds: appliesToAllAccess ? [] : accessPlanIds,
+      appliesToAllMemberships: membershipScopeEnabled && form.appliesToAllMemberships,
+      membershipPlanIds:
+        membershipScopeEnabled && !form.appliesToAllMemberships ? membershipPlanIds : [],
+      appliesToAllAccess: accessScopeEnabled && appliesToAllAccess,
+      accessPlanIds: accessScopeEnabled && !appliesToAllAccess ? accessPlanIds : [],
       maxUses: form.maxUses.trim() ? Number(form.maxUses) : null,
       maxUsesPerUser: form.maxUsesPerUser.trim() ? Number(form.maxUsesPerUser) : null,
       validFrom: form.validFrom ? new Date(form.validFrom).toISOString() : undefined,
@@ -430,52 +636,41 @@ export default function AdminCouponEditor() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 p-3.5 bg-gray-50 rounded-xl border border-gray-200 mb-4">
+        <div className="flex items-center justify-between gap-4 p-3.5 bg-gray-50 rounded-xl border border-gray-200">
           <div>
-            <p className="text-sm font-bold text-gray-800">All memberships</p>
-            <p className="text-xs text-gray-500">The code works on every active membership plan.</p>
+            <p className="text-sm font-bold text-gray-800">Applies to memberships</p>
+            <p className="text-xs text-gray-500">
+              {membershipScopeEnabled
+                ? 'Pick all memberships or specific ones from the dropdown.'
+                : 'Off — the coupon cannot be used on any membership.'}
+            </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={form.appliesToAllMemberships}
-              onChange={(event) => update('appliesToAllMemberships', event.target.checked)}
+              checked={membershipScopeEnabled}
+              onChange={(event) => toggleMembershipScope(event.target.checked)}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
           </label>
         </div>
 
-        {!form.appliesToAllMemberships && (
-          <div>
-            <div className="flex flex-wrap gap-2">
-              {plansLoading ? (
-                <span className="text-xs text-gray-400">Loading memberships...</span>
-              ) : plans.length === 0 ? (
-                <span className="text-xs text-red-600">No active membership plans found.</span>
-              ) : (
-                plans.map((plan: any) => {
-                  const selected = membershipPlanIds.includes(plan.id);
-                  return (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => togglePlan(plan.id)}
-                      className={cn(
-                        'px-3 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5',
-                        selected
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
-                      )}
-                    >
-                      {selected && <Check className="w-3.5 h-3.5" />}
-                      {plan.name}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            <FieldError message={errors.membershipPlanIds} />
+        {membershipScopeEnabled && (
+          <div className="mt-4">
+            <ScopeMultiSelect
+              label="Membership selection"
+              allLabel="All memberships"
+              placeholder="Select memberships"
+              emptyMessage="No active membership plans found."
+              options={plans as ScopeOption[]}
+              loading={plansLoading}
+              allSelected={form.appliesToAllMemberships}
+              selectedIds={membershipPlanIds}
+              onSelectAll={selectAllMemberships}
+              onToggleOption={toggleMembershipOption}
+              error={errors.membershipPlanIds}
+            />
           </div>
         )}
       </div>
@@ -491,51 +686,41 @@ export default function AdminCouponEditor() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 p-3.5 bg-gray-50 rounded-xl border border-gray-200 mb-4">
+        <div className="flex items-center justify-between gap-4 p-3.5 bg-gray-50 rounded-xl border border-gray-200">
           <div>
-            <p className="text-sm font-bold text-gray-800">All access passes</p>
-            <p className="text-xs text-gray-500">The code works on every active access pass.</p>
+            <p className="text-sm font-bold text-gray-800">Applies to access passes</p>
+            <p className="text-xs text-gray-500">
+              {accessScopeEnabled
+                ? 'Pick all access passes or specific ones from the dropdown.'
+                : 'Off — the coupon cannot be used on any access pass.'}
+            </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={appliesToAllAccess}
-              onChange={(event) => update('appliesToAllAccess', event.target.checked)}
+              checked={accessScopeEnabled}
+              onChange={(event) => toggleAccessScope(event.target.checked)}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
           </label>
         </div>
 
-        {!appliesToAllAccess && (
-          <div>
-            <div className="flex flex-wrap gap-2">
-              {accessPlansLoading ? (
-                <span className="text-xs text-gray-400">Loading access passes...</span>
-              ) : accessPlans.length === 0 ? (
-                <span className="text-xs text-gray-500">No active access passes found.</span>
-              ) : (
-                accessPlans.map((plan: any) => {
-                  const selected = accessPlanIds.includes(plan.id);
-                  return (
-                    <button
-                      key={plan.id}
-                      type="button"
-                      onClick={() => toggleAccessPlan(plan.id)}
-                      className={cn(
-                        'px-3 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5',
-                        selected
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100',
-                      )}
-                    >
-                      {selected && <Check className="w-3.5 h-3.5" />}
-                      {plan.name}
-                    </button>
-                  );
-                })
-              )}
-            </div>
+        {accessScopeEnabled && (
+          <div className="mt-4">
+            <ScopeMultiSelect
+              label="Access pass selection"
+              allLabel="All access passes"
+              placeholder="Select access passes"
+              emptyMessage="No active access passes found."
+              options={accessPlans as ScopeOption[]}
+              loading={accessPlansLoading}
+              allSelected={appliesToAllAccess}
+              selectedIds={accessPlanIds}
+              onSelectAll={selectAllAccessPasses}
+              onToggleOption={toggleAccessOption}
+              error={errors.accessPlanIds}
+            />
           </div>
         )}
       </div>

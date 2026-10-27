@@ -1707,6 +1707,10 @@ model TaskDefinition {
   targetAudience                 TaskAudience                 @default(BOTH) @map("target_audience")
   accessScope                    TaskAccessScope              @default(ALL) @map("access_scope")
   submissionType                 TaskSubmissionType           @default(AUTO) @map("submission_type")
+  // Admin-supplied destination for EXTERNAL_LINK tasks on MCOM Central: the
+  // user opens this link from the dashboard, then confirms completion.
+  actionUrl                      String?                      @map("action_url")
+  actionLabel                    String?                      @map("action_label")
   featureKey                     String?                      @map("feature_key")
   taskSource                     TaskSource                   @default(INTERNAL) @map("task_source")
   externalClientId               String?                      @map("external_client_id")

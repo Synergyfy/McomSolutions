@@ -12,6 +12,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Ticket,
@@ -22,7 +23,9 @@ import type { BusinessAccessCode, BusinessAccessPlan } from '../services/access'
 import AccessPassPaymentModal from './payment/AccessPassPaymentModal'
 import { useAccessPaypalCapture } from '../services/payment/hooks'
 
-const formatDate = (value?: string | null) => {
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const formatDate = (value?: string | number | Date | null) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '—'
@@ -74,14 +77,59 @@ export default function DashboardAccessPasses() {
   const purchases = purchasesRes?.data ?? []
   const codes = codesRes?.data ?? []
 
-  const activePurchases = useMemo(() => {
+  // Renewals create a new purchase that starts when the current term ends, so
+  // collapse active purchases per plan and surface the furthest end date.
+  const activePasses = useMemo(() => {
     const now = Date.now()
-    return purchases.filter(
-      (purchase) =>
-        purchase.status?.toUpperCase() === 'ACTIVE' &&
-        new Date(purchase.expiresAt).getTime() > now,
-    )
+    const byPlan = new Map<
+      string,
+      {
+        accessPlanId: string
+        planName: string
+        startsAt: number
+        expiresAt: number
+        daysLeft: number
+      }
+    >()
+
+    for (const purchase of purchases) {
+      if (purchase.status?.toUpperCase() !== 'ACTIVE') continue
+      const expiresAt = new Date(purchase.expiresAt).getTime()
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) continue
+      const startsAt = new Date(purchase.startsAt).getTime()
+
+      const existing = byPlan.get(purchase.accessPlanId)
+      if (!existing) {
+        byPlan.set(purchase.accessPlanId, {
+          accessPlanId: purchase.accessPlanId,
+          planName: purchase.accessPlanName,
+          startsAt: Number.isFinite(startsAt) ? startsAt : now,
+          expiresAt,
+          daysLeft: Math.max(1, Math.ceil((expiresAt - now) / DAY_MS)),
+        })
+        continue
+      }
+
+      existing.startsAt = Math.min(
+        existing.startsAt,
+        Number.isFinite(startsAt) ? startsAt : now,
+      )
+      existing.expiresAt = Math.max(existing.expiresAt, expiresAt)
+      existing.daysLeft = Math.max(1, Math.ceil((existing.expiresAt - now) / DAY_MS))
+    }
+
+    return [...byPlan.values()].sort((a, b) => a.expiresAt - b.expiresAt)
   }, [purchases])
+
+  const activePassByPlan = useMemo(
+    () => new Map(activePasses.map((pass) => [pass.accessPlanId, pass])),
+    [activePasses],
+  )
+
+  const renewPlan = (accessPlanId: string) => {
+    const plan = plans.find((entry) => entry.id === accessPlanId)
+    if (plan) setSelectedPlan(plan)
+  }
 
   const pendingPurchases = useMemo(
     () => purchases.filter((purchase) => purchase.status?.toUpperCase() === 'PENDING_ACTIVATION'),
@@ -231,11 +279,11 @@ export default function DashboardAccessPasses() {
       )}
 
       {/* Active passes */}
-      {activePurchases.length > 0 && (
+      {activePasses.length > 0 && (
         <div className="space-y-3">
-          {activePurchases.map((purchase) => (
+          {activePasses.map((pass) => (
             <div
-              key={purchase.id}
+              key={pass.accessPlanId}
               className="overflow-hidden rounded-[2rem] border border-emerald-200 bg-white shadow-sm"
             >
               <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-5 text-white sm:p-6">
@@ -244,20 +292,31 @@ export default function DashboardAccessPasses() {
                     <div className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">
                       <CheckCircle2 className="h-3.5 w-3.5" /> Active access pass
                     </div>
-                    <h3 className="mt-2 text-2xl font-black">{purchase.accessPlanName}</h3>
+                    <h3 className="mt-2 text-2xl font-black">{pass.planName}</h3>
                     <p className="mt-1 text-sm text-emerald-50/90">
-                      Active until {formatDate(purchase.expiresAt)}
+                      Active until {formatDate(pass.expiresAt)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <div className="rounded-xl bg-white/10 px-4 py-3 text-center backdrop-blur">
-                      <p className="text-2xl font-black">{purchase.durationDays}</p>
-                      <p className="text-[10px] uppercase tracking-wider text-emerald-50/80">Days</p>
+                      <p className="text-2xl font-black">{pass.daysLeft}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-emerald-50/80">
+                        Days left
+                      </p>
                     </div>
                     <div className="rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
                       <p className="text-[10px] uppercase tracking-wider text-emerald-50/80">Started</p>
-                      <p className="text-sm font-bold">{formatDate(purchase.startsAt)}</p>
+                      <p className="text-sm font-bold">{formatDate(pass.startsAt)}</p>
                     </div>
+                    {plans.some((plan) => plan.id === pass.accessPlanId) && (
+                      <button
+                        onClick={() => renewPlan(pass.accessPlanId)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-3 text-xs font-bold text-emerald-700 shadow-sm transition-colors hover:bg-emerald-50"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Renew
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -329,72 +388,90 @@ export default function DashboardAccessPasses() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {plans.map((plan) => (
-                <motion.div
-                  key={plan.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col justify-between rounded-[2rem] border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-orange-300"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        {plan.badge && (
-                          <span className="mb-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-700">
-                            {plan.badge}
-                          </span>
-                        )}
-                        <h4 className="text-base font-black text-gray-900">{plan.name}</h4>
-                        <p className="mt-1 line-clamp-2 min-h-[32px] text-xs text-gray-500">
-                          {plan.description || 'Dashboard access pass'}
-                        </p>
-                      </div>
-                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-700">
-                        <CalendarDays className="h-3 w-3" />
-                        {plan.durationDays}d
-                      </span>
-                    </div>
-
-                    <ul className="mt-3 space-y-1.5">
-                      {(plan.features || []).slice(0, 3).map((feature, index) => (
-                        <li key={`${feature}-${index}`} className="flex items-start gap-1.5 text-xs text-gray-600">
-                          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                          {feature}
-                        </li>
-                      ))}
-                      {!plan.features?.length && (
-                        <li className="text-xs italic text-gray-400">No features listed.</li>
-                      )}
-                    </ul>
-
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {(plan.appBundles ?? []).map((bundle, index) => (
-                        <span
-                          key={`${bundle.platform}-${index}`}
-                          className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-brand-blue"
-                        >
-                          {bundle.platform}
-                          {bundle.durationDays ? ` · ${bundle.durationDays}d` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+              {plans.map((plan) => {
+                const active = activePassByPlan.get(plan.id)
+                return (
+                  <motion.div
+                    key={plan.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col justify-between rounded-[2rem] border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-orange-300"
+                  >
                     <div>
-                      <p className="text-2xl font-black text-gray-900">£{Number(plan.price).toFixed(2)}</p>
-                      <p className="text-[10px] text-gray-500">one-off</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          {plan.badge && (
+                            <span className="mb-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-700">
+                              {plan.badge}
+                            </span>
+                          )}
+                          <h4 className="text-base font-black text-gray-900">{plan.name}</h4>
+                          <p className="mt-1 line-clamp-2 min-h-[32px] text-xs text-gray-500">
+                            {plan.description || 'Dashboard access pass'}
+                          </p>
+                          {active && (
+                            <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Active until {formatDate(active.expiresAt)}
+                            </p>
+                          )}
+                        </div>
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-700">
+                          <CalendarDays className="h-3 w-3" />
+                          {plan.durationDays}d
+                        </span>
+                      </div>
+
+                      <ul className="mt-3 space-y-1.5">
+                        {(plan.features || []).slice(0, 3).map((feature, index) => (
+                          <li key={`${feature}-${index}`} className="flex items-start gap-1.5 text-xs text-gray-600">
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                            {feature}
+                          </li>
+                        ))}
+                        {!plan.features?.length && (
+                          <li className="text-xs italic text-gray-400">No features listed.</li>
+                        )}
+                      </ul>
+
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {(plan.appBundles ?? []).map((bundle, index) => (
+                          <span
+                            key={`${bundle.platform}-${index}`}
+                            className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-brand-blue"
+                          >
+                            {bundle.platform}
+                            {bundle.durationDays ? ` · ${bundle.durationDays}d` : ''}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => setSelectedPlan(plan)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-orange-600"
-                    >
-                      <CreditCard className="h-4 w-4" />
-                      Buy pass
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+
+                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+                      <div>
+                        <p className="text-2xl font-black text-gray-900">£{Number(plan.price).toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-500">one-off</p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedPlan(plan)}
+                        className={cn(
+                          'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white',
+                          active
+                            ? 'bg-emerald-600 hover:bg-emerald-700'
+                            : 'bg-orange-500 hover:bg-orange-600',
+                        )}
+                      >
+                        {active ? (
+                          <RefreshCw className="h-4 w-4" />
+                        ) : (
+                          <CreditCard className="h-4 w-4" />
+                        )}
+                        {active ? 'Renew pass' : 'Buy pass'}
+                      </button>
+                    </div>
+                  </motion.div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -439,6 +516,7 @@ export default function DashboardAccessPasses() {
       {selectedPlan && (
         <AccessPassPaymentModal
           plan={selectedPlan}
+          activeUntil={activePassByPlan.get(selectedPlan.id)?.expiresAt ?? null}
           onClose={() => setSelectedPlan(null)}
           onSuccess={() => refresh()}
         />

@@ -258,6 +258,7 @@ describe('AccessService membership override at activation', () => {
     };
     prisma = {
       billingTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      accessPurchase: { findFirst: jest.fn().mockResolvedValue(null) },
       businessProfile: { findFirst: jest.fn().mockResolvedValue(business) },
       accessPlan: { findFirst: jest.fn().mockResolvedValue(plan) },
       membershipPlan: {
@@ -308,5 +309,133 @@ describe('AccessService membership override at activation', () => {
     );
     expect(tx.platformPackage.upsert).toHaveBeenCalled();
     expect((result as any).pendingActivation).toBe(false);
+  });
+});
+
+describe('AccessService same-pass renewals', () => {
+  let service: AccessService;
+  let prisma: any;
+  let tx: any;
+
+  const DAY_MS = 86_400_000;
+  const plan = {
+    id: 'plan_1',
+    name: '30-Day Pass',
+    archived: false,
+    durationDays: 30,
+    appBundles: [
+      {
+        id: 'bundle_1',
+        platform: 'MCOM Rewards',
+        externalPlanId: 'rewards-30day',
+        packageName: '30-Day Rewards Pass',
+        durationDays: 30,
+        limits: {},
+      },
+    ],
+  };
+
+  const business = {
+    id: 'biz_1',
+    businessName: 'Acme Coffee',
+    membershipStatus: 'inactive',
+    membershipPlanName: null,
+    membershipLevel: null,
+    membershipExpiresAt: null,
+  };
+
+  beforeEach(() => {
+    tx = {
+      accessPurchase: {
+        create: jest.fn(async ({ data }: any) => ({ id: 'purchase_2', ...data })),
+      },
+      billingTransaction: { create: jest.fn().mockResolvedValue({ id: 'billing_2' }) },
+      ecosystemSubscription: { create: jest.fn().mockResolvedValue({ id: 'sub_2' }) },
+      platformPackage: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'pkg_1',
+          businessId: 'biz_1',
+          platform: 'MCOM Rewards',
+          status: 'active',
+          expiresAt: new Date('2026-11-25T09:55:30.139Z'),
+        }),
+        upsert: jest.fn(async ({ create }: any) => ({ id: 'pkg_1', ...create })),
+      },
+    };
+    prisma = {
+      billingTransaction: { findUnique: jest.fn().mockResolvedValue(null) },
+      accessPurchase: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ expiresAt: new Date('2026-11-25T09:55:30.139Z') }),
+      },
+      businessProfile: { findFirst: jest.fn().mockResolvedValue(business) },
+      accessPlan: { findFirst: jest.fn().mockResolvedValue(plan) },
+      membershipPlan: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn(async (cb: (client: any) => Promise<any>) => cb(tx)),
+    };
+    service = new AccessService(
+      prisma,
+      { get: jest.fn() } as any,
+      { completeRedemption: jest.fn() } as any,
+      {} as any,
+      { send: jest.fn() } as any,
+    );
+  });
+
+  it('starts the renewed term when the current pass ends', async () => {
+    const result = await service.activateAccess('biz_1', 'plan_1', {
+      provider: 'wallet',
+      providerPaymentId: 'wallet:renew-1',
+      chargedAmount: 19.99,
+    });
+
+    const currentExpiry = new Date('2026-11-25T09:55:30.139Z');
+    const expectedExpiry = new Date(currentExpiry.getTime() + 30 * DAY_MS);
+
+    expect(tx.accessPurchase.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startsAt: currentExpiry,
+          expiresAt: expectedExpiry,
+          status: 'ACTIVE',
+        }),
+      }),
+    );
+    expect(result.expiresAt).toEqual(expectedExpiry);
+    expect((result as any).renewal).toBe(true);
+    expect((result as any).previousExpiresAt).toEqual(currentExpiry);
+  });
+
+  it('extends the platform package to the renewed end date', async () => {
+    await service.activateAccess('biz_1', 'plan_1', {
+      provider: 'wallet',
+      providerPaymentId: 'wallet:renew-2',
+      chargedAmount: 19.99,
+    });
+
+    const expectedExpiry = new Date('2026-12-25T09:55:30.139Z');
+    expect(tx.platformPackage.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ expiresAt: expectedExpiry }),
+        create: expect.objectContaining({ expiresAt: expectedExpiry }),
+      }),
+    );
+  });
+
+  it('starts from today when the same pass is no longer active', async () => {
+    prisma.accessPurchase.findFirst.mockResolvedValue(null);
+    const before = Date.now();
+
+    const result = await service.activateAccess('biz_1', 'plan_1', {
+      provider: 'wallet',
+      providerPaymentId: 'wallet:first-1',
+      chargedAmount: 19.99,
+    });
+
+    expect((result as any).renewal).toBe(false);
+    expect((result as any).previousExpiresAt).toBeNull();
+    expect(new Date((result as any).startsAt).getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(result.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 30 * DAY_MS - 1000);
   });
 });

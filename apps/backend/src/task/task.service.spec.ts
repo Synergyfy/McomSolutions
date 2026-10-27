@@ -3,7 +3,7 @@ import { TaskService } from './task.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TASK_REWARD_QUEUE } from '../queue/queue.constants';
-import { TaskAssignmentStatus, TaskAudience, Role, TaskSource } from '@prisma/client';
+import { TaskAssignmentStatus, TaskAccessScope, TaskAudience, Role, TaskSource, TaskSubmissionType } from '@prisma/client';
 
 describe('TaskService', () => {
   let service: TaskService;
@@ -197,6 +197,201 @@ describe('TaskService', () => {
           externalClientId: 'mcom-mall',
           externalAppName: 'MCOM Mall',
           platform: 'mall',
+        }),
+      });
+    });
+
+    it('should require a destination link for internal external-link tasks', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'Read the growth guide',
+          description: 'Open the guide and confirm',
+          targetAudience: TaskAudience.BUSINESS,
+          submissionType: TaskSubmissionType.EXTERNAL_LINK,
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('Add the destination link');
+    });
+
+    it('should store the admin link for internal external-link tasks', async () => {
+      const created = {
+        id: 'task-link-1',
+        title: 'Read the growth guide',
+        taskSource: TaskSource.INTERNAL,
+        submissionType: TaskSubmissionType.EXTERNAL_LINK,
+        actionUrl: 'https://example.com/guide',
+        featureKey: null,
+        platform: 'mcom_central',
+      };
+      mockPrisma.taskDefinition.create.mockResolvedValue(created);
+
+      const result = await service.createTaskDefinition({
+        title: 'Read the growth guide',
+        description: 'Open the guide and confirm',
+        targetAudience: TaskAudience.BUSINESS,
+        submissionType: TaskSubmissionType.EXTERNAL_LINK,
+        actionUrl: 'https://example.com/guide',
+        actionLabel: 'Open the guide',
+        deadlineDays: 7,
+        rewardPoints: 10,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.taskDefinition.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          taskSource: TaskSource.INTERNAL,
+          submissionType: TaskSubmissionType.EXTERNAL_LINK,
+          actionUrl: 'https://example.com/guide',
+          actionLabel: 'Open the guide',
+          featureKey: null,
+          externalClientId: null,
+        }),
+      });
+    });
+
+    it('should reject trial-only access for customer tasks', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'Customer mission',
+          description: 'Customer only',
+          targetAudience: TaskAudience.CUSTOMER,
+          accessScope: TaskAccessScope.TRIAL,
+          submissionType: TaskSubmissionType.TEXT_INPUT,
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('Customers never resolve as trial users');
+    });
+
+    it('should reject a business trigger for customer tasks', async () => {
+      await expect(
+        service.createTaskDefinition({
+          title: 'Customer mission',
+          description: 'Customer only',
+          targetAudience: TaskAudience.CUSTOMER,
+          featureKey: 'business.logo_uploaded',
+          deadlineDays: 7,
+          rewardPoints: 10,
+        }),
+      ).rejects.toThrow('only applies to business users');
+    });
+
+    it('should accept a customer trigger for customer tasks', async () => {
+      mockPrisma.taskDefinition.create.mockResolvedValue({
+        id: 'task-customer-1',
+        platform: 'mcom_central',
+      });
+
+      const result = await service.createTaskDefinition({
+        title: 'Complete your customer profile',
+        description: 'Finish your account details',
+        targetAudience: TaskAudience.CUSTOMER,
+        accessScope: TaskAccessScope.PAID,
+        featureKey: 'customer.profile_completed',
+        deadlineDays: 7,
+        rewardPoints: 10,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.taskDefinition.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          targetAudience: TaskAudience.CUSTOMER,
+          accessScope: TaskAccessScope.PAID,
+          featureKey: 'customer.profile_completed',
+        }),
+      });
+    });
+  });
+
+  describe('updateTaskDefinition (audience capabilities)', () => {
+    const buildExistingCustomerTask = () => ({
+      id: 'task-1',
+      title: 'Customer mission',
+      description: 'Customer only',
+      targetAudience: TaskAudience.CUSTOMER,
+      accessScope: TaskAccessScope.ALL,
+      submissionType: TaskSubmissionType.AUTO,
+      featureKey: 'customer.profile_completed',
+      taskSource: TaskSource.INTERNAL,
+      externalClientId: null,
+      actionUrl: null,
+      actionLabel: null,
+      rewardCouponPlans: [],
+      rewardCouponAccessPlans: [],
+    });
+
+    it('should reject a trigger that does not match the task audience', async () => {
+      mockPrisma.taskDefinition.findUnique.mockResolvedValue(buildExistingCustomerTask());
+
+      await expect(
+        service.updateTaskDefinition('task-1', { featureKey: 'business.logo_uploaded' }),
+      ).rejects.toThrow('only applies to business users');
+    });
+
+    it('should reject trial-only access on customer tasks', async () => {
+      mockPrisma.taskDefinition.findUnique.mockResolvedValue(buildExistingCustomerTask());
+
+      await expect(
+        service.updateTaskDefinition('task-1', { accessScope: TaskAccessScope.TRIAL }),
+      ).rejects.toThrow('Customers never resolve as trial users');
+    });
+  });
+
+  describe('completeMyTask (link tasks)', () => {
+    const buildLinkAssignment = (status: TaskAssignmentStatus) => ({
+      id: 'assign-link-1',
+      userId: 'user-1',
+      status,
+      deadlineAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      rewardPoints: 0,
+      rewardGranted: false,
+      submissionData: null,
+      task: {
+        id: 'task-link-1',
+        title: 'Read the growth guide',
+        submissionType: TaskSubmissionType.EXTERNAL_LINK,
+        actionUrl: 'https://example.com/guide',
+        featureKey: null,
+        rewardCouponEnabled: false,
+      },
+      user: { businessProfile: null },
+    });
+
+    it('should require the user to open the link before completing', async () => {
+      mockPrisma.userTaskAssignment.findUnique.mockResolvedValue(
+        buildLinkAssignment(TaskAssignmentStatus.PENDING),
+      );
+
+      await expect(service.completeMyTask('assign-link-1', 'user-1')).rejects.toThrow(
+        'Open the task link',
+      );
+    });
+
+    it('should complete once the link has been opened', async () => {
+      mockPrisma.userTaskAssignment.findUnique.mockResolvedValue(
+        buildLinkAssignment(TaskAssignmentStatus.IN_PROGRESS),
+      );
+      mockPrisma.userTaskAssignment.update.mockResolvedValue({
+        id: 'assign-link-1',
+        status: TaskAssignmentStatus.COMPLETED,
+      });
+
+      const result = await service.completeMyTask('assign-link-1', 'user-1', {
+        submissionData: {
+          actionUrl: 'https://example.com/guide',
+          openedAt: new Date().toISOString(),
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockPrisma.userTaskAssignment.update).toHaveBeenCalledWith({
+        where: { id: 'assign-link-1' },
+        data: expect.objectContaining({
+          status: TaskAssignmentStatus.COMPLETED,
+          submissionData: expect.objectContaining({
+            actionUrl: 'https://example.com/guide',
+          }),
         }),
       });
     });

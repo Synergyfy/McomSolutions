@@ -4,7 +4,7 @@ import {
   CheckCircle2, ArrowRight, Clock, Target, X,
   Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Gift
+  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Gift, Briefcase
 } from 'lucide-react';
 import {
   PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay,
@@ -13,6 +13,9 @@ import {
 import type { ProgrammeMission } from '../lib/programmeData';
 import { cn } from '../lib/utils';
 import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile } from '../services/business/hooks';
+import TaskCountdown from './TaskCountdown';
+import ProgrammeCountdown from './ProgrammeCountdown';
+import { resolveProgrammeTimeline } from '../lib/programmeTimeline';
 
 function TaskStartModal({
   mission,
@@ -22,6 +25,7 @@ function TaskStartModal({
   onCancel,
   onSubmit,
   onUploadImage,
+  onOpenLink,
 }: {
   mission: any;
   open: boolean;
@@ -30,23 +34,35 @@ function TaskStartModal({
   onCancel: () => void;
   onSubmit?: (submissionData: Record<string, unknown>) => Promise<void> | void;
   onUploadImage?: (file: File) => Promise<string>;
+  onOpenLink?: () => void;
 }) {
   const [value, setValue] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkOpened, setLinkOpened] = useState(false);
 
   const submissionType = String(mission?.submissionType || '').toLowerCase();
+  const actionUrl = mission?.actionUrl || '';
   const requiresSubmission = ['external_link', 'text_input', 'digit_input', 'image_upload'].includes(submissionType);
+  const linkTask = submissionType === 'external_link' && !!actionUrl;
 
   useEffect(() => {
     setValue('');
     setFile(null);
     setError(null);
     setSubmitting(false);
+    setLinkOpened(false);
   }, [mission?.id, open]);
 
   if (!open || !mission) return null;
+
+  const openActionLink = () => {
+    if (!actionUrl) return;
+    window.open(actionUrl, '_blank', 'noopener,noreferrer');
+    setLinkOpened(true);
+    onOpenLink?.();
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -64,6 +80,15 @@ function TaskStartModal({
         }
         const imageUrl = await onUploadImage(file);
         await onSubmit({ imageUrl });
+        return;
+      }
+
+      if (linkTask) {
+        if (!linkOpened) {
+          setError('Open the link first, then mark this task complete.');
+          return;
+        }
+        await onSubmit({ actionUrl, openedAt: new Date().toISOString() });
         return;
       }
 
@@ -145,30 +170,32 @@ function TaskStartModal({
             </div>
           )}
 
-          {mission.submissionType === 'external_link' && (
+          {submissionType === 'external_link' && (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
               <ExternalLink className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-bold text-blue-700">External Task</p>
+                <p className="text-sm font-bold text-blue-700">{linkTask ? 'Open the link to complete this task' : 'External Task'}</p>
                 <p className="text-xs text-blue-600 mt-1">
-                  This task is completed on an external platform. After you finish, come back here and click <strong>"Mark Complete"</strong> to confirm completion and claim your reward.
+                  {linkTask
+                    ? 'Open the link below, complete the step on that page, then come back here and click Submit & Complete.'
+                    : 'This task is completed on an external platform. After you finish, come back here and click "Mark Complete" to confirm completion and claim your reward.'}
                 </p>
               </div>
             </div>
           )}
 
-          {mission.submissionType === 'image_upload' && (
+          {submissionType === 'image_upload' && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
               <p className="text-sm text-green-700">Upload the required image to complete this task.</p>
             </div>
           )}
 
-          {(mission.submissionType === 'text_input' || mission.submissionType === 'digit_input') && (
+          {(submissionType === 'text_input' || submissionType === 'digit_input') && (
             <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-purple-500 shrink-0 mt-0.5" />
               <p className="text-sm text-purple-700">
-                {mission.submissionType === 'text_input' ? 'Enter the required text information to complete this task.' : 'Enter the required digits to complete this task.'}
+                {submissionType === 'text_input' ? 'Enter the required text information to complete this task.' : 'Enter the required digits to complete this task.'}
               </p>
             </div>
           )}
@@ -176,13 +203,35 @@ function TaskStartModal({
           {requiresSubmission && (
             <div className="space-y-2">
               <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                {submissionType === 'external_link' && 'Your Link'}
+                {submissionType === 'external_link' && (linkTask ? 'Task Link' : 'Your Link')}
                 {submissionType === 'text_input' && 'Your Answer'}
                 {submissionType === 'digit_input' && 'Your Digits'}
                 {submissionType === 'image_upload' && 'Your Image'}
               </label>
 
-              {submissionType === 'external_link' && (
+              {submissionType === 'external_link' && linkTask && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={openActionLink}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    {mission.actionLabel || 'Open link'}
+                  </button>
+                  {linkOpened ? (
+                    <p className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                      Link opened. Complete the step there, then submit below.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-gray-500">
+                      You must open the link before you can mark this task complete.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {submissionType === 'external_link' && !linkTask && (
                 <input
                   type="url"
                   placeholder="https://..."
@@ -291,10 +340,19 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     ? programmeData.completedMissions
     : [];
   const taskMeta = (myTasksRes as any)?.meta;
-  const configuredProgrammeDays = Number(taskMeta?.totalProgrammeDays);
-  const programmeDays = Number.isFinite(configuredProgrammeDays) && configuredProgrammeDays > 0
-    ? configuredProgrammeDays
-    : 90;
+  const apiTasks = myTasksRes?.data;
+
+  // Programme clock derived from the task engine config in /admin/programme:
+  // each task expires `deadlineDays` after assignment; the whole programme is
+  // the sum of those windows, counted from the first assignment.
+  const programmeTimeline = resolveProgrammeTimeline({
+    tasks: apiTasks,
+    configuredTotalDays: taskMeta?.totalProgrammeDays,
+    startedAt: programmeData?.startedAt,
+    extendedDays: programmeData?.extendedBy,
+  });
+  const programmeDays = programmeTimeline.totalDays;
+  const programmeEndsAt = programmeTimeline.endsAt;
 
   // DB phases are the source of truth; static PROGRAMME_PHASES is the fallback.
   // Merge DB day-ranges/missions over static icons so the UI never breaks.
@@ -336,7 +394,6 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     localStorage.setItem('businessTaskStatuses', JSON.stringify(taskStatuses));
   }, [taskStatuses]);
 
-  const apiTasks = myTasksRes?.data;
   const hasApiTasks =
     (Array.isArray(apiTasks) && apiTasks.length > 0) ||
     Number((myTasksRes as any)?.meta?.configuredTaskCount ?? 0) > 0;
@@ -366,7 +423,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           rewardCouponEnabled: !!t.rewardCouponEnabled,
           rewardCoupon: t.rewardCoupon || null,
           submissionType: t.submissionType || 'AUTO',
+          actionUrl: t.actionUrl || null,
+          actionLabel: t.actionLabel || null,
           estimatedMinutes: t.daysRemaining !== undefined ? `${t.daysRemaining}d left` : '7d',
+          deadlineAt: t.deadlineAt ?? null,
           deadlineDays: t.daysRemaining,
           status: st,
           system: t.externalAppName || (t.platform && t.platform !== 'mcom_central' ? t.platform : 'MCOM Central'),
@@ -422,6 +482,18 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     }
   };
 
+  // Admin-configured link tasks (MCOM Central + External Link): opening the link
+  // marks the task in progress, which is the proof recorded on completion.
+  const openTaskLink = (mission: any) => {
+    const url = mission.actionUrl || mission.externalAppUrl;
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    if (hasApiTasks && mission.id) {
+      startTaskMutation.mutate(mission.id);
+    }
+    setTaskStatuses(prev => ({ ...prev, [mission.id]: 'in_progress' }));
+  };
+
   const handleStart = (mission: any) => {
     setActiveMission(mission);
     setModalOpen(true);
@@ -449,18 +521,27 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     setActiveMission(null);
   };
 
-  const markComplete = async (missionOrTaskId: string, isApiTask: boolean) => {
+  const markComplete = async (mission: any, isApiTask: boolean) => {
+    const id = typeof mission === 'string' ? mission : mission.id;
+    const isLinkTask = String(mission?.submissionType || '').toUpperCase() === 'EXTERNAL_LINK';
+    const submissionData = isLinkTask
+      ? { actionUrl: mission?.actionUrl || undefined, openedAt: new Date().toISOString() }
+      : undefined;
     try {
       if (isApiTask) {
-        await completeTaskMutation.mutateAsync({ assignmentId: missionOrTaskId });
+        await completeTaskMutation.mutateAsync({ assignmentId: id, submissionData });
       } else {
-        await completeMissionMutation.mutateAsync(missionOrTaskId);
+        await completeMissionMutation.mutateAsync(id);
       }
-    } catch {
-      // Backend write failed — optimistic local fallback keeps the UI responsive
+    } catch (err: any) {
+      // Backend rejected the completion (e.g. link not opened, expired task).
+      if (isApiTask) {
+        alert(err?.response?.data?.message || err?.message || 'Could not complete this task.');
+        return;
+      }
     }
     // Optimistic fallback for instant UI response
-    setTaskStatuses(prev => ({ ...prev, [missionOrTaskId]: 'completed' }));
+    setTaskStatuses(prev => ({ ...prev, [id]: 'completed' }));
   };
 
   const submitMission = async (mission: any, submissionData: Record<string, unknown>) => {
@@ -493,6 +574,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             onStart={confirmStart}
             onCancel={cancelStart}
             onSubmit={(submissionData) => activeMission ? submitMission(activeMission, submissionData) : Promise.resolve()}
+            onOpenLink={() => { if (activeMission) openTaskLink(activeMission); }}
             onUploadImage={async (file: File) => {
               const res: any = await uploadFileMutation.mutateAsync(file);
               return res?.secure_url || res?.url;
@@ -520,6 +602,20 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               {membership} {membershipSub}
             </span>
           </div>
+
+          {programmeEndsAt && (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-orange-50/40 px-3 py-3 sm:px-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">
+                  Programme time remaining
+                </p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Complete every task before the programme clock runs out.
+                </p>
+              </div>
+              <ProgrammeCountdown endsAt={programmeEndsAt} />
+            </div>
+          )}
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="rounded-xl bg-gray-50 px-3 py-2.5">
@@ -589,7 +685,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
             <div className="space-y-2.5 sm:space-y-3">
               {allMissions.map((mission: any, i: number) => {
                 const st = hasApiTasks ? mission.status : status(mission.id);
-                const isExternalLink = mission.submissionType === 'external_link';
+                const submissionType = String(mission.submissionType || '').toUpperCase();
+                const isExternalLink = submissionType === 'EXTERNAL_LINK';
+                // Link tasks created in /admin/programme: the admin supplies the
+                // destination and the user opens it, then confirms completion.
+                const linkTarget = isExternalLink ? (mission.actionUrl || mission.externalAppUrl || null) : null;
+                const isLinkTask = Boolean(linkTarget);
                 // API external tasks (console-registered platforms): manual completion only.
                 const isApiExternal = hasApiTasks && mission.taskSource === 'EXTERNAL';
                 const isInProgress = st === 'in_progress';
@@ -620,9 +721,13 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight break-words line-clamp-2">{mission.title}</p>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-3 mt-1">
-                          <span className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1">
-                            <Clock className="w-3 h-3 shrink-0" /> {mission.estimatedMinutes}
-                          </span>
+                          {mission.deadlineAt && !isCompleted && !isExpired ? (
+                            <TaskCountdown deadlineAt={mission.deadlineAt} active />
+                          ) : (
+                            <span className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1">
+                              <Clock className="w-3 h-3 shrink-0" /> {mission.estimatedMinutes}
+                            </span>
+                          )}
                           <span className="text-[11px] sm:text-xs text-amber-600 font-bold flex items-center gap-1">
                             <Target className="w-3 h-3 shrink-0" /> {mission.reward}
                           </span>
@@ -639,34 +744,64 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                           {mission.system && (
                             <span className="text-[10px] sm:text-xs text-sky-600 font-bold truncate max-w-[90px] sm:max-w-none">{mission.system}</span>
                           )}
+                          {isLinkTask && !isCompleted && !isExpired && (
+                            <span className="text-[10px] sm:text-xs text-blue-600 font-bold flex items-center gap-1">
+                              <ExternalLink className="w-3 h-3 shrink-0" /> Open the link, then mark complete
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto mt-1 sm:mt-0 min-w-0">
                       {st === 'not_started' && (
-                        <button onClick={() => handleStart(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-orange-500 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-orange-600 transition-colors shadow-sm max-w-full">
-                          <Play className="w-3 h-3 shrink-0" /> <span className="truncate">Start Now</span>
-                        </button>
+                        isLinkTask ? (
+                          <button onClick={() => openTaskLink(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm max-w-full">
+                            <ExternalLink className="w-3 h-3 shrink-0" /> <span className="truncate">{mission.actionLabel || 'Open link'}</span>
+                          </button>
+                        ) : (
+                          <button onClick={() => handleStart(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-orange-500 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-orange-600 transition-colors shadow-sm max-w-full">
+                            <Play className="w-3 h-3 shrink-0" /> <span className="truncate">Start Now</span>
+                          </button>
+                        )
                       )}
                       {isInProgress && (
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                           <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2 bg-blue-100 text-blue-700 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold flex-1 sm:flex-none">
                             <RotateCcw className="w-3 h-3 animate-spin" /> In Progress
                           </span>
-                          <button
-                            onClick={() => handleGoToAction(mission)}
-                            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
-                          >
-                            {isApiExternal ? (
-                              <><span>Open {mission.externalAppName || 'App'}</span> <ExternalLink className="w-3 h-3" /></>
-                            ) : (
-                              <><span>Continue</span> <ArrowRight className="w-3 h-3" /></>
-                            )}
-                          </button>
-                          {(isExternalLink || isApiExternal) && (
-                            <button onClick={() => markComplete(mission.id, hasApiTasks)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
-                              <CheckCircle2 className="w-3 h-3" /> Complete
-                            </button>
+                          {isLinkTask ? (
+                            <>
+                              <button
+                                onClick={() => openTaskLink(mission)}
+                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                              >
+                                <span>{mission.actionLabel || 'Open link'}</span> <ExternalLink className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => markComplete(mission, hasApiTasks)}
+                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> Mark Complete
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleGoToAction(mission)}
+                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                              >
+                                {isApiExternal ? (
+                                  <><span>Open {mission.externalAppName || 'App'}</span> <ExternalLink className="w-3 h-3" /></>
+                                ) : (
+                                  <><span>Continue</span> <ArrowRight className="w-3 h-3" /></>
+                                )}
+                              </button>
+                              {isApiExternal && (
+                                <button onClick={() => markComplete(mission, hasApiTasks)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
+                                  <CheckCircle2 className="w-3 h-3" /> Complete
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -827,6 +962,16 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-gray-900 text-sm leading-tight">Account Manager</p>
                 <p className="text-xs text-gray-400 leading-tight">Book a strategy session</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
+            </button>
+            <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+              <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
+                <Briefcase className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-gray-900 text-sm leading-tight">Consultant</p>
+                <p className="text-xs text-gray-400 leading-tight">Specialist advice for your business</p>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
             </button>
