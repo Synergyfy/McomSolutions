@@ -94,51 +94,78 @@ export class WalletService {
     idempotencyKey: string,
     ipAddress?: string,
   ): Promise<TransactionReceiptDto> {
-    const existing = await this.checkIdempotency(idempotencyKey, partner.clientId);
-    if (existing) return existing;
-
     const amount = toDecimal(dto.amount);
     this.assertSingleTxnLimit(amount);
+
+    const existing = await this.checkIdempotency(idempotencyKey, partner.clientId);
+    if (existing) return existing;
 
     const wallet = await this.ensureWallet(dto.userId);
     this.assertWalletActive(wallet.status);
 
-    return this.lockUtil.withLock(wallet.id, async () => {
-      const fresh = await this.prisma.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
-      this.assertWalletActive(fresh.status);
+    try {
+      const txn = await this.lockUtil.withLock(wallet.id, () =>
+        this.withWalletRowLock(wallet.id, async (tx, fresh) => {
+          this.assertWalletActive(fresh.status);
 
-      const holds = await this.getTotalActiveHolds(fresh.id);
-      const available = safeSubtract(fresh.balance, holds);
-      if (!isGte(available, amount)) {
-        throw new UnprocessableEntityException({
-          error: 'INSUFFICIENT_BALANCE',
-          availableBalance: available.toNumber(),
-          message: `Wallet balance (${available.toNumber()} MCOM) is insufficient for debit of ${amount.toNumber()} MCOM`,
-        });
-      }
+          // Re-check under the lock: a concurrent request may have committed this
+          // same idempotency key between the fast-path miss and now.
+          const duplicate = await this.findIdempotentTransaction(tx, idempotencyKey, partner.clientId);
+          if (duplicate) return duplicate;
 
-      await this.checkDebitLimits(fresh, amount);
+          const holds = await this.getTotalActiveHolds(fresh.id, tx);
+          const available = safeSubtract(fresh.balance, holds);
+          if (!isGte(available, amount)) {
+            throw new UnprocessableEntityException({
+              error: 'INSUFFICIENT_BALANCE',
+              availableBalance: available.toNumber(),
+              message: `Wallet balance (${available.toNumber()} MCOM) is insufficient for debit of ${amount.toNumber()} MCOM`,
+            });
+          }
 
-      const balanceBefore = fresh.balance;
-      const balanceAfter = safeSubtract(balanceBefore, amount);
+          await this.checkDebitLimits(fresh, amount, tx);
 
-      const txn = await this.createTransaction(fresh.id, {
-        type: 'DEBIT',
-        amount,
-        balanceBefore,
-        balanceAfter,
-        category: dto.category,
-        reference: dto.reference,
-        description: dto.description,
-        metadata: dto.metadata ?? {},
-        idempotencyKey,
-        partner,
-        ipAddress,
-      });
+          const balanceBefore = fresh.balance;
+          const balanceAfter = safeSubtract(balanceBefore, amount);
 
-      await this.afterTransaction(dto.userId, balanceAfter, idempotencyKey, txn);
+          // Relative update — never write a snapshot back. Even if a writer slipped
+          // past the Redis lock, the decrement applies to the current row value.
+          const updated = await tx.wallet.update({
+            where: { id: fresh.id },
+            data: { balance: { decrement: amount }, lastTransactionAt: new Date() },
+          });
+          if (updated.balance.isNegative()) {
+            throw new UnprocessableEntityException({
+              error: 'INSUFFICIENT_BALANCE',
+              message: 'Wallet balance would go negative — debit rejected',
+            });
+          }
+
+          return this.insertTransaction(tx, fresh, {
+            type: 'DEBIT',
+            amount,
+            balanceBefore,
+            balanceAfter,
+            category: dto.category,
+            reference: dto.reference,
+            description: dto.description,
+            metadata: dto.metadata ?? {},
+            idempotencyKey,
+            partner,
+            ipAddress,
+          });
+        }),
+      );
+
+      await this.afterTransaction(dto.userId, txn.balanceAfter, idempotencyKey, txn);
       return this.toReceipt(txn);
-    });
+    } catch (err) {
+      // Two concurrent requests with the same key: the loser hit the unique index.
+      // Return the winner's receipt instead of a 500 — the money moved exactly once.
+      const winner = await this.recoverIdempotentCollision(err, idempotencyKey, partner.clientId);
+      if (winner) return winner;
+      throw err;
+    }
   }
 
   // ─── CREDIT ────────────────────────────────────────────────────────────────
@@ -149,48 +176,64 @@ export class WalletService {
     idempotencyKey: string,
     ipAddress?: string,
   ): Promise<TransactionReceiptDto> {
+    const amount = toDecimal(dto.amount);
+    this.assertSingleTxnLimit(amount);
+
     const existing = await this.checkIdempotency(idempotencyKey, partner.clientId);
     if (existing) return existing;
 
-    const amount = toDecimal(dto.amount);
-    this.assertSingleTxnLimit(amount);
     const wallet = await this.ensureWallet(dto.userId);
     this.assertWalletActive(wallet.status);
 
-    return this.lockUtil.withLock(wallet.id, async () => {
-      const fresh = await this.prisma.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
-      this.assertWalletActive(fresh.status);
+    try {
+      const txn = await this.lockUtil.withLock(wallet.id, () =>
+        this.withWalletRowLock(wallet.id, async (tx, fresh) => {
+          this.assertWalletActive(fresh.status);
 
-      if (fresh.maxBalance) {
-        const projected = safeAdd(fresh.balance, amount);
-        if (projected.greaterThan(fresh.maxBalance)) {
-          throw new UnprocessableEntityException({
-            error: 'MAX_BALANCE_EXCEEDED',
-            message: `Credit of ${amount.toNumber()} MCOM would exceed the wallet maximum balance`,
+          const duplicate = await this.findIdempotentTransaction(tx, idempotencyKey, partner.clientId);
+          if (duplicate) return duplicate;
+
+          if (fresh.maxBalance) {
+            const projected = safeAdd(fresh.balance, amount);
+            if (projected.greaterThan(fresh.maxBalance)) {
+              throw new UnprocessableEntityException({
+                error: 'MAX_BALANCE_EXCEEDED',
+                message: `Credit of ${amount.toNumber()} MCOM would exceed the wallet maximum balance`,
+              });
+            }
+          }
+
+          const balanceBefore = fresh.balance;
+          const balanceAfter = safeAdd(balanceBefore, amount);
+
+          await tx.wallet.update({
+            where: { id: fresh.id },
+            data: { balance: { increment: amount }, lastTransactionAt: new Date() },
           });
-        }
-      }
 
-      const balanceBefore = fresh.balance;
-      const balanceAfter = safeAdd(balanceBefore, amount);
+          return this.insertTransaction(tx, fresh, {
+            type: 'CREDIT',
+            amount,
+            balanceBefore,
+            balanceAfter,
+            category: dto.category,
+            reference: dto.reference,
+            description: dto.description,
+            metadata: dto.metadata ?? {},
+            idempotencyKey,
+            partner,
+            ipAddress,
+          });
+        }),
+      );
 
-      const txn = await this.createTransaction(fresh.id, {
-        type: 'CREDIT',
-        amount,
-        balanceBefore,
-        balanceAfter,
-        category: dto.category,
-        reference: dto.reference,
-        description: dto.description,
-        metadata: dto.metadata ?? {},
-        idempotencyKey,
-        partner,
-        ipAddress,
-      });
-
-      await this.afterTransaction(dto.userId, balanceAfter, idempotencyKey, txn);
+      await this.afterTransaction(dto.userId, txn.balanceAfter, idempotencyKey, txn);
       return this.toReceipt(txn);
-    });
+    } catch (err) {
+      const winner = await this.recoverIdempotentCollision(err, idempotencyKey, partner.clientId);
+      if (winner) return winner;
+      throw err;
+    }
   }
 
   // ─── HOLDS (pre-authorization) ─────────────────────────────────────────────
@@ -204,38 +247,39 @@ export class WalletService {
     const wallet = await this.ensureWallet(dto.userId);
     this.assertWalletActive(wallet.status);
 
-    return this.lockUtil.withLock(wallet.id, async () => {
-      const fresh = await this.prisma.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
-      this.assertWalletActive(fresh.status);
+    return this.lockUtil.withLock(wallet.id, () =>
+      this.withWalletRowLock(wallet.id, async (tx, fresh) => {
+        this.assertWalletActive(fresh.status);
 
-      const holds = await this.getTotalActiveHolds(fresh.id);
-      const available = safeSubtract(fresh.balance, holds);
-      if (!isGte(available, amount)) {
-        throw new UnprocessableEntityException({
-          error: 'INSUFFICIENT_BALANCE',
-          availableBalance: available.toNumber(),
-          message: `Wallet balance (${available.toNumber()} MCOM) is insufficient to reserve ${amount.toNumber()} MCOM`,
+        const holds = await this.getTotalActiveHolds(fresh.id, tx);
+        const available = safeSubtract(fresh.balance, holds);
+        if (!isGte(available, amount)) {
+          throw new UnprocessableEntityException({
+            error: 'INSUFFICIENT_BALANCE',
+            availableBalance: available.toNumber(),
+            message: `Wallet balance (${available.toNumber()} MCOM) is insufficient to reserve ${amount.toNumber()} MCOM`,
+          });
+        }
+
+        const ttlHours = this.config.get<number>('WALLET_HOLD_DEFAULT_TTL_HOURS') ?? 24;
+        const expiresAt = new Date(Date.now() + ttlHours * 3600_000);
+
+        const hold = await tx.walletHold.create({
+          data: {
+            walletId: fresh.id,
+            amount,
+            platformClientId: partner.clientId,
+            platformName: partner.name,
+            reference: dto.reference,
+            description: dto.description,
+            status: 'ACTIVE',
+            expiresAt,
+          },
         });
-      }
 
-      const ttlHours = this.config.get<number>('WALLET_HOLD_DEFAULT_TTL_HOURS') ?? 24;
-      const expiresAt = new Date(Date.now() + ttlHours * 3600_000);
-
-      const hold = await this.prisma.walletHold.create({
-        data: {
-          walletId: fresh.id,
-          amount,
-          platformClientId: partner.clientId,
-          platformName: partner.name,
-          reference: dto.reference,
-          description: dto.description,
-          status: 'ACTIVE',
-          expiresAt,
-        },
-      });
-
-      return { holdId: hold.id, reserved: amount.toNumber(), expiresAt: expiresAt.toISOString() };
-    });
+        return { holdId: hold.id, reserved: amount.toNumber(), expiresAt: expiresAt.toISOString() };
+      }),
+    );
   }
 
   async captureHold(
@@ -271,59 +315,48 @@ export class WalletService {
     this.assertWalletActive(wallet.status);
 
     return this.lockUtil.withLock(wallet.id, async () => {
-      const fresh = await this.prisma.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
-      this.assertWalletActive(fresh.status);
-      const freshHold = await this.prisma.walletHold.findUniqueOrThrow({ where: { id: holdId } });
-      if (freshHold.status !== 'ACTIVE') {
-        if (freshHold.status === 'CAPTURED') {
-          const existingTxn = await this.prisma.walletTransaction.findFirst({
-            where: { holdId },
-          });
-          if (existingTxn) {
-            return this.toReceipt(existingTxn);
-          }
-        }
-        throw new ConflictException(`Hold is not active (status: ${freshHold.status})`);
-      }
+      const txn = await this.withWalletRowLock(wallet.id, async (tx, fresh) => {
+        this.assertWalletActive(fresh.status);
 
-      const amount = freshHold.amount;
-      const balanceBefore = fresh.balance;
-      const balanceAfter = safeSubtract(balanceBefore, amount);
-
-      const [, txn] = await this.prisma.$transaction([
-        this.prisma.walletHold.update({
-          where: { id: holdId },
+        // Claim the hold with a compare-and-set: two concurrent captures of the
+        // same hold must debit the wallet once.
+        const claimed = await tx.walletHold.updateMany({
+          where: { id: holdId, status: 'ACTIVE' },
           data: { status: 'CAPTURED', capturedAt: new Date() },
-        }),
-        this.prisma.walletTransaction.create({
-          data: {
-            walletId: fresh.id,
-            type: 'DEBIT',
-            amount,
-            balanceBefore,
-            balanceAfter,
-            currency: fresh.currency,
-            platformClientId: partner.clientId,
-            platformName: partner.name,
-            platformSlug: partner.platformSlug,
-            category: category || 'HOLD_CAPTURE',
-            reference: freshHold.reference,
-            description: freshHold.description ?? 'Hold captured',
-            metadata: { holdId },
-            idempotencyKey: idempotencyKey ?? null,
-            status: 'COMPLETED',
-            initiatedBy: `platform:${partner.clientId}`,
-            ipAddress,
-            holdId,
-          },
-        }),
-        this.prisma.wallet.update({
-          where: { id: fresh.id },
-          data: { balance: balanceAfter, lastTransactionAt: new Date() },
-        }),
-      ]);
+        });
+        if (claimed.count !== 1) {
+          const existingTxn = await tx.walletTransaction.findFirst({ where: { holdId } });
+          if (existingTxn) return existingTxn;
+          throw new ConflictException('Hold is not active (already captured or released)');
+        }
 
-      await this.afterTransaction(wallet.userId, balanceAfter, idempotencyKey, txn);
+        const freshHold = await tx.walletHold.findUniqueOrThrow({ where: { id: holdId } });
+        const amount = freshHold.amount;
+        const balanceBefore = fresh.balance;
+        const balanceAfter = safeSubtract(balanceBefore, amount);
+
+        await tx.wallet.update({
+          where: { id: fresh.id },
+          data: { balance: { decrement: amount }, lastTransactionAt: new Date() },
+        });
+
+        return this.insertTransaction(tx, fresh, {
+          type: 'DEBIT',
+          amount,
+          balanceBefore,
+          balanceAfter,
+          category: category || 'HOLD_CAPTURE',
+          reference: freshHold.reference ?? undefined,
+          description: freshHold.description ?? 'Hold captured',
+          metadata: { holdId },
+          idempotencyKey: idempotencyKey ?? null,
+          partner,
+          ipAddress,
+          holdId,
+        });
+      });
+
+      await this.afterTransaction(wallet.userId, txn.balanceAfter, idempotencyKey, txn);
       return this.toReceipt(txn);
     });
   }
@@ -356,10 +389,17 @@ export class WalletService {
       return { success: true, holdId, status: hold.status };
     }
 
-    await this.prisma.walletHold.update({
-      where: { id: holdId },
+    // Compare-and-set: the expiry cron and an explicit release can race, and only
+    // one of them may write the terminal status.
+    const released = await this.prisma.walletHold.updateMany({
+      where: { id: holdId, status: 'ACTIVE' },
       data: { status, releasedAt: new Date() },
     });
+    if (released.count === 0) {
+      const current = await this.prisma.walletHold.findUnique({ where: { id: holdId } });
+      return { success: true, holdId, status: current?.status ?? status };
+    }
+
     const wallet = await this.prisma.wallet.findUnique({ where: { id: hold.walletId } });
     if (wallet) {
       await this.redis.del(`wallet:balance:${wallet.userId}`);
@@ -369,51 +409,103 @@ export class WalletService {
 
   // ─── INTERNAL HELPERS ──────────────────────────────────────────────────────
 
-  private async createTransaction(
+  /**
+   * Run a balance mutation under a real database row lock.
+   *
+   * The Redis lock is only contention control — its lease can lapse. The
+   * `FOR UPDATE` here is what serialises concurrent writers, so a stale
+   * `balance` can never be validated and written back: the second writer blocks
+   * until the first commits and then reads the committed value.
+   */
+  private async withWalletRowLock<T>(
     walletId: string,
+    fn: (tx: Prisma.TransactionClient, wallet: Wallet) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      // Prisma's typed API has no FOR UPDATE; one raw statement takes the lock
+      // and holds it for the rest of this transaction.
+      await tx.$queryRaw`SELECT "id" FROM "wallets" WHERE "id" = ${walletId} FOR UPDATE`;
+      const wallet = await tx.wallet.findUniqueOrThrow({ where: { id: walletId } });
+      return fn(tx, wallet);
+    });
+  }
+
+  /** Insert the ledger row for a balance mutation that already happened in `tx`. */
+  private async insertTransaction(
+    tx: Prisma.TransactionClient,
+    wallet: Wallet,
     data: {
       type: TransactionType;
       amount: Decimal;
       balanceBefore: Decimal;
       balanceAfter: Decimal;
       category: TransactionCategory;
-      reference?: string;
-      description: string;
+      reference?: string | null;
+      description?: string | null;
       metadata: Record<string, any>;
-      idempotencyKey?: string;
+      idempotencyKey?: string | null;
       partner: PartnerContext;
       ipAddress?: string;
+      holdId?: string;
     },
   ) {
-    const wallet = await this.prisma.wallet.findUniqueOrThrow({ where: { id: walletId } });
-    const [txn] = await this.prisma.$transaction([
-      this.prisma.walletTransaction.create({
-        data: {
-          walletId,
-          type: data.type,
-          amount: data.amount,
-          balanceBefore: data.balanceBefore,
-          balanceAfter: data.balanceAfter,
-          currency: wallet.currency,
-          platformClientId: data.partner.clientId,
-          platformName: data.partner.name,
-          platformSlug: data.partner.platformSlug,
-          category: data.category,
-          reference: data.reference,
-          description: data.description,
-          metadata: data.metadata as Prisma.InputJsonValue,
-          idempotencyKey: data.idempotencyKey,
-          status: 'COMPLETED',
-          initiatedBy: `platform:${data.partner.clientId}`,
-          ipAddress: data.ipAddress,
-        },
-      }),
-      this.prisma.wallet.update({
-        where: { id: walletId },
-        data: { balance: data.balanceAfter, lastTransactionAt: new Date() },
-      }),
-    ]);
-    return txn;
+    return tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        type: data.type,
+        amount: data.amount,
+        balanceBefore: data.balanceBefore,
+        balanceAfter: data.balanceAfter,
+        currency: wallet.currency,
+        platformClientId: data.partner.clientId,
+        platformName: data.partner.name,
+        platformSlug: data.partner.platformSlug,
+        category: data.category,
+        reference: data.reference ?? undefined,
+        description: data.description ?? undefined,
+        metadata: data.metadata as Prisma.InputJsonValue,
+        idempotencyKey: data.idempotencyKey ?? undefined,
+        status: 'COMPLETED',
+        initiatedBy: `platform:${data.partner.clientId}`,
+        ipAddress: data.ipAddress,
+        holdId: data.holdId,
+      },
+    });
+  }
+
+  /**
+   * Look for a transaction already committed under this key, inside the row
+   * lock. This is the definitive duplicate check — the fast-path cache is only
+   * an optimisation.
+   */
+  private async findIdempotentTransaction(
+    tx: Prisma.TransactionClient,
+    key: string,
+    partnerClientId: string,
+  ): Promise<WalletTransaction | null> {
+    const existing = await tx.walletTransaction.findUnique({ where: { idempotencyKey: key } });
+    if (!existing) return null;
+    this.assertIdempotencyOwner(existing.platformClientId, partnerClientId);
+    await this.cacheReceipt(existing);
+    return existing;
+  }
+
+  /**
+   * Translate a unique-index collision on `walletTransaction.idempotencyKey`
+   * into the winner's receipt. The loser's transaction rolled back in full, so
+   * the money moved exactly once.
+   */
+  private async recoverIdempotentCollision(
+    err: unknown,
+    idempotencyKey: string,
+    partnerClientId: string,
+  ): Promise<TransactionReceiptDto | null> {
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') {
+      return null;
+    }
+    const winner = await this.checkIdempotency(idempotencyKey, partnerClientId);
+    if (winner) return winner;
+    return null;
   }
 
   private async afterTransaction(
@@ -424,13 +516,7 @@ export class WalletService {
   ) {
     await this.redis.del(`wallet:balance:${userId}`);
     if (idempotencyKey) {
-      // Cache the receipt alongside the originating platform so a key reused by
-      // a different platform is detected as a collision, not served as a replay.
-      await this.redis.set(
-        `wallet:idempotency:${idempotencyKey}`,
-        { receipt: this.toReceipt(txn), platformClientId: txn.platformClientId },
-        IDEMPOTENCY_TTL_SECONDS,
-      );
+      await this.cacheReceipt(txn);
     }
     await this.walletEvents.onTransactionProcessed({
       userId,
@@ -442,6 +528,19 @@ export class WalletService {
       platformName: txn.platformName,
       balanceAfter: balanceAfter.toNumber(),
     });
+  }
+
+  /**
+   * Cache the receipt alongside the originating platform so a key reused by a
+   * different platform is detected as a collision, not served as a replay.
+   */
+  private async cacheReceipt(txn: any): Promise<void> {
+    if (!txn?.idempotencyKey) return;
+    await this.redis.set(
+      `wallet:idempotency:${txn.idempotencyKey}`,
+      { receipt: this.toReceipt(txn), platformClientId: txn.platformClientId },
+      IDEMPOTENCY_TTL_SECONDS,
+    );
   }
 
   async checkIdempotency(key: string, partnerClientId: string): Promise<TransactionReceiptDto | null> {
@@ -483,15 +582,22 @@ export class WalletService {
     }
   }
 
-  private async getTotalActiveHolds(walletId: string): Promise<Decimal> {
-    const agg = await this.prisma.walletHold.aggregate({
+  private async getTotalActiveHolds(
+    walletId: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<Decimal> {
+    const agg = await client.walletHold.aggregate({
       where: { walletId, status: 'ACTIVE' },
       _sum: { amount: true },
     });
     return agg._sum.amount ?? new Decimal(0);
   }
 
-  private async checkDebitLimits(wallet: Wallet, amount: Decimal): Promise<void> {
+  private async checkDebitLimits(
+    wallet: Wallet,
+    amount: Decimal,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
     if (!wallet.dailyDebitLimit && !wallet.monthlyDebitLimit) return;
 
     const now = new Date();
@@ -500,7 +606,7 @@ export class WalletService {
 
     const [daily, monthly] = await Promise.all([
       wallet.dailyDebitLimit
-        ? this.prisma.walletTransaction.aggregate({
+        ? client.walletTransaction.aggregate({
             where: {
               walletId: wallet.id,
               type: 'DEBIT',
@@ -511,7 +617,7 @@ export class WalletService {
           })
         : { _sum: { amount: null } },
       wallet.monthlyDebitLimit
-        ? this.prisma.walletTransaction.aggregate({
+        ? client.walletTransaction.aggregate({
             where: {
               walletId: wallet.id,
               type: 'DEBIT',

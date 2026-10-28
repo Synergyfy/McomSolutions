@@ -505,9 +505,11 @@ export class WalletTopUpService {
               initiatedBy: `${provider}:${provider === 'stripe' ? 'payment_intent' : 'order'}`,
             },
           }),
+          // Relative write: an absolute `balance: balanceAfter` computed from a
+          // read would silently overwrite any concurrent activity.
           this.prisma.wallet.update({
             where: { id: wallet.id },
-            data: { balance: balanceAfter, lastTransactionAt: new Date() },
+            data: { balance: { increment: creditAmount }, lastTransactionAt: new Date() },
           }),
         ]);
         await this.redis.del(`wallet:balance:${request.userId}`);

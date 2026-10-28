@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConsoleAdminGuard } from '../console/guards/console-admin.guard';
 import { AppPaymentsService } from './app-payments.service';
 import { AdminFilterChargesDto } from './dto/admin-filter-charges.dto';
-import { PaginatedChargesDto } from './dto/responses.dto';
+import { PaginatedChargesDto, RefundListDto } from './dto/responses.dto';
 
 @ApiTags('MCOM Pay (Admin)')
 @ApiBearerAuth()
@@ -34,5 +34,13 @@ export class AppPaymentsAdminController {
   @ApiOperation({ summary: 'Double-entry ledger rows for a charge' })
   async ledger(@Param('id') id: string) {
     return this.service.getLedgerForCharge(id);
+  }
+
+  @Get('charges/:id/refunds')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({ summary: 'Refund attempts for a charge (pending rows need reconciliation)' })
+  @ApiOkResponse({ type: RefundListDto })
+  async refunds(@Param('id') id: string) {
+    return this.service.listRefundsForCharge(id);
   }
 }
