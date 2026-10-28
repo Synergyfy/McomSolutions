@@ -51,6 +51,8 @@ interface AccessPassPaymentModalProps {
   plan: BusinessAccessPlan
   /** ISO date / timestamp the plan is already active until, when renewing. */
   activeUntil?: string | number | null
+  /** Onboarding checkout is restricted to a self purchase by card. */
+  onboarding?: boolean
   onClose: () => void
   onSuccess: (result: AccessCodePaymentResult | Record<string, unknown>) => void
 }
@@ -82,6 +84,7 @@ const paymentErrorMessage = (err: any, fallback: string) => {
 export default function AccessPassPaymentModal({
   plan,
   activeUntil,
+  onboarding = false,
   onClose,
   onSuccess,
 }: AccessPassPaymentModalProps) {
@@ -406,30 +409,36 @@ export default function AccessPassPaymentModal({
 
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Who is this pass for?</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {(
-                    [
-                      { id: 'SELF', label: 'My business', icon: ShieldCheck },
-                      { id: 'GIFT', label: 'Gift by email', icon: Mail },
-                      { id: 'CODE', label: 'Buy a code', icon: KeyRound },
-                    ] as const
-                  ).map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => resetPayment(option.id)}
-                      className={cn(
-                        'flex flex-col items-center gap-1.5 rounded-xl border p-3 text-xs transition-all',
-                        mode === option.id
-                          ? 'border-orange-500 bg-orange-50 font-bold text-orange-700 ring-2 ring-orange-500/20'
-                          : 'border-gray-200 text-gray-600 hover:border-gray-300',
-                      )}
-                    >
-                      <option.icon className="h-5 w-5" />
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
+                {onboarding ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-800">
+                    <ShieldCheck className="h-5 w-5 shrink-0" /> My business
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {(
+                      [
+                        { id: 'SELF', label: 'My business', icon: ShieldCheck },
+                        { id: 'GIFT', label: 'Gift by email', icon: Mail },
+                        { id: 'CODE', label: 'Buy a code', icon: KeyRound },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => resetPayment(option.id)}
+                        className={cn(
+                          'flex flex-col items-center gap-1.5 rounded-xl border p-3 text-xs transition-all',
+                          mode === option.id
+                            ? 'border-orange-500 bg-orange-50 font-bold text-orange-700 ring-2 ring-orange-500/20'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300',
+                        )}
+                      >
+                        <option.icon className="h-5 w-5" />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {mode === 'GIFT' && (
@@ -460,6 +469,12 @@ export default function AccessPassPaymentModal({
 
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-500">Payment method</p>
+                {onboarding ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-800">
+                    <CreditCard className="h-5 w-5 shrink-0" /> Card
+                  </div>
+                ) : (
+                  <>
                 <div className="grid grid-cols-3 gap-2">
                   {(
                     [
@@ -492,6 +507,8 @@ export default function AccessPassPaymentModal({
                   <p className="mt-2 text-[11px] text-gray-500">
                     Wallet balance: {wallet?.currency || 'MCOM'} {Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}
                   </p>
+                )}
+                  </>
                 )}
               </div>
 

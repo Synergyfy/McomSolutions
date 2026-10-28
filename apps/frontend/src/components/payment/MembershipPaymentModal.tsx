@@ -327,8 +327,8 @@ export default function MembershipPaymentModal({
 
   if (!isOpen || !plan) return null;
 
-  const cycleLabel =
-    plan.billingCycle === 'yearly' ? 'billed annually' : plan.billingCycle === 'quarterly' ? 'billed quarterly' : 'billed monthly';
+  const selectedTierDuration = modalTier?.durationDays ?? (currentSelectedTier === 'Pro+' ? 365 : currentSelectedTier === 'Pro' ? 180 : 90);
+  const cycleLabel = `${currentSelectedTier} · ${selectedTierDuration} days`;
 
   return (
     <AnimatePresence>
@@ -387,8 +387,8 @@ export default function MembershipPaymentModal({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="text-[10px] uppercase tracking-wider font-extrabold text-orange-600">Selected Tier</span>
-                    <h3 className="text-base sm:text-lg font-black text-gray-900">{plan.name} Membership</h3>
-                    <p className="text-[11px] sm:text-xs text-gray-600 capitalize">{cycleLabel}</p>
+                    <h3 className="text-base sm:text-lg font-black text-gray-900">{plan.name} Membership · {currentSelectedTier}</h3>
+                    <p className="text-[11px] sm:text-xs text-gray-600">{cycleLabel}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xl sm:text-2xl font-black text-orange-600 tracking-tight">£{modalDueToday}</span>
@@ -443,8 +443,8 @@ export default function MembershipPaymentModal({
                   Choose how to pay:
                 </div>
                 <PaymentPlanSelector
-                  tier="Standard"
-                  durationDays={modalTier?.durationDays ?? 90}
+                  tier={currentSelectedTier}
+                  durationDays={selectedTierDuration}
                   options={displayModalOptions}
                   value={paymentPlan}
                   onChange={setPaymentPlan}
