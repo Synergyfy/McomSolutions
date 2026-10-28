@@ -5,6 +5,7 @@ import { Building2, Users, Briefcase, UserCircle, Target, Zap, ShoppingBag, Clip
 const QUICK_ACTIONS = [
   { label: 'Create Membership', tab: 'memberships', icon: CreditCard, color: 'bg-blue-500' },
   { label: 'Manage Users', tab: 'users', icon: Users, color: 'bg-purple-500' },
+  { label: 'Programme Progress', tab: 'programme-progress', icon: ClipboardCheck, color: 'bg-orange-500' },
   { label: 'Manage Platforms', tab: 'platform-access', icon: Activity, color: 'bg-rose-500' },
   { label: 'View Payments', tab: 'payments', icon: Wallet, color: 'bg-cyan-500' },
   { label: 'View Analytics', tab: 'analytics', icon: Target, color: 'bg-amber-500' },

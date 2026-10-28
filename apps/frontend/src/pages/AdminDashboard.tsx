@@ -13,6 +13,7 @@ import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import CommunicationPanel from '../components/admin/CommunicationPanel';
 import SystemPanel from '../components/admin/SystemPanel';
 import ProgrammeManagementPanel from '../components/admin/ProgrammeManagementPanel';
+import ProgrammeProgressPanel from '../components/admin/ProgrammeProgressPanel';
 import HighStreetsPanel from '../components/admin/HighStreetsPanel';
 import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
@@ -42,6 +43,7 @@ const ADMIN_TABS: AdminTab[] = [
   'wallet',
   'mcom-pay',
   'programme',
+  'programme-progress',
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories',
@@ -102,6 +104,7 @@ export default function AdminDashboard() {
       'wallet': { title: 'Wallet Management', subtitle: 'View and manage user wallets and transactions across all platforms' },
       'mcom-pay': { title: 'MCOM Pay Ledger', subtitle: 'Read-only ledger of every charge processed through registered apps' },
       'programme': { title: 'Activity Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
+      'programme-progress': { title: 'Programme Progress', subtitle: 'Track every business and customer — tasks done, expired, and still outstanding' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
       'super-admin': { title: 'Super Admin Control Center', subtitle: 'Highest-level administrative control' },
@@ -173,6 +176,8 @@ export default function AdminDashboard() {
         return <McomPayPanel />;
       case 'programme':
         return <ProgrammeManagementPanel />;
+      case 'programme-progress':
+        return <ProgrammeProgressPanel />;
       case 'audit-logs':
       case 'system-settings':
       case 'developer-center':

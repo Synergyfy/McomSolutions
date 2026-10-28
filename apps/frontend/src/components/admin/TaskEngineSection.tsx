@@ -197,6 +197,18 @@ export default function TaskEngineSection() {
         { id: 'PAID', label: 'Paid only', icon: Award },
         { id: 'TRIAL', label: 'Trial only', icon: Clock },
       ];
+
+  // The helper line under "Available To" explains exactly who receives the task
+  // for the selected scope (customers have no trial tier).
+  const accessScopeNote = isCustomerAudience
+    ? formData.accessScope === 'PAID'
+      ? 'Only customers with an active membership will see this task — non-members are excluded.'
+      : 'Every customer will see this task, whether they hold an active membership or not — trial access does not apply to customers.'
+    : formData.accessScope === 'PAID'
+      ? 'Only users with an active membership will see this task — trial users are excluded.'
+      : formData.accessScope === 'TRIAL'
+        ? 'Only trial users will see this task — paid members are excluded. Trials are set in Dashboard Access settings.'
+        : 'Trial users are determined by the Dashboard Access settings. Paid users have an active membership.';
   const taskTypeOptions = [
     ...(autoAvailable
       ? [
@@ -1303,9 +1315,7 @@ export default function TaskEngineSection() {
                     ))}
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">
-                    {isCustomerAudience
-                      ? 'Customers are either members with an active membership or non-members — trial access does not apply to them.'
-                      : 'Trial users are determined by the Dashboard Access settings. Paid users have an active membership.'}
+                    {accessScopeNote}
                   </p>
                 </div>
 

@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  CheckCircle2, ArrowRight, Clock, Target, X,
+  CheckCircle2, ArrowRight, X,
   Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Gift, Briefcase
+  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Briefcase
 } from 'lucide-react';
 import {
   PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay,
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
-import { cn } from '../lib/utils';
 import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile } from '../services/business/hooks';
-import TaskCountdown from './TaskCountdown';
 import ProgrammeCountdown from './ProgrammeCountdown';
+import ProgrammeTaskRow from './ProgrammeTaskRow';
+import ProgrammeTaskGroup from './ProgrammeTaskGroup';
 import { resolveProgrammeTimeline } from '../lib/programmeTimeline';
+import { groupProgrammeTasks } from '../lib/programmeTaskGroups';
 
 function TaskStartModal({
   mission,
@@ -436,14 +437,20 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     return currentPhase?.missions || [];
   }, [hasApiTasks, apiTasks, currentPhase, taskStatuses]);
 
+  // Split the programme into what still needs attention vs. what is already
+  // closed out. Outstanding tasks are ordered by the soonest deadline so the
+  // most urgent work always sits at the top of the dashboard.
+  const taskGroups = useMemo(() => {
+    return groupProgrammeTasks({
+      tasks: allMissions,
+      useApiStatus: hasApiTasks,
+      completedMissionIds,
+      localStatuses: taskStatuses,
+    });
+  }, [allMissions, hasApiTasks, completedMissionIds, taskStatuses]);
+
   const totalTasksCount = allMissions.length;
-  const completedTasksCount = allMissions.filter((m: any) => {
-    if (hasApiTasks) {
-      return m.status === 'completed';
-    }
-    if (completedMissionIds.includes(m.id)) return true;
-    return (taskStatuses[m.id] || 'not_started') === 'completed';
-  }).length;
+  const completedTasksCount = taskGroups.completed.length;
   const computedProgress = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : Math.min(100, Math.round((currentDay / programmeDays) * 100));
 
   const isMissionCompleted = (missionId: string) => {
@@ -660,13 +667,15 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               <div className="min-w-0">
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base leading-tight">Your Programme Tasks</h3>
                 <p className="text-[11px] sm:text-xs text-gray-400 truncate">
-                  {hasApiTasks ? 'Active Programme Tasks & Rewards' : currentPhase?.name}
+                  {hasApiTasks
+                    ? `${completedTasksCount} of ${totalTasksCount} done${taskGroups.expired.length > 0 ? ` · ${taskGroups.expired.length} expired` : ''}`
+                    : currentPhase?.name}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <span className="text-[11px] sm:text-xs font-bold px-2.5 py-1 bg-orange-50 text-orange-600 rounded-full border border-orange-100">
-                {totalTasksCount} {totalTasksCount === 1 ? 'Task' : 'Tasks'}
+                {taskGroups.active.length} active
               </span>
               <span className="text-[11px] sm:text-xs font-bold text-gray-400 whitespace-nowrap">Day {currentDay}</span>
             </div>
@@ -682,143 +691,75 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               No active tasks available right now. Check back soon!
             </div>
           ) : (
-            <div className="space-y-2.5 sm:space-y-3">
-              {allMissions.map((mission: any, i: number) => {
-                const st = hasApiTasks ? mission.status : status(mission.id);
-                const submissionType = String(mission.submissionType || '').toUpperCase();
-                const isExternalLink = submissionType === 'EXTERNAL_LINK';
-                // Link tasks created in /admin/programme: the admin supplies the
-                // destination and the user opens it, then confirms completion.
-                const linkTarget = isExternalLink ? (mission.actionUrl || mission.externalAppUrl || null) : null;
-                const isLinkTask = Boolean(linkTarget);
-                // API external tasks (console-registered platforms): manual completion only.
-                const isApiExternal = hasApiTasks && mission.taskSource === 'EXTERNAL';
-                const isInProgress = st === 'in_progress';
-                const isCompleted = st === 'completed';
-                const isExpired = st === 'expired';
+            <div>
+              {taskGroups.active.length === 0 ? (
+                <div className="py-8 text-center bg-green-50/60 border border-green-100 rounded-2xl">
+                  <CheckCircle2 className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-green-700">You are all caught up — no outstanding tasks.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 sm:space-y-3">
+                  {taskGroups.active.map((mission: any, i: number) => (
+                    <ProgrammeTaskRow
+                      key={mission.id}
+                      mission={mission}
+                      status={mission.status}
+                      index={i}
+                      hasApiTasks={hasApiTasks}
+                      onStart={handleStart}
+                      onOpenLink={openTaskLink}
+                      onContinue={handleGoToAction}
+                      onComplete={(m) => markComplete(m, hasApiTasks)}
+                    />
+                  ))}
+                </div>
+              )}
 
-                return (
-                  <div
-                    key={mission.id}
-                    className={cn(
-                      "flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl transition-colors group",
-                      isCompleted ? 'bg-green-50/50' : isInProgress ? 'bg-blue-50/50' : isExpired ? 'bg-red-50/30' : 'hover:bg-orange-50'
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-0 w-full">
-                      <div className={cn(
-                        "w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0",
-                        isCompleted ? 'bg-green-500 text-white' :
-                        isInProgress ? 'bg-blue-500 text-white' :
-                        isExpired ? 'bg-red-400 text-white' :
-                        i === 0 ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
-                      )}>
-                        {isCompleted ? <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" /> :
-                         isInProgress ? <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" /> :
-                         isExpired ? <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5" /> :
-                         <span className="text-xs sm:text-sm font-bold">{i + 1}</span>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight break-words line-clamp-2">{mission.title}</p>
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-3 mt-1">
-                          {mission.deadlineAt && !isCompleted && !isExpired ? (
-                            <TaskCountdown deadlineAt={mission.deadlineAt} active />
-                          ) : (
-                            <span className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1">
-                              <Clock className="w-3 h-3 shrink-0" /> {mission.estimatedMinutes}
-                            </span>
-                          )}
-                          <span className="text-[11px] sm:text-xs text-amber-600 font-bold flex items-center gap-1">
-                            <Target className="w-3 h-3 shrink-0" /> {mission.reward}
-                          </span>
-                          {mission.rewardCouponEnabled && !mission.rewardCoupon && (
-                            <span className="text-[10px] sm:text-xs text-emerald-600 font-bold flex items-center gap-1">
-                              <Gift className="w-3 h-3 shrink-0" /> Coupon reward
-                            </span>
-                          )}
-                          {mission.rewardCoupon && (
-                            <span className="text-[10px] sm:text-xs text-emerald-700 font-black flex items-center gap-1 font-mono">
-                              <Gift className="w-3 h-3 shrink-0" /> {mission.rewardCoupon.code}
-                            </span>
-                          )}
-                          {mission.system && (
-                            <span className="text-[10px] sm:text-xs text-sky-600 font-bold truncate max-w-[90px] sm:max-w-none">{mission.system}</span>
-                          )}
-                          {isLinkTask && !isCompleted && !isExpired && (
-                            <span className="text-[10px] sm:text-xs text-blue-600 font-bold flex items-center gap-1">
-                              <ExternalLink className="w-3 h-3 shrink-0" /> Open the link, then mark complete
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto mt-1 sm:mt-0 min-w-0">
-                      {st === 'not_started' && (
-                        isLinkTask ? (
-                          <button onClick={() => openTaskLink(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm max-w-full">
-                            <ExternalLink className="w-3 h-3 shrink-0" /> <span className="truncate">{mission.actionLabel || 'Open link'}</span>
-                          </button>
-                        ) : (
-                          <button onClick={() => handleStart(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-orange-500 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-orange-600 transition-colors shadow-sm max-w-full">
-                            <Play className="w-3 h-3 shrink-0" /> <span className="truncate">Start Now</span>
-                          </button>
-                        )
-                      )}
-                      {isInProgress && (
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                          <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2 bg-blue-100 text-blue-700 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold flex-1 sm:flex-none">
-                            <RotateCcw className="w-3 h-3 animate-spin" /> In Progress
-                          </span>
-                          {isLinkTask ? (
-                            <>
-                              <button
-                                onClick={() => openTaskLink(mission)}
-                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
-                              >
-                                <span>{mission.actionLabel || 'Open link'}</span> <ExternalLink className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => markComplete(mission, hasApiTasks)}
-                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm"
-                              >
-                                <CheckCircle2 className="w-3 h-3" /> Mark Complete
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => handleGoToAction(mission)}
-                                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-3.5 py-2 sm:py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
-                              >
-                                {isApiExternal ? (
-                                  <><span>Open {mission.externalAppName || 'App'}</span> <ExternalLink className="w-3 h-3" /></>
-                                ) : (
-                                  <><span>Continue</span> <ArrowRight className="w-3 h-3" /></>
-                                )}
-                              </button>
-                              {isApiExternal && (
-                                <button onClick={() => markComplete(mission, hasApiTasks)} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1 px-4 py-2 sm:py-2 bg-emerald-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-emerald-700 transition-colors shadow-sm">
-                                  <CheckCircle2 className="w-3 h-3" /> Complete
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                      {isCompleted && (
-                        <span className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-4 py-2 sm:py-2 bg-green-100 text-green-700 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Completed
-                        </span>
-                      )}
-                      {isExpired && (
-                        <span className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-4 py-2 sm:py-2 bg-red-100 text-red-700 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold">
-                          <AlertCircle className="w-3.5 h-3.5" /> Expired
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {taskGroups.expired.length > 0 && (
+                <ProgrammeTaskGroup
+                  title="Expired tasks"
+                  hint="Deadline passed before completion"
+                  count={taskGroups.expired.length}
+                  tone="expired"
+                  icon={AlertCircle}
+                >
+                  {taskGroups.expired.map((mission: any) => (
+                    <ProgrammeTaskRow
+                      key={mission.id}
+                      mission={mission}
+                      status={mission.status}
+                      hasApiTasks={hasApiTasks}
+                      onStart={handleStart}
+                      onOpenLink={openTaskLink}
+                      onContinue={handleGoToAction}
+                      onComplete={(m) => markComplete(m, hasApiTasks)}
+                    />
+                  ))}
+                </ProgrammeTaskGroup>
+              )}
+
+              {taskGroups.completed.length > 0 && (
+                <ProgrammeTaskGroup
+                  title="Completed tasks"
+                  hint="Rewards already claimed"
+                  count={taskGroups.completed.length}
+                  tone="completed"
+                  icon={CheckCircle2}
+                >
+                  {taskGroups.completed.map((mission: any) => (
+                    <ProgrammeTaskRow
+                      key={mission.id}
+                      mission={mission}
+                      status={mission.status}
+                      hasApiTasks={hasApiTasks}
+                      onStart={handleStart}
+                      onOpenLink={openTaskLink}
+                      onContinue={handleGoToAction}
+                      onComplete={(m) => markComplete(m, hasApiTasks)}
+                    />
+                  ))}
+                </ProgrammeTaskGroup>
+              )}
             </div>
           )}
         </motion.div>

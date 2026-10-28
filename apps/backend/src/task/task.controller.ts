@@ -31,6 +31,7 @@ import {
   AssignTaskDto,
   CreateTaskDefinitionDto,
   QueryAssignmentsDto,
+  QueryProgrammeUsersDto,
   UpdateAssignmentStatusDto,
   UpdateTaskDefinitionDto,
 } from './dto/task.dto';
@@ -160,6 +161,26 @@ export class TaskController {
       ? `${req.user.firstName} ${req.user.lastName || ''}`.trim()
       : req.user?.email || 'Admin';
     return this.taskService.updateAssignmentStatus(assignmentId, dto, adminName);
+  }
+
+  // ─── ADMIN: User Programme Progress ───────────────────
+  @Get('admin/programme/users/progress')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'List businesses and customers with their programme task progress',
+  })
+  @ApiOkResponse({ description: 'Users with task counts (done, expired, outstanding)' })
+  getProgrammeUsersProgress(@Query() query: QueryProgrammeUsersDto) {
+    return this.taskService.getProgrammeUsersProgress(query);
+  }
+
+  @Get('admin/programme/users/:userId/tasks')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Get the full programme task breakdown for one user' })
+  @ApiOkResponse({ description: 'Tasks grouped-ready with status, deadlines, and rewards' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  getProgrammeUserTasks(@Param('userId') userId: string) {
+    return this.taskService.getProgrammeUserTasks(userId);
   }
 
   // ─── USER-FACING: My Assigned Tasks ───────────────────

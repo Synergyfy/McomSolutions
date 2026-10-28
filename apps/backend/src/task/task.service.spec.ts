@@ -32,9 +32,12 @@ describe('TaskService', () => {
       update: jest.fn(),
       updateMany: jest.fn(),
       aggregate: jest.fn(),
+      groupBy: jest.fn(),
     },
     user: {
       findMany: jest.fn(),
+      findUnique: jest.fn(),
+      count: jest.fn(),
     },
     ssoClient: {
       findUnique: jest.fn(),
@@ -479,6 +482,151 @@ describe('TaskService', () => {
           status: TaskAssignmentStatus.EXPIRED,
         },
       });
+    });
+  });
+
+  describe('getProgrammeUsersProgress', () => {
+    it('rolls up per-user task counts and treats overdue open tasks as expired', async () => {
+      mockPrisma.user.count.mockResolvedValue(1);
+      mockPrisma.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          email: 'owner@acme.test',
+          firstName: 'Ada',
+          lastName: 'Obi',
+          role: Role.BUSINESS,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          businessProfile: {
+            businessName: 'Acme Ltd',
+            logoUrl: null,
+            category: 'Retail',
+            membershipLevel: 'Bronze',
+            membershipTier: 'Normal',
+            membershipStatus: 'active',
+          },
+          customerProfile: null,
+        },
+      ]);
+      mockPrisma.userTaskAssignment.groupBy
+        .mockResolvedValueOnce([
+          { status: TaskAssignmentStatus.COMPLETED, _count: { _all: 2 } },
+          { status: TaskAssignmentStatus.PENDING, _count: { _all: 1 } },
+        ])
+        .mockResolvedValueOnce([
+          { userId: 'user-1', status: TaskAssignmentStatus.COMPLETED, _count: { _all: 2 } },
+          { userId: 'user-1', status: TaskAssignmentStatus.PENDING, _count: { _all: 1 } },
+        ])
+        .mockResolvedValueOnce([{ userId: 'user-1', _count: { _all: 1 } }]);
+      mockPrisma.userTaskAssignment.count.mockResolvedValue(1);
+
+      const result = await service.getProgrammeUsersProgress({ role: 'ALL', page: 1, limit: 20 });
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({
+        id: 'user-1',
+        name: 'Acme Ltd',
+        completed: 2,
+        pending: 1,
+        expired: 1,
+        overdue: 1,
+        outstanding: 0,
+        totalTasks: 3,
+        progress: 67,
+      });
+      expect(result.summary).toMatchObject({ completed: 2, pending: 1, overdue: 1, outstanding: 0 });
+    });
+  });
+
+  describe('getProgrammeUserTasks', () => {
+    it('returns the task breakdown and marks past-deadline open tasks as expired', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'owner@acme.test',
+        firstName: 'Ada',
+        lastName: 'Obi',
+        role: Role.BUSINESS,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        businessProfile: {
+          businessName: 'Acme Ltd',
+          logoUrl: null,
+          category: 'Retail',
+          membershipLevel: 'Bronze',
+          membershipTier: 'Normal',
+          membershipStatus: 'active',
+        },
+        customerProfile: null,
+      });
+      mockPrisma.userTaskAssignment.findMany.mockResolvedValue([
+        {
+          id: 'assignment-1',
+          taskId: 'task-1',
+          userId: 'user-1',
+          status: TaskAssignmentStatus.PENDING,
+          assignedAt: new Date('2026-01-01T00:00:00.000Z'),
+          deadlineAt: new Date('2026-01-02T00:00:00.000Z'),
+          completedAt: null,
+          rewardGranted: false,
+          rewardPoints: 50,
+          task: {
+            title: 'Upload logo',
+            description: 'Add your logo',
+            featureKey: 'business.logo_uploaded',
+            taskSource: TaskSource.INTERNAL,
+            platform: 'mcom_central',
+            externalAppName: null,
+            submissionType: TaskSubmissionType.AUTO,
+            actionUrl: null,
+            actionLabel: null,
+            deadlineDays: 7,
+            rewardCouponEnabled: false,
+          },
+          rewardCoupon: null,
+        },
+        {
+          id: 'assignment-2',
+          taskId: 'task-2',
+          userId: 'user-1',
+          status: TaskAssignmentStatus.COMPLETED,
+          assignedAt: new Date('2026-01-01T00:00:00.000Z'),
+          deadlineAt: new Date('2026-01-05T00:00:00.000Z'),
+          completedAt: new Date('2026-01-03T00:00:00.000Z'),
+          rewardGranted: true,
+          rewardPoints: 30,
+          task: {
+            title: 'Link socials',
+            description: 'Connect social accounts',
+            featureKey: 'business.social_linked',
+            taskSource: TaskSource.INTERNAL,
+            platform: 'mcom_central',
+            externalAppName: null,
+            submissionType: TaskSubmissionType.AUTO,
+            actionUrl: null,
+            actionLabel: null,
+            deadlineDays: 7,
+            rewardCouponEnabled: false,
+          },
+          rewardCoupon: null,
+        },
+      ]);
+
+      const result = await service.getProgrammeUserTasks('user-1');
+
+      expect(result.user).toMatchObject({ id: 'user-1', name: 'Acme Ltd' });
+      expect(result.data[0].status).toBe(TaskAssignmentStatus.EXPIRED);
+      expect(result.data[1].status).toBe(TaskAssignmentStatus.COMPLETED);
+      expect(result.summary).toMatchObject({
+        total: 2,
+        completed: 1,
+        expired: 1,
+        pending: 0,
+        outstanding: 0,
+        progress: 50,
+      });
+    });
+
+    it('throws when the user does not exist', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.getProgrammeUserTasks('missing')).rejects.toThrow('User not found');
     });
   });
 });

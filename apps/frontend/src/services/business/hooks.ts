@@ -1,12 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessApi } from './index';
+import { apiClient } from '../api';
 import type { CreateSupportTicket } from '../../types/contracts';
 
-export const useProfile = () => {
+export const useProfile = (enabled = true) => {
   return useQuery({
     queryKey: ['profile'],
     queryFn: () => businessApi.getProfile(),
     staleTime: 1000 * 60 * 5, // 5 minutes
+    enabled,
+  });
+};
+
+/**
+ * Public programme access policy. Used by the product directory to work out
+ * whether a business is still inside its free trial window.
+ */
+export const useProgrammeAccessPolicy = (enabled = true) => {
+  return useQuery({
+    queryKey: ['programme-access-policy'],
+    queryFn: async () => {
+      const res = await apiClient.get('/programme/settings');
+      return res.data?.data ?? res.data ?? {};
+    },
+    staleTime: 1000 * 60 * 5,
+    enabled,
+    retry: false,
   });
 };
 
