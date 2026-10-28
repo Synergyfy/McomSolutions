@@ -27,6 +27,21 @@ export interface BusinessAccessPlan {
   createdAt?: string
 }
 
+export interface McomRewardsAccessPassPlan {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  price: number | string
+  currency: string
+  durationDays: number
+  features: string[]
+  configuration: Record<string, unknown>
+  isActive: boolean
+  purchaseEnabled: boolean
+  codeRedemptionEnabled: boolean
+}
+
 export interface BusinessAccessPurchase {
   id: string
   accessPlanId: string
@@ -78,6 +93,11 @@ export interface AccessMembershipConflict {
 }
 
 export const accessApi = {
+  getMcomRewardsAccessPassPlans: async () => {
+    const res = await apiClient.get('/access/rewards-passes')
+    return res.data as { success: boolean; data: McomRewardsAccessPassPlan[] }
+  },
+
   getPlans: async () => {
     const res = await apiClient.get('/access/plans')
     return res.data as { success: boolean; data: BusinessAccessPlan[] }

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronRight, ChevronLeft, Upload, Check,
+  ChevronRight, ChevronLeft, Upload, Check, KeyRound,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
@@ -12,9 +12,13 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
 import { businessApi } from '../../services/business';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../../services/auth/hooks';
-import { usePricing, ICON_MAP, SubTier, PricingPlan } from '../../context/PricingContext';
+import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { pricingApi } from '../../services/pricing';
+import { usePlans } from '../../services/pricing/hooks';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
+import { useAccessPlans, useRedeemAccessCode } from '../../services/access/hooks';
+import type { BusinessAccessPlan } from '../../services/access';
+import AccessPassPaymentModal from '../../components/payment/AccessPassPaymentModal';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/payment/MembershipPaymentModal';
 import VerificationPaymentModal from '../../components/payment/VerificationPaymentModal';
@@ -86,24 +90,6 @@ const UserRole = {
   AGENT: 'AGENT' as const,
   OWNER: 'OWNER' as const,
 };
-
-const DEFAULT_MCOM_MEMBERSHIP_PLANS: Array<Partial<PricingPlan> & Pick<PricingPlan, 'id' | 'name' | 'description' | 'price' | 'monthlyPrice' | 'features' | 'iconName' | 'color' | 'whoItIsFor'>> = [
-  {
-    id: 'Bronze', name: 'Bronze', description: 'Perfect for local brands and new startups.',
-    whoItIsFor: 'New businesses', iconName: 'Building2', color: 'border-orange-200 text-orange-700 bg-orange-50',
-    price: 10, monthlyPrice: 10, features: ['Basic Dashboard', 'Local Directory Listing', 'Ecosystem Access'],
-  },
-  {
-    id: 'Silver', name: 'Silver', description: 'Advanced tools for growing teams.',
-    whoItIsFor: 'Growing businesses', iconName: 'Zap', color: 'border-blue-200 text-blue-700 bg-blue-50',
-    price: 75, monthlyPrice: 75, features: ['Standard Dashboard', 'Campaign Priority', 'Multi-Territory'],
-  },
-  {
-    id: 'Gold', name: 'Gold', description: 'Scale your operations with priority access.',
-    whoItIsFor: 'Scaling businesses', iconName: 'Star', color: 'border-amber-200 text-amber-700 bg-amber-50',
-    price: 350, monthlyPrice: 350, features: ['Full Dashboard', 'Cross-Platform Priority', 'AI Business Copilot'],
-  },
-];
 
 const formatMembershipPrice = (value: number) => value.toLocaleString('en-GB', {
   minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
@@ -534,6 +520,8 @@ const BOROUGH_DATA: Record<string, {
 function BusinessOnboardingInner() {
   const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
   const { plans } = usePricing();
+  const membershipPlansQuery = usePlans();
+  const { mutateAsync: redeemAccessCode, isPending: isRedeemingAccessCode } = useRedeemAccessCode();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -674,6 +662,11 @@ function BusinessOnboardingInner() {
   const router = useRouter();
   const logout = useLogout();
   const [searchParams] = useSearchParams();
+  // Direct preview link for the access-selection screen. This intentionally
+  // bypasses earlier onboarding steps and any saved draft restoration.
+  const demoMode = searchParams.get('demo');
+  const isAccessSelectionDemo = demoMode === 'access' || demoMode === 'passes';
+  const isAccessPassDemo = demoMode === 'passes';
 
   // "Already have an account? Log in here" must not send the user back to
   // onboarding after signing in. Carry only real SSO intent — never the
@@ -846,6 +839,28 @@ function BusinessOnboardingInner() {
     localStorage.setItem('firstDashboardLogin', 'true');
     setProgrammeStarted();
     await performSSORedirect('/dashboard');
+  };
+
+  const handleAccessCodeRedeem = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = accessCode.trim();
+    if (!code) {
+      setAccessCodeError('Enter your access code to continue.');
+      return;
+    }
+
+    setAccessCodeError(null);
+    try {
+      await redeemAccessCode(code);
+      await completeOnboardingAndEnterDashboard();
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setAccessCodeError(
+        Array.isArray(message)
+          ? message.join(' ')
+          : message || 'We could not redeem that code. Check it and try again.',
+      );
+    }
   };
 
   const dispatch = useDispatch();
@@ -1506,8 +1521,15 @@ function BusinessOnboardingInner() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
   // ─── Post-Quest Screens (Steps 5-6) ──────────────────
-  const [showProgrammeIntro, setShowProgrammeIntro] = useState(false);
+  const [showProgrammeIntro, setShowProgrammeIntro] = useState(isAccessSelectionDemo);
   const [showChoosePlan, setShowChoosePlan] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessCodeError, setAccessCodeError] = useState<string | null>(null);
+  const [showRewardsAccessPasses, setShowRewardsAccessPasses] = useState(isAccessPassDemo);
+  const accessPassesQuery = useAccessPlans(showProgrammeIntro && showRewardsAccessPasses);
+  const availableAccessPasses = (accessPassesQuery.data?.data ?? []).filter((pass) => !pass.archived);
+  const [selectedAccessPass, setSelectedAccessPass] = useState<BusinessAccessPlan | null>(null);
+  const [selectedMembershipTier, setSelectedMembershipTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
 
   // Backend enforces a 60s OTP cooldown; mirror it in the UI so resend
@@ -1873,6 +1895,16 @@ function BusinessOnboardingInner() {
     setIsClient(true);
     try {
       const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : searchParams;
+      const demoMode = urlParams.get('demo');
+      if (demoMode === 'access' || demoMode === 'passes') {
+        setShowInitialPrompt(false);
+        setShowProgrammeIntro(true);
+        setShowRewardsAccessPasses(demoMode === 'passes');
+        setShowChoosePlan(false);
+        setShowVerificationModal(false);
+        return;
+      }
+
       const clientId = urlParams.get('client_id') || searchParams.get('client_id');
       const source = urlParams.get('source') || searchParams.get('source');
       const redirectUri = urlParams.get('redirect_uri') || searchParams.get('redirect_uri');
@@ -4971,9 +5003,156 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   // Step 5 — Programme Introduction (mandatory)
   // ═══════════════════════════════════════════════════════
+  if (showProgrammeIntro && showRewardsAccessPasses) {
+    return (
+      <div className="registration-page relative min-h-dvh overflow-x-hidden bg-slate-50 px-4 py-6 font-sans sm:px-6 sm:py-9 lg:px-8">
+        <ChsLogoPattern className="fixed !opacity-[0.04]" />
+        <main className="relative z-10 mx-auto w-full max-w-6xl">
+          <button
+            type="button"
+            onClick={() => setShowRewardsAccessPasses(false)}
+            className="mb-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200 hover:text-orange-700"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to access options
+          </button>
+
+          <header className="mx-auto mb-8 max-w-3xl text-center sm:mb-10">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
+              <Layers className="h-6 w-6" />
+            </div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">One-time business access</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Choose an access pass</h1>
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
+              Each pass provides the platforms and access period configured by CHS. Buy a pass for your business with a one-time card payment.
+            </p>
+            {isAccessSelectionDemo && !hasToken && (
+              <p className="mx-auto mt-3 max-w-2xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs leading-5 text-blue-800 sm:text-sm">
+                Demo preview: you can explore the available passes. Completing a purchase requires a signed-in business account.
+              </p>
+            )}
+          </header>
+
+          {accessPassesQuery.isLoading ? (
+            <div role="status" className="mx-auto flex min-h-48 max-w-5xl items-center justify-center gap-3 rounded-3xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
+              <RefreshCw className="h-5 w-5 animate-spin text-orange-600" /> Loading available access passes…
+            </div>
+          ) : accessPassesQuery.isError ? (
+            <section role="alert" className="mx-auto max-w-3xl rounded-3xl border border-red-200 bg-white p-6 text-center shadow-sm sm:p-9">
+              <AlertCircle className="mx-auto mb-3 h-9 w-9 text-red-500" />
+              <h2 className="text-xl font-bold text-slate-900">Access passes couldn’t be loaded</h2>
+              <p className="mt-2 text-sm text-slate-600">Please try again. Your trial and access-code options are still available.</p>
+              <button
+                type="button"
+                onClick={() => { void accessPassesQuery.refetch(); }}
+                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+              >
+                <RefreshCw className="h-4 w-4" /> Try again
+              </button>
+            </section>
+          ) : availableAccessPasses.length === 0 ? (
+            <section className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-9">
+              <Layers className="mx-auto mb-3 h-9 w-9 text-slate-400" />
+              <h2 className="text-xl font-bold text-slate-900">No access passes available</h2>
+              <p className="mt-2 text-sm text-slate-600">There are no active access passes configured right now. You can return to the access options to start a trial or redeem a code.</p>
+            </section>
+          ) : (
+            <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-stretch gap-5 sm:gap-6 lg:grid-cols-2 xl:grid-cols-3">
+              {availableAccessPasses.map((pass, index) => (
+                <motion.article
+                  key={pass.id}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05, duration: 0.25 }}
+                  className="flex min-h-[360px] flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_18px_40px_rgba(15,23,42,0.1)] sm:p-7"
+                >
+                  <div className="mb-5 flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-50 to-orange-100 text-orange-700 ring-1 ring-orange-100">
+                        <Layers className="h-5 w-5" strokeWidth={2.25} />
+                      </span>
+                      <div className="min-w-0">
+                        {pass.badge && <span className="mb-1.5 inline-block rounded-full bg-orange-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-orange-700">{pass.badge}</span>}
+                        <h2 className="text-lg font-extrabold leading-snug text-slate-950 sm:text-xl">{pass.name}</h2>
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700">
+                      {pass.durationDays} days
+                    </span>
+                  </div>
+
+                  <p className="mb-5 min-h-10 text-sm leading-6 text-slate-600">
+                    {pass.description || 'Business access pass configured by CHS.'}
+                  </p>
+
+                  {pass.appBundles && pass.appBundles.length > 0 && (
+                    <div className="mb-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                      <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Included platform access</p>
+                      <ul className="space-y-2">
+                        {pass.appBundles.map((bundle, bundleIndex) => (
+                          <li key={bundle.id || `${pass.id}-bundle-${bundleIndex}`} className="flex items-start gap-2.5 text-sm font-medium text-slate-700">
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                            <span>{bundle.platform}{bundle.packageName ? ` · ${bundle.packageName}` : ''}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {pass.features?.length > 0 && (
+                    <div className="mb-5 flex-1">
+                      <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Pass benefits</p>
+                      <ul className="space-y-2">
+                        {pass.features.map((feature, featureIndex) => (
+                          <li key={`${pass.id}-feature-${featureIndex}`} className="flex items-start gap-2.5 text-sm leading-5 text-slate-600">
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> {feature}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="mt-auto border-t border-slate-100 pt-5">
+                    <div className="mb-4 flex items-end justify-between gap-3 rounded-2xl bg-orange-50/70 px-4 py-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">One-time payment</p>
+                        <p className="mt-0.5 text-xs text-slate-500">No auto-renewal</p>
+                      </div>
+                      <span className="shrink-0 text-2xl font-black tracking-tight text-slate-950">£{Number(pass.price).toFixed(2)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAccessPass(pass)}
+                      className="inline-flex min-h-12 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white shadow-md shadow-orange-600/15 transition hover:bg-orange-700 hover:shadow-lg"
+                    >
+                      Buy for my business <ArrowRight className="h-4 w-4 shrink-0" />
+                    </button>
+                  </div>
+                </motion.article>
+              ))}
+            </div>
+          )}
+
+          <p className="mt-7 text-center text-xs text-slate-500">Have a code already? Return to the access options to redeem it.</p>
+        </main>
+
+        {selectedAccessPass && (
+          <AccessPassPaymentModal
+            plan={selectedAccessPass}
+            onboarding
+            onClose={() => setSelectedAccessPass(null)}
+            onSuccess={() => {
+              setSelectedAccessPass(null);
+              void completeOnboardingAndEnterDashboard();
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   if (showProgrammeIntro) {
     return (
-      <div className="registration-page relative flex min-h-dvh items-center overflow-x-hidden bg-[#fafafa] px-4 py-8 font-sans sm:px-6 sm:py-12 lg:px-8">
+      <div className="registration-page relative min-h-dvh overflow-x-hidden bg-[#fafafa] px-4 py-8 font-sans sm:px-6 sm:py-12 lg:px-8">
         <ChsLogoPattern className="fixed !opacity-[0.055]" />
         <main className="relative z-10 mx-auto w-full max-w-6xl">
           <motion.header
@@ -4983,99 +5162,154 @@ function BusinessOnboardingInner() {
             className="mx-auto mb-8 max-w-3xl text-center sm:mb-10"
           >
             <img src="/chs-icon.png" alt="Central Hub Solutions" className="mx-auto mb-4 h-11 w-11 object-contain" />
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Your next 90 days</p>
+            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Your next step</p>
             <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Business Success Programme</h1>
             <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
-              A practical programme to help you build your business presence, strengthen customer relationships and find new opportunities across MCOM.
+              Choose how your business will access the programme and MCOM services. Start with a trial, redeem an access code, browse access passes, or select a membership.
             </p>
+            {isAccessSelectionDemo && !hasToken && (
+              <p className="mx-auto mt-3 max-w-2xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs leading-5 text-blue-800 sm:text-sm">
+                Demo preview: you can explore the options here. Redeeming a code or completing a purchase requires a signed-in business account.
+              </p>
+            )}
           </motion.header>
 
-          <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)] lg:gap-6">
+          <div className="grid items-stretch gap-4 lg:grid-cols-3 lg:gap-5">
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.4 }}
-              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
             >
-              <div className="mb-5 sm:mb-6">
-                <h2 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">What we’ll work on together</h2>
-                <p className="mt-1.5 text-sm leading-6 text-slate-500">Your dashboard will guide you through each part at a manageable pace.</p>
+              <div className="mb-5 flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-orange-700"><Clock className="h-5 w-5" /></span>
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Start with a trial</h2>
+                  <p className="text-sm text-slate-500">Begin the configured trial period</p>
+                </div>
               </div>
-              <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
-                {[
-                  'Build your digital business profile',
-                  'Strengthen your brand',
-                  'Increase customer loyalty',
-                  'Expand your business network',
-                  'Improve your online presence',
-                  'Prepare for a professional Business Audit',
-                  'Receive personalised recommendations for growth',
-                ].map((item, i) => (
-                  <motion.div
-                    key={item}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.16 + i * 0.045, duration: 0.25 }}
-                    className="flex min-h-[58px] items-center gap-3 rounded-2xl border border-orange-100/80 bg-orange-50/55 px-3.5 py-3 sm:px-4"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-orange-600 ring-1 ring-orange-100">
-                      <Check className="h-4 w-4" strokeWidth={2.5} />
-                    </span>
-                    <span className="text-sm font-medium leading-5 text-slate-700">{item}</span>
-                  </motion.div>
-                ))}
+              <p className="mb-5 text-sm leading-6 text-slate-600">
+                {verificationRequired
+                  ? `Complete the one-time £${verificationFeeAmount.toFixed(2)} business verification payment to start your ${trialConfigDays}-day trial.`
+                  : `Start your ${trialConfigDays}-day trial. Business verification is currently optional.`}
+              </p>
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProgrammeIntro(false);
+                    if (verificationRequired) setShowVerificationModal(true);
+                    else setShowChoosePlan(true);
+                  }}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-orange-600/15 transition-colors hover:bg-orange-700"
+                >
+                  {verificationRequired ? `Verify & start ${trialConfigDays}-day trial` : `Start ${trialConfigDays}-day trial`}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+                <p className="mt-3 text-center text-xs text-slate-500">
+                  {verificationRequired ? 'Secure one-time verification payment' : 'No verification payment is required'}
+                </p>
               </div>
             </motion.section>
 
-            <motion.aside
+            <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.18, duration: 0.4 }}
-              className="flex flex-col rounded-3xl border border-orange-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+              transition={{ delay: 0.16, duration: 0.4 }}
+              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
             >
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-orange-700">
-                <span className="h-2 w-2 rounded-full bg-orange-500" />
-                Flexible timeframe
+              <div className="mb-5 flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><KeyRound className="h-5 w-5" /></span>
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Redeem an access code</h2>
+                  <p className="text-sm text-slate-500">Already have a code? Enter it here.</p>
+                </div>
               </div>
-              <div className="mt-5 border-b border-slate-100 pb-5">
-                <p className="text-5xl font-extrabold tracking-tight text-slate-950 sm:text-6xl">90</p>
-                <p className="mt-1 text-sm font-semibold text-slate-500">days to build momentum</p>
-              </div>
-              <p className="mt-5 text-sm leading-6 text-slate-600">
-                Most businesses complete the programme within 90 days. Some finish in as little as two weeks. Move at your own pace; your dashboard will guide you through each step.
-              </p>
-              <div className="mt-auto pt-7">
-                <motion.button
-                  whileHover={{ y: -1 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    setShowProgrammeIntro(false);
-                    if (verificationRequired) {
-                      setShowVerificationModal(true);
-                    } else {
-                      // Verification is optional — go straight to plan selection
-                      // and let the business start their free trial.
-                      setShowChoosePlan(true);
-                    }
+              <p className="mb-5 text-sm leading-6 text-slate-600">Your code will be checked and, if valid, activate the access pass assigned to it.</p>
+              <form onSubmit={handleAccessCodeRedeem} className="mt-auto space-y-3">
+                <label htmlFor="onboarding-access-code" className="sr-only">Access code</label>
+                <input
+                  id="onboarding-access-code"
+                  type="text"
+                  autoComplete="off"
+                  value={accessCode}
+                  onChange={(event) => {
+                    setAccessCode(event.target.value);
+                    if (accessCodeError) setAccessCodeError(null);
                   }}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-orange-600 px-5 py-4 text-center text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:text-base"
+                  placeholder="Enter your access code"
+                  aria-invalid={Boolean(accessCodeError)}
+                  aria-describedby={accessCodeError ? 'onboarding-access-code-error' : undefined}
+                  className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium uppercase tracking-wider text-slate-900 outline-none transition placeholder:normal-case placeholder:tracking-normal focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
+                />
+                {accessCodeError && <p id="onboarding-access-code-error" role="alert" className="text-sm font-medium text-red-600">{accessCodeError}</p>}
+                <button
+                  type="submit"
+                  disabled={isRedeemingAccessCode || !accessCode.trim()}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-bold text-slate-800 transition-colors hover:border-orange-300 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <span>
-                    {verificationRequired
-                      ? 'Verify Business & Start Trial'
-                      : `Start ${trialConfigDays}-Day Free Trial`}
-                  </span>
-                  <ArrowRight className="h-5 w-5 shrink-0" />
-                </motion.button>
-                <p className="mt-3 text-center text-xs font-medium text-slate-500">
-                  {verificationRequired
-                    ? `One-time verification fee: £${verificationFeeAmount.toFixed(2)}`
-                    : `No card required — ${trialConfigDays} days of full access.`}
-                </p>
+                  {isRedeemingAccessCode ? <><RefreshCw className="h-4 w-4 animate-spin" /> Checking code…</> : <>Redeem code <ArrowRight className="h-4 w-4" /></>}
+                </button>
+              </form>
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowRewardsAccessPasses(true)}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 transition-colors hover:bg-blue-100"
+                >
+                  <Layers className="h-4 w-4" />
+                  Browse access passes
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
-            </motion.aside>
+            </motion.section>
+
+            <motion.section
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.22, duration: 0.4 }}
+              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
+            >
+              <div className="mb-5 flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700"><Crown className="h-5 w-5" /></span>
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Choose a membership</h2>
+                  <p className="text-sm text-slate-500">Compare the available plans</p>
+                </div>
+              </div>
+              <p className="mb-5 text-sm leading-6 text-slate-600">View the membership options configured for your business and continue through the existing secure payment process.</p>
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccessCodeError(null);
+                    setShowProgrammeIntro(false);
+                    setShowChoosePlan(true);
+                  }}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                >
+                  View membership plans <ArrowRight className="h-4 w-4" />
+                </button>
+                <p className="mt-3 text-center text-xs text-slate-500">Membership selection and checkout remain unchanged.</p>
+              </div>
+            </motion.section>
           </div>
+
+          <p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-5 text-slate-500">
+            The Business Success Programme guides you through building your business profile, strengthening your brand and customer relationships, and finding opportunities across MCOM. Your dashboard guides you through the programme at your own pace.
+          </p>
         </main>
+        {selectedAccessPass && (
+          <AccessPassPaymentModal
+            plan={selectedAccessPass}
+            onboarding
+            onClose={() => setSelectedAccessPass(null)}
+            onSuccess={() => {
+              setSelectedAccessPass(null);
+              void completeOnboardingAndEnterDashboard();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -5084,9 +5318,6 @@ function BusinessOnboardingInner() {
   // Step 6 — Choose Annual Plan
   // ═══════════════════════════════════════════════════════
   if (showChoosePlan) {
-    const QUARTERLY_DISCOUNT = 0.1;
-    const YEARLY_DISCOUNT = 0.2;
-
     // Map source param to platform name for external plans
 
     const handlePlatformPlanSelect = async (plan: any, provider: 'stripe' | 'paypal') => {
@@ -5462,18 +5693,19 @@ function BusinessOnboardingInner() {
       );
     }
 
-    // ─── Default MCOM Solutions Membership Plans ────────────────────────────
-    const membershipPlans = DEFAULT_MCOM_MEMBERSHIP_PLANS.map((fallbackPlan) => {
-      const livePlan = plans.find((plan) => (plan.name || plan.id).toLowerCase() === fallbackPlan.name.toLowerCase());
-      return {
-        ...fallbackPlan,
-        ...(livePlan || {}),
-        id: livePlan?.id || fallbackPlan.id,
-        name: fallbackPlan.name,
-        description: livePlan?.description || fallbackPlan.description,
-        features: livePlan?.features?.length ? livePlan.features : fallbackPlan.features,
-      };
+    // Only display memberships configured in Admin Hub and returned by the
+    // active-plan pricing endpoint. Never synthesize plans when the API is empty.
+    const membershipPlans = plans;
+    const membershipPlansForTier = membershipPlans.flatMap((plan) => {
+      const tier = plan.tiers?.find((configuredTier) => configuredTier.tier === selectedMembershipTier);
+      return tier ? [{ plan, tier }] : [];
     });
+    const isLoadingMembershipPlans = membershipPlansQuery.isLoading || (
+      !membershipPlansQuery.isError &&
+      Array.isArray(membershipPlansQuery.data) &&
+      membershipPlansQuery.data.length > 0 &&
+      membershipPlans.length === 0
+    );
 
     return (
       <div className="min-h-screen bg-slate-50 px-3 py-5 sm:px-5 sm:py-8 md:px-6 md:py-10">
@@ -5481,10 +5713,13 @@ function BusinessOnboardingInner() {
           {/* Top Bar Navigation */}
           <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
             <button
-              onClick={handleRestartOnboarding}
+              onClick={() => {
+                setShowChoosePlan(false);
+                setShowProgrammeIntro(true);
+              }}
               className="text-[11px] sm:text-xs md:text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
             >
-              <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Restart
+              <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Back
             </button>
             <button
               onClick={handleLogout}
@@ -5515,47 +5750,64 @@ function BusinessOnboardingInner() {
               </div>
             </motion.div>
 
-            {/* Billing Toggle (Mobile Friendly Horizontal Segmented Control) */}
+            {/* Admin-configured membership duration and pricing tiers */}
             <div className="mt-5 sm:mt-8 flex justify-center w-full">
               <div className="grid grid-cols-3 p-1 bg-gray-200/70 rounded-xl sm:rounded-full w-full max-w-md gap-1 shadow-inner">
-                {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
+                {(['Standard', 'Pro', 'Pro+'] as const).map((tier) => (
                   <button
-                    key={cycle}
-                    onClick={() => setPlanBillingCycle(cycle)}
+                    key={tier}
+                    type="button"
+                    onClick={() => setSelectedMembershipTier(tier)}
+                    aria-pressed={selectedMembershipTier === tier}
                     className={cn(
-                      "py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-full text-[11px] sm:text-xs md:text-sm font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5",
-                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
+                      "py-2.5 px-2 sm:px-4 rounded-lg sm:rounded-full text-xs sm:text-sm font-bold transition-all",
+                      selectedMembershipTier === tier ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
                     )}
                   >
-                    <span>{cycle.charAt(0).toUpperCase() + cycle.slice(1)}</span>
-                    {cycle === 'quarterly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 10%</span>}
-                    {cycle === 'yearly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 20%</span>}
+                    {tier}
                   </button>
                 ))}
               </div>
             </div>
+            <p className="mt-2 text-center text-[11px] sm:text-xs text-slate-500">
+              Each tier shows the duration, price, benefits, and payment options configured by the administrator.
+            </p>
           </div>
 
-          {/* Membership Cards */}
+          {/* Membership cards and API states */}
+          {membershipPlansQuery.isError ? (
+            <section role="alert" className="mx-auto mb-8 max-w-3xl rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-500" />
+              <h2 className="text-lg font-bold text-slate-900">Membership plans couldn’t be loaded</h2>
+              <p className="mt-2 text-sm text-slate-600">Please try again. Your trial and access code options are still available.</p>
+              <button
+                type="button"
+                onClick={() => { void membershipPlansQuery.refetch(); }}
+                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+              >
+                <RefreshCw className="h-4 w-4" /> Try again
+              </button>
+            </section>
+          ) : isLoadingMembershipPlans ? (
+            <div role="status" className="mx-auto mb-8 flex min-h-40 max-w-5xl items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
+              <RefreshCw className="h-5 w-5 animate-spin text-orange-600" /> Loading available memberships…
+            </div>
+          ) : membershipPlans.length === 0 ? (
+            <section className="mx-auto mb-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <Crown className="mx-auto mb-3 h-8 w-8 text-slate-400" />
+              <h2 className="text-lg font-bold text-slate-900">No membership plans available</h2>
+              <p className="mt-2 text-sm text-slate-600">There are no active membership plans configured right now. You can continue with the trial or redeem an access code.</p>
+            </section>
+          ) : membershipPlansForTier.length === 0 ? (
+            <section className="mx-auto mb-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <Crown className="mx-auto mb-3 h-8 w-8 text-slate-400" />
+              <h2 className="text-lg font-bold text-slate-900">No {selectedMembershipTier} memberships available</h2>
+              <p className="mt-2 text-sm text-slate-600">No active membership plan includes this configured tier. Choose another tier or continue with a trial or access pass.</p>
+            </section>
+          ) : (
           <div className="mx-auto mb-8 grid max-w-5xl grid-cols-1 items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6 sm:mb-10">
-            {membershipPlans.map((plan, index) => {
+            {membershipPlansForTier.map(({ plan, tier }, index) => {
               const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
-              const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
-              const calculatedQuarterlyPrice = Math.round(monthlyPrice * 3 * (1 - QUARTERLY_DISCOUNT) * 100) / 100;
-              const calculatedAnnualPrice = Math.round(monthlyPrice * 12 * (1 - YEARLY_DISCOUNT) * 100) / 100;
-              const quarterlyPrice = calculatedQuarterlyPrice;
-              const annualPrice = calculatedAnnualPrice;
-
-              let displayPrice = monthlyPrice;
-              let totalPerCycle = monthlyPrice;
-
-              if (planBillingCycle === 'quarterly') {
-                displayPrice = quarterlyPrice / 3;
-                totalPerCycle = quarterlyPrice;
-              } else if (planBillingCycle === 'yearly') {
-                displayPrice = annualPrice / 12;
-                totalPerCycle = annualPrice;
-              }
               const PlanIcon = ICON_MAP[(plan.iconName || 'Building2') as keyof typeof ICON_MAP] || Building2;
               return (
                 <motion.div
@@ -5599,23 +5851,13 @@ function BusinessOnboardingInner() {
                     </div>
                   </div>
 
-                  {/* Price */}
+                  {/* Admin-configured tier price and duration */}
                   <div className="mb-4 border-b border-dashed border-slate-200 pb-4">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">£{formatMembershipPrice(displayPrice)}</span>
-                      <span className="text-sm font-semibold text-slate-500">/mo</span>
+                      <span className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">£{formatMembershipPrice(Number(tier.fullPrice))}</span>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                      <span>
-                        {planBillingCycle === 'monthly'
-                          ? 'Billed monthly'
-                          : `£${formatMembershipPrice(totalPerCycle)} billed ${planBillingCycle === 'yearly' ? 'annually' : 'every 3 months'}`}
-                      </span>
-                      {planBillingCycle !== 'monthly' && (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
-                          Save {planBillingCycle === 'yearly' ? '20%' : '10%'}
-                        </span>
-                      )}
+                      <span>{tier.durationDays} days of membership access</span>
                     </div>
                   </div>
 
@@ -5653,7 +5895,7 @@ function BusinessOnboardingInner() {
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 sm:text-[11px]">
                       Membership Inclusions:
                     </div>
-                    {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
+                    {(tier.features.length > 0 ? tier.features : plan.features).map((f, i) => (
                       <div key={i} className="flex items-start gap-2">
                         <Check className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
                         <span className="text-sm font-medium leading-snug text-slate-700">{f}</span>
@@ -5661,17 +5903,28 @@ function BusinessOnboardingInner() {
                     ))}
                   </div>
 
+                  {tier.paymentOptions.length > 0 && (
+                    <div className="mb-4 flex flex-wrap gap-1.5">
+                      {tier.paymentOptions.map((option) => (
+                        <span key={option.paymentPlan} className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                          {option.paymentPlan === 'full' ? 'Pay in full' : option.paymentPlan === 'halfYearly' ? 'Every 6 months' : `Pay ${option.paymentPlan}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Action Button */}
                   <button
                     onClick={() => {
                       setSelectedMembershipForPayment({
                         id: plan.id,
                         name: plan.name,
-                        price: monthlyPrice,
-                        billingCycle: planBillingCycle,
-                        totalPerCycle: totalPerCycle,
+                        price: Number(tier.fullPrice),
+                        billingCycle: 'monthly',
+                        totalPerCycle: Number(tier.fullPrice),
                         description: plan.description,
                         includedApps: plan.includedApps,
+                        selectedTier: selectedMembershipTier,
                       });
                       setShowMembershipPaymentModal(true);
                     }}
@@ -5680,12 +5933,13 @@ function BusinessOnboardingInner() {
                       isGold ? "bg-slate-950 text-white shadow-slate-900/15 hover:bg-slate-800" : "bg-orange-600 text-white shadow-orange-600/20 hover:bg-orange-700"
                     )}
                   >
-                    Select {plan.name} Membership
+                    Continue with {plan.name} · {selectedMembershipTier}
                   </button>
                 </motion.div>
               );
             })}
           </div>
+          )}
 
           <p className="text-center text-[11px] sm:text-xs text-gray-500 font-medium">All tiers include the 90-Day Business Success Programme and digital business storefront</p>
 

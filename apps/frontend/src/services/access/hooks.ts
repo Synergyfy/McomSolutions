@@ -7,12 +7,23 @@ export const accessQueryKeys = {
   conflict: (accessPlanId: string) => ['access', 'conflict', accessPlanId] as const,
   purchases: () => ['access', 'purchases'] as const,
   codes: () => ['access', 'codes'] as const,
+  rewardsPasses: () => ['access', 'mcom-rewards-passes'] as const,
 }
 
-export const useAccessPlans = () =>
+export const useMcomRewardsAccessPassPlans = (enabled: boolean) =>
+  useQuery({
+    queryKey: accessQueryKeys.rewardsPasses(),
+    queryFn: () => accessApi.getMcomRewardsAccessPassPlans(),
+    enabled,
+    staleTime: 60 * 1000,
+    retry: false,
+  })
+
+export const useAccessPlans = (enabled = true) =>
   useQuery({
     queryKey: accessQueryKeys.plans(),
     queryFn: () => accessApi.getPlans(),
+    enabled,
     staleTime: 60 * 1000,
   })
 
