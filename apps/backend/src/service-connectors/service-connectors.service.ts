@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { ConnectorFactory } from './connectors/connector.factory';
-import { McomRewardsConnector } from './connectors/mcom-rewards.connector';
 import {
   ExternalPlan,
   ExternalSeason,
@@ -11,14 +10,7 @@ import {
 
 @Injectable()
 export class ServiceConnectorsService {
-  constructor(
-    private readonly connectorFactory: ConnectorFactory,
-    private readonly mcomRewardsConnector: McomRewardsConnector,
-  ) {}
-
-  getMcomRewardsAccessPassPlans() {
-    return this.mcomRewardsConnector.getAccessPassPlans();
-  }
+  constructor(private readonly connectorFactory: ConnectorFactory) {}
 
   async createPlan(platform: string, input: CreateExternalPlanInput): Promise<ExternalPlan> {
     const connector = await this.connectorFactory.getConnector(platform)

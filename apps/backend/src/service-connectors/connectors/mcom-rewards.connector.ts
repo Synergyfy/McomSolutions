@@ -10,23 +10,6 @@ import {
   PlanSchema,
 } from './connector.interface';
 
-export interface McomRewardsAccessPassPlan {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  price: number | string;
-  currency: string;
-  durationDays: number;
-  features: string[];
-  configuration: Record<string, unknown>;
-  isActive: boolean;
-  purchaseEnabled: boolean;
-  codeRedemptionEnabled: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 @Injectable()
 export class McomRewardsConnector implements ServiceConnector {
   readonly platform = 'MCOM Rewards'
@@ -35,7 +18,7 @@ export class McomRewardsConnector implements ServiceConnector {
   private readonly baseUrl: string
 
   constructor(private config: ConfigService) {
-    this.baseUrl = (this.config.get<string>('MCOM_REWARDS_API_URL') || 'http://localhost:4000').replace(/\/+$/, '')
+    this.baseUrl = this.config.get<string>('MCOM_REWARDS_API_URL') || 'http://localhost:4000'
     const apiKey = this.config.get<string>('MCOM_REWARDS_API_KEY') || ''
 
     this.httpClient = axios.create({
@@ -165,29 +148,6 @@ export class McomRewardsConnector implements ServiceConnector {
     } catch (error) {
       this.handleError(error)
     }
-  }
-
-  async getAccessPassPlans(): Promise<McomRewardsAccessPassPlan[]> {
-    let responseData: unknown;
-    try {
-      const response = await this.httpClient.get('/access-passes/plans');
-      responseData = response.data;
-    } catch (error) {
-      this.handleError(error);
-    }
-
-    const plans = Array.isArray(responseData)
-      ? responseData
-      : (responseData as { data?: unknown } | null)?.data;
-
-    if (!Array.isArray(plans)) {
-      throw new HttpException(
-        'MCOM Rewards returned an invalid access pass catalogue',
-        HttpStatus.BAD_GATEWAY,
-      );
-    }
-
-    return plans as McomRewardsAccessPassPlan[];
   }
 
   async getPlanById(id: string): Promise<ExternalPlan> {

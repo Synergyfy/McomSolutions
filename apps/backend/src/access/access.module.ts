@@ -6,10 +6,9 @@ import { WalletModule } from '../wallet/wallet.module';
 import { MailModule } from '../common/mail/mail.module';
 import { AccessController } from './access.controller';
 import { AccessService } from './access.service';
-import { ServiceConnectorsModule } from '../service-connectors/service-connectors.module';
 
 @Module({
-  imports: [AuthModule, CouponModule, PrismaModule, WalletModule, MailModule, ServiceConnectorsModule],
+  imports: [AuthModule, CouponModule, PrismaModule, WalletModule, MailModule],
   controllers: [AccessController],
   providers: [AccessService],
   exports: [AccessService],

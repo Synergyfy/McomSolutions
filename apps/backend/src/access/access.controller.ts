@@ -14,26 +14,12 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AccessService } from './access.service';
-import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { AccessCouponQuoteDto, RedeemAccessCodeDto } from './dto/access.dto';
 
 @ApiTags('Access')
 @Controller('access')
 export class AccessController {
-  constructor(
-    private readonly accessService: AccessService,
-    private readonly serviceConnectors: ServiceConnectorsService,
-  ) {}
-
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @SkipThrottle()
-  @Get('rewards-passes')
-  @ApiOperation({ summary: 'List active MCOM Rewards access pass plans' })
-  async getMcomRewardsAccessPassPlans() {
-    const data = await this.serviceConnectors.getMcomRewardsAccessPassPlans();
-    return { success: true, data };
-  }
+  constructor(private readonly accessService: AccessService) {}
 
   @SkipThrottle()
   @Get('plans')
