@@ -94,15 +94,57 @@ Authorization: Basic base64(client_id:client_secret)
   "tokenType": "Bearer",
   "user": {
     "id": "uuid",
+    "sub": "uuid",
     "email": "user@example.com",
     "role": "BUSINESS",
+    "profileType": "BUSINESS",
+    "isAffiliate": false,
     "firstName": "Jane",
+    "lastName": "Doe",
+    "fullName": "Jane Doe",
+    "name": "Jane's Shop",
+    "jobTitle": "Managing Director",
+    "phone": "+44 20 1234 5678",
+    "address": "1 High Street, London",
+    "postcode": "EC1A 1BB",
+    "country": "United Kingdom",
+    "businessId": "uuid",
+    "businessName": "Jane's Shop",
+    "avatarUrl": "https://cdn.mcom.com/logo.png",
     "businessProfile": {
       "id": "uuid",
       "businessName": "Jane's Shop",
+      "businessType": "Limited Company",
+      "country": "United Kingdom",
+      "phone": "+44 20 1234 5678",
+      "email": "hello@janesshop.com",
+      "address": "1 High Street, London",
+      "postcode": "EC1A 1BB",
+      "industry": "Retail",
+      "category": "Fashion",
+      "subCategory": "Womenswear",
+      "description": "Independent womenswear boutique",
+      "website": "https://janesshop.com",
+      "logoUrl": "https://cdn.mcom.com/logo.png",
+      "openingHours": "Mon-Sat 9am-6pm",
+      "socialMedia": "{\"instagram\":\"@janesshop\"}",
       "membershipLevel": "Gold",
+      "membershipTier": "Pro",
       "membershipStatus": "active",
       "membershipPlanName": "Gold",
+      "membershipExpiresAt": "2027-09-14T08:00:00.000Z",
+      "hasPaidVerificationFee": true,
+      "trialAccessExpiresAt": "2026-11-12T08:00:00.000Z",
+      "packages": [
+        {
+          "id": "pkg_123",
+          "platform": "mall",
+          "externalPlanId": "tier-1",
+          "planName": "Standard Plan",
+          "source": "membership",
+          "limits": { "maxProducts": 50 }
+        }
+      ],
       "appPlan": {
         "source": "membership",
         "platform": "MCOM Mall",
@@ -144,6 +186,126 @@ Authorization: Basic base64(client_id:client_secret)
   }
 }
 ```
+
+#### Identity payload (all roles)
+
+`user` always contains the person's identity — `firstName`, `lastName`,
+`fullName`, `email`, `phone`, `jobTitle` — plus one role-specific profile:
+
+| `profileType` | Profile object populated |
+|---|---|
+| `BUSINESS` | `businessProfile` (full business record + address, postcode, country, industry, website, logo, membership, packages) |
+| `CUSTOMER` | `customerProfile` (phone, loyalty points, platform usage, membership status) |
+| `AGENT` (includes affiliate portal users) | `agentProfile` (phone, permissions, status) |
+| `CONSULTANT` | `consultantProfile` (phone, specialisation, status) |
+| `ACCOUNT_MANAGER` | `accountManagerProfile` (phone, assigned businesses, status) |
+| `PARTNER` | No profile object — identity fields only |
+
+`isAffiliate` is `true` for accounts created through an affiliate/partner
+portal. For non-business roles, `name` is the person's full name; for
+businesses it is the business name (use `fullName` for the person).
+
+The same identity shape is returned by `GET /api/v1/auth/sso/userinfo`,
+`GET /api/v1/auth/sso/entitlement` and embedded in the launch token
+(`GET /api/v1/auth/sso/token`).
+
+#### Role response shapes
+
+Branch on `user.profileType`; `businessProfile` is `null` for non-business roles.
+
+```jsonc
+// BUSINESS — merchant/owner (e.g. MCOM Mall vendor)
+{
+  "role": "BUSINESS", "profileType": "BUSINESS", "isAffiliate": false,
+  "firstName": "Jane", "lastName": "Doe", "fullName": "Jane Doe",
+  "name": "Acme Coffee", "email": "owner@acme.com", "jobTitle": "Managing Director",
+  "phone": "+44 20 1234 5678", "address": "1 High Street, London",
+  "postcode": "EC1A 1BB", "country": "United Kingdom",
+  "businessId": "biz_456", "businessName": "Acme Coffee",
+  "businessProfile": {
+    "businessName": "Acme Coffee", "businessType": "Limited Company",
+    "phone": "+44 20 1234 5678", "email": "hello@acmecoffee.co.uk",
+    "address": "1 High Street, London", "postcode": "EC1A 1BB",
+    "country": "United Kingdom", "industry": "Food & Beverage",
+    "category": "Coffee Shop", "website": "https://acmecoffee.co.uk",
+    "logoUrl": "https://cdn.mcom.com/logo.png", "membershipLevel": "Gold",
+    "membershipStatus": "active", "packages": []
+  },
+  "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// CUSTOMER — shopper/consumer (e.g. MCOM Mall buyer)
+{
+  "role": "CUSTOMER", "profileType": "CUSTOMER", "isAffiliate": false,
+  "firstName": "Sam", "lastName": "Lee", "fullName": "Sam Lee", "name": "Sam Lee",
+  "email": "shopper@example.com", "phone": "+44 7700 900999",
+  "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": {
+    "phone": "+44 7700 900999", "loyaltyPoints": 120,
+    "platformUsage": ["mall"], "membershipStatus": "None", "status": "Active"
+  },
+  "agentProfile": null, "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// AGENT — affiliate portal user (e.g. 247GBS affiliate)
+{
+  "role": "AGENT", "profileType": "AGENT", "isAffiliate": true,
+  "firstName": "Ade", "lastName": "Okafor", "fullName": "Ade Okafor",
+  "name": "Ade Okafor", "email": "ade@247gbs.com",
+  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": {
+    "phone": "+44 7700 900123",
+    "permissions": ["view_tasks", "submit_deliverables"], "status": "Active"
+  },
+  "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// CONSULTANT — affiliate portal
+{
+  "role": "CONSULTANT", "profileType": "CONSULTANT", "isAffiliate": true,
+  "firstName": "Mia", "lastName": "Frank", "fullName": "Mia Frank", "name": "Mia Frank",
+  "email": "consultant@247gbs.com", "phone": "+44 7700 900456",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": {
+    "phone": "+44 7700 900456", "specialisation": "Retail Growth", "status": "Active"
+  },
+  "accountManagerProfile": null
+}
+```
+
+```jsonc
+// ACCOUNT_MANAGER — internal/affiliate staff
+{
+  "role": "ACCOUNT_MANAGER", "profileType": "ACCOUNT_MANAGER", "isAffiliate": true,
+  "firstName": "Tunde", "lastName": "Bello", "fullName": "Tunde Bello", "name": "Tunde Bello",
+  "email": "manager@247gbs.com", "phone": "+44 7700 900789",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": {
+    "phone": "+44 7700 900789", "assignedBusinesses": 12, "status": "Active"
+  }
+}
+```
+
+`PARTNER` has no profile object — identity/contact fields only; all five profiles are `null`.
+
+| App type | Expect these `profileType` values | Skip branches for |
+|---|---|---|
+| Merchant/consumer apps (MCOM Mall, Rewards, Spin) | `BUSINESS`, `CUSTOMER` | `AGENT`, `CONSULTANT`, `ACCOUNT_MANAGER`, `PARTNER` |
+| Affiliate/partner portals (247GBS affiliate) | `AGENT`, `CONSULTANT`, `ACCOUNT_MANAGER` (plus `ADMIN` if staff log in) | `BUSINESS`, `CUSTOMER` |
+| Custom ecosystem apps | Any of the above | — |
 
 #### Understanding `appPlan` Entitlement Resolution:
 MCOM Central automatically resolves the merchant's plan for the calling client:
@@ -262,15 +424,33 @@ app.get('/api/auth/callback', async (req, res) => {
         email: user.email,
         firstName: user.firstName || '',
         lastName: user.lastName || '',
-        role: user.role, // e.g. BUSINESS or CUSTOMER
+        role: user.role, // BUSINESS | CUSTOMER | AGENT | CONSULTANT | ACCOUNT_MANAGER | PARTNER
+        phone: user.phone ?? null,
+        jobTitle: user.jobTitle ?? null,
+        address: user.address ?? null,
+        postcode: user.postcode ?? null,
+        country: user.country ?? null,
+        isAffiliate: user.isAffiliate ?? false,
+        mcomUserId: user.id,
+        companyName: user.businessProfile?.businessName ?? null,
+        companyType: user.businessProfile?.businessType ?? null,
+        companyIndustry: user.businessProfile?.industry ?? null,
+        companyWebsite: user.businessProfile?.website ?? null,
+        companyLogo: user.businessProfile?.logoUrl ?? null,
         // Set other default fields
       });
     } else {
-      // Sync names/roles if changed centrally
+      // Sync identity/profile if changed centrally
       await localUser.update({
         firstName: user.firstName || localUser.firstName,
         lastName: user.lastName || localUser.lastName,
-        role: user.role
+        phone: user.phone ?? localUser.phone,
+        address: user.address ?? localUser.address,
+        postcode: user.postcode ?? localUser.postcode,
+        country: user.country ?? localUser.country,
+        isAffiliate: user.isAffiliate ?? localUser.isAffiliate,
+        role: user.role,
+        companyName: user.businessProfile?.businessName ?? localUser.companyName,
       });
     }
 

@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -20,6 +21,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, type CouponChargeQuote } from '../coupon/coupon.service';
+import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { WalletService } from '../wallet/wallet.service';
 import { MailService } from '../common/mail/mail.service';
 
@@ -93,6 +95,8 @@ export class AccessService {
     private readonly couponService: CouponService,
     private readonly walletService: WalletService,
     private readonly mailService: MailService,
+    @Optional()
+    private readonly events?: EcosystemEventsService,
   ) {}
 
   private addDaysUtc(date: Date, days: number): Date {
@@ -543,7 +547,7 @@ export class AccessService {
   }
 
   async createPendingAccessCode(input: {
-    businessId: string;
+    businessId?: string | null;
     userId?: string;
     accessPlanId: string;
     mode: 'GIFT' | 'CODE';
@@ -551,6 +555,8 @@ export class AccessService {
     amount: number;
     currency?: string;
     provider?: string;
+    sourceApp?: string | null;
+    externalRef?: string | null;
   }) {
     const plan = await this.getPlan(input.accessPlanId);
     if (input.mode === 'GIFT' && !input.recipientEmail?.trim()) {
@@ -562,7 +568,7 @@ export class AccessService {
       data: {
         code,
         accessPlanId: plan.id,
-        purchaserBusinessId: input.businessId,
+        purchaserBusinessId: input.businessId ?? null,
         purchaserUserId: input.userId ?? null,
         recipientEmail: input.recipientEmail?.trim().toLowerCase() || null,
         mode: input.mode,
@@ -570,6 +576,8 @@ export class AccessService {
         amount: this.roundMoney(input.amount),
         currency: (input.currency || 'GBP').toUpperCase(),
         provider: input.provider ?? null,
+        sourceApp: input.sourceApp ?? null,
+        externalRef: input.externalRef ?? null,
       },
     });
 
@@ -620,6 +628,156 @@ export class AccessService {
 
     const emailSent = await this.sendAccessCodeEmail(updated, existing.accessPlan.name);
     return this.codeResult(updated, existing.accessPlan.name, emailSent);
+  }
+
+  /**
+   * Partner (mesh) code issuance. Creates a paid, UNUSED code directly — the
+   * partner app (e.g. MCOM Rewards) funds the reward, so there is no Central
+   * purchaser and no pending payment. Idempotent on `(sourceApp, externalRef)`.
+   */
+  async issuePartnerAccessCode(input: {
+    issuanceId: string;
+    accessPlanId: string;
+    recipientEmail?: string | null;
+    recipientMcomUserId?: string | null;
+    mode: 'GIFT' | 'CODE';
+    sendEmail: boolean;
+    sourceApp: string;
+    note?: string;
+  }) {
+    const existing = await this.prisma.accessPassCode.findFirst({
+      where: { sourceApp: input.sourceApp, externalRef: input.issuanceId },
+      include: { accessPlan: true },
+    });
+    if (existing) {
+      return this.partnerCodeResult(
+        existing,
+        existing.accessPlan.name,
+        true,
+        false,
+        existing.accessPlan.durationDays,
+      );
+    }
+
+    const plan = await this.getPlan(input.accessPlanId);
+    if (input.mode === 'GIFT' && !input.recipientEmail?.trim()) {
+      throw new BadRequestException('A recipient email is required for a gifted access pass.');
+    }
+
+    let created;
+    try {
+      created = await this.prisma.accessPassCode.create({
+        data: {
+          code: await this.uniqueCode(),
+          accessPlanId: plan.id,
+          purchaserBusinessId: null,
+          purchaserUserId: null,
+          recipientEmail: input.recipientEmail?.trim().toLowerCase() || null,
+          mode: input.mode,
+          status: 'UNUSED',
+          amount: 0,
+          currency: 'GBP',
+          provider: input.sourceApp,
+          providerPaymentId: `${input.sourceApp.replace(/^mcom-/, '')}:${input.issuanceId}`,
+          sourceApp: input.sourceApp,
+          externalRef: input.issuanceId,
+          purchasedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      // Concurrent duplicate → return the winning row.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const raced = await this.prisma.accessPassCode.findFirst({
+          where: { sourceApp: input.sourceApp, externalRef: input.issuanceId },
+          include: { accessPlan: true },
+        });
+        if (raced) {
+          return this.partnerCodeResult(
+            raced,
+            raced.accessPlan.name,
+            true,
+            false,
+            raced.accessPlan.durationDays,
+          );
+        }
+      }
+      throw err;
+    }
+
+    const emailSent =
+      input.sendEmail && created.recipientEmail
+        ? await this.sendAccessCodeEmail(created, plan.name)
+        : false;
+
+    if (input.note) {
+      this.logger.log(
+        `Partner code ${created.code} issued for ${input.sourceApp}:${input.issuanceId} — ${input.note}`,
+      );
+    }
+
+    return this.partnerCodeResult(created, plan.name, false, emailSent, plan.durationDays);
+  }
+
+  private partnerCodeResult(
+    code: AccessPassCode,
+    planName: string,
+    replayed: boolean,
+    emailSent = false,
+    durationDays: number | null = null,
+  ) {
+    return {
+      success: true,
+      code: code.code,
+      accessPlanId: code.accessPlanId,
+      planName,
+      durationDays,
+      status: code.status,
+      recipientEmail: code.recipientEmail,
+      expiresAt: null as string | null,
+      mode: code.mode,
+      emailSent,
+      replayed,
+      codeId: code.id,
+    };
+  }
+
+  /** Revokes an unused partner code; redeemed codes are not revocable. */
+  async revokePartnerAccessCode(codeId: string) {
+    const code = await this.prisma.accessPassCode.findUnique({
+      where: { id: codeId },
+      include: { accessPlan: { select: { name: true } } },
+    });
+    if (!code) throw new NotFoundException('Access pass code not found.');
+    if (code.status === 'REDEEMED') {
+      throw new ConflictException({
+        code: 'GRANT_NOT_REVOCABLE',
+        message: 'This access pass code has already been redeemed.',
+      });
+    }
+    if (code.status === 'REVOKED') {
+      return { success: true, status: 'REVOKED', replayed: true, code: code.code };
+    }
+    if (code.status !== 'UNUSED') {
+      throw new ConflictException({
+        code: 'GRANT_NOT_REVOCABLE',
+        message: `This access pass code is ${code.status} and cannot be revoked.`,
+      });
+    }
+
+    const claimed = await this.prisma.accessPassCode.updateMany({
+      where: { id: codeId, status: 'UNUSED' },
+      data: { status: 'REVOKED' },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException({
+        code: 'GRANT_NOT_REVOCABLE',
+        message: 'This access pass code is no longer revocable.',
+      });
+    }
+    return { success: true, status: 'REVOKED', replayed: false, code: code.code };
   }
 
   async fulfillWalletAccessCode(input: {
@@ -765,6 +923,15 @@ export class AccessService {
         allowZeroAmount: true,
         allowArchived: true,
       });
+
+      if (found.sourceApp && found.externalRef) {
+        this.events?.emitAccessPassRedeemed({
+          issuanceId: found.externalRef,
+          code: found.code,
+          businessId,
+          redeemedAt: new Date().toISOString(),
+        });
+      }
 
       return {
         success: true,
@@ -1122,6 +1289,10 @@ export class AccessService {
 
         return { purchase, billingId: billing.id, packages };
       });
+
+      if (opts.couponRedemptionId) {
+        void this.events?.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
+      }
 
       return {
         ...result.purchase,

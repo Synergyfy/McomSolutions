@@ -21,6 +21,7 @@ export interface AppCharge {
   walletDebitAmount?: string | null;
   paidAt?: string | null;
   createdAt: string;
+  source?: 'app' | 'central';
 }
 
 export interface AppLedgerEntry {

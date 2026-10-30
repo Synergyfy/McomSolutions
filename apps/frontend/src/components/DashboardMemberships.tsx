@@ -597,6 +597,9 @@ export default function DashboardMemberships() {
                         </>
                       )}
                     </button>
+                    <p className="mt-2 text-center text-[10px] sm:text-[11px] font-medium text-gray-400">
+                      Pay with card, PayPal or MCOM Wallet via MCOM Pay
+                    </p>
                   </div>
                 </motion.div>
               );
@@ -654,6 +657,11 @@ export default function DashboardMemberships() {
                   <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-green-700 bg-green-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
                     {item.status || 'COMPLETED'}
                   </span>
+                  {item.provider === 'mcom-rewards' && (
+                    <span className="ml-1.5 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full inline-block mt-0.5">
+                      Granted via Rewards
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

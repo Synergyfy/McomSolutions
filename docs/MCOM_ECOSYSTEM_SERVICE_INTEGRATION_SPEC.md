@@ -168,7 +168,12 @@ export async function handleSsoCallback(code: string, clientId: string, clientSe
   const userRes = await axios.get(`${baseUrl}/api/v1/auth/sso/userinfo`, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
-  const mcomUser = userRes.data; // { sub, email, firstName, lastName, role, businessId, ... }
+  // Full identity for every role:
+  // { sub, email, role, profileType, isAffiliate, firstName, lastName, fullName,
+  //   name, jobTitle, phone, address, postcode, country, businessId, businessName,
+  //   businessProfile, customerProfile, agentProfile, consultantProfile,
+  //   accountManagerProfile, entitlement, membership, packages, permissions }
+  const mcomUser = userRes.data;
 
   // 3. JIT Provision or Update Local User
   let localUser = await db.user.findOne({ where: { email: mcomUser.email } });
@@ -179,22 +184,41 @@ export async function handleSsoCallback(code: string, clientId: string, clientSe
         firstName: mcomUser.firstName || '',
         lastName: mcomUser.lastName || '',
         role: mcomUser.role === 'BUSINESS' ? 'BUSINESS' : 'CUSTOMER',
+        phone: mcomUser.phone ?? null,
+        jobTitle: mcomUser.jobTitle ?? null,
+        address: mcomUser.address ?? null,
+        postcode: mcomUser.postcode ?? null,
+        country: mcomUser.country ?? null,
+        isAffiliate: mcomUser.isAffiliate ?? false,
         mcomUserId: mcomUser.sub,
         mcomAccessToken: encrypt(accessToken),
         mcomRefreshToken: encrypt(refreshToken),
         membershipLevel: mcomUser.membershipLevel,
         membershipStatus: mcomUser.membershipStatus,
+        companyName: mcomUser.businessProfile?.businessName ?? null,
+        companyType: mcomUser.businessProfile?.businessType ?? null,
+        companyIndustry: mcomUser.businessProfile?.industry ?? null,
+        companyWebsite: mcomUser.businessProfile?.website ?? null,
+        companyLogo: mcomUser.businessProfile?.logoUrl ?? null,
       }
     });
   } else {
     await db.user.update({
       where: { id: localUser.id },
       data: {
+        firstName: mcomUser.firstName || '',
+        lastName: mcomUser.lastName || '',
+        phone: mcomUser.phone ?? null,
+        address: mcomUser.address ?? null,
+        postcode: mcomUser.postcode ?? null,
+        country: mcomUser.country ?? null,
+        isAffiliate: mcomUser.isAffiliate ?? false,
         mcomUserId: mcomUser.sub,
         mcomAccessToken: encrypt(accessToken),
         mcomRefreshToken: encrypt(refreshToken),
         membershipLevel: mcomUser.membershipLevel,
         membershipStatus: mcomUser.membershipStatus,
+        companyName: mcomUser.businessProfile?.businessName ?? null,
       }
     });
   }
@@ -203,11 +227,157 @@ export async function handleSsoCallback(code: string, clientId: string, clientSe
 }
 ```
 
+`user` is always the person plus exactly one role profile:
+
+| `profileType` | Profile object | Key fields |
+|---|---|---|
+| `BUSINESS` | `businessProfile` | business name/type, phone, email, address, postcode, country, industry, category, description, website, logo, opening hours, socials, membership, packages |
+| `CUSTOMER` | `customerProfile` | phone, loyalty points, platform usage, membership status |
+| `AGENT` (includes affiliates) | `agentProfile` | phone, permissions, status |
+| `CONSULTANT` | `consultantProfile` | phone, specialisation, status |
+| `ACCOUNT_MANAGER` | `accountManagerProfile` | phone, assigned businesses, status |
+| `PARTNER` | none | identity fields only |
+
+#### Role response shapes
+
+Branch on `user.profileType`; `businessProfile` is `null` for non-business roles.
+
+```jsonc
+// BUSINESS — merchant/owner (e.g. MCOM Mall vendor)
+{
+  "role": "BUSINESS", "profileType": "BUSINESS", "isAffiliate": false,
+  "firstName": "Jane", "lastName": "Doe", "fullName": "Jane Doe",
+  "name": "Acme Coffee", "email": "owner@acme.com", "jobTitle": "Managing Director",
+  "phone": "+44 20 1234 5678", "address": "1 High Street, London",
+  "postcode": "EC1A 1BB", "country": "United Kingdom",
+  "businessId": "biz_456", "businessName": "Acme Coffee",
+  "businessProfile": {
+    "businessName": "Acme Coffee", "businessType": "Limited Company",
+    "phone": "+44 20 1234 5678", "email": "hello@acmecoffee.co.uk",
+    "address": "1 High Street, London", "postcode": "EC1A 1BB",
+    "country": "United Kingdom", "industry": "Food & Beverage",
+    "category": "Coffee Shop", "website": "https://acmecoffee.co.uk",
+    "logoUrl": "https://cdn.mcom.com/logo.png", "membershipLevel": "Gold",
+    "membershipStatus": "active", "packages": []
+  },
+  "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// CUSTOMER — shopper/consumer (e.g. MCOM Mall buyer, Rewards member)
+{
+  "role": "CUSTOMER", "profileType": "CUSTOMER", "isAffiliate": false,
+  "firstName": "Sam", "lastName": "Lee", "fullName": "Sam Lee", "name": "Sam Lee",
+  "email": "shopper@example.com", "phone": "+44 7700 900999",
+  "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": {
+    "phone": "+44 7700 900999", "loyaltyPoints": 120,
+    "platformUsage": ["mall"], "membershipStatus": "None", "status": "Active"
+  },
+  "agentProfile": null, "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// AGENT — affiliate portal user (e.g. 247GBS affiliate)
+{
+  "role": "AGENT", "profileType": "AGENT", "isAffiliate": true,
+  "firstName": "Ade", "lastName": "Okafor", "fullName": "Ade Okafor",
+  "name": "Ade Okafor", "email": "ade@247gbs.com",
+  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": {
+    "phone": "+44 7700 900123",
+    "permissions": ["view_tasks", "submit_deliverables"], "status": "Active"
+  },
+  "consultantProfile": null, "accountManagerProfile": null
+}
+```
+
+```jsonc
+// CONSULTANT — affiliate portal
+{
+  "role": "CONSULTANT", "profileType": "CONSULTANT", "isAffiliate": true,
+  "firstName": "Mia", "lastName": "Frank", "fullName": "Mia Frank", "name": "Mia Frank",
+  "email": "consultant@247gbs.com", "phone": "+44 7700 900456",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": {
+    "phone": "+44 7700 900456", "specialisation": "Retail Growth", "status": "Active"
+  },
+  "accountManagerProfile": null
+}
+```
+
+```jsonc
+// ACCOUNT_MANAGER — internal/affiliate staff
+{
+  "role": "ACCOUNT_MANAGER", "profileType": "ACCOUNT_MANAGER", "isAffiliate": true,
+  "firstName": "Tunde", "lastName": "Bello", "fullName": "Tunde Bello", "name": "Tunde Bello",
+  "email": "manager@247gbs.com", "phone": "+44 7700 900789",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": {
+    "phone": "+44 7700 900789", "assignedBusinesses": 12, "status": "Active"
+  }
+}
+```
+
+`PARTNER` has no profile object — identity/contact fields only; all five profiles are `null`.
+
+| App type | Expect these `profileType` values | Skip branches for |
+|---|---|---|
+| Merchant/consumer apps (MCOM Mall, Rewards, Spin) | `BUSINESS`, `CUSTOMER` | `AGENT`, `CONSULTANT`, `ACCOUNT_MANAGER`, `PARTNER` |
+| Affiliate/partner portals (247GBS affiliate) | `AGENT`, `CONSULTANT`, `ACCOUNT_MANAGER` (plus `ADMIN` if staff log in) | `BUSINESS`, `CUSTOMER` |
+| Custom ecosystem apps | Any of the above | — |
+
 ### 3.3 Direct Dashboard Handshake (Shared JWT)
 When a logged-in user in MCOM Solutions clicks the app card for your service:
 1. MCOM Central signs a short-lived (60s) JWT containing the user's identity.
 2. The user is redirected to `https://your-service.com/sso-login?token=<JWT>`.
 3. Your backend validates the token using `process.env.SSO_SECRET` and creates the local session.
+
+The token carries the full identity for every role — not just businesses:
+
+```typescript
+interface McomLaunchClaims {
+  iss: string;
+  aud: string;
+  sub: string;               // MCOM user id
+  userId: string;
+  email: string;
+  role: 'business' | 'customer'; // legacy alias
+  centralRole: 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER' | 'PARTNER' | 'ADMIN';
+  profileType: string;       // same as centralRole
+  isAffiliate: boolean;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  name: string;              // business name for BUSINESS, else the person's name
+  jobTitle: string | null;
+  phone: string | null;
+  address: string | null;
+  postcode: string | null;
+  country: string | null;
+  businessId: string | null;
+  businessName: string | null;
+  businessProfile: Record<string, unknown> | null; // full business record (no packages)
+  agentProfile: Record<string, unknown> | null;
+  consultantProfile: Record<string, unknown> | null;
+  accountManagerProfile: Record<string, unknown> | null;
+  customerProfile: Record<string, unknown> | null;
+  platforms: Record<string, { planId: string; expiresAt: string | null }>;
+}
+```
+
+For a richer payload (packages, entitlements, permissions) call
+`GET /api/v1/auth/sso/userinfo` with the SSO access token, or use the OAuth
+code flow in section 3.2.
 
 ```typescript
 // Partner Backend: GET /api/v1/auth/sso-login?token=...
@@ -218,6 +388,11 @@ export async function handleDirectHandshake(token: string, ssoSecret: string) {
     firstName: string;
     lastName: string;
     role: string;
+    centralRole?: string;
+    phone?: string | null;
+    address?: string | null;
+    businessId?: string | null;
+    businessName?: string | null;
   };
 
   let user = await db.user.findUnique({ where: { email: decoded.email } });
@@ -228,6 +403,8 @@ export async function handleDirectHandshake(token: string, ssoSecret: string) {
         firstName: decoded.firstName,
         lastName: decoded.lastName,
         role: decoded.role === 'business' ? 'BUSINESS' : 'CUSTOMER',
+        phone: decoded.phone ?? null,
+        address: decoded.address ?? null,
         mcomUserId: decoded.userId,
       }
     });

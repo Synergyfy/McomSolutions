@@ -367,10 +367,19 @@ describe('AuthService', () => {
 
       const result = await service.registerBusiness({
         email: 'newbiz@test.com',
+        firstName: 'Owner',
+        lastName: 'Person',
         businessName: 'My Biz',
       });
 
-      expect(mockPrisma.user.create).toHaveBeenCalled();
+      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            firstName: 'Owner',
+            lastName: 'Person',
+          }),
+        }),
+      );
       expect(result.accessToken).toBe('mock-token');
       expect(result.user.email).toBe('newbiz@test.com');
     });
@@ -461,6 +470,8 @@ describe('AuthService', () => {
         id: '1',
         email: 'test@test.com',
         role: Role.BUSINESS,
+        firstName: 'Owner',
+        lastName: 'Person',
         businessProfile: {
           id: 'b1',
           businessName: 'Test Biz',
@@ -479,6 +490,9 @@ describe('AuthService', () => {
           aud: 'mcom-mall',
           sub: '1',
           email: 'test@test.com',
+          firstName: 'Owner',
+          lastName: 'Person',
+          businessName: 'Test Biz',
         }),
         expect.objectContaining({
           expiresIn: '60s',

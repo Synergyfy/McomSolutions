@@ -27,6 +27,7 @@ import { ServiceConnectorsService } from '../service-connectors/service-connecto
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { ExternalPlan } from '../service-connectors/connectors/connector.interface';
 import { RecurringService } from '../recurring/recurring.service';
+import { WalletService } from '../wallet/wallet.service';
 
 /** Authenticated caller attempting a payment operation. */
 export interface PaymentCaller {
@@ -34,6 +35,16 @@ export interface PaymentCaller {
   businessId?: string;
   role?: Role;
 }
+
+/**
+ * MCOM Central acts as the wallet partner for first-party purchases so debits
+ * are attributed to MCOM itself rather than a third-party platform.
+ */
+const MCOM_WALLET_PARTNER = {
+  clientId: 'mcom-central',
+  name: 'MCOM Central',
+  platformSlug: 'mcom-central',
+};
 
 /**
  * Parse a PayPal custom_id of `businessId|level|tier|billing|paymentPlan` with
@@ -133,6 +144,7 @@ export class PaymentService {
     private pricingService: PricingService,
     private couponService: CouponService,
     private accessService: AccessService,
+    private walletService: WalletService,
     private connectorsService: ServiceConnectorsService,
     private webhookDispatcher: WebhookDispatcherService,
     private recurringService: RecurringService,
@@ -993,6 +1005,194 @@ export class PaymentService {
       where: { id: existing.businessId, deletedAt: null },
     });
     return { ...(current ?? { id: existing.businessId }), replayed: true, price: existing.amount };
+  }
+
+  // ─── MCOM WALLET (Membership) ────────────────────────────────────────────────
+
+  /**
+   * Pay for a membership with the MCOM Wallet. The wallet is debited in MCOM
+   * credits (FX-converted server-side) and the membership is activated
+   * synchronously. The idempotency key is the payment reference, so retries
+   * replay instead of charging twice. If activation fails after the debit the
+   * credits are refunded with a deterministic key.
+   */
+  async membershipWalletPurchase(
+    businessId: string,
+    userId: string,
+    level: string,
+    tier: string,
+    billing: 'monthly' | 'quarterly' | 'yearly',
+    paymentPlan: string = 'full',
+    couponCode?: string,
+    idempotencyKey?: string,
+    autoRenew = false,
+  ) {
+    if (!idempotencyKey || idempotencyKey.trim().length < 8) {
+      throw new BadRequestException('A valid X-Idempotency-Key header is required.');
+    }
+    if (!userId) {
+      throw new BadRequestException('A signed-in user is required to pay with the MCOM Wallet.');
+    }
+    const plan = normalizePaymentPlan(paymentPlan);
+    if (autoRenew) {
+      if (plan !== MembershipPaymentPlan.full) {
+        throw new BadRequestException('Auto-renew is only available for full-term membership plans.');
+      }
+      if (couponCode) {
+        throw new BadRequestException('Coupons cannot be combined with auto-renew yet.');
+      }
+    }
+
+    const key = idempotencyKey.trim();
+    const providerPaymentId = `wallet:${key}`;
+
+    const existing = await this.findMembershipReplay(providerPaymentId);
+    if (existing) {
+      return this.resolvePaypalReplay(existing, { userId, businessId });
+    }
+
+    const quote = await this.resolveMembershipQuote(
+      level,
+      tier,
+      billing,
+      paymentPlan,
+      couponCode,
+      userId,
+    );
+    const walletCredits = await this.walletService.convertGbpToCredits(quote.finalAmount);
+    if (!(walletCredits > 0)) {
+      throw new BadRequestException('This plan has no payable amount.');
+    }
+
+    let redemptionId: string | undefined;
+    if (couponCode) {
+      const reservation = await this.couponService.reserveForCharge({
+        code: couponCode,
+        userId,
+        planId: quote.planId,
+        planName: quote.planName,
+        amount: quote.originalAmount,
+        businessId,
+        provider: 'wallet',
+        providerPaymentId,
+      });
+      redemptionId = reservation.redemptionId;
+    }
+
+    let walletReceipt: Awaited<ReturnType<WalletService['debitWallet']>>;
+    try {
+      walletReceipt = await this.walletService.debitWallet(
+        MCOM_WALLET_PARTNER as any,
+        {
+          userId,
+          amount: walletCredits,
+          category: 'SUBSCRIPTION' as any,
+          description: `MCOM Membership — ${quote.planName} (${quote.tier}, ${billing})`,
+          reference: providerPaymentId,
+          metadata: {
+            level,
+            tier,
+            billing,
+            paymentPlan,
+            businessId,
+            couponCode: couponCode ?? null,
+            providerPaymentId,
+          },
+        } as any,
+        `membership:${key}`,
+      );
+    } catch (err) {
+      if (redemptionId) {
+        await this.couponService.releaseReservation(redemptionId).catch(() => undefined);
+      }
+      throw err;
+    }
+
+    try {
+      const result = await this.pricingService.subscribeMembership(
+        businessId,
+        level,
+        tier,
+        billing,
+        {
+          provider: 'wallet',
+          providerPaymentId,
+          chargedAmount: quote.finalAmount,
+          ...(plan === MembershipPaymentPlan.full ? {} : { paymentPlan }),
+          ...(couponCode
+            ? {
+                couponCode,
+                couponRedemptionId: redemptionId,
+                originalAmount: quote.originalAmount,
+                discountAmount: quote.discountAmount,
+              }
+            : {}),
+        },
+      );
+
+      let autoRenewEnabled = false;
+      if (autoRenew) {
+        try {
+          await this.recurringService.enableWalletAutoRenew(businessId, userId, {
+            scope: RecurringScope.MEMBERSHIP,
+            billingCycle: billing,
+          });
+          autoRenewEnabled = true;
+        } catch (err) {
+          this.logger.warn(
+            `Wallet membership ${providerPaymentId} paid but auto-renew mandate failed for ${businessId}: ${
+              err instanceof Error ? err.message : err
+            }`,
+          );
+        }
+      }
+
+      return {
+        ...result,
+        pricing: {
+          originalAmount: quote.originalAmount,
+          discountAmount: quote.discountAmount,
+          finalAmount: quote.finalAmount,
+          currency: 'GBP' as const,
+          walletDebited: walletReceipt.amount,
+          walletCurrency: walletReceipt.currency,
+          walletTransactionId: walletReceipt.transactionId,
+          autoRenew: autoRenewEnabled,
+        },
+      };
+    } catch (err) {
+      // The wallet was already debited but activation failed. Refund with a
+      // deterministic key so retries cannot double-refund.
+      await this.walletService
+        .creditWallet(
+          MCOM_WALLET_PARTNER as any,
+          {
+            userId,
+            amount: walletReceipt.amount,
+            category: 'REFUND' as any,
+            description: `Refund — MCOM Membership ${quote.planName}`,
+            reference: providerPaymentId,
+            metadata: {
+              level,
+              tier,
+              billing,
+              businessId,
+              providerPaymentId,
+              reason: 'membership_activation_failed',
+            },
+          } as any,
+          `membership-refund:${key}`,
+        )
+        .catch((refundErr: any) => {
+          this.logger.error(
+            `Wallet refund failed for ${providerPaymentId}: ${refundErr?.message ?? refundErr}`,
+          );
+        });
+      if (redemptionId) {
+        await this.couponService.releaseReservation(redemptionId).catch(() => undefined);
+      }
+      throw err;
+    }
   }
 
   // ─── ACCESS PASS PURCHASES ──────────────────────────────────────────────────

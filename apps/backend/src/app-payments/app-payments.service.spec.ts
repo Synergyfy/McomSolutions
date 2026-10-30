@@ -129,6 +129,11 @@ describe('AppPaymentsService', () => {
       appPaymentLedgerEntry: { createMany: jest.fn().mockResolvedValue({ count: 3 }) },
       programmeSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       fxRate: { findUnique: jest.fn().mockResolvedValue(null) },
+      billingTransaction: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
       $transaction: jest.fn((cb: any) => (typeof cb === 'function' ? cb(prisma) : Promise.all(cb))),
     };
 
@@ -864,8 +869,98 @@ describe('AppPaymentsService', () => {
             }),
           }),
         );
+
         expect(prisma.appPaymentLedgerEntry.createMany).toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('admin ledger (MCOM Central direct sales)', () => {
+    const centralTxn = (overrides: Record<string, any> = {}) => ({
+      id: 'bt_1',
+      businessId: 'biz_1',
+      amount: 49.99,
+      description: 'MCOM Membership — Gold (Pro, monthly)',
+      status: 'paid',
+      provider: 'stripe',
+      providerPaymentId: 'pi_central_1',
+      createdAt: new Date('2026-10-28T12:00:00.000Z'),
+      business: { userId: 'user_1', businessName: 'Acme Ltd' },
+      ...overrides,
+    });
+
+    it('merges central direct sales into the admin charge list', async () => {
+      prisma.billingTransaction.findMany.mockResolvedValue([centralTxn()]);
+      prisma.billingTransaction.count.mockResolvedValue(1);
+      prisma.appCharge.findMany.mockResolvedValue([
+        baseCharge({ id: 'ch_1', createdAt: new Date('2026-10-20T09:00:00.000Z') }),
+      ]);
+      prisma.appCharge.count.mockResolvedValue(1);
+
+      const res = await service.listAllCharges({ page: 1, limit: 20 } as any);
+
+      expect(res.total).toBe(2);
+      expect(res.data[0]).toMatchObject({
+        id: 'bt_1',
+        appClientId: 'mcom-central',
+        amountMinor: '4999',
+        feeMinor: '0',
+        netMinor: '4999',
+        method: 'stripe',
+        status: 'paid',
+        mcomUserId: 'user_1',
+        source: 'central',
+      });
+      expect(res.data[1]).toMatchObject({ id: 'ch_1', source: 'app' });
+    });
+
+    it('returns only central sales when the mcom-central filter is used', async () => {
+      prisma.billingTransaction.findMany.mockResolvedValue([centralTxn()]);
+      prisma.billingTransaction.count.mockResolvedValue(1);
+
+      const res = await service.listAllCharges({ appClientId: 'mcom-central' } as any);
+
+      expect(res.total).toBe(1);
+      expect(prisma.appCharge.findMany).not.toHaveBeenCalled();
+    });
+
+    it('does not query central sales when another app is filtered', async () => {
+      prisma.appCharge.findMany.mockResolvedValue([baseCharge()]);
+      prisma.appCharge.count.mockResolvedValue(1);
+
+      await service.listAllCharges({ appClientId: 'mcom-mall' } as any);
+
+      expect(prisma.billingTransaction.findMany).not.toHaveBeenCalled();
+    });
+
+    it('returns a central charge by id and synthesizes its double-entry rows', async () => {
+      prisma.billingTransaction.findUnique.mockResolvedValue(centralTxn());
+
+      const charge = await service.getChargeAsAdmin('bt_1');
+      expect(charge).toMatchObject({ id: 'bt_1', appClientId: 'mcom-central', source: 'central' });
+
+      const ledger = await service.getLedgerForCharge('bt_1');
+      expect(ledger).toEqual([
+        expect.objectContaining({
+          account: 'gateway_clearing',
+          direction: 'debit',
+          amountMinor: '4999',
+        }),
+        expect.objectContaining({
+          account: 'mcom_revenue',
+          direction: 'credit',
+          amountMinor: '4999',
+        }),
+      ]);
+    });
+
+    it('uses wallet clearing for wallet-paid central sales', async () => {
+      prisma.billingTransaction.findUnique.mockResolvedValue(
+        centralTxn({ provider: 'wallet', providerPaymentId: 'wallet:key-1' }),
+      );
+
+      const ledger = await service.getLedgerForCharge('bt_1');
+      expect(ledger[0]).toMatchObject({ account: 'wallet_clearing', direction: 'debit' });
     });
   });
 });

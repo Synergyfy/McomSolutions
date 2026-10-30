@@ -86,6 +86,28 @@ export class WalletService {
     return result;
   }
 
+  // ─── FX ────────────────────────────────────────────────────────────────────
+
+  /** GBP → MCOM wallet credits. Mirrors wallet top-up FX lookup/fallback. */
+  async getGbpToMcomRate(): Promise<number> {
+    try {
+      const fx = await this.prisma.fxRate.findUnique({
+        where: { base_quote: { base: 'GBP', quote: 'MCOM' } },
+      });
+      if (fx) return new Decimal(fx.rate.toString()).toNumber();
+    } catch {
+      // Table may be unavailable in a fresh environment — fall through to env.
+    }
+    const parsed = parseFloat(this.config.get<string>('MCOM_GBP_RATE') ?? '');
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  }
+
+  /** Convert a GBP amount into the MCOM credits a wallet debit would charge. */
+  async convertGbpToCredits(amountGbp: number): Promise<number> {
+    const rate = await this.getGbpToMcomRate();
+    return new Decimal(amountGbp).times(rate).toDecimalPlaces(4).toNumber();
+  }
+
   // ─── DEBIT ─────────────────────────────────────────────────────────────────
 
   async debitWallet(

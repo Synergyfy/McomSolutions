@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Crown, Sparkles, AlertCircle } from 'lucide-react';
+import { X, RefreshCw, CreditCard, ShieldCheck, CheckCircle2, Crown, Sparkles, AlertCircle, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { paymentApi } from '../../services/payment';
+import { useMembershipWalletPurchase } from '../../services/payment/hooks';
+import { useMyWallet } from '../../services/wallet/hooks';
 import { usePricing } from '../../context/PricingContext';
 import PaymentPlanSelector from './PaymentPlanSelector';
 import CouponCodeField from './CouponCodeField';
@@ -13,6 +15,28 @@ import { priceOptionWithCoupon } from '../../lib/couponPricing';
 import { cn } from '../../lib/utils';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+
+const newIdempotencyKey = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `membership-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+/** Keep the cached business session in step with a freshly activated membership. */
+function syncLocalMembershipSession(plan: MembershipPaymentPlan) {
+  const userRaw = localStorage.getItem('business_user');
+  if (!userRaw) return;
+  try {
+    const u = JSON.parse(userRaw);
+    if (u?.businessProfile) {
+      u.businessProfile.membershipLevel = plan.name || plan.id;
+      u.businessProfile.membershipTier = plan.selectedTier || 'Standard';
+      u.businessProfile.membershipStatus = 'active';
+      localStorage.setItem('business_user', JSON.stringify(u));
+    }
+  } catch (e) {
+    console.warn('Failed to update local business_user:', e);
+  }
+}
 
 export interface MembershipPaymentPlan {
   id: string;
@@ -86,20 +110,7 @@ function StripeMembershipForm({
         );
 
         // Update local session
-        const userRaw = localStorage.getItem('business_user');
-        if (userRaw) {
-          try {
-            const u = JSON.parse(userRaw);
-            if (u?.businessProfile) {
-              u.businessProfile.membershipLevel = plan.name || plan.id;
-              u.businessProfile.membershipTier = plan.selectedTier || 'Standard';
-              u.businessProfile.membershipStatus = 'active';
-              localStorage.setItem('business_user', JSON.stringify(u));
-            }
-          } catch (e) {
-            console.warn('Failed to update local business_user:', e);
-          }
-        }
+        syncLocalMembershipSession(plan);
 
         onSuccess();
       } else {
@@ -173,15 +184,19 @@ export default function MembershipPaymentModal({
   source?: 'dashboard' | 'onboarding';
 }) {
   const queryClient = useQueryClient();
-  const [provider, setProvider] = useState<'stripe' | 'paypal'>('stripe');
+  const [provider, setProvider] = useState<'stripe' | 'paypal' | 'wallet'>('stripe');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [isLoadingSecret, setIsLoadingSecret] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [isProcessingPaypal, setIsProcessingPaypal] = useState(false);
+  const [isProcessingWallet, setIsProcessingWallet] = useState(false);
   const [isPaymentSuccess, setIsPaymentSuccess] = useState(false);
   const [paymentPlan, setPaymentPlan] = useState<string>('full');
   const [autoRenew, setAutoRenew] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<CouponQuote | null>(null);
+  const idempotencyKey = useRef(newIdempotencyKey());
+  const walletPurchase = useMembershipWalletPurchase();
+  const { data: wallet, isLoading: walletLoading } = useMyWallet(isOpen);
 
   const { plans } = usePricing();
   const modalPlan = plan ? plans.find((p) => p.id === plan.id || p.name === plan.id || p.name === plan.name) : undefined;
@@ -223,6 +238,8 @@ export default function MembershipPaymentModal({
       setPaymentPlan('full');
       setAutoRenew(false);
       setAppliedCoupon(null);
+      setIsProcessingWallet(false);
+      idempotencyKey.current = newIdempotencyKey();
       return;
     }
 
@@ -258,6 +275,51 @@ export default function MembershipPaymentModal({
       };
     }
   }, [isOpen, plan, provider, paymentPlan, couponCode, autoRenew]);
+
+  // A change to what is being bought is a new purchase — use a fresh key so a
+  // genuine second purchase is never treated as a retry of the first.
+  useEffect(() => {
+    idempotencyKey.current = newIdempotencyKey();
+    setInitError(null);
+  }, [isOpen, plan?.id, plan?.selectedTier, plan?.billingCycle, paymentPlan, couponCode, autoRenew]);
+
+  useEffect(() => {
+    setInitError(null);
+  }, [provider]);
+
+  const handleWalletSubmit = async () => {
+    if (!plan || isProcessingWallet) return;
+
+    setIsProcessingWallet(true);
+    setInitError(null);
+
+    try {
+      await walletPurchase.mutateAsync({
+        data: {
+          level: plan.id,
+          tier: plan.selectedTier || 'Standard',
+          billing: plan.billingCycle,
+          paymentPlan,
+          couponCode,
+          autoRenew,
+        },
+        idempotencyKey: idempotencyKey.current,
+      });
+
+      syncLocalMembershipSession(plan);
+      setIsProcessingWallet(false);
+      handleSuccess();
+    } catch (err: any) {
+      console.error('MCOM Wallet membership payment error:', err);
+      const message = err?.response?.data?.message;
+      setInitError(
+        Array.isArray(message)
+          ? message.join(', ')
+          : message || err?.message || 'Could not complete the wallet payment. Please try again.',
+      );
+      setIsProcessingWallet(false);
+    }
+  };
 
   const handlePaypalSubmit = async () => {
     if (!plan || isProcessingPaypal) return;
@@ -480,36 +542,39 @@ export default function MembershipPaymentModal({
               {/* Payment Method Selector Tabs */}
               <div className="mb-4 sm:mb-5">
                 <div className="text-[11px] sm:text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">
-                  Select Payment Method:
+                  Pay with MCOM Pay:
                 </div>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setProvider('stripe')}
-                    className={cn(
-                      "py-2 sm:py-2.5 px-3 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer",
-                      provider === 'stripe'
-                        ? "bg-white text-gray-900 shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
-                    )}
-                  >
-                    <CreditCard className="w-4 h-4 text-orange-500" />
-                    <span>Card (Stripe)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProvider('paypal')}
-                    className={cn(
-                      "py-2 sm:py-2.5 px-3 rounded-lg text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer",
-                      provider === 'paypal'
-                        ? "bg-white text-[#003087] shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
-                    )}
-                  >
-                    <span className="font-extrabold italic text-sm">P</span>
-                    <span>PayPal</span>
-                  </button>
+                <div className="grid grid-cols-3 gap-2 p-1 bg-gray-100 rounded-xl">
+                  {([
+                    { id: 'stripe' as const, label: 'Card', icon: CreditCard },
+                    { id: 'paypal' as const, label: 'PayPal', icon: null },
+                    { id: 'wallet' as const, label: 'MCOM Wallet', icon: Wallet },
+                  ]).map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setProvider(option.id)}
+                      className={cn(
+                        "py-2 sm:py-2.5 px-2 rounded-lg text-[11px] sm:text-xs font-bold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer",
+                        provider === option.id
+                          ? option.id === 'paypal'
+                            ? "bg-white text-[#003087] shadow-sm"
+                            : "bg-white text-gray-900 shadow-sm"
+                          : "text-gray-600 hover:text-gray-900"
+                      )}
+                    >
+                      {option.icon ? (
+                        <option.icon className={cn("w-4 h-4", option.id === 'wallet' ? 'text-emerald-600' : 'text-orange-500')} />
+                      ) : (
+                        <span className="font-extrabold italic text-sm leading-none">P</span>
+                      )}
+                      <span className="text-center leading-tight">{option.label}</span>
+                    </button>
+                  ))}
                 </div>
+                <p className="mt-2 text-[10px] sm:text-[11px] text-gray-400">
+                  MCOM Pay processes card, PayPal and MCOM Wallet payments securely in one place.
+                </p>
               </div>
 
               {/* Provider Content */}
@@ -538,6 +603,60 @@ export default function MembershipPaymentModal({
                       />
                     </Elements>
                   ) : null}
+                </div>
+              ) : provider === 'wallet' ? (
+                <div className="space-y-4 py-2">
+                  <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-emerald-950">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <Wallet className="w-4 h-4 text-emerald-600" /> MCOM Wallet
+                      </p>
+                      <p className="font-black text-emerald-700">
+                        {walletLoading
+                          ? 'Loading…'
+                          : `${wallet?.currency || 'MCOM'} ${Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}`}
+                      </p>
+                    </div>
+                    <p className="text-emerald-800 text-[11px] sm:text-xs leading-relaxed mt-1.5">
+                      £{modalDueToday} will be debited from your MCOM Wallet in credits at the current
+                      MCOM rate and your membership activates instantly — no card details needed.
+                    </p>
+                    {!walletLoading && Number(wallet?.availableBalance ?? wallet?.balance ?? 0) <= 0 && (
+                      <a
+                        href="/dashboard/wallet"
+                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 underline underline-offset-2"
+                      >
+                        Top up your MCOM Wallet
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 sm:gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      disabled={isProcessingWallet}
+                      className="flex-1 py-2.5 sm:py-3 rounded-xl font-bold text-xs sm:text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleWalletSubmit}
+                      disabled={isProcessingWallet}
+                      className="flex-1 py-2.5 sm:py-3 rounded-xl font-bold text-xs sm:text-sm text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isProcessingWallet ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" /> Paying...
+                        </>
+                      ) : (
+                        <>
+                          <Wallet className="w-4 h-4" /> Pay £{modalDueToday} with Wallet
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4 py-2">
@@ -578,7 +697,7 @@ export default function MembershipPaymentModal({
               {/* Security Badge */}
               <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-center gap-1.5 text-[10px] sm:text-[11px] text-gray-400 font-medium">
                 <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
-                <span>256-bit SSL encrypted · Powered by Stripe &amp; PayPal</span>
+                <span>256-bit SSL encrypted · Secured by MCOM Pay · Card, PayPal &amp; MCOM Wallet</span>
               </div>
             </>
           )}

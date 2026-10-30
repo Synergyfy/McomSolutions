@@ -43,6 +43,27 @@ export interface CreateChargeResult {
 
 export type RefundChargeResult = RefundChargeResponseDto;
 
+/**
+ * MCOM Central is not a Console-registered partner app: its direct sales
+ * (memberships, access passes, platform plans, verification) settle in
+ * BillingTransaction. The admin ledger surfaces them under this pseudo-app id.
+ */
+export const MCOM_CENTRAL_CLIENT_ID = 'mcom-central';
+
+const CENTRAL_METHODS = ['stripe', 'paypal', 'wallet'] as const;
+
+/** BillingTransaction.status → MCOM Pay charge status. */
+const CENTRAL_STATUS_MAP: Record<string, AppChargeStatus> = {
+  paid: AppChargeStatus.paid,
+  pending: AppChargeStatus.pending,
+  failed: AppChargeStatus.failed,
+  refunded: AppChargeStatus.refunded,
+};
+
+type CentralBillingRow = Prisma.BillingTransactionGetPayload<{
+  include: { business: { select: { userId: true; businessName: true } } };
+}>;
+
 @Injectable()
 export class AppPaymentsService {
   private readonly logger = new Logger(AppPaymentsService.name);
@@ -1032,15 +1053,91 @@ export class AppPaymentsService {
     return this.paginateCharges({ appClientId: client.clientId }, filters);
   }
 
+  /**
+   * Admin ledger: partner app charges merged with MCOM Central direct sales.
+   * Both sources are paged in memory over the same window so a single
+   * chronological list (and a single total) is returned.
+   */
   async listAllCharges(filters: FilterChargesDto & { appClientId?: string; search?: string }) {
-    return this.paginateCharges(
-      filters.appClientId ? { appClientId: filters.appClientId } : {},
-      filters,
-    );
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 20;
+    const skip = (page - 1) * limit;
+    const window = page * limit;
+
+    const onlyCentral = filters.appClientId === MCOM_CENTRAL_CLIENT_ID;
+    const onlyApp = !!filters.appClientId && !onlyCentral;
+
+    const appWhere = onlyCentral
+      ? null
+      : this.appChargeWhere(
+          filters.appClientId ? { appClientId: filters.appClientId } : {},
+          filters,
+        );
+    const centralWhere = onlyApp ? null : this.centralChargeWhere(filters);
+
+    const [appRows, appTotal, centralRows, centralTotal] = await Promise.all([
+      appWhere
+        ? this.prisma.appCharge.findMany({
+            where: appWhere,
+            orderBy: { createdAt: 'desc' },
+            take: window,
+          })
+        : Promise.resolve([]),
+      appWhere ? this.prisma.appCharge.count({ where: appWhere }) : Promise.resolve(0),
+      centralWhere
+        ? this.prisma.billingTransaction.findMany({
+            where: centralWhere,
+            orderBy: { createdAt: 'desc' },
+            take: window,
+            include: { business: { select: { userId: true, businessName: true } } },
+          })
+        : Promise.resolve([]),
+      centralWhere
+        ? this.prisma.billingTransaction.count({ where: centralWhere })
+        : Promise.resolve(0),
+    ]);
+
+    const merged = [
+      ...(appRows as AppCharge[]).map((row) => this.toChargeDto(row)),
+      ...(centralRows as CentralBillingRow[]).map((row) => this.toCentralChargeDto(row)),
+    ]
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+      .slice(skip, skip + limit);
+
+    const total = appTotal + centralTotal;
+    return {
+      success: true as const,
+      data: merged,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   async getLedgerForCharge(chargeId: string) {
-    return this.ledger.getEntriesForCharge(chargeId);
+    const charge = await this.prisma.appCharge.findUnique({ where: { id: chargeId } });
+    if (charge) return this.ledger.getEntriesForCharge(chargeId);
+
+    const txn = await this.prisma.billingTransaction.findUnique({ where: { id: chargeId } });
+    if (!txn) throw new NotFoundException('Charge not found.');
+
+    // Central sales keep no partner payable: the full gross is MCOM revenue.
+    // Synthesize the same double-entry shape the admin UI renders.
+    const amountMinor = String(Math.round(Number(txn.amount) * 100));
+    const clearing = txn.provider === 'wallet' ? 'wallet_clearing' : 'gateway_clearing';
+    const base = {
+      amountMinor,
+      currency: 'GBP',
+      provider: txn.provider,
+      providerRef: txn.providerPaymentId,
+      reference: txn.providerPaymentId,
+      createdAt: txn.createdAt.toISOString(),
+    };
+    return [
+      { ...base, id: `${chargeId}:clearing:debit`, account: clearing, direction: 'debit' },
+      { ...base, id: `${chargeId}:mcom_revenue:credit`, account: 'mcom_revenue', direction: 'credit' },
+    ];
   }
 
   /** Every refund attempt on a charge, newest first — pending rows need ops eyes. */
@@ -1059,18 +1156,24 @@ export class AppPaymentsService {
 
   async getChargeAsAdmin(chargeId: string) {
     const charge = await this.prisma.appCharge.findUnique({ where: { id: chargeId } });
-    if (!charge) throw new NotFoundException('Charge not found.');
-    return this.toChargeDto(charge);
+    if (charge) return this.toChargeDto(charge);
+
+    const txn = await this.prisma.billingTransaction.findUnique({
+      where: { id: chargeId },
+      include: { business: { select: { userId: true, businessName: true } } },
+    });
+    if (txn) return this.toCentralChargeDto(txn);
+
+    throw new NotFoundException('Charge not found.');
   }
 
-  private async paginateCharges(
+  /** Shared app-charge filter builder for partner + admin listings. */
+  private appChargeWhere(
     scope: Prisma.AppChargeWhereInput,
     filters: FilterChargesDto & { search?: string },
-  ) {
-    const page = filters.page ?? 1;
-    const limit = filters.limit ?? 20;
+  ): Prisma.AppChargeWhereInput {
     const search = filters.search?.trim();
-    const where: Prisma.AppChargeWhereInput = {
+    return {
       ...scope,
       ...(filters.status ? { status: filters.status } : {}),
       ...(filters.mcomUserId ? { mcomUserId: filters.mcomUserId } : {}),
@@ -1078,13 +1181,13 @@ export class AppPaymentsService {
       ...(search
         ? {
             OR: [
-              { id: { contains: search, mode: 'insensitive' } },
-              { reference: { contains: search, mode: 'insensitive' } },
-              { description: { contains: search, mode: 'insensitive' } },
-              { mcomUserId: { contains: search, mode: 'insensitive' } },
-              { externalCustomerId: { contains: search, mode: 'insensitive' } },
-              { providerRef: { contains: search, mode: 'insensitive' } },
-              { appClientId: { contains: search, mode: 'insensitive' } },
+              { id: { contains: search, mode: 'insensitive' as const } },
+              { reference: { contains: search, mode: 'insensitive' as const } },
+              { description: { contains: search, mode: 'insensitive' as const } },
+              { mcomUserId: { contains: search, mode: 'insensitive' as const } },
+              { externalCustomerId: { contains: search, mode: 'insensitive' as const } },
+              { providerRef: { contains: search, mode: 'insensitive' as const } },
+              { appClientId: { contains: search, mode: 'insensitive' as const } },
             ],
           }
         : {}),
@@ -1097,6 +1200,89 @@ export class AppPaymentsService {
           }
         : {}),
     };
+  }
+
+  /**
+   * Filter builder for MCOM Central direct sales. Returns null when the
+   * requested status cannot exist in BillingTransaction, so the caller can
+   * skip the central query entirely.
+   */
+  private centralChargeWhere(
+    filters: FilterChargesDto & { search?: string },
+  ): Prisma.BillingTransactionWhereInput | null {
+    if (filters.status && !CENTRAL_STATUS_MAP[filters.status]) return null;
+    const search = filters.search?.trim();
+    return {
+      // Only real money movements through an MCOM Pay method are charges.
+      amount: { gt: 0 },
+      provider: { in: [...CENTRAL_METHODS] },
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.mcomUserId ? { business: { userId: filters.mcomUserId } } : {}),
+      ...(filters.reference ? { providerPaymentId: filters.reference } : {}),
+      ...((filters.dateFrom || filters.dateTo)
+        ? {
+            createdAt: {
+              ...(filters.dateFrom ? { gte: new Date(filters.dateFrom) } : {}),
+              ...(filters.dateTo ? { lte: new Date(`${filters.dateTo}T23:59:59.999Z`) } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { id: { contains: search, mode: 'insensitive' as const } },
+              { description: { contains: search, mode: 'insensitive' as const } },
+              { providerPaymentId: { contains: search, mode: 'insensitive' as const } },
+              { businessId: { contains: search, mode: 'insensitive' as const } },
+              { business: { businessName: { contains: search, mode: 'insensitive' as const } } },
+              { business: { userId: { contains: search, mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  /** Serialize a central BillingTransaction into the MCOM Pay charge shape. */
+  private toCentralChargeDto(txn: CentralBillingRow): AppChargeDto {
+    const amountMinor = BigInt(Math.round(Number(txn.amount) * 100));
+    const provider = (txn.provider || '').toLowerCase();
+    const method = (CENTRAL_METHODS as readonly string[]).includes(provider)
+      ? (provider as AppChargeMethod)
+      : AppChargeMethod.stripe;
+    const status =
+      CENTRAL_STATUS_MAP[(txn.status || 'paid').toLowerCase()] ?? AppChargeStatus.paid;
+
+    return {
+      id: txn.id,
+      appClientId: MCOM_CENTRAL_CLIENT_ID,
+      amountMinor: amountMinor.toString(),
+      currency: 'GBP',
+      feeMinor: '0',
+      netMinor: amountMinor.toString(),
+      refundedMinor: '0',
+      method,
+      status,
+      reference: txn.providerPaymentId ?? null,
+      description: txn.description ?? null,
+      mcomUserId: txn.business?.userId ?? null,
+      externalCustomerId: null,
+      provider: txn.provider ?? null,
+      providerRef: txn.providerPaymentId ?? null,
+      walletDebitAmount: null,
+      reconciliationNeeded: false,
+      paidAt: status === AppChargeStatus.paid ? txn.createdAt.toISOString() : null,
+      createdAt: txn.createdAt.toISOString(),
+      source: 'central',
+    };
+  }
+
+  private async paginateCharges(
+    scope: Prisma.AppChargeWhereInput,
+    filters: FilterChargesDto & { search?: string },
+  ) {
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 20;
+    const where = this.appChargeWhere(scope, filters);
 
     const [rows, total] = await Promise.all([
       this.prisma.appCharge.findMany({
@@ -1955,6 +2141,7 @@ export class AppPaymentsService {
       reconciliationNeeded: charge.reconciliationNeeded,
       paidAt: charge.paidAt ? charge.paidAt.toISOString() : null,
       createdAt: charge.createdAt.toISOString(),
+      source: 'app',
     };
   }
 }

@@ -111,7 +111,7 @@ export default function CouponsPanel() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<CouponStatus | ''>('');
-  const [source, setSource] = useState<CouponSource | ''>('');
+  const [source, setSource] = useState<CouponSource | 'mcom-rewards' | ''>('');
   const [planId, setPlanId] = useState('');
   const [accessPlanId, setAccessPlanId] = useState('');
   const [page, setPage] = useState(1);
@@ -156,7 +156,11 @@ export default function CouponsPanel() {
     limit: 20,
     ...(search ? { search } : {}),
     ...(status ? { status } : {}),
-    ...(source ? { source } : {}),
+    ...(source === 'mcom-rewards'
+      ? { sourceApp: 'mcom-rewards' }
+      : source
+        ? { source }
+        : {}),
     ...(planId ? { planId } : {}),
     ...(accessPlanId ? { accessPlanId } : {}),
   });
@@ -291,7 +295,7 @@ export default function CouponsPanel() {
               <select
                 value={source}
                 onChange={(event) => {
-                  setSource(event.target.value as CouponSource | '');
+                  setSource(event.target.value as CouponSource | 'mcom-rewards' | '');
                   setPage(1);
                 }}
                 className="px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700"
@@ -299,6 +303,7 @@ export default function CouponsPanel() {
                 <option value="">All sources</option>
                 <option value="ADMIN">Admin code</option>
                 <option value="TASK_REWARD">Task reward</option>
+                <option value="mcom-rewards">MCOM Rewards</option>
               </select>
               <select
                 value={planId}
@@ -381,7 +386,16 @@ export default function CouponsPanel() {
                           </button>
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-gray-400">{SOURCE_LABELS[coupon.source]}</span>
+                          <span className="text-[10px] font-bold text-gray-400">
+                            {coupon.sourceApp === 'mcom-rewards'
+                              ? 'MCOM Rewards'
+                              : SOURCE_LABELS[coupon.source]}
+                          </span>
+                          {coupon.sourceApp && (
+                            <span className="text-[10px] font-bold text-blue-600 truncate max-w-[180px]">
+                              {coupon.externalRef ? `Issuance: ${coupon.externalRef}` : coupon.sourceApp}
+                            </span>
+                          )}
                           {coupon.lockedToUser && (
                             <span className="text-[10px] font-bold text-violet-600 truncate max-w-[180px]">
                               Locked: {coupon.lockedToUser.email}
@@ -435,7 +449,7 @@ export default function CouponsPanel() {
                           >
                             Usage
                           </button>
-                          {coupon.source === 'ADMIN' && (
+                          {coupon.source === 'ADMIN' && !coupon.sourceApp && (
                             <button
                               type="button"
                               onClick={() => navigate(`/admin/coupons/${coupon.id}/edit`)}
@@ -459,7 +473,18 @@ export default function CouponsPanel() {
                           {coupon.source === 'ADMIN' && (
                             <button
                               type="button"
-                              onClick={() => setStatusMutation.mutate({ id: coupon.id, isActive: !coupon.isActive })}
+                              onClick={() => {
+                                if (
+                                  coupon.isActive &&
+                                  coupon.sourceApp &&
+                                  !window.confirm(
+                                    'This coupon was issued by MCOM Rewards. Deactivating it will notify Rewards and may break an active reward. Continue?',
+                                  )
+                                ) {
+                                  return;
+                                }
+                                setStatusMutation.mutate({ id: coupon.id, isActive: !coupon.isActive });
+                              }}
                               disabled={setStatusMutation.isPending}
                               className={cn(
                                 'p-1.5 rounded-lg disabled:opacity-50',
@@ -637,7 +662,11 @@ export default function CouponsPanel() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-black font-mono text-gray-900">{redemption.couponCode}</div>
-                        <div className="text-[10px] text-gray-400">{SOURCE_LABELS[redemption.source]}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {redemption.sourceApp === 'mcom-rewards'
+                            ? 'MCOM Rewards'
+                            : SOURCE_LABELS[redemption.source]}
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-bold text-gray-800">

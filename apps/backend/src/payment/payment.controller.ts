@@ -128,6 +128,35 @@ export class PaymentController {
     return this.paymentService.paypalCapture(orderId, req.user);
   }
 
+  // ─── MCOM WALLET (Membership) ───────────────────────────────────────────────
+
+  /**
+   * Pays for a membership from the caller's MCOM Wallet. The wallet is debited
+   * synchronously in MCOM credits and the membership activates immediately.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('wallet')
+  @ApiOperation({ summary: 'Pay for a membership with the MCOM Wallet (requires X-Idempotency-Key header)' })
+  @ApiBody({ type: MembershipInitiateDto })
+  async membershipWalletPurchase(
+    @Request() req: any,
+    @Body() dto: MembershipInitiateDto,
+    @Headers('x-idempotency-key') idempotencyKey: string,
+  ) {
+    const businessId = await this.getBusinessId(req);
+    return this.paymentService.membershipWalletPurchase(
+      businessId,
+      req.user?.userId,
+      dto.level,
+      dto.tier,
+      dto.billing || 'monthly',
+      dto.paymentPlan || 'full',
+      dto.couponCode,
+      idempotencyKey,
+      dto.autoRenew ?? false,
+    );
+  }
+
   // ─── ACCESS PASS PAYMENTS ───────────────────────────────────────────────────
   @UseGuards(JwtAuthGuard)
   @Post('access/stripe/initiate')

@@ -1,0 +1,417 @@
+openapi: 3.1.0
+info:
+  title: MCOM Central — Partner (MCOM Rewards) API
+  version: 1.0.0
+  description: |
+    Mesh-authenticated partner surface for MCOM Rewards. Every endpoint requires
+    an RS256 service token with `iss=mcom-solutions`, `aud=mcom-central`, and the
+    appropriate `central:read` / `central:issue` scope. Caller identity is
+    derived from the token (`act.sub` for delegated tokens, otherwise `sub`);
+    `X-Caller-Id` and similar headers are never trusted.
+
+    Central coupons discount MCOM memberships and access passes only — never
+    Mall goods.
+
+servers:
+  - url: https://auth.mcomsolutions.com/api/v1
+
+security:
+  - ServiceToken: []
+
+tags:
+  - name: Catalogue
+  - name: Recipients
+  - name: Grants
+  - name: Coupons
+
+components:
+  securitySchemes:
+    ServiceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT (RS256)
+  headers:
+    RateLimit:
+      description: Partner endpoints are rate-limited per caller (30–120 req/min).
+      schema: { type: string }
+  schemas:
+    Error:
+      type: object
+      required: [success, statusCode, message]
+      properties:
+        success: { type: boolean, const: false }
+        statusCode: { type: integer }
+        message: { type: string }
+        code:
+          type: string
+          description: Stable partner error code (see catalogue below).
+        errors:
+          type: array
+          items: { type: string }
+        timestamp: { type: string, format: date-time }
+        path: { type: string }
+    MembershipTier:
+      type: object
+      properties:
+        id: { type: string }
+        tier: { type: string, enum: [Standard, Pro, Pro+] }
+        durationDays: { type: integer }
+        fullPrice: { type: number }
+        features: { type: array, items: { type: string } }
+        entitlements:
+          type: array
+          items:
+            type: object
+            properties:
+              resourceKey: { type: string }
+              quotaValue: { type: string }
+        paymentOptions:
+          type: array
+          items:
+            type: object
+            properties:
+              paymentPlan: { type: string }
+              installments: { type: integer }
+              mode: { type: string }
+              perChargePrice: { type: number }
+              totalPrice: { type: number }
+              sliceDays: { type: integer }
+    MembershipPlan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        billingCycle: { type: string }
+        platformAccess: { type: array, items: { type: string } }
+        features: { type: array, items: { type: string } }
+        whoItIsFor: { type: string, nullable: true }
+        badge: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        tiers: { type: array, items: { $ref: '#/components/schemas/MembershipTier' } }
+        appBundles:
+          type: array
+          items:
+            type: object
+            properties:
+              platform: { type: string }
+              externalPlanId: { type: string, nullable: true }
+              packageName: { type: string }
+    AccessPlan:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        price: { type: number }
+        durationDays: { type: integer }
+        platformAccess: { type: array, items: { type: string } }
+        features: { type: array, items: { type: string } }
+        whoItIsFor: { type: string, nullable: true }
+        badge: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        appBundles:
+          type: array
+          items:
+            type: object
+            properties:
+              platform: { type: string }
+              externalPlanId: { type: string, nullable: true }
+              packageName: { type: string }
+              durationDays: { type: integer, nullable: true }
+              variantTier: { type: string, nullable: true }
+              limits: { type: object, nullable: true }
+    Recipient:
+      type: object
+      properties:
+        mcomUserId: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string }
+        businessId: { type: string, nullable: true }
+        businessName: { type: string, nullable: true }
+        businessStatus: { type: string, nullable: true }
+        membershipLevel: { type: string, nullable: true }
+        membershipTier: { type: string, nullable: true }
+        membershipStatus: { type: string, nullable: true }
+        membershipExpiresAt: { type: string, format: date-time, nullable: true }
+    MembershipGrantRequest:
+      type: object
+      required: [issuanceId, recipientMcomUserId, planId]
+      properties:
+        issuanceId: { type: string, maxLength: 128 }
+        recipientMcomUserId: { type: string }
+        planId: { type: string }
+        tier: { type: string, enum: [Standard, Pro, Pro+] }
+        durationDays: { type: integer, minimum: 1 }
+        extendExisting: { type: boolean, default: false }
+        replaceExisting: { type: boolean, default: false }
+        note: { type: string, maxLength: 250 }
+    MembershipGrantResponse:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        grantId: { type: string }
+        businessId: { type: string }
+        planId: { type: string }
+        planName: { type: string }
+        tier: { type: string }
+        startsAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        replayed: { type: boolean }
+    AccessCodeRequest:
+      type: object
+      required: [issuanceId, accessPlanId]
+      properties:
+        issuanceId: { type: string, maxLength: 128 }
+        accessPlanId: { type: string }
+        recipientEmail: { type: string, format: email }
+        recipientMcomUserId: { type: string }
+        mode: { type: string, enum: [GIFT, CODE], default: CODE }
+        sendEmail: { type: boolean, default: false }
+        note: { type: string, maxLength: 250 }
+    AccessCodeResponse:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        code: { type: string, example: MCOM-ACCESS-AB12CD }
+        accessPlanId: { type: string }
+        planName: { type: string }
+        durationDays: { type: integer, nullable: true }
+        status: { type: string, enum: [UNUSED, REDEEMED, REVOKED] }
+        recipientEmail: { type: string, nullable: true }
+        expiresAt: { type: string, nullable: true }
+        replayed: { type: boolean }
+    CouponCreateRequest:
+      type: object
+      required: [issuanceId, code, discountType, discountValue]
+      properties:
+        issuanceId: { type: string, maxLength: 128 }
+        code: { type: string, pattern: '^[A-Z0-9][A-Z0-9_-]{2,39}$' }
+        description: { type: string, maxLength: 250 }
+        discountType: { type: string, enum: [PERCENTAGE, FIXED] }
+        discountValue: { type: number }
+        appliesToAllMemberships: { type: boolean }
+        membershipPlanIds: { type: array, items: { type: string }, maxItems: 50 }
+        appliesToAllAccess: { type: boolean }
+        accessPlanIds: { type: array, items: { type: string }, maxItems: 50 }
+        maxUses: { type: integer, minimum: 1, nullable: true }
+        maxUsesPerUser: { type: integer, minimum: 1, nullable: true }
+        validFrom: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        lockedToUserId: { type: string, nullable: true }
+        isActive: { type: boolean }
+    CouponResponse:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        id: { type: string }
+        code: { type: string }
+        status: { type: string, enum: [active, scheduled, expired, exhausted, inactive] }
+        discountType: { type: string }
+        discountValue: { type: number }
+        lockedToUserId: { type: string, nullable: true }
+        validFrom: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        replayed: { type: boolean }
+  responses:
+    Unauthorized:
+      description: Missing/invalid/expired token, or wrong issuer/audience.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Caller not permitted, or required scope missing.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    FeatureDisabled:
+      description: Feature flag off (503 FEATURE_DISABLED).
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+paths:
+  /partner/catalog/memberships:
+    get:
+      tags: [Catalogue]
+      summary: List active membership plans
+      description: Requires `central:read`. Cached for 30 seconds.
+      security: [{ ServiceToken: [] }]
+      responses:
+        '200':
+          description: Membership catalogue
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/MembershipPlan' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/FeatureDisabled' }
+  /partner/catalog/memberships/{id}:
+    get:
+      tags: [Catalogue]
+      summary: Get one active membership plan
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Membership plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MembershipPlan' }
+        '404': { description: PLAN_NOT_AVAILABLE }
+  /partner/catalog/access-plans:
+    get:
+      tags: [Catalogue]
+      summary: List active access plans
+      security: [{ ServiceToken: [] }]
+      responses:
+        '200':
+          description: Access-plan catalogue
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AccessPlan' } }
+  /partner/catalog/access-plans/{id}:
+    get:
+      tags: [Catalogue]
+      summary: Get one active access plan
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Access plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessPlan' }
+        '404': { description: PLAN_NOT_AVAILABLE }
+  /partner/users/resolve:
+    get:
+      tags: [Recipients]
+      summary: Resolve a recipient by email or mcomUserId
+      description: Exactly one identifier is required. Never cached.
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: email, in: query, required: false, schema: { type: string, format: email } }
+        - { name: mcomUserId, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Recipient summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recipient' }
+        '400': { description: INVALID_RECIPIENT_LOOKUP }
+        '404': { description: RECIPIENT_NOT_FOUND }
+  /partner/grants/membership:
+    post:
+      tags: [Grants]
+      summary: Grant a membership to a business recipient (idempotent)
+      description: |
+        Requires `central:issue`. `issuanceId` is the idempotency key; replaying
+        returns the same grant with `replayed: true` and never creates a second
+        membership or ledger row.
+      security: [{ ServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MembershipGrantRequest' }
+      responses:
+        '200':
+          description: Membership granted (or replayed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MembershipGrantResponse' }
+        '404': { description: RECIPIENT_NOT_FOUND }
+        '409': { description: MEMBERSHIP_CONFLICT }
+        '422':
+          description: RECIPIENT_NOT_A_BUSINESS | PLAN_NOT_AVAILABLE | TIER_NOT_AVAILABLE | INVALID_DURATION
+  /partner/access-pass-codes:
+    post:
+      tags: [Grants]
+      summary: Issue an access-pass code in UNUSED state (idempotent)
+      description: |
+        Requires `central:issue`. `sendEmail=false` suppresses Central's email.
+        Access passes remain business-only at redemption: a consumer may receive
+        the code but cannot redeem it until they have a business profile.
+      security: [{ ServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessCodeRequest' }
+      responses:
+        '200':
+          description: Code issued (or replayed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessCodeResponse' }
+        '422': { description: PLAN_NOT_AVAILABLE | ACCESS_PASS_BUSINESS_ONLY }
+  /partner/grants/{id}/revoke:
+    post:
+      tags: [Grants]
+      summary: Revoke a grant
+      description: |
+        Requires `central:issue`. Membership grants are revocable only when they
+        are zero-amount reward grants with no recurring mandate; access codes only
+        while UNUSED.
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Revoked (or already revoked) }
+        '404': { description: GRANT_NOT_FOUND }
+        '409': { description: GRANT_NOT_REVOCABLE }
+  /partner/coupons:
+    post:
+      tags: [Coupons]
+      summary: Create a Central coupon locked to a recipient (idempotent)
+      description: |
+        Requires `central:issue`. Reuses the admin validation rules. Central
+        coupons apply only to memberships/access passes, never Mall goods.
+      security: [{ ServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CouponCreateRequest' }
+      responses:
+        '200':
+          description: Coupon created (or replayed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CouponResponse' }
+        '409': { description: CODE_ALREADY_EXISTS }
+        '422': { description: LOCKED_USER_NOT_FOUND }
+  /partner/coupons/{code}:
+    get:
+      tags: [Coupons]
+      summary: Inspect a partner coupon
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Coupon status, remaining uses, lock, redemption count }
+        '404': { description: COUPON_NOT_FOUND }
+  /partner/coupons/{code}/revoke:
+    post:
+      tags: [Coupons]
+      summary: Revoke an unused partner coupon
+      security: [{ ServiceToken: [] }]
+      parameters:
+        - { name: code, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Coupon revoked }
+        '404': { description: COUPON_NOT_FOUND }
+        '409': { description: COUPON_ALREADY_REDEEMED }
+
+x-error-codes:
+  RECIPIENT_NOT_FOUND: 404
+  RECIPIENT_NOT_A_BUSINESS: 422
+  PLAN_NOT_AVAILABLE: 422
+  TIER_NOT_AVAILABLE: 422
+  MEMBERSHIP_CONFLICT: 409
+  INVALID_DURATION: 422
+  GRANT_NOT_FOUND: 404
+  GRANT_NOT_REVOCABLE: 409
+  CODE_ALREADY_EXISTS: 409
+  COUPON_NOT_FOUND: 404
+  COUPON_ALREADY_REDEEMED: 409
+  LOCKED_USER_NOT_FOUND: 422
+  INVALID_RECIPIENT_LOOKUP: 400
+  FEATURE_DISABLED: 503

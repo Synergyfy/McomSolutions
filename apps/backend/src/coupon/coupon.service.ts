@@ -4,6 +4,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
@@ -17,6 +19,7 @@ import {
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
+import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import {
   COUPON_CODE_REGEX,
   CreateCouponDto,
@@ -43,6 +46,8 @@ export interface CouponSummary {
   expiresAt: string | null;
   lockedToUserId: string | null;
   source: CouponSource;
+  sourceApp?: string | null;
+  externalRef?: string | null;
 }
 
 export interface CouponChargeQuote {
@@ -104,6 +109,7 @@ const redemptionInclude = {
       id: true,
       code: true,
       source: true,
+      sourceApp: true,
       discountType: true,
       discountValue: true,
     },
@@ -133,6 +139,8 @@ export class CouponService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    @Optional()
+    private readonly events?: EcosystemEventsService,
   ) {}
 
   // ─── Shared helpers ───────────────────────────────────────────────
@@ -197,6 +205,8 @@ export class CouponService {
       expiresAt: coupon.expiresAt?.toISOString() ?? null,
       lockedToUserId: coupon.lockedToUserId,
       source: coupon.source,
+      sourceApp: coupon.sourceApp ?? null,
+      externalRef: coupon.externalRef ?? null,
       membershipPlans: coupon.membershipPlans.map((link) => ({
         id: link.plan.id,
         name: link.plan.name,
@@ -463,7 +473,7 @@ export class CouponService {
     });
     if (!coupon) return null;
 
-    return this.prisma.$transaction(async (tx) => {
+    const redemptionId = await this.prisma.$transaction(async (tx) => {
       const billing = await tx.billingTransaction.findUnique({
         where: { providerPaymentId: input.providerPaymentId },
         select: { id: true },
@@ -506,6 +516,10 @@ export class CouponService {
       );
       return redemption.id;
     });
+
+    // Post-commit: emits only for partner-issued coupons (sourceApp set).
+    void this.events?.emitCouponRedeemedForRedemption(redemptionId);
+    return redemptionId;
   }
 
   /**
@@ -965,7 +979,11 @@ export class CouponService {
     }
   }
 
-  async createCoupon(dto: CreateCouponDto, adminName = 'Admin') {
+  async createCoupon(
+    dto: CreateCouponDto,
+    adminName = 'Admin',
+    partner?: { sourceApp?: string | null; externalRef?: string | null },
+  ) {
     const code = this.normalizeCode(dto.code);
     if (!COUPON_CODE_REGEX.test(code)) {
       throw new BadRequestException('Coupon code format is invalid.');
@@ -1018,6 +1036,8 @@ export class CouponService {
           expiresAt,
           isActive: dto.isActive ?? true,
           source: CouponSource.ADMIN,
+          sourceApp: partner?.sourceApp ?? null,
+          externalRef: partner?.externalRef ?? null,
           lockedToUserId: dto.lockedToUserId || null,
           createdByName: adminName,
           ...(membershipPlanIds.length > 0
@@ -1063,6 +1083,154 @@ export class CouponService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Partner-issued coupon creation (MCOM Rewards). Reuses the admin validation
+   * path, then records `sourceApp`/`externalRef` for provenance + idempotency.
+   */
+  async createPartnerCoupon(
+    dto: CreateCouponDto,
+    partner: { sourceApp: string; externalRef: string },
+  ) {
+    const code = this.normalizeCode(dto.code);
+
+    const byCode = await this.prisma.coupon.findUnique({
+      where: { code },
+      include: couponInclude,
+    });
+    if (byCode) {
+      if (
+        byCode.sourceApp === partner.sourceApp &&
+        byCode.externalRef === partner.externalRef
+      ) {
+        return {
+          success: true,
+          ...this.serializeCoupon(byCode),
+          replayed: true,
+        };
+      }
+      throw new ConflictException({
+        code: 'CODE_ALREADY_EXISTS',
+        message: `Coupon code "${code}" already exists for a different source.`,
+      });
+    }
+
+    const byRef = await this.prisma.coupon.findFirst({
+      where: {
+        sourceApp: partner.sourceApp,
+        externalRef: partner.externalRef,
+      },
+      include: couponInclude,
+    });
+    if (byRef) {
+      return { success: true, ...this.serializeCoupon(byRef), replayed: true };
+    }
+
+    if (dto.lockedToUserId) {
+      const user = await this.prisma.user.findFirst({
+        where: { id: dto.lockedToUserId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!user) {
+        throw new UnprocessableEntityException({
+          code: 'LOCKED_USER_NOT_FOUND',
+          message: 'The user this coupon is locked to does not exist.',
+        });
+      }
+    }
+
+    const created = await this.createCoupon(dto, 'MCOM Rewards', partner);
+    return { ...created.data, success: true, replayed: false };
+  }
+
+  /** Read-only partner coupon inspection (status, uses, lock, redemptions). */
+  async getPartnerCoupon(rawCode: string, sourceApp?: string) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { code: this.normalizeCode(rawCode) },
+      include: couponInclude,
+    });
+    if (!coupon || (sourceApp && coupon.sourceApp !== sourceApp)) {
+      throw new NotFoundException({
+        code: 'COUPON_NOT_FOUND',
+        message: 'Coupon not found',
+      });
+    }
+    const redemptionCount = await this.prisma.couponRedemption.count({
+      where: {
+        couponId: coupon.id,
+        status: CouponRedemptionStatus.COMPLETED,
+      },
+    });
+    return {
+      ...this.serializeCoupon(coupon),
+      redemptionCount,
+      remainingUses:
+        coupon.maxUses === null
+          ? null
+          : Math.max(0, coupon.maxUses - coupon.timesRedeemed),
+      sourceApp: coupon.sourceApp ?? null,
+      externalRef: coupon.externalRef ?? null,
+    };
+  }
+
+  /**
+   * Revokes a partner coupon. Refuses once a completed redemption exists so we
+   * never silently break a reward that has already been used.
+   */
+  async revokePartnerCoupon(rawCode: string, sourceApp?: string) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { code: this.normalizeCode(rawCode) },
+      include: couponInclude,
+    });
+    if (!coupon || (sourceApp && coupon.sourceApp !== sourceApp)) {
+      throw new NotFoundException({
+        code: 'COUPON_NOT_FOUND',
+        message: 'Coupon not found',
+      });
+    }
+    if (!coupon.isActive) {
+      return {
+        success: true,
+        code: coupon.code,
+        status: 'inactive',
+        replayed: true,
+        sourceApp: coupon.sourceApp ?? null,
+        externalRef: coupon.externalRef ?? null,
+      };
+    }
+
+    const completed = await this.prisma.couponRedemption.count({
+      where: {
+        couponId: coupon.id,
+        status: CouponRedemptionStatus.COMPLETED,
+      },
+    });
+    if (completed > 0) {
+      throw new ConflictException({
+        code: 'COUPON_ALREADY_REDEEMED',
+        message: 'This coupon has already been redeemed and cannot be revoked.',
+      });
+    }
+
+    await this.prisma.coupon.update({
+      where: { id: coupon.id },
+      data: { isActive: false },
+    });
+    await this.logAudit(
+      'Coupon Revoked (Partner)',
+      coupon.code,
+      `Revoked partner coupon ${coupon.code} (${coupon.sourceApp ?? 'unknown'})`,
+      'MCOM Rewards',
+    );
+    return {
+      success: true,
+      code: coupon.code,
+      status: 'revoked',
+      replayed: false,
+      sourceApp: coupon.sourceApp ?? null,
+      externalRef: coupon.externalRef ?? null,
+    };
   }
 
   async updateCoupon(id: string, dto: UpdateCouponDto, adminName = 'Admin') {
@@ -1202,6 +1370,13 @@ export class CouponService {
       `${isActive ? 'Activated' : 'Deactivated'} coupon "${updated.code}"`,
       adminName,
     );
+    if (!isActive && existing.sourceApp && existing.externalRef) {
+      this.events?.emitCouponRevoked({
+        issuanceId: existing.externalRef,
+        code: updated.code,
+        revokedAt: new Date().toISOString(),
+      });
+    }
     return { success: true, data: this.serializeCoupon(updated) };
   }
 
@@ -1238,6 +1413,7 @@ export class CouponService {
       });
     }
     if (query.source) and.push({ source: query.source });
+    if (query.sourceApp) and.push({ sourceApp: query.sourceApp });
     if (query.discountType) and.push({ discountType: query.discountType });
     if (query.planId) {
       and.push({ membershipPlans: { some: { planId: query.planId } } });
@@ -1418,6 +1594,7 @@ export class CouponService {
       couponId: row.couponId,
       couponCode: row.couponCode,
       source: row.coupon.source,
+      sourceApp: row.coupon.sourceApp ?? null,
       discountType: row.coupon.discountType,
       discountValue: Number(row.coupon.discountValue),
       user: row.user

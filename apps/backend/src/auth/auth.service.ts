@@ -17,6 +17,8 @@ import * as nodemailer from 'nodemailer';
 import axios from 'axios';
 import { Role } from '@prisma/client';
 import { RegisterDto } from './dto/register.dto';
+import { ssoUserInfoSelect } from './profile-selects';
+import { buildSsoIdentity } from './sso-identity';
 import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { RedisService } from '../redis/redis.service';
@@ -750,6 +752,34 @@ export class AuthService {
     };
   }
 
+  /**
+   * Resolve a non-empty display name for a business account.
+   *
+   * Order: explicit submitted name → owner full name → email local-part.
+   * This guarantees the persisted `businessName` is never blank/placeholder,
+   * even for older clients that only send credentials.
+   */
+  private deriveBusinessName(data: any, email: string): string {
+    const submitted = typeof data?.businessName === 'string'
+      ? data.businessName.trim()
+      : '';
+    if (submitted) return submitted;
+
+    const fullName = [data?.firstName, data?.lastName]
+      .filter((part) => typeof part === 'string' && part.trim())
+      .map((part: string) => part.trim())
+      .join(' ')
+      .trim();
+    if (fullName) return `${fullName}'s Business`;
+
+    const localPart = email.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
+    if (localPart) {
+      return `${localPart.replace(/\b\w/g, (c) => c.toUpperCase())} Business`;
+    }
+
+    return 'New Business';
+  }
+
   async registerBusiness(data: any) {
     const email = data.email ? data.email.toLowerCase().trim() : '';
     const existing = await this.prisma.user.findUnique({
@@ -759,6 +789,10 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('Email already registered');
     }
+
+    // Never persist an empty/placeholder business name. Prefer the submitted
+    // name, then the owner's name, then a readable email-derived fallback.
+    const businessName = this.deriveBusinessName(data, email);
 
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
@@ -778,9 +812,14 @@ export class AuthService {
           role: Role.BUSINESS,
           referralCode,
           referredById,
+          // Business onboarding collects the owner's name; persist it so it
+          // can be exposed through SSO / profile responses. Older flows omit
+          // these fields, so keep them optional.
+          firstName: data.firstName || '',
+          lastName: data.lastName || '',
           businessProfile: {
             create: {
-              businessName: data.businessName || 'My New Business',
+              businessName,
               businessType: data.businessType || 'retail',
               country: data.country || 'United Kingdom',
               phone: data.phone || '',
@@ -975,19 +1014,25 @@ export class AuthService {
   async generateSsoToken(userId: string, targetClientId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { businessProfile: true },
+      // Same full identity/contact/profile select the OAuth SSO surfaces use,
+      // so the launch token carries the same information for every role.
+      select: ssoUserInfoSelect,
     });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    const name = user.businessProfile?.businessName || user.email.split('@')[0];
+    const identity = buildSsoIdentity(user);
+
+    // `role` keeps its documented business/customer contract for existing
+    // consumers. Use `profileType`/`centralRole` for the exact central role
+    // (AGENT, CONSULTANT, ACCOUNT_MANAGER, …).
     const role = user.role === Role.BUSINESS ? 'business' : 'customer';
     const issuer = this.config.get<string>('MCOM_CENTRAL_ISSUER') || 'mcom-central';
 
     // Fetch active platform packages for the platforms claim
-    const businessId = user.businessProfile?.id;
+    const businessId = identity.businessId;
     const platforms: Record<string, { planId: string; expiresAt: string | null }> = {};
 
     if (businessId) {
@@ -1016,16 +1061,45 @@ export class AuthService {
       }
     }
 
+    // Keep the launch token compact: package rows are resolved over HTTP
+    // (userinfo/entitlement) rather than embedded in a 60s JWT.
+    const businessProfileClaim = identity.businessProfile
+      ? (() => {
+          const { packages: _packages, ...rest } = identity.businessProfile!;
+          return rest;
+        })()
+      : null;
+
     const payload = {
       iss: issuer,
       aud: targetClientId || 'mcom-ecosystem',
       sub: user.id,
+      userId: user.id,
       email: user.email,
-      name,
+      // `name` is a display name (business name for BUSINESS, person name for
+      // CUSTOMER). Consumers that need structured identity must use the
+      // explicit firstName/lastName/businessName claims below.
+      name: identity.name,
+      firstName: identity.firstName || '',
+      lastName: identity.lastName || '',
+      fullName: identity.fullName,
+      jobTitle: identity.jobTitle,
       role,
-      phoneNumber: user.businessProfile?.phone || null,
-      postcode: user.businessProfile?.postcode || null,
-      address: user.businessProfile?.address || null,
+      centralRole: user.role,
+      profileType: identity.profileType,
+      isAffiliate: identity.isAffiliate,
+      phone: identity.phone,
+      phoneNumber: identity.phone,
+      address: identity.address,
+      postcode: identity.postcode,
+      country: identity.country,
+      businessId: identity.businessId,
+      businessName: identity.businessName,
+      businessProfile: businessProfileClaim,
+      agentProfile: identity.agentProfile,
+      consultantProfile: identity.consultantProfile,
+      accountManagerProfile: identity.accountManagerProfile,
+      customerProfile: identity.customerProfile,
       platforms,
     };
 

@@ -61,6 +61,12 @@ const METHOD_META: Record<AppChargeMethod, { label: string; icon: any; cls: stri
 
 const STATUS_OPTIONS: AppChargeStatus[] = ['paid', 'pending', 'failed', 'refunded', 'cancelled'];
 
+/** MCOM Central direct sales are surfaced under this pseudo-app id. */
+const MCOM_CENTRAL_APP_ID = 'mcom-central';
+
+const appLabel = (clientId: string) =>
+  clientId === MCOM_CENTRAL_APP_ID ? 'MCOM Central' : clientId;
+
 const buildParams = (filters: AppChargeFilters): AppChargeFilters => {
   const out: AppChargeFilters = {
     page: filters.page ?? 1,
@@ -115,7 +121,8 @@ export function McomPayPanel() {
           <div>
             <h2 className="text-lg font-black tracking-tight text-white font-display">MCOM Pay Ledger</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              Immutable, read-only view of every charge processed through registered apps.
+              Immutable, read-only view of every charge processed through MCOM Pay — partner apps and
+              MCOM Central direct sales (memberships, access passes, platform plans).
             </p>
           </div>
         </div>
@@ -158,6 +165,7 @@ export function McomPayPanel() {
               className={inputCls}
             >
               <option value="">All apps</option>
+              <option value={MCOM_CENTRAL_APP_ID}>MCOM Central (direct sales)</option>
               {(apps ?? []).map((app) => (
                 <option key={app.clientId} value={app.clientId}>
                   {app.name}
@@ -269,7 +277,9 @@ export function McomPayPanel() {
                   className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-mono text-[11px] font-bold text-gray-900 truncate">{c.appClientId}</span>
+                    <span className="font-mono text-[11px] font-bold text-gray-900 truncate">
+                      {appLabel(c.appClientId)}
+                    </span>
                     <StatusBadge status={c.status} />
                   </div>
                   <div className="text-[11px] text-gray-500 truncate">
@@ -321,7 +331,14 @@ function ChargeRow({ charge, onClick }: { charge: AppCharge; onClick: () => void
   return (
     <tr onClick={onClick} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors">
       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatDate(charge.createdAt)}</td>
-      <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">{charge.appClientId}</td>
+      <td className="px-4 py-3 text-xs font-mono font-bold text-gray-900">
+        <span>{appLabel(charge.appClientId)}</span>
+        {charge.source === 'central' && (
+          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md bg-brand-blue/10 text-brand-blue text-[9px] font-bold uppercase tracking-wide">
+            direct
+          </span>
+        )}
+      </td>
       <td className="px-4 py-3">
         <MethodBadge method={charge.method} />
       </td>
@@ -407,12 +424,16 @@ function ChargeDetailModal({ chargeId, onClose }: { chargeId: string; onClose: (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Stat label="Gross" value={formatMinor(charge.amountMinor, charge.currency)} accent="text-gray-900" />
                 <Stat label="Fee" value={formatMinor(charge.feeMinor, charge.currency)} accent="text-gray-500" />
-                <Stat label="Net to app" value={formatMinor(charge.netMinor, charge.currency)} accent="text-emerald-700" />
+                <Stat
+                  label={charge.source === 'central' ? 'Net to MCOM' : 'Net to app'}
+                  value={formatMinor(charge.netMinor, charge.currency)}
+                  accent="text-emerald-700"
+                />
                 <Stat label="Currency" value={charge.currency} accent="text-gray-900" />
               </div>
 
               <div className="bg-gray-50/80 rounded-2xl border border-gray-200 p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <Field label="App" value={charge.appClientId} mono />
+                <Field label="App" value={appLabel(charge.appClientId)} mono />
                 <Field label="Reference" value={charge.reference || '—'} mono />
                 <Field label="MCOM User" value={charge.mcomUserId || '—'} mono />
                 <Field label="External Customer" value={charge.externalCustomerId || '—'} mono />

@@ -65,6 +65,14 @@ export class AppChargeDto {
 
   @ApiProperty({ example: '2026-10-11T10:00:00.000Z' })
   createdAt: string;
+
+  @ApiPropertyOptional({
+    enum: ['app', 'central'],
+    example: 'app',
+    description:
+      'Where the charge originated: a Console-registered app, or MCOM Central direct sales (memberships, access passes, platform plans)',
+  })
+  source?: 'app' | 'central';
 }
 
 /**

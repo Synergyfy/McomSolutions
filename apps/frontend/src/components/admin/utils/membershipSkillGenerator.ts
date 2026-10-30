@@ -198,12 +198,168 @@ Content-Type: application/json
   },
   "user": {
     "id": "usr_123",
+    "sub": "usr_123",
     "email": "vendor@store.com",
     "role": "BUSINESS",
-    "businessProfile": { "id": "biz_456", "businessName": "Acme Coffee" }
+    "profileType": "BUSINESS",
+    "isAffiliate": false,
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "fullName": "Jane Doe",
+    "name": "Acme Coffee",
+    "jobTitle": "Managing Director",
+    "phone": "+44 20 1234 5678",
+    "address": "1 High Street, London",
+    "postcode": "EC1A 1BB",
+    "country": "United Kingdom",
+    "businessId": "biz_456",
+    "businessName": "Acme Coffee",
+    "avatarUrl": "https://cdn.mcom.com/logo.png",
+    "businessProfile": {
+      "id": "biz_456",
+      "businessName": "Acme Coffee",
+      "businessType": "Limited Company",
+      "phone": "+44 20 1234 5678",
+      "email": "hello@acmecoffee.co.uk",
+      "address": "1 High Street, London",
+      "postcode": "EC1A 1BB",
+      "country": "United Kingdom",
+      "industry": "Food & Beverage",
+      "category": "Coffee Shop",
+      "subCategory": "Cafe",
+      "description": "Speciality coffee roastery",
+      "website": "https://acmecoffee.co.uk",
+      "logoUrl": "https://cdn.mcom.com/logo.png",
+      "openingHours": "Mon-Sat 8am-6pm",
+      "socialMedia": "{\\"instagram\\":\\"@acmecoffee\\"}",
+      "membershipLevel": "Gold",
+      "membershipStatus": "active",
+      "membershipPlanName": "Gold",
+      "packages": []
+    },
+    "customerProfile": null,
+    "agentProfile": null,
+    "consultantProfile": null,
+    "accountManagerProfile": null,
+    "permissions": { "canAccess_mall": true },
+    "packages": []
   }
 }
 \`\`\`
+
+#### Identity fields (returned for every role)
+
+\`user\` is the canonical identity — provision your local account from it.
+\`firstName\`, \`lastName\`, \`fullName\`, \`email\`, \`phone\`, \`address\`, \`postcode\`,
+\`country\`, \`jobTitle\` and \`profileType\` are always present (nullable where the
+profile does not store them). One role-specific profile is populated:
+
+| \`profileType\` | Profile object | Key fields |
+|---|---|---|
+| \`BUSINESS\` | \`businessProfile\` | business name/type, phone, email, address, postcode, country, industry, category, description, website, logo, opening hours, socials, membership, packages |
+| \`CUSTOMER\` | \`customerProfile\` | phone, loyalty points, platform usage, membership status |
+| \`AGENT\` (includes affiliates) | \`agentProfile\` | phone, permissions, status |
+| \`CONSULTANT\` | \`consultantProfile\` | phone, specialisation, status |
+| \`ACCOUNT_MANAGER\` | \`accountManagerProfile\` | phone, assigned businesses, status |
+| \`PARTNER\` | none | identity fields only |
+
+\`isAffiliate\` is \`true\` for affiliate/partner-portal sign-ups. For businesses,
+\`name\` is the business name — use \`fullName\` for the person.
+
+#### Role response shapes
+
+Branch on \`user.profileType\`; never assume \`businessProfile\` exists.
+
+**\`BUSINESS\`** (merchant accounts):
+\`\`\`json
+{
+  "role": "BUSINESS", "profileType": "BUSINESS", "isAffiliate": false,
+  "firstName": "Jane", "lastName": "Doe", "fullName": "Jane Doe",
+  "name": "Acme Coffee", "email": "owner@acme.com", "jobTitle": "Managing Director",
+  "phone": "+44 20 1234 5678", "address": "1 High Street, London",
+  "postcode": "EC1A 1BB", "country": "United Kingdom",
+  "businessId": "biz_456", "businessName": "Acme Coffee",
+  "businessProfile": {
+    "businessName": "Acme Coffee", "businessType": "Limited Company",
+    "phone": "+44 20 1234 5678", "email": "hello@acmecoffee.co.uk",
+    "address": "1 High Street, London", "postcode": "EC1A 1BB",
+    "country": "United Kingdom", "industry": "Food & Beverage",
+    "category": "Coffee Shop", "website": "https://acmecoffee.co.uk",
+    "logoUrl": "https://cdn.mcom.com/logo.png", "membershipLevel": "Gold",
+    "membershipStatus": "active", "packages": []
+  },
+  "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+**\`CUSTOMER\`** (shoppers/consumers):
+\`\`\`json
+{
+  "role": "CUSTOMER", "profileType": "CUSTOMER", "isAffiliate": false,
+  "firstName": "Sam", "lastName": "Lee", "fullName": "Sam Lee", "name": "Sam Lee",
+  "email": "shopper@example.com", "jobTitle": null, "phone": "+44 7700 900999",
+  "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": {
+    "phone": "+44 7700 900999", "loyaltyPoints": 120,
+    "platformUsage": ["mall"], "membershipStatus": "None", "status": "Active"
+  },
+  "agentProfile": null, "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+**\`AGENT\` / affiliate** (247GBS affiliate portal):
+\`\`\`json
+{
+  "role": "AGENT", "profileType": "AGENT", "isAffiliate": true,
+  "firstName": "Ade", "lastName": "Okafor", "fullName": "Ade Okafor",
+  "name": "Ade Okafor", "email": "ade@247gbs.com", "jobTitle": null,
+  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": {
+    "phone": "+44 7700 900123",
+    "permissions": ["view_tasks", "submit_deliverables"], "status": "Active"
+  },
+  "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+**\`CONSULTANT\`** (affiliate portal):
+\`\`\`json
+{
+  "role": "CONSULTANT", "profileType": "CONSULTANT", "isAffiliate": true,
+  "firstName": "Mia", "lastName": "Frank", "fullName": "Mia Frank", "name": "Mia Frank",
+  "email": "consultant@247gbs.com", "phone": "+44 7700 900456",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": {
+    "phone": "+44 7700 900456", "specialisation": "Retail Growth", "status": "Active"
+  },
+  "accountManagerProfile": null
+}
+\`\`\`
+
+**\`ACCOUNT_MANAGER\`** (staff):
+\`\`\`json
+{
+  "role": "ACCOUNT_MANAGER", "profileType": "ACCOUNT_MANAGER", "isAffiliate": true,
+  "firstName": "Tunde", "lastName": "Bello", "fullName": "Tunde Bello", "name": "Tunde Bello",
+  "email": "manager@247gbs.com", "phone": "+44 7700 900789",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": {
+    "phone": "+44 7700 900789", "assignedBusinesses": 12, "status": "Active"
+  }
+}
+\`\`\`
+
+**\`PARTNER\`** — identity/contact fields only; all profile objects are \`null\`.
+
+> Merchant/consumer apps can branch only on \`BUSINESS\`/\`CUSTOMER\`; affiliate
+> portals branch on \`AGENT\`/\`CONSULTANT\`/\`ACCOUNT_MANAGER\`.
 
 ---
 
@@ -278,9 +434,28 @@ app.get('/auth/callback', async (req, res) => {
     const tasks = entitlement.trialContext?.programmeTasks || [];
 
     req.session.user = {
+      // ── Canonical identity (all roles) ────────────────────────────────
       id: user.id,
       email: user.email,
+      role: user.role,                    // BUSINESS | CUSTOMER | AGENT | CONSULTANT | ...
+      profileType: user.profileType,
+      isAffiliate: user.isAffiliate,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      fullName: user.fullName,
+      phone: user.phone,
+      address: user.address,
+      postcode: user.postcode,
+      country: user.country,
+      jobTitle: user.jobTitle,
+      // ── Business profile (null for non-business roles) ────────────────
+      businessId: user.businessId,
       businessName: user.businessProfile?.businessName,
+      businessType: user.businessProfile?.businessType,
+      businessIndustry: user.businessProfile?.industry,
+      businessWebsite: user.businessProfile?.website,
+      businessLogo: user.avatarUrl,
+      // ── Entitlement ───────────────────────────────────────────────────
       planId,
       isTrial,
       quotas,
@@ -337,6 +512,7 @@ export async function GET(request: NextRequest) {
 ## 6. Key Takeaways for Developers
 
 * **Always check \`entitlement.access.hasAccess\` first.** Do not rely solely on user roles.
+* **Provision identity from \`user\`.** It carries firstName, lastName, fullName, email, phone, address, postcode, country and the role-specific profile (business, customer, agent, consultant, account manager).
 * **If \`hasAccess === false\`, direct the user to \`entitlement.access.upgradeUrl\`** so they can purchase the membership or pay the £1 verification fee.
 * **During trial, display \`programmeTasks\` prominently.** This guides the merchant to complete their required onboarding missions to maximize engagement.
 `;

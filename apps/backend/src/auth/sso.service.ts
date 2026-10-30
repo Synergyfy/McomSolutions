@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
 import { ssoEntitlementClientSelect, ssoUserInfoSelect } from './profile-selects';
+import { buildSsoIdentity, SsoIdentity } from './sso-identity';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -265,45 +266,9 @@ export class SsoService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: authCode.userId },
-      // G6: minimal select — never whole-row include. Only the identity,
-      // membership, and entitlement-package fields used below.
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        firstName: true,
-        lastName: true,
-        businessProfile: {
-          select: {
-            id: true,
-            businessName: true,
-            membershipLevel: true,
-            membershipStatus: true,
-            membershipTier: true,
-            membershipPlanName: true,
-            hasPaidVerificationFee: true,
-            verificationFeePaidAt: true,
-            trialAccessDays: true,
-            trialAccessExpiresAt: true,
-            createdAt: true,
-            packages: {
-              select: {
-                id: true,
-                platform: true,
-                packageName: true,
-                externalPlanId: true,
-                planName: true,
-                planType: true,
-                status: true,
-                limits: true,
-                expiresAt: true,
-                billingCycle: true,
-                amount: true,
-              },
-            },
-          },
-        },
-      },
+      // Shared SSO select — full identity + contact + role profile, minus
+      // credentials and other internal columns.
+      select: ssoUserInfoSelect,
     });
 
     if (!user) {
@@ -315,15 +280,20 @@ export class SsoService {
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
 
-    const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+    const identity = buildSsoIdentity(user);
+    const name = identity.name;
 
     const accessPayload = {
       jti: crypto.randomUUID(),
       sub: user.id,
       email: user.email,
       role: user.role,
+      profileType: identity.profileType,
       name,
-      businessId: user.businessProfile?.id || null,
+      firstName: identity.firstName || '',
+      lastName: identity.lastName || '',
+      businessName: identity.businessName || '',
+      businessId: identity.businessId,
       scopes: authCode.scopes,
     };
 
@@ -332,8 +302,12 @@ export class SsoService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      profileType: identity.profileType,
       name,
-      businessId: user.businessProfile?.id || null,
+      firstName: identity.firstName || '',
+      lastName: identity.lastName || '',
+      businessName: identity.businessName || '',
+      businessId: identity.businessId,
       scopes: authCode.scopes,
     };
 
@@ -362,7 +336,8 @@ export class SsoService {
     });
 
     // Resolve appPlan and platform entitlement for the client during code exchange
-    const { appPlan, entitlement } = await this.resolveEntitlements(user, authCode.client);
+    const { appPlan, entitlement, membership, enrichedPackages, permissions } =
+      await this.resolveEntitlements(user, authCode.client);
 
     return {
       accessToken,
@@ -370,27 +345,51 @@ export class SsoService {
       expiresIn: parseInt(accessTokenTtl, 10),
       tokenType: 'Bearer',
       entitlement,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        businessProfile: user.businessProfile
-          ? {
-              id: user.businessProfile.id,
-              businessName: user.businessProfile.businessName,
-              membershipLevel: user.businessProfile.membershipLevel,
-              membershipStatus: user.businessProfile.membershipStatus,
-              membershipPlanName: user.businessProfile.membershipPlanName,
-              hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
-              trialAccessExpiresAt:
-                entitlement?.trialContext.trialExpiresAt ?? user.businessProfile.trialAccessExpiresAt,
-              appPlan,
-              entitlement,
-            }
-          : null,
-      },
+      user: this.buildSsoUserPayload(identity, {
+        appPlan,
+        entitlement,
+        membership,
+        packages: enrichedPackages,
+        permissions,
+      }),
+    };
+  }
+
+  /**
+   * Decorates the shared {@link SsoIdentity} with entitlement data. The
+   * business profile keeps its full contact/detail fields so partners can
+   * provision and render a complete account from the SSO response alone.
+   */
+  private buildSsoUserPayload(
+    identity: SsoIdentity,
+    extras: {
+      appPlan: AppPlanView | null;
+      entitlement: PlatformEntitlement | null;
+      membership?: unknown;
+      packages?: unknown[];
+      permissions?: Record<string, boolean>;
+    },
+  ) {
+    const businessProfile = identity.businessProfile
+      ? {
+          ...identity.businessProfile,
+          packages: extras.packages ?? identity.businessProfile.packages,
+          trialAccessExpiresAt:
+            extras.entitlement?.trialContext.trialExpiresAt ??
+            identity.businessProfile.trialAccessExpiresAt,
+          appPlan: extras.appPlan,
+          entitlement: extras.entitlement,
+        }
+      : null;
+
+    return {
+      ...identity,
+      businessProfile,
+      appPlan: extras.appPlan,
+      entitlement: extras.entitlement,
+      membership: extras.membership,
+      packages: extras.packages,
+      permissions: extras.permissions,
     };
   }
 
@@ -437,38 +436,25 @@ export class SsoService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      // G6: minimal select — only the fields used for the refreshed payload.
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        firstName: true,
-        lastName: true,
-        businessProfile: {
-          select: {
-            id: true,
-            businessName: true,
-            membershipLevel: true,
-            membershipStatus: true,
-            membershipTier: true,
-            membershipPlanName: true,
-          },
-        },
-      },
+      select: ssoUserInfoSelect,
     });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    const name = user.businessProfile?.businessName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+    const identity = buildSsoIdentity(user);
     const newPayload = {
       jti: crypto.randomUUID(),
       sub: user.id,
       email: user.email,
       role: user.role,
-      name,
-      businessId: user.businessProfile?.id || null,
+      profileType: identity.profileType,
+      name: identity.name,
+      firstName: identity.firstName || '',
+      lastName: identity.lastName || '',
+      businessName: identity.businessName || '',
+      businessId: identity.businessId,
       scopes: payload.scopes,
     };
 
@@ -1080,33 +1066,23 @@ export class SsoService {
     const { appPlan, membership, enrichedPackages, permissions, entitlement } =
       await this.resolveEntitlements(user, client);
 
-    const name =
-      user.businessProfile?.businessName ||
-      `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-      user.email.split('@')[0];
+    const identity = buildSsoIdentity(user);
 
     return {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      name,
-      businessId: user.businessProfile?.id || null,
-      membershipLevel: user.businessProfile?.membershipLevel || 'Bronze',
-      membershipTier: user.businessProfile?.membershipTier || 'Normal',
-      membershipStatus: user.businessProfile?.membershipStatus || 'active',
-      hasPaidVerificationFee: Boolean(user.businessProfile?.hasPaidVerificationFee),
-      trialAccessExpiresAt:
-        entitlement?.trialContext.trialExpiresAt ?? user.businessProfile?.trialAccessExpiresAt ?? null,
-      phone: user.businessProfile?.phone || null,
-      address: user.businessProfile?.address || null,
-      postcode: user.businessProfile?.postcode || null,
-      appPlan,
-      entitlement,
-      membership,
-      packages: enrichedPackages,
-      permissions,
+      ...this.buildSsoUserPayload(identity, {
+        appPlan,
+        entitlement,
+        membership,
+        packages: enrichedPackages,
+        permissions,
+      }),
+      // Legacy flat fields kept for backwards compatibility with existing
+      // partner integrations that read them from `userinfo`.
+      membershipLevel: identity.membershipLevel || 'Bronze',
+      membershipTier: identity.membershipTier || 'Normal',
+      membershipStatus: identity.membershipStatus || 'active',
+      hasPaidVerificationFee: Boolean(identity.hasPaidVerificationFee),
+      trialAccessExpiresAt: entitlement?.trialContext.trialExpiresAt ?? identity.trialAccessExpiresAt,
     };
   }
 
@@ -1131,29 +1107,25 @@ export class SsoService {
       throw new BadRequestException('User or business not found');
     }
 
-    const { entitlement, appPlan, membership } = await this.resolveEntitlements(user, client);
+    const { entitlement, appPlan, membership, enrichedPackages, permissions } =
+      await this.resolveEntitlements(user, client);
+
+    const identity = buildSsoIdentity(user);
 
     return {
       success: true,
       entitlement,
       appPlan,
       membership,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        businessProfile: user.businessProfile
-          ? {
-              id: user.businessProfile.id,
-              businessName: user.businessProfile.businessName,
-              hasPaidVerificationFee: user.businessProfile.hasPaidVerificationFee,
-              trialAccessExpiresAt:
-                entitlement?.trialContext.trialExpiresAt ?? user.businessProfile.trialAccessExpiresAt,
-            }
-          : null,
-      },
+      packages: enrichedPackages,
+      permissions,
+      user: this.buildSsoUserPayload(identity, {
+        appPlan,
+        entitlement,
+        membership,
+        packages: enrichedPackages,
+        permissions,
+      }),
     };
   }
 

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -60,6 +61,7 @@ export class CreateCouponDto {
   @IsOptional()
   @IsArray()
   @ArrayUnique()
+  @ArrayMaxSize(50)
   @IsString({ each: true })
   membershipPlanIds?: string[];
 
@@ -72,6 +74,7 @@ export class CreateCouponDto {
   @IsOptional()
   @IsArray()
   @ArrayUnique()
+  @ArrayMaxSize(50)
   @IsString({ each: true })
   accessPlanIds?: string[];
 
@@ -149,6 +152,11 @@ export class QueryCouponsDto {
   @IsOptional()
   @IsEnum(CouponSource)
   source?: CouponSource;
+
+  @ApiPropertyOptional({ example: 'mcom-rewards', description: 'Filter by partner source app' })
+  @IsOptional()
+  @IsString()
+  sourceApp?: string;
 
   @ApiPropertyOptional({ enum: CouponDiscountType })
   @IsOptional()

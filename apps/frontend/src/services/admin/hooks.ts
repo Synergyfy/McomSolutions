@@ -44,6 +44,7 @@ import type {
   AdminCouponInput,
   AdminCouponQuery,
   AdminCouponRedemptionQuery,
+  PartnerAccessCodeQuery,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1444,6 +1445,14 @@ export const useCouponStats = () => {
     queryKey: ['admin', 'coupons', 'stats'],
     queryFn: () => adminApi.getCouponStats(),
     staleTime: 1000 * 60,
+  })
+}
+
+export const usePartnerAccessCodes = (params?: PartnerAccessCodeQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'partner', 'access-codes', params],
+    queryFn: () => adminApi.getPartnerAccessCodes(params),
+    staleTime: 1000 * 30,
   })
 }
 
