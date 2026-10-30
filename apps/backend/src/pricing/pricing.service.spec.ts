@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PricingService } from './pricing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService } from '../coupon/coupon.service';
+import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 describe('PricingService', () => {
@@ -55,6 +56,10 @@ describe('PricingService', () => {
         PricingService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CouponService, useValue: mockCouponService },
+        {
+          provide: EcosystemEventsService,
+          useValue: { emitCouponRedeemedForRedemption: jest.fn() },
+        },
       ],
     }).compile();
 

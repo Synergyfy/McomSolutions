@@ -151,7 +151,7 @@ function OverviewTab() {
           </div>
           <h5 className="font-bold text-gray-900 text-xs">Identity & OAuth 2.0 SSO</h5>
           <p className="text-[11px] text-gray-500 leading-normal">
-            Users authenticate through Mcom central login and receive verified profile, business, and subscription claims via standard OAuth 2.0 Auth Code grant.
+            Users authenticate through Mcom central login and receive verified identity (first/last name, email, phone, address) plus business, agent, consultant or customer profile and subscription claims via standard OAuth 2.0 Auth Code grant.
           </p>
         </div>
 
@@ -220,7 +220,7 @@ function AiSkillTab() {
     serviceEnabled: true,
     serviceBaseUrl: 'https://api.sample.mcom.com',
     serviceScopes: ['service:read', 'service:write', 'cards:issue'],
-    allowedAudiences: ['mcom-rewards', 'mcom-mall'],
+    allowedAudiences: ['mcom-rewards', 'mcom-mall', 'mcom-central'],
     allowedCallers: ['mcom-rewards', 'mcom-mall'],
   });
 
@@ -350,6 +350,39 @@ function SsoTab() {
             </pre>
           </div>
         </div>
+
+        <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+          <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+            4
+          </span>
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-gray-900">Provision Identity (every role)</p>
+            <p className="text-[11px] text-gray-500">
+              The <code>user</code> object is the canonical profile for businesses, customers,
+              agents/affiliates, consultants and account managers. It is returned by the token
+              exchange, <code>/auth/sso/userinfo</code>, <code>/auth/sso/entitlement</code> and the
+              launch token.
+            </p>
+            <pre className="text-[11px] font-mono bg-gray-900 text-emerald-300 p-2 rounded-lg overflow-x-auto">
+{`firstName, lastName, fullName, name, email, jobTitle
+phone, address, postcode, country
+profileType, isAffiliate
+businessId, businessName, businessProfile { ... }
+agentProfile | consultantProfile | accountManagerProfile | customerProfile`}
+            </pre>
+            <p className="text-[11px] text-gray-500">
+              Use <code>fullName</code> for the person; <code>name</code> is the business name for
+              BUSINESS accounts. <code>profileType</code> tells you which profile object is populated.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-blue-900 space-y-1.5">
+        <p className="font-bold">What each app should expect</p>
+        <p><b>MCOM Mall / Rewards / Spin</b> → <code>profileType</code> is <code>BUSINESS</code> or <code>CUSTOMER</code>.</p>
+        <p><b>247GBS affiliate portal</b> → <code>profileType</code> is <code>AGENT</code>, <code>CONSULTANT</code>, or <code>ACCOUNT_MANAGER</code>.</p>
+        <p>Any custom ecosystem app → all of the above. Branch on <code>user.profileType</code>; <code>businessProfile</code> is <code>null</code> for non-business roles.</p>
       </div>
     </div>
   );
@@ -438,14 +471,26 @@ function ServiceMeshTab() {
         platformSlug: 'rewards',
         isActive: true,
         isSystemApp: true,
-        serviceScopes: ['service:read', 'rewards:grant'],
+        serviceScopes: ['service:read', 'rewards:grant', 'central:read', 'central:issue'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: '3',
+        clientId: 'mcom-central',
+        name: 'MCOM Central',
+        platformSlug: 'mcom-central',
+        isActive: true,
+        isSystemApp: true,
+        serviceScopes: ['central:read', 'central:issue'],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     ],
     {
       'mcom-mall': { allowedAudiences: ['mcom-rewards'], allowedCallers: [] },
-      'mcom-rewards': { allowedAudiences: [], allowedCallers: ['mcom-mall'] },
+      'mcom-rewards': { allowedAudiences: ['mcom-central'], allowedCallers: ['mcom-mall'] },
+      'mcom-central': { allowedAudiences: [], allowedCallers: ['mcom-rewards'] },
     },
   );
 
@@ -751,7 +796,7 @@ function QuickstartTab() {
           <div>
             <p className="font-bold text-gray-900">Handle Callback & Fetch Tokens</p>
             <p className="text-gray-500 text-[11px]">
-              POST code and clientSecret from your backend to <code>/api/v1/auth/sso/token</code> to receive JWT access tokens.
+              POST code and clientSecret from your backend to <code>/api/v1/auth/sso/token</code> to receive JWT access tokens and the full <code>user</code> identity (firstName, lastName, email, phone, address, country, role profile).
             </p>
           </div>
         </div>
@@ -763,7 +808,7 @@ function QuickstartTab() {
           <div>
             <p className="font-bold text-gray-900">Verify User Access Rights</p>
             <p className="text-gray-500 text-[11px]">
-              Check <code>userInfo.permissions.canAccess_&#123;slug&#125;</code> to confirm active subscription status.
+              Check <code>userInfo.permissions.canAccess_&#123;slug&#125;</code> to confirm active subscription status. Provision the local account from <code>userInfo</code> — it includes <code>firstName</code>, <code>lastName</code>, <code>fullName</code>, <code>email</code>, <code>phone</code>, <code>address</code>, <code>postcode</code>, <code>country</code>, <code>businessId</code>/<code>businessName</code>, and the role-specific profile (<code>businessProfile</code>, <code>agentProfile</code>, <code>consultantProfile</code>, <code>accountManagerProfile</code> or <code>customerProfile</code>).
             </p>
           </div>
         </div>

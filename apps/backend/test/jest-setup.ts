@@ -71,3 +71,12 @@ process.env.MCOM_REWARDS_API_KEY = 'test-rewards-api-key';
 
 // ─── Mcom Console Encryption ──────────────────────────────────────────────────
 process.env.CONSOLE_ENCRYPTION_KEY = '86d3b8c8ad1519806cd90234050daebe4d2dc95f1ea9d83d780cc73ebed00a3b';
+
+// ─── Partner (MCOM Rewards) API ───────────────────────────────────────────────
+process.env.SERVICE_JWT_ISSUER = 'mcom-solutions';
+process.env.SERVICE_JWT_AUDIENCE = 'mcom-central';
+process.env.MCOM_ALLOWED_CALLERS = 'mcom-rewards';
+process.env.CENTRAL_PARTNER_API_ENABLED = 'true';
+process.env.CENTRAL_PARTNER_GRANTS_ENABLED = 'true';
+process.env.CENTRAL_PARTNER_COUPONS_ENABLED = 'true';
+process.env.CENTRAL_PARTNER_EVENTS_ENABLED = 'true';

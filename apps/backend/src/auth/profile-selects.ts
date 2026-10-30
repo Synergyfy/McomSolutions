@@ -64,10 +64,15 @@ export const userProfileSelect = {
 } satisfies Prisma.UserSelect;
 
 /**
- * Minimal select for SSO `userinfo` — only what `resolveEntitlements` and the
- * response builder read. Client secrets are never selected (see the
- * `ssoSession` lookup, which selects `clientId` and reuses the cached safe
- * client instead of `include: { client: true }`).
+ * Select used by the SSO profile surfaces (`POST /auth/sso/token`,
+ * `GET /auth/sso/userinfo`, `GET /auth/sso/entitlement` and the dashboard
+ * handshake token). It carries the full identity + contact + business
+ * information a partner app needs to provision a local account, for every
+ * role (BUSINESS, CUSTOMER, AGENT, CONSULTANT, ACCOUNT_MANAGER, PARTNER).
+ *
+ * Deliberately excluded: `password`, `tokenVersion`, `deletedAt`,
+ * `BusinessProfile.apiKey`, `stripeCustomerId`, `paypalPayerId` and any
+ * client secret. Those never leave the central hub.
  */
 export const ssoUserInfoSelect = {
   id: true,
@@ -75,13 +80,30 @@ export const ssoUserInfoSelect = {
   role: true,
   firstName: true,
   lastName: true,
+  jobTitle: true,
+  registrationSource: true,
+  createdAt: true,
   businessProfile: {
     select: {
       id: true,
+      userId: true,
       businessName: true,
+      businessType: true,
+      country: true,
       phone: true,
+      email: true,
+      isOnGoogle: true,
+      googlePlaceId: true,
       address: true,
       postcode: true,
+      industry: true,
+      category: true,
+      subCategory: true,
+      description: true,
+      website: true,
+      logoUrl: true,
+      openingHours: true,
+      socialMedia: true,
       membershipLevel: true,
       membershipTier: true,
       membershipStatus: true,
@@ -91,7 +113,11 @@ export const ssoUserInfoSelect = {
       verificationFeePaidAt: true,
       trialAccessDays: true,
       trialAccessExpiresAt: true,
+      localMallName: true,
+      localMallId: true,
+      proximityTier: true,
       createdAt: true,
+      updatedAt: true,
       packages: {
         select: {
           id: true,
@@ -107,6 +133,44 @@ export const ssoUserInfoSelect = {
           amount: true,
         },
       },
+    },
+  },
+  customerProfile: {
+    select: {
+      id: true,
+      phone: true,
+      loyaltyPoints: true,
+      platformUsage: true,
+      membershipStatus: true,
+      status: true,
+      createdAt: true,
+    },
+  },
+  agentProfile: {
+    select: {
+      id: true,
+      phone: true,
+      permissions: true,
+      status: true,
+      createdAt: true,
+    },
+  },
+  consultantProfile: {
+    select: {
+      id: true,
+      phone: true,
+      specialisation: true,
+      status: true,
+      createdAt: true,
+    },
+  },
+  accountManagerProfile: {
+    select: {
+      id: true,
+      phone: true,
+      assignedBusinesses: true,
+      status: true,
+      createdAt: true,
     },
   },
 } satisfies Prisma.UserSelect;

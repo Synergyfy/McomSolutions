@@ -284,9 +284,14 @@ export class WalletAdminService {
           where: { id: txn.id },
           data: { status: 'REVERSED' },
         }),
+        // Relative write: an absolute `balance: balanceAfter` computed from a
+        // read would silently overwrite any concurrent activity.
         this.prisma.wallet.update({
           where: { id: wallet.id },
-          data: { balance: balanceAfter, lastTransactionAt: new Date() },
+          data:
+            reverseType === 'CREDIT'
+              ? { balance: { increment: amount }, lastTransactionAt: new Date() }
+              : { balance: { decrement: amount }, lastTransactionAt: new Date() },
         }),
       ]);
 

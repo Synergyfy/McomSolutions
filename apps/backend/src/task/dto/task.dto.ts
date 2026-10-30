@@ -1,8 +1,10 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsISO8601,
   IsNotEmpty,
@@ -223,5 +225,36 @@ export class QueryAssignmentsDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  limit?: number;
+}
+
+export class QueryProgrammeUsersDto {
+  @ApiPropertyOptional({ example: 'acme', description: 'Search by name, business name, or email' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
+    enum: ['ALL', 'BUSINESS', 'CUSTOMER'],
+    example: 'ALL',
+    description: 'Filter by user type',
+  })
+  @IsOptional()
+  @IsIn(['ALL', 'BUSINESS', 'CUSTOMER'])
+  role?: 'ALL' | 'BUSINESS' | 'CUSTOMER';
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
   limit?: number;
 }

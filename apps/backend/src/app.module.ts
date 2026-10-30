@@ -28,6 +28,7 @@ import { CouponModule } from './coupon/coupon.module';
 import { AccessModule } from './access/access.module';
 import { CustomerModule } from './customer/customer.module';
 import { RecurringModule } from './recurring/recurring.module';
+import { PartnerModule } from './partner/partner.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -107,6 +108,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     AccessModule,
     CustomerModule,
     RecurringModule,
+    PartnerModule,
   ],
   controllers: [],
   // Global throttler: AppThrottlerGuard keys by userId for authenticated

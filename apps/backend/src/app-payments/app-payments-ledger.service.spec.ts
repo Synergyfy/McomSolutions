@@ -80,6 +80,20 @@ describe('AppPaymentsLedgerService', () => {
       // 318 * 5000 / 10270 = 154.82 -> 155
       expect(service.computeRefundFee({ amountMinor: 10270n, feeMinor: 318n }, 5000n)).toBe(155n);
     });
+
+    it('never refunds more fee than was charged across successive partials', () => {
+      const charge = { amountMinor: 10270n, feeMinor: 318n };
+      const first = service.computeRefundFee(charge, 3081n);
+      const second = service.computeRefundFee(charge, 3081n, {
+        refundedMinor: 3081n,
+        feeRefundedMinor: first,
+      });
+      const last = service.computeRefundFee(charge, 10270n - 6162n, {
+        refundedMinor: 6162n,
+        feeRefundedMinor: first + second,
+      });
+      expect(first + second + last).toBe(318n);
+    });
   });
 
   describe('postChargeLedger', () => {
@@ -117,6 +131,43 @@ describe('AppPaymentsLedgerService', () => {
       });
       const rows = prisma.appPaymentLedgerEntry.createMany.mock.calls[0][0].data;
       expect(rows).toHaveLength(2);
+    });
+  });
+
+  describe('postRefundLedger', () => {
+    it('keys rows by refund id so every partial refund posts', async () => {
+      await service.postRefundLedger(prisma, {
+        chargeId: 'ch_1',
+        refundId: 'rf_1',
+        appClientId: 'app',
+        refundMinor: 5000n,
+        feeRefundMinor: 155n,
+        netRefundMinor: 4845n,
+        currency: 'GBP',
+        clearingAccount: LedgerAccount.gateway_clearing,
+      });
+
+      const rows = prisma.appPaymentLedgerEntry.createMany.mock.calls[0][0].data;
+      expect(rows).toHaveLength(3);
+      expect(rows.every((r: any) => r.idempotencyKey.startsWith('rf_1:'))).toBe(true);
+      const debit = rows.filter((r: any) => r.direction === 'debit').reduce((s: bigint, r: any) => s + r.amountMinor, 0n);
+      const credit = rows.filter((r: any) => r.direction === 'credit').reduce((s: bigint, r: any) => s + r.amountMinor, 0n);
+      expect(debit).toBe(credit);
+    });
+
+    it('rejects an imbalanced refund instead of posting it', async () => {
+      await expect(
+        service.postRefundLedger(prisma, {
+          chargeId: 'ch_1',
+          refundId: 'rf_1',
+          appClientId: 'app',
+          refundMinor: 5000n,
+          feeRefundMinor: 155n,
+          netRefundMinor: 4000n,
+          currency: 'GBP',
+          clearingAccount: LedgerAccount.gateway_clearing,
+        }),
+      ).rejects.toThrow('imbalance');
     });
   });
 });

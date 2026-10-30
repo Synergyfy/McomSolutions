@@ -24,6 +24,9 @@ export class AppChargeDto {
   @ApiProperty({ example: '10000', description: 'Net amount owed to the app in minor units (pence)' })
   netMinor: string;
 
+  @ApiProperty({ example: '0', description: 'Total already refunded in minor units (pence)' })
+  refundedMinor: string;
+
   @ApiProperty({ enum: AppChargeMethod, example: 'stripe' })
   method: AppChargeMethod;
 
@@ -51,15 +54,87 @@ export class AppChargeDto {
   @ApiPropertyOptional({ example: '100.0000', description: 'MCOM credits debited (wallet method only)' })
   walletDebitAmount?: string | null;
 
+  @ApiPropertyOptional({
+    example: false,
+    description: 'True when the provider moved money but local settlement needs reconciliation',
+  })
+  reconciliationNeeded?: boolean;
+
   @ApiPropertyOptional({ example: '2026-10-11T10:00:00.000Z' })
   paidAt?: string | null;
 
   @ApiProperty({ example: '2026-10-11T10:00:00.000Z' })
   createdAt: string;
+
+  @ApiPropertyOptional({
+    enum: ['app', 'central'],
+    example: 'app',
+    description:
+      'Where the charge originated: a Console-registered app, or MCOM Central direct sales (memberships, access passes, platform plans)',
+  })
+  source?: 'app' | 'central';
 }
 
-export class CreateChargeResponseDto {
+/**
+ * One refund attempt. `status` is `pending` while the provider call or the local
+ * settlement is in flight, `succeeded` once the money is back with the payer and
+ * the ledger is written, and `failed` when the provider rejected the refund.
+ */
+export class AppRefundDto {
+  @ApiProperty({ example: 'clx9r3st20000x4vj9d1q8w2z' })
+  id: string;
+
+  @ApiProperty({ example: 'clx8p2qr10000x4vj3k5m7n9p' })
+  chargeId: string;
+
+  @ApiProperty({ example: '10270', description: 'Gross amount returned to the payer (pence)' })
+  amountMinor: string;
+
+  @ApiProperty({ example: '318', description: 'MCOM fee returned (pence)' })
+  feeRefundMinor: string;
+
+  @ApiProperty({ example: '9952', description: 'Net amount returned from app payable (pence)' })
+  netRefundMinor: string;
+
+  @ApiProperty({ example: 'GBP' })
+  currency: string;
+
+  @ApiPropertyOptional({ enum: ['stripe', 'paypal', 'wallet'], example: 'stripe' })
+  provider?: string | null;
+
+  @ApiPropertyOptional({ example: 're_3Pabc...' })
+  providerRef?: string | null;
+
+  @ApiProperty({ enum: ['pending', 'succeeded', 'failed'], example: 'succeeded' })
+  status: string;
+
+  @ApiPropertyOptional({ example: 'Customer requested refund' })
+  reason?: string | null;
+
+  @ApiPropertyOptional({ example: null })
+  failureReason?: string | null;
+
+  @ApiProperty({ example: '2026-10-28T10:00:00.000Z' })
+  createdAt: string;
+}
+
+export class RefundChargeResponseDto {
   @ApiProperty({ type: AppChargeDto })
+  charge: AppChargeDto;
+
+  @ApiProperty({ type: AppRefundDto })
+  refund: AppRefundDto;
+}
+
+export class RefundListDto {
+  @ApiProperty({ example: true })
+  success: boolean;
+
+  @ApiProperty({ type: [AppRefundDto] })
+  data: AppRefundDto[];
+}
+
+export class CreateChargeResponseDto {  @ApiProperty({ type: AppChargeDto })
   charge: AppChargeDto;
 
   @ApiPropertyOptional({

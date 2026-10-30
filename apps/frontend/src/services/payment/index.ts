@@ -22,6 +22,24 @@ export const paymentApi = {
     return res.data;
   },
 
+  // ─── MCOM Wallet Membership Purchases ─────────────────────────────────
+  membershipWalletPurchase: async (
+    data: {
+      level: string;
+      tier: string;
+      billing: string;
+      paymentPlan?: string;
+      couponCode?: string;
+      autoRenew?: boolean;
+    },
+    idempotencyKey: string,
+  ) => {
+    const res = await apiClient.post('/payment/wallet', data, {
+      headers: { 'X-Idempotency-Key': idempotencyKey },
+    });
+    return res.data;
+  },
+
   // ─── Access Pass Purchases ────────────────────────────────────────────
   accessStripeInitiate: async (data: {
     accessPlanId: string;

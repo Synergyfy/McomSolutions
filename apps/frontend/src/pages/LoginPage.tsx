@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff, UserX, X } from 'lucide-react';
-import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../services/auth/hooks';
+import { Shield, Lock, ArrowRight, AlertCircle, LogOut, Loader2, Eye, EyeOff, UserX, X, Mail, KeyRound, CheckCircle2 } from 'lucide-react';
+import { useLogin, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout, useForgotPassword, useResetPassword } from '../services/auth/hooks';
 import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
@@ -20,6 +20,20 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [showNotFoundModal, setShowNotFoundModal] = useState(false);
   const [notFoundEmail, setNotFoundEmail] = useState('');
+
+  // Forgot-password flow: request a reset code, then exchange it for a new password.
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'email' | 'reset' | 'done'>('email');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotCode, setForgotCode] = useState('');
+  const [forgotPassword, setForgotPassword] = useState('');
+  const [forgotConfirm, setForgotConfirm] = useState('');
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  const [forgotInfo, setForgotInfo] = useState<string | null>(null);
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  const { mutateAsync: requestPasswordReset } = useForgotPassword();
+  const { mutateAsync: submitPasswordReset } = useResetPassword();
 
   const { mutateAsync: login } = useLogin();
   const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
@@ -266,6 +280,17 @@ export default function LoginPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [showNotFoundModal]);
 
+  // Escape also dismisses the forgot-password dialog (never mid-request).
+  useEffect(() => {
+    if (!showForgotModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeForgotModal();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForgotModal, forgotLoading]);
+
   // /register keeps every SSO query param so the user lands back on the
   // originating platform (e.g. MCOM Mall "login with MCOM Solutions")
   // after completing registration. The typed email rides along as ?email=.
@@ -454,6 +479,98 @@ export default function LoginPage() {
   const handleUseDifferentAccount = () => {
     const search = searchParams.toString() ? `?${searchParams.toString()}` : '';
     logout(`/login${search}`);
+  };
+
+  const openForgotModal = () => {
+    setForgotEmail(email);
+    setForgotStep('email');
+    setForgotCode('');
+    setForgotPassword('');
+    setForgotConfirm('');
+    setForgotError(null);
+    setForgotInfo(null);
+    setShowForgotModal(true);
+  };
+
+  const closeForgotModal = () => {
+    if (forgotLoading) return;
+    setShowForgotModal(false);
+    setForgotError(null);
+    setForgotInfo(null);
+  };
+
+  const handleForgotRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetEmail = forgotEmail.trim();
+    if (!targetEmail) {
+      setForgotError('Enter the email address linked to your account.');
+      return;
+    }
+    setForgotLoading(true);
+    setForgotError(null);
+    setForgotInfo(null);
+    try {
+      const res = await requestPasswordReset(targetEmail);
+      // The backend returns the code directly in mock/dev mode (no mailer).
+      if (res?.resetCode) {
+        setForgotCode(res.resetCode);
+        setForgotInfo(`Development mode: your reset code is ${res.resetCode}.`);
+      } else {
+        setForgotInfo(`A 6-digit reset code is on its way to ${targetEmail}. Check your inbox and spam folder.`);
+      }
+      setForgotStep('reset');
+    } catch (err: any) {
+      if (!err?.response) {
+        setForgotError('We could not reach the sign-in service. Check your connection and try again.');
+      } else if (err.response.status === 429) {
+        setForgotError('Too many requests. Please wait a minute before trying again.');
+      } else {
+        setForgotError(err.response?.data?.message || 'We could not send a reset code. Please try again.');
+      }
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleForgotReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetEmail = forgotEmail.trim();
+    const code = forgotCode.trim();
+    if (!code) {
+      setForgotError('Enter the reset code from your email.');
+      return;
+    }
+    if (forgotPassword !== forgotConfirm) {
+      setForgotError('Passwords do not match.');
+      return;
+    }
+    if (
+      forgotPassword.length < 8 ||
+      !/[A-Z]/.test(forgotPassword) ||
+      !/[0-9]/.test(forgotPassword) ||
+      !/[!@#$%^&*(),.?":{}|<>]/.test(forgotPassword)
+    ) {
+      setForgotError('Password must be at least 8 characters and include 1 uppercase letter, 1 number, and 1 special character.');
+      return;
+    }
+    setForgotLoading(true);
+    setForgotError(null);
+    try {
+      await submitPasswordReset({ email: targetEmail, code, newPassword: forgotPassword });
+      setForgotStep('done');
+      setEmail(targetEmail);
+      setPassword('');
+    } catch (err: any) {
+      if (!err?.response) {
+        setForgotError('We could not reach the sign-in service. Check your connection and try again.');
+      } else if (err.response.status === 429) {
+        setForgotError('Too many attempts. Please wait a minute before trying again.');
+      } else {
+        setForgotError(err.response?.data?.message || 'That reset code is invalid or has expired. Request a new one.');
+      }
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
@@ -666,7 +783,13 @@ export default function LoginPage() {
                     <input type="checkbox" className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-orange-600 focus:ring-orange-500" />
                     <span className="text-slate-600">Remember me</span>
                   </label>
-                  <a href="#" className="font-semibold text-orange-700 hover:underline">Forgot password?</a>
+                  <button
+                    type="button"
+                    onClick={openForgotModal}
+                    className="text-brand-blue font-bold hover:underline"
+                  >
+                    Forgot password?
+                  </button>
                 </div>
 
                 <button 
@@ -760,6 +883,230 @@ export default function LoginPage() {
               >
                 Close
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Forgot-password modal: request code → set new password → confirmation */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <motion.div
+            key="forgot-password"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6"
+            onClick={closeForgotModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forgot-password-title"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 48, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 32, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md rounded-t-3xl bg-white p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[2rem] sm:p-8"
+            >
+              <button
+                type="button"
+                onClick={closeForgotModal}
+                disabled={forgotLoading}
+                aria-label="Close"
+                className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              {forgotStep === 'email' && (
+                <form onSubmit={handleForgotRequest}>
+                  <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 text-brand-blue">
+                    <Mail className="h-7 w-7" />
+                  </div>
+                  <h2 id="forgot-password-title" className="mb-2 text-center text-xl font-bold text-gray-900 sm:text-2xl">
+                    Reset your password
+                  </h2>
+                  <p className="mb-6 text-center text-sm text-gray-500">
+                    Enter the email linked to your account and we'll send you a 6-digit reset code.
+                  </p>
+
+                  {forgotError && (
+                    <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                      <AlertCircle className="h-5 w-5 shrink-0" />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <label htmlFor="forgot-email" className="mb-2 block text-sm font-bold text-gray-700">
+                    Email Address
+                  </label>
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    required
+                    autoFocus
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-base transition-all focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-blue py-3.5 text-base font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-600 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {forgotLoading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Sending code...
+                      </>
+                    ) : (
+                      <>
+                        Send reset code
+                        <ArrowRight className="h-5 w-5" />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeForgotModal}
+                    disabled={forgotLoading}
+                    className="mt-3 w-full rounded-2xl py-3.5 text-sm font-bold text-gray-500 transition-all hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
+                  >
+                    Back to sign in
+                  </button>
+                </form>
+              )}
+
+              {forgotStep === 'reset' && (
+                <form onSubmit={handleForgotReset}>
+                  <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-100 text-brand-blue">
+                    <KeyRound className="h-7 w-7" />
+                  </div>
+                  <h2 id="forgot-password-title" className="mb-2 text-center text-xl font-bold text-gray-900 sm:text-2xl">
+                    Enter your reset code
+                  </h2>
+                  <p className="mb-5 break-all text-center text-sm text-gray-500">
+                    We sent a code to <span className="font-bold text-gray-900">{forgotEmail.trim()}</span>
+                  </p>
+
+                  {forgotInfo && (
+                    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">
+                      {forgotInfo}
+                    </div>
+                  )}
+                  {forgotError && (
+                    <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+                      <AlertCircle className="h-5 w-5 shrink-0" />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <label htmlFor="forgot-code" className="mb-2 block text-sm font-bold text-gray-700">
+                    Reset Code
+                  </label>
+                  <input
+                    id="forgot-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    autoFocus
+                    maxLength={6}
+                    value={forgotCode}
+                    onChange={(e) => setForgotCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-lg font-bold tracking-[0.4em] transition-all focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  />
+
+                  <label htmlFor="forgot-new-password" className="mb-2 mt-4 block text-sm font-bold text-gray-700">
+                    New Password
+                  </label>
+                  <input
+                    id="forgot-new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    value={forgotPassword}
+                    onChange={(e) => setForgotPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-base transition-all focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  />
+
+                  <label htmlFor="forgot-confirm-password" className="mb-2 mt-4 block text-sm font-bold text-gray-700">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="forgot-confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    value={forgotConfirm}
+                    onChange={(e) => setForgotConfirm(e.target.value)}
+                    placeholder="••••••••"
+                    className="min-h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-base transition-all focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">
+                    At least 8 characters with 1 uppercase letter, 1 number, and 1 special character.
+                  </p>
+
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-blue py-3.5 text-base font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-600 active:scale-[0.99] disabled:opacity-50"
+                  >
+                    {forgotLoading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Updating password...
+                      </>
+                    ) : (
+                      <>
+                        Reset password
+                        <ArrowRight className="h-5 w-5" />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotStep('email');
+                      setForgotError(null);
+                      setForgotInfo(null);
+                      setForgotCode('');
+                    }}
+                    disabled={forgotLoading}
+                    className="mt-3 w-full rounded-2xl py-3.5 text-sm font-bold text-gray-500 transition-all hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
+                  >
+                    Use a different email
+                  </button>
+                </form>
+              )}
+
+              {forgotStep === 'done' && (
+                <div className="text-center">
+                  <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-green-600">
+                    <CheckCircle2 className="h-7 w-7" />
+                  </div>
+                  <h2 id="forgot-password-title" className="mb-2 text-xl font-bold text-gray-900 sm:text-2xl">
+                    Password updated
+                  </h2>
+                  <p className="mb-6 text-sm text-gray-500">
+                    Your password has been reset and any other sessions were signed out. You can now sign in with your new password.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={closeForgotModal}
+                    className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-brand-blue py-3.5 text-base font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-600 active:scale-[0.99]"
+                  >
+                    Back to sign in
+                    <ArrowRight className="h-5 w-5" />
+                  </button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

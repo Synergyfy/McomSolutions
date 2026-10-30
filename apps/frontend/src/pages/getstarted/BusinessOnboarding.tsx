@@ -108,7 +108,7 @@ function useCreateUser() {
         email: data.email,
         password: data.password,
         confirm_password: data.confirm_password || data.password,
-        businessName: data.businessName || 'Business Owner',
+        businessName: (data.businessName || '').trim() || undefined,
         businessType: 'retail',
         country: 'United Kingdom',
         phone: data.phoneNumber || data.phone || '',
@@ -593,6 +593,9 @@ function BusinessOnboardingInner() {
   const exteriorInputRef = useRef<HTMLInputElement>(null);
   const gridInputRef = useRef<HTMLInputElement>(null);
   const replaceIndexRef = useRef<number>(-1);
+  // Guards against the auto-submit effect and the manual button racing to
+  // verify the same single-use OTP (the second call would report "expired").
+  const otpVerifyInFlightRef = useRef(false);
 
   const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2298,6 +2301,8 @@ function BusinessOnboardingInner() {
     // ── Step 1: Validate OTP ───────────────────────────────
     if (currentStep === 1) {
       if (!otp || otp.length < 6) { setSubmitError('Please enter the full 6-digit code.'); return; }
+      if (otpVerifyInFlightRef.current) return;
+      otpVerifyInFlightRef.current = true;
       setIsSubmitting(true);
       try {
         const otpResult = await validateOtp({ email: formData.email, otp, type: 'VERIFICATION' });
@@ -2324,6 +2329,7 @@ function BusinessOnboardingInner() {
       } catch (err: unknown) {
         setSubmitError(signupErrorMessage(err, 'Invalid or expired verification code. Please check and try again.'));
       } finally {
+        otpVerifyInFlightRef.current = false;
         setIsSubmitting(false);
       }
       return;
@@ -2442,6 +2448,7 @@ function BusinessOnboardingInner() {
               phoneNumber: formData.phoneNumber,
               password: formData.password,
               confirm_password: formData.confirmPassword,
+              businessName: formData.businessName,
               role: UserRole.OWNER,
             });
           } catch (err: any) {
@@ -3706,7 +3713,11 @@ function BusinessOnboardingInner() {
                   setVerifyOtpBusy(true);
                   setVerifyOtpError(null);
                   try {
-                    await validateOtp({ email: formData.email, otp: verifyOtpCode, type: 'VERIFICATION' });
+                    const result = await validateOtp({ email: formData.email, otp: verifyOtpCode, type: 'VERIFICATION' });
+                    if (!result?.data?.valid) {
+                      setVerifyOtpError('Invalid or expired verification code. Please try again.');
+                      return;
+                    }
                     setShowVerifyOwnershipPage(false);
                     setShowConnectGooglePage(true);
                   } catch {

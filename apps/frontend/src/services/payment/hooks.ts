@@ -40,6 +40,33 @@ export const usePaypalCapture = () => {
   });
 };
 
+// ─── MCOM Wallet Membership Purchases ─────────────────────────────────
+export const useMembershipWalletPurchase = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      data,
+      idempotencyKey,
+    }: {
+      data: {
+        level: string;
+        tier: string;
+        billing: string;
+        paymentPlan?: string;
+        couponCode?: string;
+        autoRenew?: boolean;
+      };
+      idempotencyKey: string;
+    }) => paymentApi.membershipWalletPurchase(data, idempotencyKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['my-coupons'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
+    },
+  });
+};
+
 // ─── Access Pass Purchases ────────────────────────────────────────────
 export const useAccessStripeInitiate = () => {
   return useMutation({

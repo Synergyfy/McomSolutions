@@ -218,9 +218,46 @@ Response (trimmed):
   "entitlement": { "...": "PlatformEntitlement" },
   "user": {
     "id": "usr_123",
+    "sub": "usr_123",
     "email": "owner@acme.com",
     "role": "BUSINESS",
-    "businessProfile": { "id": "biz_456", "businessName": "Acme Coffee" }
+    "profileType": "BUSINESS",
+    "isAffiliate": false,
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "fullName": "Jane Doe",
+    "name": "Acme Coffee",
+    "jobTitle": "Managing Director",
+    "phone": "+44 20 1234 5678",
+    "address": "1 High Street, London",
+    "postcode": "EC1A 1BB",
+    "country": "United Kingdom",
+    "businessId": "biz_456",
+    "businessName": "Acme Coffee",
+    "avatarUrl": "https://cdn.mcom.com/logo.png",
+    "businessProfile": {
+      "id": "biz_456",
+      "businessName": "Acme Coffee",
+      "businessType": "Limited Company",
+      "phone": "+44 20 1234 5678",
+      "email": "hello@acme.com",
+      "address": "1 High Street, London",
+      "postcode": "EC1A 1BB",
+      "country": "United Kingdom",
+      "industry": "Food & Beverage",
+      "category": "Coffee Shop",
+      "description": "Speciality coffee roastery",
+      "website": "https://acmecoffee.co.uk",
+      "logoUrl": "https://cdn.mcom.com/logo.png",
+      "membershipLevel": "Gold",
+      "membershipStatus": "active",
+      "membershipPlanName": "Gold",
+      "packages": []
+    },
+    "customerProfile": null,
+    "agentProfile": null,
+    "consultantProfile": null,
+    "accountManagerProfile": null
   }
 }
 \`\`\`
@@ -232,7 +269,155 @@ The entitlement is already scoped to your \`client_id\` — read it directly fro
 GET ${mcomBaseUrl}/api/v1/auth/sso/userinfo?client_id=YOUR_CLIENT_ID
 Authorization: Bearer <user_access_token>
 \`\`\`
-Returns \`entitlement\`, \`membership\`, \`packages\` (every platform package the business holds), \`appPlan\`, and \`permissions\`.
+Returns the full identity (\`firstName\`, \`lastName\`, \`fullName\`, \`email\`, \`phone\`,
+\`address\`, \`postcode\`, \`country\`, \`profileType\`), the role-specific profile,
+\`entitlement\`, \`membership\`, \`packages\` (every platform package the business
+holds), \`appPlan\`, and \`permissions\`.
+
+### Identity payload (every role)
+
+Provision your local account from \`user\` — it is the same shape on every SSO
+surface (token exchange, userinfo, introspection, launch token):
+
+\`\`\`typescript
+interface McomSsoUser {
+  id: string; sub: string; email: string;
+  role: 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER' | 'PARTNER' | 'ADMIN';
+  profileType: string;      // explicit discriminator
+  isAffiliate: boolean;     // affiliate/partner-portal sign-up
+
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string;         // person's name — never the business name
+  name: string;             // display name (business name for BUSINESS)
+  jobTitle: string | null;
+  avatarUrl: string | null; // business logo when available
+
+  phone: string | null;
+  address: string | null;
+  postcode: string | null;
+  country: string | null;
+
+  businessId: string | null;
+  businessName: string | null;
+  membershipLevel: string | null;
+  membershipStatus: string | null;
+
+  businessProfile: Record<string, unknown> | null;   // full business record
+  customerProfile: Record<string, unknown> | null;
+  agentProfile: Record<string, unknown> | null;
+  consultantProfile: Record<string, unknown> | null;
+  accountManagerProfile: Record<string, unknown> | null;
+}
+\`\`\`
+
+| \`profileType\` | Profile object | Key fields |
+|---|---|---|
+| \`BUSINESS\` | \`businessProfile\` | business name/type, phone, email, address, postcode, country, industry, category, description, website, logo, opening hours, socials, membership, packages |
+| \`CUSTOMER\` | \`customerProfile\` | phone, loyalty points, platform usage, membership status |
+| \`AGENT\` (includes affiliates) | \`agentProfile\` | phone, permissions, status |
+| \`CONSULTANT\` | \`consultantProfile\` | phone, specialisation, status |
+| \`ACCOUNT_MANAGER\` | \`accountManagerProfile\` | phone, assigned businesses, status |
+| \`PARTNER\` | none | identity fields only |
+
+#### Role response shapes
+
+Branch on \`user.profileType\`; never assume \`businessProfile\` exists.
+
+\`\`\`json
+// BUSINESS (merchant/owner) — e.g. MCOM Mall vendor
+{
+  "role": "BUSINESS", "profileType": "BUSINESS", "isAffiliate": false,
+  "firstName": "Jane", "lastName": "Doe", "fullName": "Jane Doe",
+  "name": "Acme Coffee", "email": "owner@acme.com",
+  "phone": "+44 20 1234 5678", "address": "1 High Street, London",
+  "postcode": "EC1A 1BB", "country": "United Kingdom",
+  "businessId": "biz_456", "businessName": "Acme Coffee",
+  "businessProfile": {
+    "businessName": "Acme Coffee", "businessType": "Limited Company",
+    "phone": "+44 20 1234 5678", "email": "hello@acme.com",
+    "address": "1 High Street, London", "postcode": "EC1A 1BB",
+    "country": "United Kingdom", "industry": "Food & Beverage",
+    "category": "Coffee Shop", "website": "https://acmecoffee.co.uk",
+    "logoUrl": "https://cdn.mcom.com/logo.png", "membershipLevel": "Gold",
+    "membershipStatus": "active", "packages": []
+  },
+  "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+\`\`\`json
+// CUSTOMER (shopper/consumer) — e.g. MCOM Mall buyer
+{
+  "role": "CUSTOMER", "profileType": "CUSTOMER", "isAffiliate": false,
+  "firstName": "Sam", "lastName": "Lee", "fullName": "Sam Lee", "name": "Sam Lee",
+  "email": "shopper@example.com", "phone": "+44 7700 900999",
+  "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": {
+    "phone": "+44 7700 900999", "loyaltyPoints": 120,
+    "platformUsage": ["mall"], "membershipStatus": "None", "status": "Active"
+  },
+  "agentProfile": null, "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+\`\`\`json
+// AGENT (affiliate portal user) — e.g. 247GBS affiliate
+{
+  "role": "AGENT", "profileType": "AGENT", "isAffiliate": true,
+  "firstName": "Ade", "lastName": "Okafor", "fullName": "Ade Okafor",
+  "name": "Ade Okafor", "email": "ade@247gbs.com",
+  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null,
+  "businessId": null, "businessName": null, "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": {
+    "phone": "+44 7700 900123",
+    "permissions": ["view_tasks", "submit_deliverables"], "status": "Active"
+  },
+  "consultantProfile": null, "accountManagerProfile": null
+}
+\`\`\`
+
+\`\`\`json
+// CONSULTANT (affiliate portal)
+{
+  "role": "CONSULTANT", "profileType": "CONSULTANT", "isAffiliate": true,
+  "firstName": "Mia", "lastName": "Frank", "fullName": "Mia Frank", "name": "Mia Frank",
+  "email": "consultant@247gbs.com", "phone": "+44 7700 900456",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": {
+    "phone": "+44 7700 900456", "specialisation": "Retail Growth", "status": "Active"
+  },
+  "accountManagerProfile": null
+}
+\`\`\`
+
+\`\`\`json
+// ACCOUNT_MANAGER (internal/affiliate staff)
+{
+  "role": "ACCOUNT_MANAGER", "profileType": "ACCOUNT_MANAGER", "isAffiliate": true,
+  "firstName": "Tunde", "lastName": "Bello", "fullName": "Tunde Bello", "name": "Tunde Bello",
+  "email": "manager@247gbs.com", "phone": "+44 7700 900789",
+  "address": null, "postcode": null, "country": null,
+  "businessProfile": null, "customerProfile": null, "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": {
+    "phone": "+44 7700 900789", "assignedBusinesses": 12, "status": "Active"
+  }
+}
+\`\`\`
+
+\`PARTNER\` has no profile object — identity/contact fields only; all five
+profiles are \`null\`.
+
+| App type | Expect these \`profileType\` values | Skip branches for |
+|---|---|---|
+| Merchant/consumer apps (MCOM Mall, Rewards, Spin) | \`BUSINESS\`, \`CUSTOMER\` | \`AGENT\`, \`CONSULTANT\`, \`ACCOUNT_MANAGER\`, \`PARTNER\` |
+| Affiliate/partner portals (247GBS affiliate) | \`AGENT\`, \`CONSULTANT\`, \`ACCOUNT_MANAGER\` (plus \`ADMIN\` if staff log in) | \`BUSINESS\`, \`CUSTOMER\` |
+| Custom ecosystem apps | Any of the above | — |
 
 ### Option C — Real-time introspection (server-to-server)
 \`\`\`http
@@ -261,7 +446,23 @@ Response:
       { "platform": "MCOM Rewards", "planId": "rewards-plus", "planName": "Merchant Plus", "quotas": {} }
     ]
   },
-  "user": { "id": "usr_123", "email": "owner@acme.com", "role": "BUSINESS" }
+  "user": {
+    "id": "usr_123",
+    "email": "owner@acme.com",
+    "role": "BUSINESS",
+    "profileType": "BUSINESS",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "fullName": "Jane Doe",
+    "name": "Acme Coffee",
+    "phone": "+44 20 1234 5678",
+    "address": "1 High Street, London",
+    "postcode": "EC1A 1BB",
+    "country": "United Kingdom",
+    "businessId": "biz_456",
+    "businessName": "Acme Coffee",
+    "businessProfile": { "id": "biz_456", "businessName": "Acme Coffee", "businessType": "Limited Company" }
+  }
 }
 \`\`\`
 
@@ -491,8 +692,27 @@ app.get('/auth/callback', async (req, res) => {
   }
 
   req.session.user = {
+    // ── Canonical identity (all roles) ────────────────────────────────
     id: user.id,
     email: user.email,
+    role: user.role,                      // BUSINESS | CUSTOMER | AGENT | CONSULTANT | ...
+    profileType: user.profileType,
+    isAffiliate: user.isAffiliate,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    fullName: user.fullName,
+    phone: user.phone,
+    address: user.address,
+    postcode: user.postcode,
+    country: user.country,
+    jobTitle: user.jobTitle,
+    businessId: user.businessId,
+    businessName: user.businessProfile?.businessName,
+    businessType: user.businessProfile?.businessType,
+    businessIndustry: user.businessProfile?.industry,
+    businessWebsite: user.businessProfile?.website,
+    businessLogo: user.avatarUrl,
+    // ── Entitlement ───────────────────────────────────────────────────
     accessSource: decision.source,        // 'membership' | 'access_pass' | 'trial'
     planId: decision.planId,              // map this to your catalogue
     planName: decision.planName,
@@ -551,7 +771,8 @@ async function revalidate(req, res, next) {
 8. **For trials, display \`programmeTasks\` prominently** so the business completes onboarding missions.
 9. **Send denied users to \`access.upgradeUrl\`** so they can buy a membership/pass or verify.
 10. **Never log** access tokens, client secrets, or API keys.
-11. **When \`entitlement\` is missing**, call \`GET /api/v1/auth/sso/entitlement\` instead of guessing.
+11. **Provision identity from \`user\`, not from your own prompts.** Use \`firstName\`, \`lastName\`, \`fullName\`, \`email\`, \`phone\`, \`address\`, \`postcode\`, \`country\` and the role-specific profile (\`businessProfile\`, \`agentProfile\`, \`consultantProfile\`, \`accountManagerProfile\`, \`customerProfile\`). \`profileType\` tells you which one is populated.
+12. **When \`entitlement\` is missing**, call \`GET /api/v1/auth/sso/entitlement\` instead of guessing.
 
 ---
 
@@ -562,6 +783,8 @@ async function revalidate(req, res, next) {
 - [ ] Ask an admin to bundle your plan into a membership (\`/admin/memberships\`) and/or an access pass (\`/admin/access\`).
 - [ ] For trial traffic, ensure at least one active task targets your app in \`/admin/programme\`.
 - [ ] Exchange the SSO code at \`POST /api/v1/auth/sso/token\` and read \`entitlement\`.
+- [ ] Provision the local account from \`user\`: firstName, lastName, fullName, email, phone, address, postcode, country, role, and the role-specific profile.
+- [ ] Persist business details (business name/type/industry/website/logo/address) when \`profileType === 'BUSINESS'\`.
 - [ ] Implement \`decideAccess()\` and gate every protected route with it.
 - [ ] Map \`plan.planId\` to your catalogue and provision the matching access.
 - [ ] Show the access source, plan/pass name, and expiry (or trial countdown) in your UI.

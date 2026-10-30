@@ -9,9 +9,10 @@ import { ServiceConnectorsModule } from '../service-connectors/service-connector
 import { WebhookDispatcherModule } from '../webhook-dispatcher/webhook-dispatcher.module';
 import { AuthModule } from '../auth/auth.module';
 import { RecurringModule } from '../recurring/recurring.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [PricingModule, CouponModule, AccessModule, PrismaModule, ServiceConnectorsModule, WebhookDispatcherModule, AuthModule, RecurringModule],
+  imports: [PricingModule, CouponModule, AccessModule, WalletModule, PrismaModule, ServiceConnectorsModule, WebhookDispatcherModule, AuthModule, RecurringModule],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],

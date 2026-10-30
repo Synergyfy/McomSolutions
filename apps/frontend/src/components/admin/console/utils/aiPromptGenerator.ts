@@ -487,6 +487,8 @@ app.get('/auth/callback', async (req, res) => {
   console.log(\`Provisioning \${user.email}: Plan="\${planName}" (\${planId}), Trial=\${isTrial}\`);
 
   // Store user session and tokens locally...
+  // The user object already carries firstName, lastName, fullName, email, phone,
+  // address, postcode, country and the role-specific profile — see Task 4.4.
   req.session.user = user;
   req.session.accessToken = accessToken;
 
@@ -505,6 +507,322 @@ Or with the user's Bearer token:
 GET \${MCOM_SOLUTIONS_URL}/api/v1/auth/sso/entitlement
 Authorization: Bearer \${accessToken}
 \`\`\`
+
+### Task 4.4: Identity & Profile Provisioning (every role)
+
+The SSO response's \`user\` object is the canonical identity — provision your
+local account from it instead of deriving names, emails, or contact details
+yourself. It is returned by the token exchange, \`/auth/sso/userinfo\`,
+\`/auth/sso/entitlement\`, and embedded in the launch token.
+
+\`\`\`typescript
+export interface McomSsoUser {
+  id: string;
+  sub: string;
+  email: string;                     // verified central email — unique key for JIT
+  role: 'BUSINESS' | 'CUSTOMER' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER' | 'PARTNER' | 'ADMIN';
+  profileType: string;               // explicit discriminator (same values as role)
+  isAffiliate: boolean;              // true for affiliate/partner-portal accounts
+
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string;                  // "First Last" — the person, never the business name
+  name: string;                      // display name (business name for BUSINESS, else fullName)
+  jobTitle: string | null;
+  avatarUrl: string | null;          // business logo when available
+
+  phone: string | null;
+  address: string | null;
+  postcode: string | null;
+  country: string | null;
+
+  businessId: string | null;
+  businessName: string | null;
+  membershipLevel: string | null;
+  membershipTier: string | null;
+  membershipStatus: string | null;
+  membershipPlanName: string | null;
+  membershipExpiresAt: string | null;
+  hasPaidVerificationFee: boolean | null;
+  trialAccessExpiresAt: string | null;
+
+  businessProfile: Record<string, unknown> | null; // full business record
+  customerProfile: Record<string, unknown> | null;
+  agentProfile: Record<string, unknown> | null;
+  consultantProfile: Record<string, unknown> | null;
+  accountManagerProfile: Record<string, unknown> | null;
+}
+\`\`\`
+
+**Which profile is populated**
+
+| \`profileType\` | Populated object | Useful fields |
+|---|---|---|
+| \`BUSINESS\` | \`businessProfile\` | \`businessName\`, \`businessType\`, \`phone\`, \`email\`, \`address\`, \`postcode\`, \`country\`, \`industry\`, \`category\`, \`subCategory\`, \`description\`, \`website\`, \`logoUrl\`, \`openingHours\`, \`socialMedia\`, membership fields + \`packages\` |
+| \`CUSTOMER\` | \`customerProfile\` | \`phone\`, \`loyaltyPoints\`, \`platformUsage\`, \`membershipStatus\`, \`status\` |
+| \`AGENT\` (includes affiliates) | \`agentProfile\` | \`phone\`, \`permissions\`, \`status\` |
+| \`CONSULTANT\` | \`consultantProfile\` | \`phone\`, \`specialisation\`, \`status\` |
+| \`ACCOUNT_MANAGER\` | \`accountManagerProfile\` | \`phone\`, \`assignedBusinesses\`, \`status\` |
+| \`PARTNER\` | none | identity/contact fields only |
+
+\`\`\`typescript
+// JIT-provision or update the local account from the SSO identity
+const localUser = await db.user.upsert({
+  where: { email: user.email },
+  create: {
+    email: user.email,
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? undefined,
+    jobTitle: user.jobTitle ?? undefined,
+    address: user.address ?? undefined,
+    postcode: user.postcode ?? undefined,
+    country: user.country ?? undefined,
+    role: user.role,                       // BUSINESS | AGENT | CONSULTANT | ...
+    isAffiliate: user.isAffiliate,
+    mcomUserId: user.id,
+    companyName: user.businessProfile?.businessName,
+    companyType: user.businessProfile?.businessType,
+    companyIndustry: user.businessProfile?.industry,
+    companyWebsite: user.businessProfile?.website,
+    companyLogo: user.avatarUrl,
+    membershipLevel: user.membershipLevel ?? undefined,
+    membershipStatus: user.membershipStatus ?? undefined,
+  },
+  update: {
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? undefined,
+    address: user.address ?? undefined,
+    postcode: user.postcode ?? undefined,
+    country: user.country ?? undefined,
+    role: user.role,
+    isAffiliate: user.isAffiliate,
+    mcomUserId: user.id,
+    companyName: user.businessProfile?.businessName,
+    membershipLevel: user.membershipLevel ?? undefined,
+    membershipStatus: user.membershipStatus ?? undefined,
+  },
+});
+\`\`\`
+
+**Rules**
+- Prefer \`fullName\` for the person; use \`name\` only as the display name (it is the business name for BUSINESS accounts).
+- Key JIT provisioning on \`user.email\` — it is the verified central address.
+- \`address\`/\`postcode\`/\`country\` are business-owned and may be \`null\` for every other role.
+- \`profileType\` tells you which profile object is populated; \`role\` is the canonical central role.
+
+### Task 4.5: Role response shapes (what YOUR app will receive)
+
+Branch on \`user.profileType\` — do not assume \`businessProfile\` always exists.
+
+**\`BUSINESS\`** — merchant/owner accounts (e.g. MCOM Mall vendors):
+
+\`\`\`json
+{
+  "id": "usr_biz",
+  "sub": "usr_biz",
+  "email": "owner@acme.com",
+  "role": "BUSINESS",
+  "profileType": "BUSINESS",
+  "isAffiliate": false,
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "fullName": "Jane Doe",
+  "name": "Acme Coffee",
+  "jobTitle": "Managing Director",
+  "phone": "+44 20 1234 5678",
+  "address": "1 High Street, London",
+  "postcode": "EC1A 1BB",
+  "country": "United Kingdom",
+  "businessId": "biz_456",
+  "businessName": "Acme Coffee",
+  "avatarUrl": "https://cdn.mcom.com/logo.png",
+  "businessProfile": {
+    "id": "biz_456",
+    "businessName": "Acme Coffee",
+    "businessType": "Limited Company",
+    "phone": "+44 20 1234 5678",
+    "email": "hello@acmecoffee.co.uk",
+    "address": "1 High Street, London",
+    "postcode": "EC1A 1BB",
+    "country": "United Kingdom",
+    "industry": "Food & Beverage",
+    "category": "Coffee Shop",
+    "subCategory": "Cafe",
+    "description": "Speciality coffee roastery",
+    "website": "https://acmecoffee.co.uk",
+    "logoUrl": "https://cdn.mcom.com/logo.png",
+    "openingHours": "Mon-Sat 8am-6pm",
+    "socialMedia": "{\\"instagram\\":\\"@acmecoffee\\"}",
+    "membershipLevel": "Gold",
+    "membershipTier": "Pro",
+    "membershipStatus": "active",
+    "packages": []
+  },
+  "customerProfile": null,
+  "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": null
+}
+\`\`\`
+
+**\`CUSTOMER\`** — shoppers/consumers (e.g. MCOM Mall buyers, Rewards members):
+
+\`\`\`json
+{
+  "id": "usr_cust",
+  "sub": "usr_cust",
+  "email": "shopper@example.com",
+  "role": "CUSTOMER",
+  "profileType": "CUSTOMER",
+  "isAffiliate": false,
+  "firstName": "Sam",
+  "lastName": "Lee",
+  "fullName": "Sam Lee",
+  "name": "Sam Lee",
+  "jobTitle": null,
+  "phone": "+44 7700 900999",
+  "address": null,
+  "postcode": null,
+  "country": null,
+  "businessId": null,
+  "businessName": null,
+  "avatarUrl": null,
+  "businessProfile": null,
+  "customerProfile": {
+    "id": "cust_1",
+    "phone": "+44 7700 900999",
+    "loyaltyPoints": 120,
+    "platformUsage": ["mall"],
+    "membershipStatus": "None",
+    "status": "Active"
+  },
+  "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": null
+}
+\`\`\`
+
+**\`AGENT\` (affiliate portal user, e.g. 247GBS affiliate):**
+
+\`\`\`json
+{
+  "id": "usr_agent",
+  "sub": "usr_agent",
+  "email": "ade@247gbs.com",
+  "role": "AGENT",
+  "profileType": "AGENT",
+  "isAffiliate": true,
+  "firstName": "Ade",
+  "lastName": "Okafor",
+  "fullName": "Ade Okafor",
+  "name": "Ade Okafor",
+  "jobTitle": null,
+  "phone": "+44 7700 900123",
+  "address": null,
+  "postcode": null,
+  "country": null,
+  "businessId": null,
+  "businessName": null,
+  "avatarUrl": null,
+  "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": {
+    "id": "agent_1",
+    "phone": "+44 7700 900123",
+    "permissions": ["view_tasks", "submit_deliverables"],
+    "status": "Active"
+  },
+  "consultantProfile": null,
+  "accountManagerProfile": null
+}
+\`\`\`
+
+**\`CONSULTANT\` (affiliate portal user):**
+
+\`\`\`json
+{
+  "id": "usr_cons",
+  "sub": "usr_cons",
+  "email": "consultant@247gbs.com",
+  "role": "CONSULTANT",
+  "profileType": "CONSULTANT",
+  "isAffiliate": true,
+  "firstName": "Mia",
+  "lastName": "Frank",
+  "fullName": "Mia Frank",
+  "name": "Mia Frank",
+  "jobTitle": null,
+  "phone": "+44 7700 900456",
+  "address": null,
+  "postcode": null,
+  "country": null,
+  "businessId": null,
+  "businessName": null,
+  "avatarUrl": null,
+  "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": null,
+  "consultantProfile": {
+    "id": "consultant_1",
+    "phone": "+44 7700 900456",
+    "specialisation": "Retail Growth",
+    "status": "Active"
+  },
+  "accountManagerProfile": null
+}
+\`\`\`
+
+**\`ACCOUNT_MANAGER\` (internal/affiliate staff):**
+
+\`\`\`json
+{
+  "id": "usr_am",
+  "sub": "usr_am",
+  "email": "manager@247gbs.com",
+  "role": "ACCOUNT_MANAGER",
+  "profileType": "ACCOUNT_MANAGER",
+  "isAffiliate": true,
+  "firstName": "Tunde",
+  "lastName": "Bello",
+  "fullName": "Tunde Bello",
+  "name": "Tunde Bello",
+  "jobTitle": null,
+  "phone": "+44 7700 900789",
+  "address": null,
+  "postcode": null,
+  "country": null,
+  "businessId": null,
+  "businessName": null,
+  "avatarUrl": null,
+  "businessProfile": null,
+  "customerProfile": null,
+  "agentProfile": null,
+  "consultantProfile": null,
+  "accountManagerProfile": {
+    "id": "am_1",
+    "phone": "+44 7700 900789",
+    "assignedBusinesses": 12,
+    "status": "Active"
+  }
+}
+\`\`\`
+
+**\`PARTNER\`** — no role profile; identity/contact fields only. All five
+profile objects are \`null\`.
+
+**App expectations**
+
+| App type | Expect these \`profileType\` values | Skip branches for |
+|---|---|---|
+| Merchant/consumer apps (MCOM Mall, Rewards, Spin) | \`BUSINESS\`, \`CUSTOMER\` | \`AGENT\`, \`CONSULTANT\`, \`ACCOUNT_MANAGER\`, \`PARTNER\` |
+| Affiliate/partner portals (247GBS affiliate) | \`AGENT\`, \`CONSULTANT\`, \`ACCOUNT_MANAGER\` (plus \`ADMIN\` if staff log in) | \`BUSINESS\`, \`CUSTOMER\` |
+| Custom ecosystem apps | Any of the above | — |
+
+> Every role gets the same top-level fields. The only difference is which
+> profile object (and its role-specific fields) is populated.
+
 
 ---
 
@@ -581,6 +899,8 @@ app.post('${new URL(client.webhookUrl || 'https://app.com/webhooks').pathname}',
 - [ ] Inbound calls reject tokens with mismatched audience or unauthorized callers with \`403 Forbidden\`.
 - [ ] SSO Login redirects cleanly to \`/api/v1/auth/sso/authorize\`.
 - [ ] Callback handles \`entitlement.access.hasAccess\` and gates features accordingly.
+- [ ] Local account is provisioned from \`user\` (firstName, lastName, email, phone, address, country, business/role profile) — see Task 4.4.
+- [ ] Business accounts persist \`businessProfile\` details (business name, type, industry, website, logo, address).
 
 ### Troubleshooting Quick Guide:
 | Error Symptom | Root Cause | Fix |

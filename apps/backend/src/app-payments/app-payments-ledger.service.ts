@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LedgerAccount, LedgerDirection, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -26,6 +26,8 @@ export interface ChargeLedgerParams {
 
 export interface RefundLedgerParams {
   chargeId: string;
+  /** AppRefund.id — the idempotency key every row in this refund is scoped to. */
+  refundId: string;
   appClientId: string;
   refundMinor: bigint;
   feeRefundMinor: bigint;
@@ -114,16 +116,37 @@ export class AppPaymentsLedgerService {
     return feeMinor;
   }
 
-  /** Fee portion of a partial refund, proportional to the refunded amount. */
-  computeRefundFee(charge: { amountMinor: bigint; feeMinor: bigint }, refundMinor: bigint): bigint {
-    if (refundMinor >= charge.amountMinor) return charge.feeMinor;
-    return BigInt(
+  /**
+   * Fee portion of a refund, proportional to the refunded amount.
+   *
+   * `prior` carries what earlier refunds on the same charge already returned.
+   * Without it a series of partial refunds could each round up and hand back
+   * more fee than MCOM ever took. The refund that closes a charge always
+   * returns the remaining fee, so per-refund rounding never strands a penny.
+   */
+  computeRefundFee(
+    charge: { amountMinor: bigint; feeMinor: bigint },
+    refundMinor: bigint,
+    prior: { refundedMinor?: bigint; feeRefundedMinor?: bigint } = {},
+  ): bigint {
+    if (refundMinor <= 0n) return 0n;
+
+    const refundedSoFar = prior.refundedMinor ?? 0n;
+    const feeRefundedSoFar = prior.feeRefundedMinor ?? 0n;
+    const remainingGross = charge.amountMinor - refundedSoFar;
+    const remainingFee = charge.feeMinor - feeRefundedSoFar;
+
+    if (remainingGross <= 0n || remainingFee <= 0n) return 0n;
+    if (refundMinor >= remainingGross) return remainingFee;
+
+    const proportional = BigInt(
       new Decimal(charge.feeMinor.toString())
         .times(refundMinor.toString())
         .dividedBy(charge.amountMinor.toString())
         .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
         .toFixed(0),
     );
+    return proportional > remainingFee ? remainingFee : proportional;
   }
 
   async postChargeLedger(tx: Prisma.TransactionClient, params: ChargeLedgerParams): Promise<void> {
@@ -168,7 +191,25 @@ export class AppPaymentsLedgerService {
     await tx.appPaymentLedgerEntry.createMany({ data: entries, skipDuplicates: true });
   }
 
+  /**
+   * Post the mirror image of a charge for one refund.
+   *
+   * Rows are keyed by `refundId`, not `chargeId`: a charge can be refunded in
+   * several partials, and per-charge keys made `skipDuplicates` silently drop
+   * every refund after the first.
+   */
   async postRefundLedger(tx: Prisma.TransactionClient, params: RefundLedgerParams): Promise<void> {
+    if (params.refundMinor <= 0n) {
+      throw new InternalServerErrorException(
+        `Refund ledger called with a non-positive amount for refund ${params.refundId}.`,
+      );
+    }
+    if (params.refundMinor !== params.feeRefundMinor + params.netRefundMinor) {
+      throw new InternalServerErrorException(
+        `Refund ledger imbalance for refund ${params.refundId}: gross ${params.refundMinor} != fee ${params.feeRefundMinor} + net ${params.netRefundMinor}.`,
+      );
+    }
+
     const base = {
       chargeId: params.chargeId,
       appClientId: params.appClientId,
@@ -186,14 +227,14 @@ export class AppPaymentsLedgerService {
         account: params.clearingAccount,
         direction: LedgerDirection.credit,
         amountMinor: params.refundMinor,
-        idempotencyKey: `${params.chargeId}:refund:clearing:credit`,
+        idempotencyKey: `${params.refundId}:clearing:credit`,
       },
       {
         ...base,
         account: LedgerAccount.app_payable,
         direction: LedgerDirection.debit,
         amountMinor: params.netRefundMinor,
-        idempotencyKey: `${params.chargeId}:refund:app_payable:debit`,
+        idempotencyKey: `${params.refundId}:app_payable:debit`,
       },
     ];
 
@@ -203,7 +244,7 @@ export class AppPaymentsLedgerService {
         account: LedgerAccount.mcom_revenue,
         direction: LedgerDirection.debit,
         amountMinor: params.feeRefundMinor,
-        idempotencyKey: `${params.chargeId}:refund:mcom_revenue:debit`,
+        idempotencyKey: `${params.refundId}:mcom_revenue:debit`,
       });
     }
 

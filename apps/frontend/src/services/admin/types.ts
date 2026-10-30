@@ -1055,6 +1055,8 @@ export interface AdminCoupon {
   expiresAt: string | null
   isActive: boolean
   source: CouponSource
+  sourceApp?: string | null
+  externalRef?: string | null
   lockedToUserId: string | null
   lockedToUser: AdminCouponUser | null
   status: CouponStatus
@@ -1087,6 +1089,7 @@ export interface AdminCouponQuery {
   search?: string
   status?: CouponStatus
   source?: CouponSource
+  sourceApp?: string
   discountType?: CouponDiscountType
   planId?: string
   accessPlanId?: string
@@ -1097,6 +1100,7 @@ export interface AdminCouponRedemption {
   couponId: string
   couponCode: string
   source: CouponSource
+  sourceApp?: string | null
   discountType: CouponDiscountType
   discountValue: number
   user: { id: string; email: string; name: string; businessName: string | null } | null
@@ -1140,6 +1144,28 @@ export interface AdminCouponStats {
   totalDiscountGiven: number
   redemptionsThisMonth: number
   discountThisMonth: number
+}
+
+// ─── Partner integrations ────────────────────────────────
+export interface PartnerAccessCode {
+  id: string
+  code: string
+  accessPlanId: string
+  planName: string
+  status: 'PENDING_PAYMENT' | 'UNUSED' | 'REDEEMED' | 'REVOKED'
+  sourceApp?: string | null
+  externalRef?: string | null
+  recipientEmail?: string | null
+  mode?: string
+  redeemedAt?: string | null
+  createdAt: string
+}
+
+export interface PartnerAccessCodeQuery {
+  sourceApp?: string
+  status?: string
+  page?: number
+  limit?: number
 }
 
 export interface CouponUserLookup {

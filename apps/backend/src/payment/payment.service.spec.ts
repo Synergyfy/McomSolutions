@@ -9,6 +9,7 @@ import { ServiceConnectorsService } from '../service-connectors/service-connecto
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
 import { RedisService } from '../redis/redis.service';
 import { RecurringService } from '../recurring/recurring.service';
+import { WalletService } from '../wallet/wallet.service';
 import { InternalServerErrorException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 
 const mockSetupIntents = {
@@ -97,6 +98,13 @@ describe('PaymentService', () => {
     purchaseWithWallet: jest.fn(),
   };
 
+  const mockWalletService = {
+    getGbpToMcomRate: jest.fn().mockResolvedValue(1),
+    convertGbpToCredits: jest.fn(async (amount: number) => amount),
+    debitWallet: jest.fn(),
+    creditWallet: jest.fn().mockResolvedValue({}),
+  };
+
   const mockPrisma = {
     user: {
       findFirst: jest.fn(),
@@ -140,6 +148,7 @@ describe('PaymentService', () => {
         { provide: PricingService, useValue: mockPricingService },
         { provide: CouponService, useValue: mockCouponService },
         { provide: AccessService, useValue: mockAccessService },
+        { provide: WalletService, useValue: mockWalletService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ServiceConnectorsService, useValue: mockConnectorsService },
         { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -204,6 +213,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
           { provide: AccessService, useValue: mockAccessService },
+          { provide: WalletService, useValue: mockWalletService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -235,6 +245,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
           { provide: AccessService, useValue: mockAccessService },
+          { provide: WalletService, useValue: mockWalletService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -323,6 +334,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
           { provide: AccessService, useValue: mockAccessService },
+          { provide: WalletService, useValue: mockWalletService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },
@@ -356,6 +368,86 @@ describe('PaymentService', () => {
       // custom_id carries no trial segment anymore
       const orderBody = mockAxiosPost.mock.calls[1][1];
       expect(orderBody.purchase_units[0].custom_id).toBe('b1|Gold|Pro|yearly');
+    });
+  });
+
+  // ─── MCOM Wallet (membership) ──────────────────
+  describe('membershipWalletPurchase', () => {
+    it('requires a valid idempotency key', async () => {
+      await expect(
+        service.membershipWalletPurchase(
+          'b1', 'u1', 'Bronze', 'Standard', 'monthly', 'full', undefined, 'short',
+        ),
+      ).rejects.toThrow('X-Idempotency-Key');
+      expect(mockWalletService.debitWallet).not.toHaveBeenCalled();
+    });
+
+    it('debits the MCOM wallet and activates the membership', async () => {
+      mockWalletService.debitWallet.mockResolvedValue({
+        amount: 10,
+        currency: 'MCOM',
+        transactionId: 'txn-1',
+      });
+      mockPricingService.subscribeMembership.mockResolvedValue({ membershipLevel: 'Bronze' });
+
+      const result = await service.membershipWalletPurchase(
+        'b1', 'u1', 'Bronze', 'Standard', 'monthly', 'full', undefined, 'key-12345678',
+      );
+
+      expect(mockWalletService.debitWallet).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'mcom-central' }),
+        expect.objectContaining({
+          userId: 'u1',
+          amount: 10,
+          category: 'SUBSCRIPTION',
+          reference: 'wallet:key-12345678',
+        }),
+        'membership:key-12345678',
+      );
+      expect(mockPricingService.subscribeMembership).toHaveBeenCalledWith(
+        'b1', 'Bronze', 'Standard', 'monthly',
+        { provider: 'wallet', providerPaymentId: 'wallet:key-12345678', chargedAmount: 10 },
+      );
+      expect(result.pricing.walletDebited).toBe(10);
+      expect(result.pricing.walletCurrency).toBe('MCOM');
+    });
+
+    it('refunds the wallet when activation fails after the debit', async () => {
+      mockWalletService.debitWallet.mockResolvedValue({
+        amount: 10,
+        currency: 'MCOM',
+        transactionId: 'txn-2',
+      });
+      mockPricingService.subscribeMembership.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.membershipWalletPurchase(
+          'b1', 'u1', 'Bronze', 'Standard', 'monthly', 'full', undefined, 'key-abcdefgh',
+        ),
+      ).rejects.toThrow('db down');
+
+      expect(mockWalletService.creditWallet).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: 'u1',
+          amount: 10,
+          category: 'REFUND',
+          reference: 'wallet:key-abcdefgh',
+        }),
+        'membership-refund:key-abcdefgh',
+      );
+    });
+
+    it('replays a previously processed idempotency key without charging again', async () => {
+      mockPrisma.billingTransaction.findUnique.mockResolvedValue({ businessId: 'b1', amount: 10 });
+      mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
+
+      const result = await service.membershipWalletPurchase(
+        'b1', 'u1', 'Bronze', 'Standard', 'monthly', 'full', undefined, 'key-replay-123',
+      );
+
+      expect(mockWalletService.debitWallet).not.toHaveBeenCalled();
+      expect(result.replayed).toBe(true);
     });
   });
 
@@ -521,6 +613,7 @@ describe('PaymentService', () => {
           { provide: PricingService, useValue: mockPricingService },
           { provide: CouponService, useValue: mockCouponService },
           { provide: AccessService, useValue: mockAccessService },
+          { provide: WalletService, useValue: mockWalletService },
           { provide: PrismaService, useValue: mockPrisma },
           { provide: ServiceConnectorsService, useValue: mockConnectorsService },
           { provide: WebhookDispatcherService, useValue: mockWebhookDispatcher },

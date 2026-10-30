@@ -36,11 +36,12 @@ export const useAccessConflict = (accessPlanId: string | null | undefined) =>
     retry: false,
   })
 
-export const useAccessPurchases = () =>
+export const useAccessPurchases = (enabled = true) =>
   useQuery({
     queryKey: accessQueryKeys.purchases(),
     queryFn: () => accessApi.getPurchases(),
     staleTime: 15 * 1000,
+    enabled,
   })
 
 export const useAccessCodes = () =>

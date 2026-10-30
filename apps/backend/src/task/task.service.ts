@@ -14,6 +14,7 @@ import {
   AssignTaskDto,
   CreateTaskDefinitionDto,
   QueryAssignmentsDto,
+  QueryProgrammeUsersDto,
   UpdateAssignmentStatusDto,
   UpdateTaskDefinitionDto,
 } from './dto/task.dto';
@@ -949,6 +950,318 @@ export class TaskService {
         page,
         limit,
         totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // ─── Admin: Programme Progress Per User ───────────────
+  // Lists businesses/customers with a roll-up of their programme task progress so
+  // admins can drill into one user and see what is done, expired, or outstanding.
+  async getProgrammeUsersProgress(query?: QueryProgrammeUsersDto) {
+    const page = query?.page && query.page > 0 ? query.page : 1;
+    const limit = query?.limit && query.limit > 0 ? Math.min(query.limit, 100) : 20;
+    const skip = (page - 1) * limit;
+
+    const roles: Role[] =
+      query?.role === 'BUSINESS'
+        ? [Role.BUSINESS]
+        : query?.role === 'CUSTOMER'
+          ? [Role.CUSTOMER]
+          : [Role.BUSINESS, Role.CUSTOMER];
+
+    const where: Prisma.UserWhereInput = {
+      role: { in: roles },
+      ...(query?.search
+        ? {
+            OR: [
+              { email: { contains: query.search, mode: 'insensitive' as const } },
+              { firstName: { contains: query.search, mode: 'insensitive' as const } },
+              { lastName: { contains: query.search, mode: 'insensitive' as const } },
+              {
+                businessProfile: {
+                  businessName: { contains: query.search, mode: 'insensitive' as const },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const now = new Date();
+
+    const [total, users, statusTotals, overdueTotal] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          createdAt: true,
+          businessProfile: {
+            select: {
+              businessName: true,
+              logoUrl: true,
+              category: true,
+              membershipLevel: true,
+              membershipTier: true,
+              membershipStatus: true,
+            },
+          },
+          customerProfile: {
+            select: { membershipStatus: true, phone: true },
+          },
+        },
+      }),
+      this.prisma.userTaskAssignment.groupBy({
+        by: ['status'],
+        where: { user: { role: { in: roles } } },
+        _count: { _all: true },
+      }),
+      this.prisma.userTaskAssignment.count({
+        where: {
+          user: { role: { in: roles } },
+          status: { in: [TaskAssignmentStatus.PENDING, TaskAssignmentStatus.IN_PROGRESS] },
+          deadlineAt: { lt: now },
+        },
+      }),
+    ]);
+
+    const userIds = users.map((u) => u.id);
+    const [byStatus, overdueByUser] = await Promise.all([
+      userIds.length
+        ? this.prisma.userTaskAssignment.groupBy({
+            by: ['userId', 'status'],
+            where: { userId: { in: userIds } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([] as Array<{ userId: string; status: TaskAssignmentStatus; _count: { _all: number } }>),
+      userIds.length
+        ? this.prisma.userTaskAssignment.groupBy({
+            by: ['userId'],
+            where: {
+              userId: { in: userIds },
+              status: { in: [TaskAssignmentStatus.PENDING, TaskAssignmentStatus.IN_PROGRESS] },
+              deadlineAt: { lt: now },
+            },
+            _count: { _all: true },
+          })
+        : Promise.resolve([] as Array<{ userId: string; _count: { _all: number } }>),
+    ]);
+
+    const counts = new Map<string, Record<TaskAssignmentStatus, number>>();
+    for (const row of byStatus) {
+      const entry =
+        counts.get(row.userId) ??
+        ({
+          [TaskAssignmentStatus.PENDING]: 0,
+          [TaskAssignmentStatus.IN_PROGRESS]: 0,
+          [TaskAssignmentStatus.COMPLETED]: 0,
+          [TaskAssignmentStatus.EXPIRED]: 0,
+        } as Record<TaskAssignmentStatus, number>);
+      entry[row.status] = row._count._all;
+      counts.set(row.userId, entry);
+    }
+    const overdueMap = new Map<string, number>(
+      overdueByUser.map((row) => [row.userId, row._count._all]),
+    );
+
+    const data = users.map((u) => {
+      const c = counts.get(u.id);
+      const completed = c?.[TaskAssignmentStatus.COMPLETED] ?? 0;
+      const storedExpired = c?.[TaskAssignmentStatus.EXPIRED] ?? 0;
+      const inProgress = c?.[TaskAssignmentStatus.IN_PROGRESS] ?? 0;
+      const pending = c?.[TaskAssignmentStatus.PENDING] ?? 0;
+      const overdue = overdueMap.get(u.id) ?? 0;
+      // Open tasks past their deadline count as expired, not as outstanding.
+      const expired = storedExpired + overdue;
+      const outstanding = Math.max(0, pending + inProgress - overdue);
+      const totalTasks = completed + pending + inProgress + storedExpired;
+      return {
+        id: u.id,
+        userId: u.id,
+        name:
+          u.role === Role.BUSINESS
+            ? u.businessProfile?.businessName ||
+              [u.firstName, u.lastName].filter(Boolean).join(' ') ||
+              u.email.split('@')[0]
+            : [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email.split('@')[0],
+        email: u.email,
+        role: u.role,
+        logoUrl: u.businessProfile?.logoUrl ?? null,
+        category: u.businessProfile?.category ?? null,
+        membership: u.businessProfile
+          ? `${u.businessProfile.membershipLevel} ${u.businessProfile.membershipTier}`
+          : u.customerProfile?.membershipStatus ?? 'None',
+        joinedAt: u.createdAt,
+        totalTasks,
+        completed,
+        expired,
+        inProgress,
+        pending,
+        overdue,
+        outstanding,
+        progress: totalTasks > 0 ? Math.round((completed / totalTasks) * 100) : 0,
+      };
+    });
+
+    const totals = statusTotals.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = row._count._all;
+      return acc;
+    }, {});
+    const totalPending = totals[TaskAssignmentStatus.PENDING] ?? 0;
+    const totalInProgress = totals[TaskAssignmentStatus.IN_PROGRESS] ?? 0;
+
+    return {
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      summary: {
+        users: total,
+        completed: totals[TaskAssignmentStatus.COMPLETED] ?? 0,
+        expired: (totals[TaskAssignmentStatus.EXPIRED] ?? 0) + overdueTotal,
+        inProgress: totalInProgress,
+        pending: totalPending,
+        overdue: overdueTotal,
+        outstanding: Math.max(0, totalPending + totalInProgress - overdueTotal),
+      },
+    };
+  }
+
+  // ─── Admin: One User's Full Programme Task Breakdown ──
+  async getProgrammeUserTasks(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        createdAt: true,
+        businessProfile: {
+          select: {
+            businessName: true,
+            logoUrl: true,
+            category: true,
+            membershipLevel: true,
+            membershipTier: true,
+            membershipStatus: true,
+          },
+        },
+        customerProfile: { select: { membershipStatus: true, phone: true } },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const assignments = await this.prisma.userTaskAssignment.findMany({
+      where: { userId },
+      include: {
+        task: {
+          select: {
+            title: true,
+            description: true,
+            featureKey: true,
+            taskSource: true,
+            platform: true,
+            externalAppName: true,
+            submissionType: true,
+            actionUrl: true,
+            actionLabel: true,
+            deadlineDays: true,
+            rewardCouponEnabled: true,
+          },
+        },
+        rewardCoupon: { select: { code: true } },
+      },
+      orderBy: [{ status: 'asc' }, { deadlineAt: 'asc' }],
+    });
+
+    const now = new Date();
+    const data = assignments.map((a) => {
+      const isOpen =
+        a.status === TaskAssignmentStatus.PENDING ||
+        a.status === TaskAssignmentStatus.IN_PROGRESS;
+      const effectiveStatus =
+        isOpen && a.deadlineAt < now ? TaskAssignmentStatus.EXPIRED : a.status;
+      const daysRemaining = Math.max(
+        0,
+        Math.ceil((new Date(a.deadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+      );
+      return {
+        id: a.id,
+        taskId: a.taskId,
+        title: a.task.title,
+        description: a.task.description,
+        featureKey: a.task.featureKey,
+        taskSource: a.task.taskSource,
+        platform: a.task.platform,
+        externalAppName: a.task.externalAppName,
+        submissionType: a.task.submissionType,
+        actionUrl: a.task.actionUrl,
+        actionLabel: a.task.actionLabel,
+        deadlineDays: a.task.deadlineDays,
+        status: effectiveStatus,
+        storedStatus: a.status,
+        assignedAt: a.assignedAt,
+        deadlineAt: a.deadlineAt,
+        daysRemaining,
+        completedAt: a.completedAt,
+        rewardPoints: a.rewardPoints,
+        rewardGranted: a.rewardGranted,
+        rewardCouponEnabled: a.task.rewardCouponEnabled,
+        rewardCouponCode: a.rewardCoupon?.code ?? null,
+      };
+    });
+
+    const summary = data.reduce(
+      (acc, t) => {
+        acc.total += 1;
+        if (t.status === TaskAssignmentStatus.COMPLETED) acc.completed += 1;
+        else if (t.status === TaskAssignmentStatus.EXPIRED) acc.expired += 1;
+        else if (t.status === TaskAssignmentStatus.IN_PROGRESS) acc.inProgress += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { total: 0, completed: 0, expired: 0, inProgress: 0, pending: 0 },
+    );
+
+    return {
+      success: true,
+      data,
+      summary: {
+        ...summary,
+        outstanding: summary.pending + summary.inProgress,
+        progress:
+          summary.total > 0 ? Math.round((summary.completed / summary.total) * 100) : 0,
+      },
+      user: {
+        id: user.id,
+        userId: user.id,
+        name:
+          user.role === Role.BUSINESS
+            ? user.businessProfile?.businessName ||
+              [user.firstName, user.lastName].filter(Boolean).join(' ') ||
+              user.email.split('@')[0]
+            : [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email.split('@')[0],
+        email: user.email,
+        role: user.role,
+        logoUrl: user.businessProfile?.logoUrl ?? null,
+        category: user.businessProfile?.category ?? null,
+        membership: user.businessProfile
+          ? `${user.businessProfile.membershipLevel} ${user.businessProfile.membershipTier}`
+          : user.customerProfile?.membershipStatus ?? 'None',
+        joinedAt: user.createdAt,
       },
     };
   }

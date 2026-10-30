@@ -215,6 +215,40 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return Math.ceil(remainingMs / 1000);
   }
 
+  /**
+   * Atomically delete `key` only if it still holds `expected`.
+   *
+   * Locks must be released with this instead of a blind DEL: a holder whose lock
+   * already expired must never delete the lock a *different* holder has since
+   * acquired (that is how two writers end up inside the same critical section).
+   *
+   * @returns true when this caller owned the key and it was deleted.
+   */
+  async compareAndDelete(key: string, expected: any): Promise<boolean> {
+    const expectedSerialized = JSON.stringify(expected);
+
+    if (this.isRedisAvailable && this.client) {
+      try {
+        const result = await this.client.eval(
+          "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+          1,
+          key,
+          expectedSerialized,
+        );
+        return result === 1;
+      } catch (e: any) {
+        this.logger.warn(`Redis compareAndDelete error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const cached = this.memoryCache.get(key);
+    if (cached && JSON.stringify(cached.value) === expectedSerialized) {
+      this.memoryCache.delete(key);
+      return true;
+    }
+    return false;
+  }
+
   async delPattern(pattern: string): Promise<void> {
     if (this.isRedisAvailable && this.client) {
       try {

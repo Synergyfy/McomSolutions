@@ -44,6 +44,7 @@ import type {
   AdminCouponInput,
   AdminCouponQuery,
   AdminCouponRedemptionQuery,
+  PartnerAccessCodeQuery,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1080,6 +1081,24 @@ export const useUpdateTaskAssignmentStatus = () => {
   })
 }
 
+// ─── Task Engine — Per-User Programme Progress ──────────
+export const useProgrammeUsersProgress = (params?: { search?: string; role?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'programmeUsersProgress', params],
+    queryFn: () => adminApi.getProgrammeUsersProgress(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useProgrammeUserTasks = (userId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'programmeUserTasks', userId],
+    queryFn: () => adminApi.getProgrammeUserTasks(userId!),
+    enabled: !!userId,
+    staleTime: 1000 * 30,
+  })
+}
+
 // ─── System — API Keys ──────────────────────────────────
 export const useAdminApiKeys = () => {
   return useQuery({
@@ -1426,6 +1445,14 @@ export const useCouponStats = () => {
     queryKey: ['admin', 'coupons', 'stats'],
     queryFn: () => adminApi.getCouponStats(),
     staleTime: 1000 * 60,
+  })
+}
+
+export const usePartnerAccessCodes = (params?: PartnerAccessCodeQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'partner', 'access-codes', params],
+    queryFn: () => adminApi.getPartnerAccessCodes(params),
+    staleTime: 1000 * 30,
   })
 }
 

@@ -96,6 +96,19 @@ describe('TaskEngineSection audience-first task creation', () => {
     expect(screen.queryByRole('option', { name: 'Upload Business Logo' })).not.toBeInTheDocument();
   });
 
+  it('explains who receives a customer task for the selected access scope', () => {
+    openCreateModal();
+    fireEvent.click(screen.getByRole('button', { name: /^Customers/ }));
+
+    // "All customers" is selected by default.
+    expect(screen.getByText(/Every customer will see this task/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Members only/i }));
+
+    expect(screen.getByText(/Only customers with an active membership/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Every customer will see this task/i)).not.toBeInTheDocument();
+  });
+
   it('falls back to manual task types for the shared audience', () => {
     openCreateModal();
     fireEvent.click(screen.getByRole('button', { name: /Businesses & Customers/ }));

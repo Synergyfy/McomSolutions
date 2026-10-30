@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, ForbiddenException, UnprocessableEntityException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -55,15 +56,23 @@ describe('WalletService', () => {
     walletTransaction: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       aggregate: jest.fn(),
     },
     walletHold: {
       aggregate: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
-    $transaction: jest.fn((ops: any[]) => Promise.all(ops)),
+    // Interactive transactions (callback) and the legacy array form.
+    $transaction: jest.fn((arg: any) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    ),
+    // Prisma has no typed FOR UPDATE — the service issues one raw statement.
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'w1' }]),
   };
 
   const mockRedis = {
@@ -71,6 +80,7 @@ describe('WalletService', () => {
     set: jest.fn(),
     del: jest.fn(),
     setNx: jest.fn(),
+    compareAndDelete: jest.fn(),
   };
 
   const mockSso = {
@@ -121,6 +131,7 @@ describe('WalletService', () => {
     mockRedis.set.mockResolvedValue(true);
     mockRedis.del.mockResolvedValue(true);
     mockRedis.setNx.mockResolvedValue(true);
+    mockRedis.compareAndDelete.mockResolvedValue(true);
     mockSso.getClientByClientId.mockResolvedValue({ name: 'MCOM Mall', platformSlug: 'mall' });
   });
 
@@ -324,8 +335,153 @@ describe('WalletService', () => {
     });
   });
 
-  describe('ensureWallet', () => {
-    it('creates a zero-balance wallet for a user without one', async () => {
+  describe('atomicity', () => {
+    it('takes a row lock and writes a relative balance, never a stale snapshot', async () => {
+      await service.debitWallet(
+        PARTNER,
+        { userId: 'u1', amount: 50, category: 'PURCHASE', description: 'x' },
+        'key-a',
+      );
+
+      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ balance: { decrement: new Decimal(50) } }),
+        }),
+      );
+    });
+
+    it('credits with an increment rather than an absolute write', async () => {
+      mockPrisma.walletTransaction.create.mockResolvedValue({
+        ...txn,
+        type: 'CREDIT',
+        balanceBefore: new Decimal(100),
+        balanceAfter: new Decimal(150),
+      });
+
+      await service.creditWallet(
+        PARTNER,
+        { userId: 'u1', amount: 50, category: 'REWARD', description: 'cb' },
+        'key-b',
+      );
+
+      expect(mockPrisma.wallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ balance: { increment: new Decimal(50) } }),
+        }),
+      );
+    });
+
+    it('returns the committed transaction when the key appears inside the row lock', async () => {
+      // A concurrent request committed between the fast-path miss and the lock.
+      mockPrisma.walletTransaction.findUnique.mockResolvedValue({
+        ...txn,
+        idempotencyKey: 'key-c',
+      });
+
+      const receipt = await service.debitWallet(
+        PARTNER,
+        { userId: 'u1', amount: 50, category: 'PURCHASE', description: 'x' },
+        'key-c',
+      );
+
+      expect(receipt.transactionId).toBe('t1');
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    });
+
+    it('recovers a unique-index race by returning the winning receipt', async () => {
+      const winner = { ...txn, idempotencyKey: 'key-d' };
+      // 1: pre-check miss, 2: in-lock duplicate miss, 3: post-collision recovery.
+      mockPrisma.walletTransaction.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(winner);
+      mockPrisma.walletTransaction.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      const receipt = await service.debitWallet(
+        PARTNER,
+        { userId: 'u1', amount: 50, category: 'PURCHASE', description: 'x' },
+        'key-d',
+      );
+
+      expect(receipt.transactionId).toBe('t1');
+      expect(receipt.balanceAfter).toBe(50);
+    });
+
+    it('refuses to leave the wallet negative even if validation passed', async () => {
+      mockPrisma.wallet.update.mockResolvedValue({ ...wallet, balance: new Decimal(-1) });
+
+      await expect(
+        service.debitWallet(
+          PARTNER,
+          { userId: 'u1', amount: 50, category: 'PURCHASE', description: 'x' },
+          'key-e',
+        ),
+      ).rejects.toThrow('would go negative');
+    });
+
+    it('captures a hold exactly once with a compare-and-set', async () => {
+      const hold = {
+        id: 'h1',
+        walletId: 'w1',
+        amount: new Decimal(10),
+        status: 'ACTIVE',
+        platformClientId: 'mcom-mall',
+        reference: 'ref-h1',
+        description: 'hold',
+      };
+      mockPrisma.walletHold.findUnique.mockResolvedValue(hold);
+      mockPrisma.walletHold.findUniqueOrThrow.mockResolvedValue({ ...hold, status: 'CAPTURED' });
+      mockPrisma.walletHold.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.walletTransaction.create.mockResolvedValue({
+        ...txn,
+        amount: new Decimal(10),
+        balanceBefore: new Decimal(100),
+        balanceAfter: new Decimal(90),
+      });
+
+      const receipt = await service.captureHold(PARTNER, 'h1', 'SUBSCRIPTION');
+
+      expect(receipt.balanceAfter).toBe(90);
+      expect(mockPrisma.walletHold.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'h1', status: 'ACTIVE' } }),
+      );
+      expect(mockPrisma.wallet.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ balance: { decrement: new Decimal(10) } }),
+        }),
+      );
+    });
+
+    it('does not debit twice when the hold was already captured', async () => {
+      const hold = {
+        id: 'h1',
+        walletId: 'w1',
+        amount: new Decimal(10),
+        status: 'ACTIVE',
+        platformClientId: 'mcom-mall',
+        reference: 'ref-h1',
+        description: 'hold',
+      };
+      mockPrisma.walletHold.findUnique.mockResolvedValue(hold);
+      mockPrisma.walletHold.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.walletTransaction.findFirst.mockResolvedValue({ ...txn, holdId: 'h1' });
+
+      const receipt = await service.captureHold(PARTNER, 'h1', 'SUBSCRIPTION');
+
+      expect(receipt.transactionId).toBe('t1');
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ensureWallet', () => {    it('creates a zero-balance wallet for a user without one', async () => {
       mockPrisma.wallet.findUnique.mockResolvedValue(null);
       mockPrisma.wallet.create.mockResolvedValue({ ...wallet, id: 'w-new', userId: 'u-new', balance: new Decimal(0) });
 

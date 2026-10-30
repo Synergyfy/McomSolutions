@@ -25,7 +25,7 @@ export type AdminTab =
   | 'console'
   | 'wallet'
   | 'mcom-pay'
-  | 'programme'
+  | 'programme' | 'programme-progress'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
   | 'sectors-categories';
@@ -113,6 +113,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Programme',
     items: [
       { tab: 'programme', icon: Rocket, label: 'Activity Programme' },
+      { tab: 'programme-progress', icon: ClipboardList, label: 'Programme Progress' },
     ],
   },
   {

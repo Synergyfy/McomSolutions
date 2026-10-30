@@ -16,6 +16,7 @@ import { cn } from '../../lib/utils';
 import {
   useAdminAccessPlans,
   useDeleteAccessPlan,
+  usePartnerAccessCodes,
   useUpdateAccessPlan,
 } from '../../services/admin/hooks';
 import type { AccessPlan } from '../../services/admin/types';
@@ -24,6 +25,8 @@ import EcosystemAccessSkillModal from './EcosystemAccessSkillModal';
 export default function AccessPlansPanel() {
   const navigate = useNavigate();
   const { data: plansRes, isLoading } = useAdminAccessPlans();
+  const { data: partnerCodesRes } = usePartnerAccessCodes({ sourceApp: 'mcom-rewards', limit: 10 });
+  const partnerCodes = partnerCodesRes?.data ?? [];
   const updatePlan = useUpdateAccessPlan();
   const deletePlan = useDeleteAccessPlan();
   const [showSkillModal, setShowSkillModal] = useState(false);
@@ -187,6 +190,64 @@ export default function AccessPlansPanel() {
           ))}
         </div>
       )}
+
+      <div className="mt-8 bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-brand-blue" /> Partner-issued access codes
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Codes issued by MCOM Rewards. Recipients redeem them in Central; access remains business-only.
+            </p>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg">
+            MCOM Rewards
+          </span>
+        </div>
+        {partnerCodes.length === 0 ? (
+          <div className="px-5 py-6 text-xs text-gray-400">No partner-issued codes yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-[10px] uppercase tracking-wider text-gray-400">
+                <tr>
+                  <th className="py-2.5 px-5">Code</th>
+                  <th className="py-2.5 px-5">Plan</th>
+                  <th className="py-2.5 px-5">Recipient</th>
+                  <th className="py-2.5 px-5">Issuance</th>
+                  <th className="py-2.5 px-5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {partnerCodes.map((code) => (
+                  <tr key={code.id} className="hover:bg-gray-50/60">
+                    <td className="py-2.5 px-5 font-mono font-black text-gray-900">{code.code}</td>
+                    <td className="py-2.5 px-5 text-gray-600">{code.planName}</td>
+                    <td className="py-2.5 px-5 text-gray-600">{code.recipientEmail ?? '—'}</td>
+                    <td className="py-2.5 px-5 text-gray-500 font-mono text-[10px] truncate max-w-[160px]">
+                      {code.externalRef ?? '—'}
+                    </td>
+                    <td className="py-2.5 px-5">
+                      <span
+                        className={cn(
+                          'px-2 py-0.5 rounded-md font-black text-[10px]',
+                          code.status === 'UNUSED' && 'bg-emerald-50 text-emerald-700',
+                          code.status === 'REDEEMED' && 'bg-blue-50 text-blue-700',
+                          code.status === 'REVOKED' && 'bg-red-50 text-red-600',
+                          code.status === 'PENDING_PAYMENT' && 'bg-amber-50 text-amber-700',
+                        )}
+                      >
+                        {code.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {showSkillModal && (
         <EcosystemAccessSkillModal onClose={() => setShowSkillModal(false)} />

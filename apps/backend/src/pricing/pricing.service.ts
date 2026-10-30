@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
+import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
   addDaysUtc,
@@ -37,6 +38,19 @@ export interface MembershipActivationOpts {
   discountAmount?: number;
   couponCode?: string;
   couponRedemptionId?: string;
+  /**
+   * Partner grants: explicit term length in calendar days. Defaults to the
+   * tier's canonical duration (`calculateTierExpiry`).
+   */
+  durationDays?: number;
+  /** Partner grants: term start (e.g. current expiry + 1 for stacking). */
+  baseDate?: Date;
+  /** Provenance marker (e.g. 'mcom-rewards'). */
+  source?: string;
+  /** Reward-funded grants may legitimately charge 0. */
+  allowZeroAmount?: boolean;
+  /** Extra audit metadata persisted on the BillingTransaction row. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface MembershipChargeQuote {
@@ -68,6 +82,7 @@ export class PricingService {
   constructor(
     private prisma: PrismaService,
     private readonly couponService: CouponService,
+    private readonly events: EcosystemEventsService,
     @Optional()
     @InjectQueue(TASK_EVENT_QUEUE)
     private readonly taskEventQueue?: Queue<TaskEventJobData>,
@@ -454,8 +469,14 @@ export class PricingService {
     else if (canonicalTier === 'Pro+') validTier = MembershipTier.ProPlus;
     else validTier = MembershipTier.Normal; // Normal maps to Standard in DB enum
 
-    // Calculate leap-year aware expiry date
-    const expiresAt = calculateTierExpiry(canonicalTier);
+    // Calculate leap-year aware expiry date. Partner grants may override the
+    // duration and/or stack from a future base date.
+    const activationStart = opts.baseDate ? new Date(opts.baseDate) : new Date();
+    const explicitDays = Number(opts.durationDays);
+    const expiresAt =
+      Number.isFinite(explicitDays) && explicitDays > 0
+        ? addDaysUtc(activationStart, explicitDays)
+        : calculateTierExpiry(canonicalTier, activationStart);
 
     // Idempotent replay: same payment reference seen before.
     if (opts.providerPaymentId) {
@@ -504,7 +525,7 @@ export class PricingService {
             type: 'Membership',
             itemName: `${plan.name} (${canonicalTier})`,
             status: 'Active',
-            startDate: new Date(),
+            startDate: activationStart,
             endDate: expiresAt,
             amount: price,
             billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
@@ -519,6 +540,7 @@ export class PricingService {
             status: 'paid',
             provider: opts.provider ?? null,
             providerPaymentId: opts.providerPaymentId ?? null,
+            metadata: (opts.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           },
         });
         if (opts.couponRedemptionId) {
@@ -562,14 +584,22 @@ export class PricingService {
       expiresAt,
     });
 
+    // Post-commit lifecycle event (never blocks the response).
+    if (opts.couponRedemptionId) {
+      void this.events.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
+    }
+
     return {
       ...updated,
       billing,
       price,
       planName: plan.name,
       tier: canonicalTier,
+      startsAt: activationStart,
       expiresAt,
-      durationDays: getTierDurationDays(canonicalTier),
+      durationDays: Number.isFinite(explicitDays) && explicitDays > 0
+        ? explicitDays
+        : getTierDurationDays(canonicalTier, activationStart),
       entitlements: tierQuotas,
     };
   }
@@ -877,6 +907,10 @@ export class PricingService {
 
     if ('replay' in result) {
       return result.replay;
+    }
+
+    if (opts.couponRedemptionId) {
+      void this.events.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
     }
 
     const tierQuotas = await this.finalizeMembershipActivation({

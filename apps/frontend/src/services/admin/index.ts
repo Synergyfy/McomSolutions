@@ -64,6 +64,8 @@ import type {
   AdminCouponRedemptionQuery,
   AdminCouponStats,
   CouponUserLookup,
+  PartnerAccessCode,
+  PartnerAccessCodeQuery,
 } from './types'
 
 export const adminApi = {
@@ -705,6 +707,23 @@ export const adminApi = {
     return res.data as ApiResponse<any>
   },
 
+  // ─── Task Engine — Per-User Programme Progress ────────
+  getProgrammeUsersProgress: async (params?: { search?: string; role?: string; page?: number; limit?: number }) => {
+    const res = await apiClient.get('/admin/programme/users/progress', { params })
+    return res.data as ApiResponse<any[]> & {
+      total: number
+      page: number
+      limit: number
+      totalPages: number
+      summary?: any
+    }
+  },
+
+  getProgrammeUserTasks: async (userId: string) => {
+    const res = await apiClient.get(`/admin/programme/users/${userId}/tasks`)
+    return res.data as ApiResponse<any[]> & { summary?: any; user?: any }
+  },
+
   // ─── System — API Keys ────────────────────────────────
   getApiKeys: async () => {
     const res = await apiClient.get('/admin/system/api-keys')
@@ -959,6 +978,12 @@ export const adminApi = {
   resendCouponEmail: async (id: string) => {
     const res = await apiClient.post(`/admin/coupons/${id}/resend-email`)
     return res.data as { sent: boolean }
+  },
+
+  // ─── Partner integrations ─────────────────────────────
+  getPartnerAccessCodes: async (params?: PartnerAccessCodeQuery) => {
+    const res = await apiClient.get('/admin/partner/access-codes', { params })
+    return res.data as PaginatedResponse<PartnerAccessCode>
   },
 
 }

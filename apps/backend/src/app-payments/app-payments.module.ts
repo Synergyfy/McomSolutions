@@ -8,6 +8,7 @@ import { AppPaymentsAdminController } from './app-payments-admin.controller';
 import { AppPaymentsWebhookController } from './app-payments-webhook.controller';
 import { AppPaymentsService } from './app-payments.service';
 import { AppPaymentsLedgerService } from './app-payments-ledger.service';
+import { AppPaymentsReconciliationService } from './app-payments-reconciliation.service';
 
 @Module({
   imports: [AuthModule, PrismaModule, WalletModule, WebhookDispatcherModule],
@@ -16,7 +17,11 @@ import { AppPaymentsLedgerService } from './app-payments-ledger.service';
     AppPaymentsWebhookController,
     AppPaymentsAdminController,
   ],
-  providers: [AppPaymentsService, AppPaymentsLedgerService],
-  exports: [AppPaymentsService, AppPaymentsLedgerService],
+  providers: [
+    AppPaymentsService,
+    AppPaymentsLedgerService,
+    AppPaymentsReconciliationService,
+  ],
+  exports: [AppPaymentsService, AppPaymentsLedgerService, AppPaymentsReconciliationService],
 })
 export class AppPaymentsModule {}

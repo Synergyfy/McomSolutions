@@ -1282,6 +1282,11 @@ const { data: tokens } = await axios.post(
 );
 
 // tokens.accessToken, tokens.refreshToken, tokens.user
+// tokens.user carries the full identity for every role:
+//   firstName, lastName, fullName, name, email, jobTitle,
+//   phone, address, postcode, country, profileType, isAffiliate,
+//   businessId, businessName, businessProfile, agentProfile,
+//   consultantProfile, accountManagerProfile, customerProfile
 // Store in session or issue your own JWT from here
 ```
 
