@@ -1,0 +1,461 @@
+.verification-modal-overlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 0.75rem;
+  background: rgb(2 6 23 / 70%);
+  backdrop-filter: blur(4px);
+}
+
+.verification-modal-dialog {
+  display: flex;
+  width: 100%;
+  max-width: 42rem;
+  max-height: 94dvh;
+  flex-direction: column;
+  margin: auto;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 1.75rem;
+  background: #fff;
+  box-shadow: 0 32px 100px rgb(2 6 23 / 38%);
+}
+
+.verification-modal-header {
+  position: relative;
+  overflow: hidden;
+  padding: 1.1rem 1.15rem;
+  background: #020617;
+  color: #fff;
+}
+.verification-modal-orbit {
+  position: absolute;
+  border-style: solid;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.verification-modal-orbit--blue {
+  top: -5rem;
+  right: -3rem;
+  width: 13rem;
+  height: 13rem;
+  border-width: 1.75rem;
+  border-color: rgb(59 130 246 / 10%);
+}
+
+.verification-modal-orbit--orange {
+  top: -3rem;
+  right: -0.75rem;
+  width: 10rem;
+  height: 10rem;
+  border-width: 1.125rem;
+  border-color: rgb(249 115 22 / 15%);
+}
+
+.verification-modal-close {
+  position: absolute;
+  z-index: 2;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 10%);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.verification-modal-close:hover {
+  background: rgb(255 255 255 / 20%);
+}
+
+.verification-modal-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding-right: 2.5rem;
+}
+
+.verification-modal-brand img {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.verification-modal-eyebrow {
+  margin: 0;
+  color: #fdba74;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.verification-modal-title {
+  margin: 0.25rem 0 0;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+.verification-modal-description {
+  max-width: 38rem;
+  margin: 0.1rem 0 0;
+  color: #cbd5e1;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+@media (min-width: 40rem) {
+  .verification-modal-title {
+    font-size: 1.5rem;
+  }
+}
+
+.verification-modal-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.verification-payment-panel {
+  min-height: 0;
+  padding: 1.25rem 1.25rem 1.25rem;
+}
+
+.verification-payment-intro {
+  margin-bottom: 1rem;
+}
+
+.verification-payment-intro h3 {
+  margin: 0;
+  color: #020617;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.verification-payment-intro p {
+  margin: 0.25rem 0 0;
+  color: #64748b;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.verification-provider-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.verification-provider-button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.verification-provider-button:hover {
+  border-color: #cbd5e1;
+}
+
+.verification-provider-button--stripe-active {
+  border-color: #f97316;
+  background: #fff7ed;
+  color: #431407;
+  box-shadow: 0 0 0 1px #fed7aa;
+}
+
+.verification-provider-button--paypal-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #172554;
+  box-shadow: 0 0 0 1px #bfdbfe;
+}
+
+.verification-paypal-mark {
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
+.verification-checkout-area {
+  margin-top: 1rem;
+}
+
+.verification-payment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.verification-payment-element {
+  min-height: 10rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #fff;
+}
+
+.verification-payment-loading-inline,
+.verification-checkout-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.verification-payment-loading-inline {
+  padding: 2rem 0;
+}
+
+.verification-checkout-loading {
+  min-height: 9rem;
+  flex-direction: column;
+}
+
+.verification-payment-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #fecaca;
+  border-radius: 0.75rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.verification-submit-button,
+.verification-paypal-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-radius: 0.75rem;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 14%);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.verification-submit-button {
+  background: #ea580c;
+}
+
+.verification-submit-button:hover:not(.is-disabled) {
+  background: #c2410c;
+  transform: scale(0.99);
+}
+
+.verification-paypal-button {
+  background: #1d4ed8;
+}
+
+.verification-paypal-button:hover:not(.is-disabled) {
+  background: #1e40af;
+}
+
+.verification-submit-button.is-disabled,
+.verification-paypal-button.is-disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.verification-checkout-unavailable {
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.verification-paypal-checkout {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.verification-paypal-note {
+  padding: 1rem;
+  border: 1px solid #dbeafe;
+  border-radius: 1rem;
+  background: rgb(239 246 255 / 60%);
+}
+
+.verification-paypal-note h4 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.verification-paypal-note p {
+  margin: 0.25rem 0 0;
+  color: #475569;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.verification-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.625rem;
+  font-weight: 500;
+}
+
+.verification-modal-footer > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.verification-modal-footer button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.verification-modal-footer button:hover {
+  color: #c2410c;
+}
+
+.verification-footer-separator {
+  color: #cbd5e1;
+}
+
+.verification-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
+.verification-icon--large {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.verification-icon--small {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.verification-icon--blue {
+  color: #1d4ed8;
+}
+
+.verification-spin {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  animation: verification-spin 1s linear infinite;
+  color: currentColor;
+}
+
+.verification-spin--large {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #2563eb;
+}
+
+@keyframes verification-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (min-width: 40rem) {
+  .verification-modal-overlay {
+    padding: 1.5rem;
+  }
+
+  .verification-modal-header {
+    padding: 1.75rem 2rem;
+  }
+
+  .verification-modal-close {
+    top: 1.5rem;
+    right: 1.5rem;
+  }
+
+  .verification-modal-brand {
+    gap: 1rem;
+  }
+
+  .verification-payment-panel {
+    padding: 4rem 1.75rem 1.75rem;
+  }
+
+  .verification-provider-button {
+    font-size: 0.875rem;
+  }
+
+  .verification-modal-footer {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 39.999rem) {
+  .verification-modal-brand {
+    padding-right: 0.5rem;
+  }
+  .verification-modal-brand img {
+    width: 2rem;
+    height: 2rem;
+  }
+}
