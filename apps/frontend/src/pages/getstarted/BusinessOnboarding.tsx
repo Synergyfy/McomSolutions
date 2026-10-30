@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
+import './BusinessOnboardingAccess.css';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight, ChevronLeft, Upload, Check, KeyRound,
@@ -1525,10 +1526,34 @@ function BusinessOnboardingInner() {
   const [showChoosePlan, setShowChoosePlan] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [accessCodeError, setAccessCodeError] = useState<string | null>(null);
+  const [showAccessCodeModal, setShowAccessCodeModal] = useState(false);
+  const [expandedAccessOption, setExpandedAccessOption] = useState<'trial' | 'code' | 'membership' | null>(null);
+  const [isMobileAccessLayout, setIsMobileAccessLayout] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 39.999rem)');
+    const updateLayout = () => setIsMobileAccessLayout(mediaQuery.matches);
+    updateLayout();
+    mediaQuery.addEventListener('change', updateLayout);
+    return () => mediaQuery.removeEventListener('change', updateLayout);
+  }, []);
+  useEffect(() => {
+    if (!showAccessCodeModal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowAccessCodeModal(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showAccessCodeModal]);
   const [showRewardsAccessPasses, setShowRewardsAccessPasses] = useState(isAccessPassDemo);
   const accessPassesQuery = useAccessPlans(showProgrammeIntro && showRewardsAccessPasses);
   const availableAccessPasses = (accessPassesQuery.data?.data ?? []).filter((pass) => !pass.archived);
   const [selectedAccessPass, setSelectedAccessPass] = useState<BusinessAccessPlan | null>(null);
+  const [expandedAccessPassId, setExpandedAccessPassId] = useState<string | null>(null);
   const [selectedMembershipTier, setSelectedMembershipTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
 
@@ -5005,134 +5030,148 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   if (showProgrammeIntro && showRewardsAccessPasses) {
     return (
-      <div className="registration-page relative min-h-dvh overflow-x-hidden bg-slate-50 px-4 py-6 font-sans sm:px-6 sm:py-9 lg:px-8">
-        <ChsLogoPattern className="fixed !opacity-[0.04]" />
-        <main className="relative z-10 mx-auto w-full max-w-6xl">
+      <div className="registration-page bo-access-page bo-access-passes">
+        <ChsLogoPattern className="bo-access-pattern" />
+        <main className="bo-access-container">
           <button
             type="button"
             onClick={() => setShowRewardsAccessPasses(false)}
-            className="mb-6 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200 hover:text-orange-700"
+            className="bo-access-back"
           >
-            <ChevronLeft className="h-4 w-4" /> Back to access options
+            <ChevronLeft /> Back
           </button>
 
-          <header className="mx-auto mb-8 max-w-3xl text-center sm:mb-10">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-700">
-              <Layers className="h-6 w-6" />
+          <header className="bo-access-header">
+            <div className="bo-access-header-icon">
+              <Layers />
             </div>
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">One-time business access</p>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Choose an access pass</h1>
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
+            <p className="bo-pass-intro-eyebrow">One-time business access</p>
+            <h1 className="bo-pass-intro-title">Choose an access pass</h1>
+            <p className="bo-pass-intro-description">
               Each pass provides the platforms and access period configured by CHS. Buy a pass for your business with a one-time card payment.
             </p>
             {isAccessSelectionDemo && !hasToken && (
-              <p className="mx-auto mt-3 max-w-2xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs leading-5 text-blue-800 sm:text-sm">
+              <p className="bo-demo-note">
                 Demo preview: you can explore the available passes. Completing a purchase requires a signed-in business account.
               </p>
             )}
           </header>
 
           {accessPassesQuery.isLoading ? (
-            <div role="status" className="mx-auto flex min-h-48 max-w-5xl items-center justify-center gap-3 rounded-3xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
-              <RefreshCw className="h-5 w-5 animate-spin text-orange-600" /> Loading available access passes…
+            <div role="status" className="bo-access-state bo-access-state--loading">
+              <RefreshCw className="bo-spin" /> Loading available access passes…
             </div>
           ) : accessPassesQuery.isError ? (
-            <section role="alert" className="mx-auto max-w-3xl rounded-3xl border border-red-200 bg-white p-6 text-center shadow-sm sm:p-9">
-              <AlertCircle className="mx-auto mb-3 h-9 w-9 text-red-500" />
-              <h2 className="text-xl font-bold text-slate-900">Access passes couldn’t be loaded</h2>
-              <p className="mt-2 text-sm text-slate-600">Please try again. Your trial and access-code options are still available.</p>
+            <section role="alert" className="bo-access-state bo-access-state--error">
+              <AlertCircle className="bo-access-state-icon" />
+              <h2>Access passes couldn’t be loaded</h2>
+              <p>Please try again. Your trial and access-code options are still available.</p>
               <button
                 type="button"
                 onClick={() => { void accessPassesQuery.refetch(); }}
-                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                className="bo-button bo-button--dark bo-access-retry"
               >
-                <RefreshCw className="h-4 w-4" /> Try again
+                <RefreshCw /> Try again
               </button>
             </section>
           ) : availableAccessPasses.length === 0 ? (
-            <section className="mx-auto max-w-3xl rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-9">
-              <Layers className="mx-auto mb-3 h-9 w-9 text-slate-400" />
-              <h2 className="text-xl font-bold text-slate-900">No access passes available</h2>
-              <p className="mt-2 text-sm text-slate-600">There are no active access passes configured right now. You can return to the access options to start a trial or redeem a code.</p>
+            <section className="bo-access-state bo-access-state--empty">
+              <Layers className="bo-access-state-icon" />
+              <h2>No access passes available</h2>
+              <p>There are no active access passes configured right now. You can return to the access options to start a trial or redeem a code.</p>
             </section>
           ) : (
-            <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-stretch gap-5 sm:gap-6 lg:grid-cols-2 xl:grid-cols-3">
+            <div className="bo-access-grid">
               {availableAccessPasses.map((pass, index) => (
                 <motion.article
                   key={pass.id}
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05, duration: 0.25 }}
-                  className="flex min-h-[360px] flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white p-6 shadow-[0_8px_30px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_18px_40px_rgba(15,23,42,0.1)] sm:p-7"
+                  className="bo-pass-card"
                 >
-                  <div className="mb-5 flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-50 to-orange-100 text-orange-700 ring-1 ring-orange-100">
-                        <Layers className="h-5 w-5" strokeWidth={2.25} />
+                  <button
+                    type="button"
+                    className={`bo-pass-card-header bo-pass-card-trigger${expandedAccessPassId === pass.id ? ' bo-pass-card-trigger--expanded' : ''}`}
+                    aria-expanded={!isMobileAccessLayout || expandedAccessPassId === pass.id}
+                    aria-controls={`bo-pass-content-${pass.id}`}
+                    disabled={!isMobileAccessLayout}
+                    onClick={() => setExpandedAccessPassId((current) => current === pass.id ? null : pass.id)}
+                  >
+                    <div className="bo-pass-card-title-group">
+                      <span className="bo-pass-icon">
+                        <Layers strokeWidth={2.25} />
                       </span>
-                      <div className="min-w-0">
-                        {pass.badge && <span className="mb-1.5 inline-block rounded-full bg-orange-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-orange-700">{pass.badge}</span>}
-                        <h2 className="text-lg font-extrabold leading-snug text-slate-950 sm:text-xl">{pass.name}</h2>
+                      <div className="bo-pass-title-copy">
+                        {pass.badge && <span className="bo-pass-badge">{pass.badge}</span>}
+                        <h2 className="bo-pass-name">{pass.name}</h2>
                       </div>
                     </div>
-                    <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700">
+                    <span className="bo-pass-duration">
                       {pass.durationDays} days
                     </span>
-                  </div>
+                    <ChevronDown className={`bo-pass-chevron${expandedAccessPassId === pass.id ? ' bo-pass-chevron--open' : ''}`} aria-hidden="true" />
+                  </button>
 
-                  <p className="mb-5 min-h-10 text-sm leading-6 text-slate-600">
-                    {pass.description || 'Business access pass configured by CHS.'}
-                  </p>
+                  <div
+                    id={`bo-pass-content-${pass.id}`}
+                    aria-hidden={isMobileAccessLayout && expandedAccessPassId !== pass.id}
+                    className={`bo-pass-card-content${expandedAccessPassId === pass.id ? ' bo-pass-card-content--expanded' : ''}`}
+                  >
+                    <p className="bo-pass-description">
+                      {pass.description || 'Business access pass configured by CHS.'}
+                    </p>
 
-                  {pass.appBundles && pass.appBundles.length > 0 && (
-                    <div className="mb-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
-                      <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Included platform access</p>
-                      <ul className="space-y-2">
-                        {pass.appBundles.map((bundle, bundleIndex) => (
-                          <li key={bundle.id || `${pass.id}-bundle-${bundleIndex}`} className="flex items-start gap-2.5 text-sm font-medium text-slate-700">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                            <span>{bundle.platform}{bundle.packageName ? ` · ${bundle.packageName}` : ''}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {pass.features?.length > 0 && (
-                    <div className="mb-5 flex-1">
-                      <p className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Pass benefits</p>
-                      <ul className="space-y-2">
-                        {pass.features.map((feature, featureIndex) => (
-                          <li key={`${pass.id}-feature-${featureIndex}`} className="flex items-start gap-2.5 text-sm leading-5 text-slate-600">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="mt-auto border-t border-slate-100 pt-5">
-                    <div className="mb-4 flex items-end justify-between gap-3 rounded-2xl bg-orange-50/70 px-4 py-3">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">One-time payment</p>
-                        <p className="mt-0.5 text-xs text-slate-500">No auto-renewal</p>
+                    {pass.appBundles && pass.appBundles.length > 0 && (
+                      <div className="bo-pass-bundles">
+                        <p className="bo-pass-list-label">Included platform access</p>
+                        <ul className="bo-pass-list">
+                          {pass.appBundles.map((bundle, bundleIndex) => (
+                            <li key={bundle.id || `${pass.id}-bundle-${bundleIndex}`} className="bo-pass-list-item">
+                              <Check className="bo-pass-check" />
+                              <span>{bundle.platform}{bundle.packageName ? ` · ${bundle.packageName}` : ''}</span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
-                      <span className="shrink-0 text-2xl font-black tracking-tight text-slate-950">£{Number(pass.price).toFixed(2)}</span>
+                    )}
+
+                    {pass.features?.length > 0 && (
+                      <div className="bo-pass-features">
+                        <p className="bo-pass-list-label">Pass benefits</p>
+                        <ul className="bo-pass-list">
+                          {pass.features.map((feature, featureIndex) => (
+                            <li key={`${pass.id}-feature-${featureIndex}`} className="bo-pass-list-item bo-pass-list-item--feature">
+                              <Check className="bo-pass-check" /> {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="bo-pass-card-footer">
+                      <div className="bo-pass-price-panel">
+                        <div>
+                          <p className="bo-pass-price-label">One-time payment</p>
+                          <p className="bo-pass-renewal">No auto-renewal</p>
+                        </div>
+                        <span className="bo-pass-price">£{Number(pass.price).toFixed(2)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAccessPass(pass)}
+                        className="bo-button bo-button--orange bo-pass-buy"
+                      >
+                        Buy for my business <ArrowRight />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedAccessPass(pass)}
-                      className="inline-flex min-h-12 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white shadow-md shadow-orange-600/15 transition hover:bg-orange-700 hover:shadow-lg"
-                    >
-                      Buy for my business <ArrowRight className="h-4 w-4 shrink-0" />
-                    </button>
                   </div>
                 </motion.article>
               ))}
             </div>
           )}
 
-          <p className="mt-7 text-center text-xs text-slate-500">Have a code already? Return to the access options to redeem it.</p>
+          <p className="bo-access-footnote">Have a code already? Return to the access options to redeem it.</p>
         </main>
 
         {selectedAccessPass && (
@@ -5152,63 +5191,70 @@ function BusinessOnboardingInner() {
 
   if (showProgrammeIntro) {
     return (
-      <div className="registration-page relative min-h-dvh overflow-x-hidden bg-[#fafafa] px-4 py-8 font-sans sm:px-6 sm:py-12 lg:px-8">
-        <ChsLogoPattern className="fixed !opacity-[0.055]" />
-        <main className="relative z-10 mx-auto w-full max-w-6xl">
+      <div className="registration-page bo-access-page bo-access-selection">
+        <ChsLogoPattern className="bo-access-pattern" />
+        <main className="bo-access-container">
           <motion.header
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35 }}
-            className="mx-auto mb-8 max-w-3xl text-center sm:mb-10"
+            className="bo-access-header"
           >
-            <img src="/chs-icon.png" alt="Central Hub Solutions" className="mx-auto mb-4 h-11 w-11 object-contain" />
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Your next step</p>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Business Success Programme</h1>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
+            <img src="/chs-icon.png" alt="Central Hub Solutions" className="bo-access-logo" />
+            <p className="bo-access-eyebrow">Your next step</p>
+            <h1 className="bo-access-title">Business Success Programme</h1>
+            <p className="bo-access-description">
               Choose how your business will access the programme and MCOM services. Start with a trial, redeem an access code, browse access passes, or select a membership.
             </p>
             {isAccessSelectionDemo && !hasToken && (
-              <p className="mx-auto mt-3 max-w-2xl rounded-xl border border-blue-100 bg-blue-50 px-4 py-2.5 text-xs leading-5 text-blue-800 sm:text-sm">
+              <p className="bo-demo-note">
                 Demo preview: you can explore the options here. Redeeming a code or completing a purchase requires a signed-in business account.
               </p>
             )}
           </motion.header>
 
-          <div className="grid items-stretch gap-4 lg:grid-cols-3 lg:gap-5">
+          <div className="bo-access-options">
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.4 }}
-              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
+              className={`bo-option-card bo-option-card--trial ${expandedAccessOption === 'trial' ? 'bo-option-card--expanded' : ''}`}
             >
-              <div className="mb-5 flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-orange-700"><Clock className="h-5 w-5" /></span>
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Start with a trial</h2>
-                  <p className="text-sm text-slate-500">Begin the configured trial period</p>
-                </div>
-              </div>
-              <p className="mb-5 text-sm leading-6 text-slate-600">
-                {verificationRequired
-                  ? `Complete the one-time £${verificationFeeAmount.toFixed(2)} business verification payment to start your ${trialConfigDays}-day trial.`
-                  : `Start your ${trialConfigDays}-day trial. Business verification is currently optional.`}
-              </p>
-              <div className="mt-auto">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowProgrammeIntro(false);
-                    if (verificationRequired) setShowVerificationModal(true);
-                    else setShowChoosePlan(true);
-                  }}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-orange-600/15 transition-colors hover:bg-orange-700"
-                >
-                  {verificationRequired ? `Verify & start ${trialConfigDays}-day trial` : `Start ${trialConfigDays}-day trial`}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-                <p className="mt-3 text-center text-xs text-slate-500">
-                  {verificationRequired ? 'Secure one-time verification payment' : 'No verification payment is required'}
-                </p>
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'trial'}
+                aria-controls="access-option-trial-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'trial' ? null : 'trial')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--trial"><Clock /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Start with a trial</span>
+                    <span className="bo-option-subtitle">Begin the configured trial period</span>
+                  </span>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'trial' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-trial-content" className={`bo-option-content${expandedAccessOption === 'trial' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">
+                      {`Complete the one-time £${verificationFeeAmount.toFixed(2)} business verification payment to start your ${trialConfigDays}-day trial.`}
+                    </p>
+                    <div className="bo-option-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowProgrammeIntro(false);
+                          setShowVerificationModal(true);
+                        }}
+                        className="bo-button bo-button--orange"
+                      >
+                        {`Start ${trialConfigDays}-day trial`}
+                        <ArrowRight />
+                      </button>
+                      <p className="bo-option-hint">One-time £{verificationFeeAmount.toFixed(2)} verification payment</p>
+                    </div>
               </div>
             </motion.section>
 
@@ -5216,51 +5262,47 @@ function BusinessOnboardingInner() {
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.16, duration: 0.4 }}
-              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
+              className={`bo-option-card bo-option-card--code ${expandedAccessOption === 'code' ? 'bo-option-card--expanded' : ''}`}
             >
-              <div className="mb-5 flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><KeyRound className="h-5 w-5" /></span>
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Redeem an access code</h2>
-                  <p className="text-sm text-slate-500">Already have a code? Enter it here.</p>
-                </div>
-              </div>
-              <p className="mb-5 text-sm leading-6 text-slate-600">Your code will be checked and, if valid, activate the access pass assigned to it.</p>
-              <form onSubmit={handleAccessCodeRedeem} className="mt-auto space-y-3">
-                <label htmlFor="onboarding-access-code" className="sr-only">Access code</label>
-                <input
-                  id="onboarding-access-code"
-                  type="text"
-                  autoComplete="off"
-                  value={accessCode}
-                  onChange={(event) => {
-                    setAccessCode(event.target.value);
-                    if (accessCodeError) setAccessCodeError(null);
-                  }}
-                  placeholder="Enter your access code"
-                  aria-invalid={Boolean(accessCodeError)}
-                  aria-describedby={accessCodeError ? 'onboarding-access-code-error' : undefined}
-                  className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium uppercase tracking-wider text-slate-900 outline-none transition placeholder:normal-case placeholder:tracking-normal focus:border-orange-500 focus:ring-4 focus:ring-orange-100"
-                />
-                {accessCodeError && <p id="onboarding-access-code-error" role="alert" className="text-sm font-medium text-red-600">{accessCodeError}</p>}
-                <button
-                  type="submit"
-                  disabled={isRedeemingAccessCode || !accessCode.trim()}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm font-bold text-slate-800 transition-colors hover:border-orange-300 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isRedeemingAccessCode ? <><RefreshCw className="h-4 w-4 animate-spin" /> Checking code…</> : <>Redeem code <ArrowRight className="h-4 w-4" /></>}
-                </button>
-              </form>
-              <div className="mt-4 border-t border-slate-100 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowRewardsAccessPasses(true)}
-                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 transition-colors hover:bg-blue-100"
-                >
-                  <Layers className="h-4 w-4" />
-                  Browse access passes
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'code'}
+                aria-controls="access-option-code-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'code' ? null : 'code')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--code"><KeyRound /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Access pass</span>
+                    <span className="bo-option-subtitle">Use a code or browse available passes</span>
+                  </span>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'code' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-code-content" className={`bo-option-content${expandedAccessOption === 'code' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">Your code will be checked and, if valid, activate the access pass assigned to it.</p>
+                    <div className="bo-access-code-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccessCodeError(null);
+                          setShowAccessCodeModal(true);
+                        }}
+                        className="bo-button bo-button--orange"
+                      >
+                        I have an access code
+                        <ArrowRight />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRewardsAccessPasses(true)}
+                        className="bo-button bo-button--outline"
+                      >
+                        <Layers /> Browse access passes <ArrowRight />
+                      </button>
+                    </div>
               </div>
             </motion.section>
 
@@ -5268,37 +5310,89 @@ function BusinessOnboardingInner() {
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.22, duration: 0.4 }}
-              className="flex flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-6"
+              className={`bo-option-card bo-option-card--membership ${expandedAccessOption === 'membership' ? 'bo-option-card--expanded' : ''}`}
             >
-              <div className="mb-5 flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700"><Crown className="h-5 w-5" /></span>
-                <div>
-                  <h2 className="text-lg font-bold tracking-tight text-slate-900">Choose a membership</h2>
-                  <p className="text-sm text-slate-500">Compare the available plans</p>
-                </div>
-              </div>
-              <p className="mb-5 text-sm leading-6 text-slate-600">View the membership options configured for your business and continue through the existing secure payment process.</p>
-              <div className="mt-auto">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAccessCodeError(null);
-                    setShowProgrammeIntro(false);
-                    setShowChoosePlan(true);
-                  }}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
-                >
-                  View membership plans <ArrowRight className="h-4 w-4" />
-                </button>
-                <p className="mt-3 text-center text-xs text-slate-500">Membership selection and checkout remain unchanged.</p>
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'membership'}
+                aria-controls="access-option-membership-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'membership' ? null : 'membership')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--membership"><Crown /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Choose a membership</span>
+                    <span className="bo-option-subtitle">Compare the available plans</span>
+                  </span>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'membership' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-membership-content" className={`bo-option-content${expandedAccessOption === 'membership' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">View the membership options configured for your business and continue through the existing secure payment process.</p>
+                    <div className="bo-option-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccessCodeError(null);
+                          setShowProgrammeIntro(false);
+                          setShowChoosePlan(true);
+                        }}
+                        className="bo-button bo-button--dark"
+                      >
+                        View membership plans <ArrowRight />
+                      </button>
+                      <p className="bo-option-hint">Membership selection and checkout remain unchanged.</p>
+                    </div>
               </div>
             </motion.section>
           </div>
 
-          <p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-5 text-slate-500">
+          <p className="bo-access-footer-note">
             The Business Success Programme guides you through building your business profile, strengthening your brand and customer relationships, and finding opportunities across MCOM. Your dashboard guides you through the programme at your own pace.
           </p>
         </main>
+        {showAccessCodeModal && (
+          <div className="bo-code-modal-overlay" onMouseDown={() => setShowAccessCodeModal(false)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="onboarding-access-code-title"
+              className="bo-code-modal"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <p className="bo-access-eyebrow">Business access</p>
+              <h2 id="onboarding-access-code-title">I have an access code</h2>
+              <p className="bo-code-modal-description">Enter your code to validate and activate its assigned access pass.</p>
+              <form onSubmit={handleAccessCodeRedeem} className="bo-access-code-form">
+                <label htmlFor="onboarding-access-code" className="bo-code-modal-label">Access code</label>
+                <input
+                  id="onboarding-access-code"
+                  type="text"
+                  autoComplete="off"
+                  autoFocus
+                  value={accessCode}
+                  onChange={(event) => {
+                    setAccessCode(event.target.value);
+                    if (accessCodeError) setAccessCodeError(null);
+                  }}
+                  placeholder="Paste your access code"
+                  aria-invalid={Boolean(accessCodeError)}
+                  aria-describedby={accessCodeError ? 'onboarding-access-code-error' : undefined}
+                  className="bo-access-code-input"
+                />
+                {accessCodeError && <p id="onboarding-access-code-error" role="alert" className="bo-access-code-error">{accessCodeError}</p>}
+                <div className="bo-code-modal-actions">
+                  <button type="button" className="bo-button bo-button--outline" onClick={() => setShowAccessCodeModal(false)}>Cancel</button>
+                  <button type="submit" disabled={isRedeemingAccessCode || !accessCode.trim()} className="bo-button bo-button--orange">
+                    {isRedeemingAccessCode ? <><RefreshCw className="bo-spin" /> Checking code…</> : <>Confirm &amp; redeem <ArrowRight /></>}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
         {selectedAccessPass && (
           <AccessPassPaymentModal
             plan={selectedAccessPass}
@@ -7089,7 +7183,7 @@ function BusinessOnboardingInner() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Name</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Name<FieldRequirementHint kind="required" /></label>
                       <Input
                         type="text"
                         value={formData.businessName}
@@ -7100,7 +7194,7 @@ function BusinessOnboardingInner() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description<FieldRequirementHint kind="required" /></label>
                       <div className="relative">
                         <textarea
                           value={formData.shortDescription}
