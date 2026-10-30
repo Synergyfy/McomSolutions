@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 
@@ -10,21 +10,10 @@ import { Request, Response } from 'express';
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger(AllExceptionsFilter.name);
-
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-
-    // Keep internal exception details in server logs for diagnosis while the
-    // client continues to receive the generic 500 response below.
-    const error = exception instanceof Error ? exception : new Error(String(exception));
-    const requestId = request.headers['x-request-id'];
-    this.logger.error(
-      `${request.method} ${request.url} failed${requestId ? ` [${requestId}]` : ''}: ${error.message}`,
-      error.stack,
-    );
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
