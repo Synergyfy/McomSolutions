@@ -5,10 +5,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, ShieldCheck, RefreshCw, X, ArrowRight, Gift, MapPin, Compass, Search, Smartphone, Mail, User, Shield, CheckCircle2, ChevronLeft, Lock, Loader2 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken } from '../services/auth/hooks';
+import CHSLogo from '../components/CHSLogo';
+import FieldRequirementHint from '../components/onboarding/FieldRequirementHint';
 
 import { apiClient, setSharedAuthCookies } from '../services/api';
 import { validateEmailAddress } from '../lib/validation';
 import { persistReferralCodeFromSearchParams, getStoredReferralCode } from '../lib/referral';
+import { isAuthOrOnboardingRedirect } from '../lib/redirects';
 
 const UserRole = {
   BUSINESS: 'BUSINESS' as const,
@@ -148,7 +151,6 @@ function OTPInput({ length = 6, value, onChange }: OTPInputProps) {
 // ═══════════════════════════════════════════════════════════
 // Main Customer Registration Component
 // ═══════════════════════════════════════════════════════════
-type Mode = 'login' | 'register' | 'forgot-password' | 'verify-email';
 type Step = 'enter-email' | 'enter-otp' | 'registration-form';
 
 export default function CustomerRegistration() {
@@ -168,13 +170,19 @@ export default function CustomerRegistration() {
   const redirectUri = searchParams.get('redirect_uri');
   const state = searchParams.get('state');
   const scope = searchParams.get('scope');
+  const loginParams = new URLSearchParams(searchParams);
+  for (const key of ['redirect', 'callbackUrl']) {
+    const value = loginParams.get(key);
+    if (value && isAuthOrOnboardingRedirect(value)) loginParams.delete(key);
+  }
+  const universalLoginHref = loginParams.toString() ? `/login?${loginParams.toString()}` : '/login';
 
   // Persist ?ref= so referral attribution survives the OTP + form steps.
   useEffect(() => {
     persistReferralCodeFromSearchParams(searchParams);
   }, [searchParams]);
 
-  const [mode, setMode] = useState<Mode>('register');
+  const mode = 'register' as const;
   const [step, setStep] = useState<Step>('enter-email');
   const [emailForVerification, setEmailForVerification] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -215,7 +223,7 @@ export default function CustomerRegistration() {
 
   // Load custom hooks
   const { isPending: createUserPending, mutateAsync: createUserAsync } = useCreateUser();
-  const { isPending: loginPending, mutateAsync: loginAsync } = useLogin();
+  const { mutateAsync: loginAsync } = useLogin();
   const { isPending: sendOtpPending, mutateAsync: sendOtpAsync } = useSendOtp();
   const { isPending: validateOtpPending, mutateAsync: validateOtpAsync } = useValidateOtp();
   const { isPending: checkEmailPending, mutateAsync: checkEmailAsync } = useCheckEmail();
@@ -420,33 +428,6 @@ export default function CustomerRegistration() {
     }
   }, [roleParam]);
 
-  const handleToggleMode = (newMode: Mode) => {
-    setMode(newMode);
-    setStep('enter-email');
-    setFormData({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phoneNumber: '+44',
-      password: '',
-      confirmPassword: '',
-      otp: '',
-      country: 'United Kingdom',
-    });
-    setErrors({
-      firstName: '',
-      lastName: '',
-      email: '',
-      phoneNumber: '',
-      password: '',
-      confirmPassword: '',
-      role: '',
-      terms: '',
-      otp: '',
-    });
-    setTermsAccepted(false);
-  };
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -537,15 +518,6 @@ export default function CustomerRegistration() {
           isValid = false;
         }
       }
-    } else if (mode === 'login') {
-      if (!formData.email) {
-        newErrors.email = 'Email is required.';
-        isValid = false;
-      }
-      if (!formData.password) {
-        newErrors.password = 'Password is required.';
-        isValid = false;
-      }
     }
 
     setErrors(newErrors);
@@ -631,165 +603,61 @@ export default function CustomerRegistration() {
     }
   };
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const isValid = await validateForm('enter-email');
-    if (!isValid) return;
-
-    try {
-      await loginAsync({
-        email: formData.email,
-        password: formData.password,
-      });
-      
-      setDialogMessage('Sign in successful!');
-      setIsSuccessDialogOpen(true);
-      
-      setTimeout(async () => {
-        setIsSuccessDialogOpen(false);
-        await performRedirect();
-      }, 1500);
-    } catch (error: any) {
-      setDialogMessage(error.message || 'Login failed');
-      setIsErrorDialogOpen(true);
-    }
-  };
-
   return (
-    <div className="flex justify-center items-center px-4 pt-16 sm:pt-24 pb-16 min-h-screen bg-gray-50/50 relative overflow-hidden">
-      
-      {/* Background decoration elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-orange-200/40 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-orange-100/40 blur-[120px] pointer-events-none" />
+    <div className="relative min-h-dvh overflow-x-hidden bg-[#f6f8fc] text-slate-950">
+      <div className="pointer-events-none absolute -left-40 -top-48 h-[26rem] w-[26rem] rounded-full bg-orange-200/35 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-56 -right-40 h-[30rem] w-[30rem] rounded-full bg-blue-100/50 blur-3xl" />
 
-      <button 
+      <button
         onClick={() => navigate(-1)}
-        className="absolute top-8 left-8 text-gray-500 hover:text-gray-900 flex items-center transition-colors font-bold text-sm bg-white/80 backdrop-blur-sm border border-gray-200 px-4 py-2 rounded-xl shadow-sm hover:shadow-md hover:scale-102 active:scale-98"
+        className="absolute left-4 top-4 z-20 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white/90 px-3.5 text-sm font-semibold text-slate-600 shadow-sm backdrop-blur transition hover:border-orange-200 hover:text-slate-950 sm:left-8 sm:top-7 sm:px-4"
       >
-        <ChevronLeft className="w-4 h-4 mr-1 text-orange-600" />
+        <ChevronLeft className="h-4 w-4 text-orange-600" />
         Back
       </button>
 
-      <div className="w-full max-w-md h-fit p-5 space-y-6 bg-white rounded-3xl shadow-2xl border border-gray-100 transition-all duration-300 relative z-10 sm:p-8">
-        
-        <div className="text-center">
-          <div className="w-12 h-12 bg-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-orange-600/20 transform rotate-45">
-            <span className="text-white font-black text-lg -rotate-45">M</span>
-          </div>
-          <h1 className="text-2xl font-black text-gray-900 tracking-tight">
-            {mode === 'login' ? (clientId ? 'Sign In' : 'Sign In to McomMall') : 'Create Your Account'}
-          </h1>
-          {mode === 'register' && step === 'enter-otp' && (
-            <p className="text-xs text-gray-400 mt-1 font-semibold">Enter OTP sent to {formData.email}</p>
-          )}
-        </div>
+      <main className="relative mx-auto flex min-h-dvh w-full max-w-7xl items-center justify-center px-4 py-20 sm:px-8 sm:py-24">
+        <section className="grid w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-white bg-white shadow-[0_28px_90px_rgba(20,30,48,0.14)] sm:rounded-[2rem] lg:min-h-[600px] lg:grid-cols-[0.92fr_1.08fr]">
+          <aside className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-[#fff6ed] via-[#fffaf5] to-[#eef4ff] p-10 lg:flex xl:p-12">
+            <div className="pointer-events-none absolute -bottom-20 -left-16 h-64 w-64 rounded-full border border-orange-200/70" />
+            <div className="pointer-events-none absolute -bottom-10 -left-6 h-44 w-44 rounded-full border border-orange-200/60" />
+            <div className="relative">
+              <CHSLogo variant="full" size="lg" imageClassName="h-11 w-auto" />
+              <p className="mt-10 text-[11px] font-bold uppercase tracking-[0.2em] text-orange-700">One connected ecosystem</p>
+              <h2 className="mt-4 max-w-sm text-4xl font-semibold leading-[1.08] tracking-[-0.045em] text-slate-950 xl:text-[2.8rem]">
+                Your world, <span className="text-orange-600">all connected.</span>
+              </h2>
+              <p className="mt-5 max-w-sm text-base leading-7 text-slate-600">
+                Create one CHS account to bring your MCOM experience together, from rewards and your wallet to local offers.
+              </p>
+            </div>
+            <p className="relative text-xs font-medium tracking-wide text-slate-500">CENTRAL HUB SOLUTION · CUSTOMER ACCOUNT</p>
+          </aside>
 
-        {clientId && (
-          <div className="p-4 bg-orange-50 border border-orange-200 text-orange-800 text-sm font-semibold rounded-2xl flex items-center gap-2.5">
-            <Lock className="w-5 h-5 shrink-0 text-orange-500" />
-            <span>Signing in to access <strong>{getClientName(clientId)}</strong></span>
-          </div>
-        )}
+          <div className="relative flex min-w-0 flex-col justify-center px-5 py-8 sm:px-10 sm:py-11 lg:px-12 xl:px-16">
+            <div className="mb-7 flex items-center justify-between lg:hidden">
+              <CHSLogo variant="full" size="md" imageClassName="h-9 w-auto" />
+              <span className="rounded-full bg-orange-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-700">Customer signup</span>
+            </div>
 
-        <form className="mt-8 space-y-5" onSubmit={mode === 'login' ? handleLoginSubmit : (e) => e.preventDefault()}>
-          
-          {/* ═══════════════════════════════════════════════════════
-              Login Mode Form
-              ═══════════════════════════════════════════════════════ */}
-          {mode === 'login' && (
-            <>
-              <button
-                type="button"
-                onClick={handleGoogleAuth}
-                disabled={isGoogleLoading || loginPending}
-                className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 text-gray-800 rounded-xl font-bold transition-all shadow-sm hover:shadow active:scale-[0.98] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
-              >
-                {isGoogleLoading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 text-orange-600 animate-spin" />
-                    <span>Signing in with Google...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-5 h-5 shrink-0 group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
-                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                    </svg>
-                    <span>Sign in with Google</span>
-                  </>
-                )}
-              </button>
+            <div className="mb-7">
+              <p className="hidden text-[11px] font-bold uppercase tracking-[0.18em] text-orange-700 lg:block">Create your CHS account</p>
+              <h1 className="mt-1 text-[1.75rem] font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
+                {step === 'enter-email' ? 'Create your account' : step === 'enter-otp' ? 'Verify your email' : 'Complete your profile'}
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-500 sm:text-base">
+                {step === 'enter-email' ? 'Start with Google or use your email address.' : step === 'enter-otp' ? `Enter the code we sent to ${formData.email}.` : 'Add your details to finish setting up your account.'}
+              </p>
+            </div>
 
-              <div className="relative my-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200"></div>
-                </div>
-                <div className="relative flex justify-center text-xs uppercase tracking-wider font-semibold text-gray-400">
-                  <span className="bg-white px-3">or sign in with email</span>
-                </div>
+            {clientId && (
+              <div className="mb-5 flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-900">
+                <Lock className="h-4 w-4 shrink-0 text-orange-600" />
+                <span>Creating your CHS account for <strong>{getClientName(clientId)}</strong></span>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input 
-                    name="email" 
-                    type="email"
-                    value={formData.email} 
-                    onChange={handleInputChange} 
-                    placeholder="name@example.com" 
-                    className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.email ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`} 
-                  />
-                </div>
-                {errors.email && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.email}</p>}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input 
-                    name="password" 
-                    type={showPassword ? 'text' : 'password'} 
-                    value={formData.password} 
-                    onChange={handleInputChange} 
-                    placeholder="••••••••" 
-                    className={`w-full pl-10 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.password ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`} 
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-                {errors.password && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.password}</p>}
-              </div>
-
-              <button 
-                type="submit" 
-                className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98] mt-2 flex items-center justify-center gap-2"
-                disabled={loginPending}
-              >
-                {loginPending ? 'Signing In...' : 'Sign In'}
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <div className="text-center pt-2">
-                <p className="text-sm text-gray-500 font-medium">
-                  Don't have an account?{' '}
-                  <button type="button" onClick={() => handleToggleMode('register')} className="text-orange-600 font-bold hover:underline">
-                    Sign Up
-                  </button>
-                </p>
-              </div>
-            </>
-          )}
-
+            <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
           {/* ═══════════════════════════════════════════════════════
               Register Mode Forms (Multi-step)
               ═══════════════════════════════════════════════════════ */}
@@ -802,7 +670,7 @@ export default function CustomerRegistration() {
                     type="button"
                     onClick={handleGoogleAuth}
                     disabled={isGoogleLoading || checkEmailPending || sendOtpPending}
-                    className="w-full py-3.5 px-4 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 text-gray-800 rounded-xl font-bold transition-all shadow-sm hover:shadow active:scale-[0.98] flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed group"
+                    className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 group"
                   >
                     {isGoogleLoading ? (
                       <>
@@ -822,35 +690,37 @@ export default function CustomerRegistration() {
                     )}
                   </button>
 
-                  <div className="relative my-2">
+                  <div className="relative py-1">
                     <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-gray-200"></div>
+                      <div className="w-full border-t border-slate-200"></div>
                     </div>
                     <div className="relative flex justify-center text-xs uppercase tracking-wider font-semibold text-gray-400">
-                      <span className="bg-white px-3">or continue with email</span>
+                      <span className="bg-white px-3">or use email</span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Email Address</label>
+                    <label htmlFor="signup-email" className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">Email address<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <input 
+                        id="signup-email"
                         name="email" 
                         type="email"
                         value={formData.email} 
                         onChange={handleInputChange} 
                         placeholder="Enter your email" 
-                        className={`w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.email ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`} 
+                        autoComplete="email"
+                        className={`h-12 w-full rounded-xl border bg-slate-50 pl-11 pr-4 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 sm:text-sm ${errors.email ? 'border-red-400 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200'}`}
                       />
                     </div>
-                    {errors.email && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.email}</p>}
+                    {errors.email && <p className="mt-1 text-xs font-medium text-red-600" role="alert">{errors.email}</p>}
                   </div>
                   
                   <button 
                     type="button" 
                     onClick={handleNextStep} 
-                    className="w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98] flex items-center justify-center gap-2"
+                    className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f45100] to-[#ff6900] px-4 py-3.5 font-semibold text-white shadow-[0_10px_22px_rgba(244,81,0,0.2)] transition hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={checkEmailPending || sendOtpPending}
                   >
                     {checkEmailPending ? 'Checking...' : sendOtpPending ? 'Sending OTP...' : 'Next'}
@@ -860,9 +730,9 @@ export default function CustomerRegistration() {
                   <div className="text-center pt-2">
                     <p className="text-sm text-gray-500 font-medium">
                       Already have an account?{' '}
-                      <button type="button" onClick={() => handleToggleMode('login')} className="text-orange-600 font-bold hover:underline">
+                      <Link to={universalLoginHref} className="text-orange-600 font-bold hover:underline">
                         Sign in
-                      </button>
+                      </Link>
                     </p>
                   </div>
                 </div>
@@ -875,6 +745,7 @@ export default function CustomerRegistration() {
                     <p className="text-sm text-gray-500 font-medium">
                       We've sent a 6-digit code to <span className="font-bold text-gray-800">{formData.email}</span>.
                     </p>
+                    <p className="mt-2 text-xs font-bold uppercase tracking-wider text-gray-500">Verification code<FieldRequirementHint kind="required" /></p>
                   </div>
                   {otpMode === 'mock' && devOtpCode && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
@@ -922,7 +793,7 @@ export default function CustomerRegistration() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">First Name</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">First Name<FieldRequirementHint kind="required" /></label>
                       <input 
                         name="firstName" 
                         value={formData.firstName} 
@@ -933,7 +804,7 @@ export default function CustomerRegistration() {
                       {errors.firstName && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.firstName}</p>}
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Last Name</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Last Name<FieldRequirementHint kind="required" /></label>
                       <input 
                         name="lastName" 
                         value={formData.lastName} 
@@ -946,7 +817,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Phone Number<FieldRequirementHint kind="required" /></label>
                     <input 
                       name="phoneNumber" 
                       value={formData.phoneNumber} 
@@ -958,7 +829,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Password</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Password<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
                       <input 
                         name="password" 
@@ -979,7 +850,7 @@ export default function CustomerRegistration() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirm Password</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Confirm Password<FieldRequirementHint kind="required" /></label>
                     <div className="relative">
                       <input 
                         name="confirmPassword" 
@@ -1046,7 +917,7 @@ export default function CustomerRegistration() {
                       and{' '}
                       <Link to="/privacy" className="text-orange-600 font-bold hover:underline">
                         Privacy Policy
-                      </Link>.
+                      </Link>.<FieldRequirementHint kind="required" />
                     </label>
                   </div>
                   {errors.terms && <p className="text-red-500 text-xs font-semibold">{errors.terms}</p>}
@@ -1064,8 +935,10 @@ export default function CustomerRegistration() {
               )}
             </>
           )}
-        </form>
-      </div>
+            </form>
+          </div>
+        </section>
+      </main>
 
       {/* Success Dialog Overlay */}
       <AnimatePresence>

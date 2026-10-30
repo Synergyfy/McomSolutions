@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
+import './BusinessOnboardingAccess.css';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronRight, ChevronLeft, Upload, Check,
+  ChevronRight, ChevronLeft, Upload, Check, KeyRound,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
   Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
@@ -12,9 +13,13 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
 import { businessApi } from '../../services/business';
 import { useRegister, useLogin as useLoginHook, useSendOtp as useSendOtpHook, useVerifyOtp as useVerifyOtpHook, usePostSsoAuthorize, useGetSsoToken, useCurrentUser, useLogout } from '../../services/auth/hooks';
-import { usePricing, ICON_MAP, SubTier, PricingPlan } from '../../context/PricingContext';
+import { usePricing, ICON_MAP, SubTier } from '../../context/PricingContext';
 import { pricingApi } from '../../services/pricing';
+import { usePlans } from '../../services/pricing/hooks';
 import { usePlatformPlans, usePlatformStripeInitiate, usePlatformPaypalInitiate } from '../../services/payment/hooks';
+import { useAccessPlans, useRedeemAccessCode } from '../../services/access/hooks';
+import type { BusinessAccessPlan } from '../../services/access';
+import AccessPassPaymentModal from '../../components/payment/AccessPassPaymentModal';
 import PlatformPaymentModal from '../../components/payment/PlatformPaymentModal';
 import MembershipPaymentModal, { MembershipPaymentPlan } from '../../components/payment/MembershipPaymentModal';
 import VerificationPaymentModal from '../../components/payment/VerificationPaymentModal';
@@ -23,6 +28,8 @@ import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
 import { persistReferralCodeFromSearchParams } from '../../lib/referral';
 import { isAuthOrOnboardingRedirect } from '../../lib/redirects';
+import { assertSignupEmailAvailable, isDuplicateSignupError, signupErrorMessage } from './businessOnboardingAuth';
+import BusinessCategorySelectors from './BusinessCategorySelectors';
 import { useGetSectors, useGetCategoriesBySector, useGetSubCategoriesByCategory } from '../../hooks/useCategoryData';
 import { useOnboardingWizard } from '../../hooks/useOnboardingWizard';
 import { useGeolocation } from '../../hooks/useGeolocation';
@@ -30,6 +37,8 @@ import GoogleMapSection from '../../components/GoogleMapSection';
 import WizardProgressBar from '../../components/WizardProgressBar';
 import ImageCropModal from '../../components/ImageCropModal';
 import ChsLogoPattern from '../../components/ChsLogoPattern';
+import LegalConsentDialog from '../../components/onboarding/LegalConsentDialog';
+import FieldRequirementHint from '../../components/onboarding/FieldRequirementHint';
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const BUSINESS_IMAGE_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp';
@@ -82,24 +91,6 @@ const UserRole = {
   AGENT: 'AGENT' as const,
   OWNER: 'OWNER' as const,
 };
-
-const DEFAULT_MCOM_MEMBERSHIP_PLANS: Array<Partial<PricingPlan> & Pick<PricingPlan, 'id' | 'name' | 'description' | 'price' | 'monthlyPrice' | 'features' | 'iconName' | 'color' | 'whoItIsFor'>> = [
-  {
-    id: 'Bronze', name: 'Bronze', description: 'Perfect for local brands and new startups.',
-    whoItIsFor: 'New businesses', iconName: 'Building2', color: 'border-orange-200 text-orange-700 bg-orange-50',
-    price: 10, monthlyPrice: 10, features: ['Basic Dashboard', 'Local Directory Listing', 'Ecosystem Access'],
-  },
-  {
-    id: 'Silver', name: 'Silver', description: 'Advanced tools for growing teams.',
-    whoItIsFor: 'Growing businesses', iconName: 'Zap', color: 'border-blue-200 text-blue-700 bg-blue-50',
-    price: 75, monthlyPrice: 75, features: ['Standard Dashboard', 'Campaign Priority', 'Multi-Territory'],
-  },
-  {
-    id: 'Gold', name: 'Gold', description: 'Scale your operations with priority access.',
-    whoItIsFor: 'Scaling businesses', iconName: 'Star', color: 'border-amber-200 text-amber-700 bg-amber-50',
-    price: 350, monthlyPrice: 350, features: ['Full Dashboard', 'Cross-Platform Priority', 'AI Business Copilot'],
-  },
-];
 
 const formatMembershipPrice = (value: number) => value.toLocaleString('en-GB', {
   minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
@@ -530,6 +521,8 @@ const BOROUGH_DATA: Record<string, {
 function BusinessOnboardingInner() {
   const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('auth_token');
   const { plans } = usePricing();
+  const membershipPlansQuery = usePlans();
+  const { mutateAsync: redeemAccessCode, isPending: isRedeemingAccessCode } = useRedeemAccessCode();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -673,6 +666,11 @@ function BusinessOnboardingInner() {
   const router = useRouter();
   const logout = useLogout();
   const [searchParams] = useSearchParams();
+  // Direct preview link for the access-selection screen. This intentionally
+  // bypasses earlier onboarding steps and any saved draft restoration.
+  const demoMode = searchParams.get('demo');
+  const isAccessSelectionDemo = demoMode === 'access' || demoMode === 'passes';
+  const isAccessPassDemo = demoMode === 'passes';
 
   // "Already have an account? Log in here" must not send the user back to
   // onboarding after signing in. Carry only real SSO intent — never the
@@ -847,6 +845,28 @@ function BusinessOnboardingInner() {
     await performSSORedirect('/dashboard');
   };
 
+  const handleAccessCodeRedeem = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = accessCode.trim();
+    if (!code) {
+      setAccessCodeError('Enter your access code to continue.');
+      return;
+    }
+
+    setAccessCodeError(null);
+    try {
+      await redeemAccessCode(code);
+      await completeOnboardingAndEnterDashboard();
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setAccessCodeError(
+        Array.isArray(message)
+          ? message.join(' ')
+          : message || 'We could not redeem that code. Check it and try again.',
+      );
+    }
+  };
+
   const dispatch = useDispatch();
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
   const handleMessageRef = useRef<((event: MessageEvent) => void) | null>(null);
@@ -893,19 +913,9 @@ function BusinessOnboardingInner() {
   const { data: sectors, isLoading: sectorsLoading, error: sectorsError } = useGetSectors();
   const { data: categories, isLoading: categoriesLoading, error: categoriesError } = useGetCategoriesBySector(formData.sectorId);
   const { data: subcategories, isLoading: subcategoriesLoading, error: subcategoriesError } = useGetSubCategoriesByCategory(formData.categoryId);
-  const preferLocalCatalog = import.meta.env.DEV;
-  const onboardingSectors = !preferLocalCatalog && sectors?.length ? sectors : SECTORS;
-  const onboardingCategories = !preferLocalCatalog && categories?.length
-    ? categories
-    : CATEGORIES.filter((category) => category.sectorId === formData.sectorId);
-  const onboardingSubcategories = !preferLocalCatalog && subcategories?.length
-    ? subcategories
-    : SUBCATEGORIES.filter((subcategory) => subcategory.categoryId === formData.categoryId);
-  const isUsingLocalCatalog = Boolean(
-    preferLocalCatalog || sectorsError || (!sectorsLoading && !sectors?.length) ||
-    (formData.sectorId && (categoriesError || (!categoriesLoading && !categories?.length))) ||
-    (formData.categoryId && (subcategoriesError || (!subcategoriesLoading && !subcategories?.length))),
-  );
+  const catalogSectors = sectors ?? [];
+  const catalogCategories = categories ?? [];
+  const catalogSubcategories = subcategories ?? [];
 
   // --- Google Onboarding State ---
   const getSafeParam = (params: URLSearchParams | null, key: string): string => {
@@ -1323,10 +1333,6 @@ function BusinessOnboardingInner() {
 
   const handleGoogleFailSafeSubmit = () => {
     setSubmitError(null);
-    if (!googlePhoneInput) {
-      setSubmitError('Phone number is required.');
-      return;
-    }
     if (!googleSectorId || !googleCategoryId || !googleSubCategoryId) {
       setSubmitError('All category levels must be selected.');
       return;
@@ -1519,8 +1525,39 @@ function BusinessOnboardingInner() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
   // ─── Post-Quest Screens (Steps 5-6) ──────────────────
-  const [showProgrammeIntro, setShowProgrammeIntro] = useState(false);
+  const [showProgrammeIntro, setShowProgrammeIntro] = useState(isAccessSelectionDemo);
   const [showChoosePlan, setShowChoosePlan] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessCodeError, setAccessCodeError] = useState<string | null>(null);
+  const [showAccessCodeModal, setShowAccessCodeModal] = useState(false);
+  const [expandedAccessOption, setExpandedAccessOption] = useState<'trial' | 'code' | 'membership' | null>(null);
+  const [isMobileAccessLayout, setIsMobileAccessLayout] = useState(false);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 39.999rem)');
+    const updateLayout = () => setIsMobileAccessLayout(mediaQuery.matches);
+    updateLayout();
+    mediaQuery.addEventListener('change', updateLayout);
+    return () => mediaQuery.removeEventListener('change', updateLayout);
+  }, []);
+  useEffect(() => {
+    if (!showAccessCodeModal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowAccessCodeModal(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showAccessCodeModal]);
+  const [showRewardsAccessPasses, setShowRewardsAccessPasses] = useState(isAccessPassDemo);
+  const accessPassesQuery = useAccessPlans(showProgrammeIntro && showRewardsAccessPasses);
+  const availableAccessPasses = (accessPassesQuery.data?.data ?? []).filter((pass) => !pass.archived);
+  const [selectedAccessPass, setSelectedAccessPass] = useState<BusinessAccessPlan | null>(null);
+  const [expandedAccessPassId, setExpandedAccessPassId] = useState<string | null>(null);
+  const [selectedMembershipTier, setSelectedMembershipTier] = useState<'Standard' | 'Pro' | 'Pro+'>('Standard');
   const [planBillingCycle, setPlanBillingCycle] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly');
 
   // Backend enforces a 60s OTP cooldown; mirror it in the UI so resend
@@ -1631,6 +1668,7 @@ function BusinessOnboardingInner() {
   const [storefrontLive, setStorefrontLive] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [legalDocumentOpen, setLegalDocumentOpen] = useState<'terms' | 'privacy' | null>(null);
   const [termsError, setTermsError] = useState(false);
   const [lockedFeatureAttempt, setLockedFeatureAttempt] = useState<string | null>(null);
   const [cobrandedTab, setCobrandedTab] = useState<'standard' | 'pro' | 'plus'>('standard');
@@ -1885,6 +1923,16 @@ function BusinessOnboardingInner() {
     setIsClient(true);
     try {
       const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : searchParams;
+      const demoMode = urlParams.get('demo');
+      if (demoMode === 'access' || demoMode === 'passes') {
+        setShowInitialPrompt(false);
+        setShowProgrammeIntro(true);
+        setShowRewardsAccessPasses(demoMode === 'passes');
+        setShowChoosePlan(false);
+        setShowVerificationModal(false);
+        return;
+      }
+
       const clientId = urlParams.get('client_id') || searchParams.get('client_id');
       const source = urlParams.get('source') || searchParams.get('source');
       const redirectUri = urlParams.get('redirect_uri') || searchParams.get('redirect_uri');
@@ -2243,8 +2291,7 @@ function BusinessOnboardingInner() {
         setParticleTrigger((p) => p + 1);
         setTimeout(() => setCurrentStep(1), 300);
       } catch (err: unknown) {
-        const e = err as { message?: string };
-        setSubmitError(e?.message || 'Failed to send verification code. Please try again.');
+        setSubmitError(signupErrorMessage(err, 'Failed to send verification code. Please try again.'));
       } finally {
         setIsSubmitting(false);
       }
@@ -2264,16 +2311,14 @@ function BusinessOnboardingInner() {
           return;
         }
 
-        // Check if an account with this email already exists
         try {
-          const emailCheck = await checkEmail(formData.email);
-          if (emailCheck?.exists) {
-            setSubmitError('An account with this email already exists. Please log in instead.');
-            setIsSubmitting(false);
-            return;
-          }
-        } catch {
-          // If check-email endpoint fails, allow the user to continue
+          await assertSignupEmailAvailable(checkEmail, formData.email);
+        } catch (err: unknown) {
+          setSubmitError(signupErrorMessage(
+            err,
+            'Could not check whether this email is available. Please try again.',
+          ));
+          return;
         }
 
         const next = new Set(completedSteps);
@@ -2282,8 +2327,7 @@ function BusinessOnboardingInner() {
         setParticleTrigger((p) => p + 1);
         setTimeout(() => setCurrentStep(2), 300);
       } catch (err: unknown) {
-        const e = err as { message?: string };
-        setSubmitError(e?.message || 'Invalid code. Please check and try again.');
+        setSubmitError(signupErrorMessage(err, 'Invalid or expired verification code. Please check and try again.'));
       } finally {
         otpVerifyInFlightRef.current = false;
         setIsSubmitting(false);
@@ -2340,8 +2384,12 @@ function BusinessOnboardingInner() {
 
     // ── Category Step Validation ───────────────────────────
     if (currentQuest.id === 'category') {
-      if (!formData.sectorId || !formData.categoryId) {
-        setSubmitError('Please select your sector and primary category.');
+      const selectedSectorExists = catalogSectors.some((sector) => sector.id === formData.sectorId);
+      const selectedCategory = catalogCategories.find((category) => category.id === formData.categoryId);
+      const selectedSubcategory = catalogSubcategories.find((subcategory) => subcategory.id === formData.subCategoryId);
+      if (!selectedSectorExists || !selectedCategory || selectedCategory.sectorId !== formData.sectorId ||
+          (formData.subCategoryId && (!selectedSubcategory || selectedSubcategory.categoryId !== formData.categoryId))) {
+        setSubmitError('Select a sector and primary category from the loaded CHS catalog.');
         return;
       }
     }
@@ -2380,8 +2428,12 @@ function BusinessOnboardingInner() {
 
     // ── Final step: register + auto-login + create profile ──────────────────
     if (currentStep === activeQuests.length - 1) {
-      if (!formData.sectorId || !formData.categoryId) {
-        setSubmitError('Please select your sector and primary category.');
+      const selectedSectorExists = catalogSectors.some((sector) => sector.id === formData.sectorId);
+      const selectedCategory = catalogCategories.find((category) => category.id === formData.categoryId);
+      const selectedSubcategory = catalogSubcategories.find((subcategory) => subcategory.id === formData.subCategoryId);
+      if (!selectedSectorExists || !selectedCategory || selectedCategory.sectorId !== formData.sectorId ||
+          (formData.subCategoryId && (!selectedSubcategory || selectedSubcategory.categoryId !== formData.categoryId))) {
+        setSubmitError('Select a sector and primary category from the loaded CHS catalog.');
         return;
       }
 
@@ -2400,21 +2452,10 @@ function BusinessOnboardingInner() {
               role: UserRole.OWNER,
             });
           } catch (err: any) {
-            const msg = err?.response?.data?.message || err?.message || '';
-            const code = err?.response?.data?.code || err?.code || '';
-            if (
-              msg.toLowerCase().includes('email has been used') ||
-              msg.toLowerCase().includes('email_exists') ||
-              code === 'EMAIL_EXISTS'
-            ) {
-              await login({
-                email: formData.email,
-                password: formData.password,
-                role: UserRole.OWNER,
-              });
-            } else {
-              throw err;
+            if (isDuplicateSignupError(err)) {
+              throw new Error('An account with this email already exists. Please log in instead.');
             }
+            throw err;
           }
 
           if (!api.defaults.headers.common['Authorization']) {
@@ -2582,8 +2623,7 @@ function BusinessOnboardingInner() {
         localStorage.setItem('businessOnboardingState', 'plan_selection');
         setShowProgrammeIntro(true);
       } catch (err: unknown) {
-        const e = err as { message?: string };
-        setSubmitError(e?.message || 'Registration and profile creation failed. Please try again.');
+        setSubmitError(signupErrorMessage(err, 'Registration and profile creation failed. Please try again.'));
       } finally {
         setIsSubmitting(false);
       }
@@ -2707,6 +2747,13 @@ function BusinessOnboardingInner() {
                 <ArrowRight className="h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-1 group-hover:text-orange-600" />
               </button>
               </div>
+
+              <p className="mt-6 text-sm font-medium text-slate-600">
+                Already have an account?{' '}
+                <Link to={loginHref} className="font-semibold text-orange-700 hover:underline">
+                  Sign in
+                </Link>
+              </p>
 
             </div>
 
@@ -4992,111 +5039,382 @@ function BusinessOnboardingInner() {
   // ═══════════════════════════════════════════════════════
   // Step 5 — Programme Introduction (mandatory)
   // ═══════════════════════════════════════════════════════
+  if (showProgrammeIntro && showRewardsAccessPasses) {
+    return (
+      <div className="registration-page bo-access-page bo-access-passes">
+        <ChsLogoPattern className="bo-access-pattern" />
+        <main className="bo-access-container">
+          <button
+            type="button"
+            onClick={() => setShowRewardsAccessPasses(false)}
+            className="bo-access-back"
+          >
+            <ChevronLeft /> Back
+          </button>
+
+          <header className="bo-access-header">
+            <div className="bo-access-header-icon">
+              <Layers />
+            </div>
+            <p className="bo-pass-intro-eyebrow">One-time business access</p>
+            <h1 className="bo-pass-intro-title">Choose an access pass</h1>
+            <p className="bo-pass-intro-description">
+              Each pass provides the platforms and access period configured by CHS. Buy a pass for your business with a one-time card payment.
+            </p>
+            {isAccessSelectionDemo && !hasToken && (
+              <p className="bo-demo-note">
+                Demo preview: you can explore the available passes. Completing a purchase requires a signed-in business account.
+              </p>
+            )}
+          </header>
+
+          {accessPassesQuery.isLoading ? (
+            <div role="status" className="bo-access-state bo-access-state--loading">
+              <RefreshCw className="bo-spin" /> Loading available access passes…
+            </div>
+          ) : accessPassesQuery.isError ? (
+            <section role="alert" className="bo-access-state bo-access-state--error">
+              <AlertCircle className="bo-access-state-icon" />
+              <h2>Access passes couldn’t be loaded</h2>
+              <p>Please try again. Your trial and access-code options are still available.</p>
+              <button
+                type="button"
+                onClick={() => { void accessPassesQuery.refetch(); }}
+                className="bo-button bo-button--dark bo-access-retry"
+              >
+                <RefreshCw /> Try again
+              </button>
+            </section>
+          ) : availableAccessPasses.length === 0 ? (
+            <section className="bo-access-state bo-access-state--empty">
+              <Layers className="bo-access-state-icon" />
+              <h2>No access passes available</h2>
+              <p>There are no active access passes configured right now. You can return to the access options to start a trial or redeem a code.</p>
+            </section>
+          ) : (
+            <div className="bo-access-grid">
+              {availableAccessPasses.map((pass, index) => (
+                <motion.article
+                  key={pass.id}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05, duration: 0.25 }}
+                  className="bo-pass-card"
+                >
+                  <button
+                    type="button"
+                    className={`bo-pass-card-header bo-pass-card-trigger${expandedAccessPassId === pass.id ? ' bo-pass-card-trigger--expanded' : ''}`}
+                    aria-expanded={!isMobileAccessLayout || expandedAccessPassId === pass.id}
+                    aria-controls={`bo-pass-content-${pass.id}`}
+                    disabled={!isMobileAccessLayout}
+                    onClick={() => setExpandedAccessPassId((current) => current === pass.id ? null : pass.id)}
+                  >
+                    <div className="bo-pass-card-title-group">
+                      <span className="bo-pass-icon">
+                        <Layers strokeWidth={2.25} />
+                      </span>
+                      <div className="bo-pass-title-copy">
+                        {pass.badge && <span className="bo-pass-badge">{pass.badge}</span>}
+                        <h2 className="bo-pass-name">{pass.name}</h2>
+                      </div>
+                    </div>
+                    <span className="bo-pass-duration">
+                      {pass.durationDays} days
+                    </span>
+                    <ChevronDown className={`bo-pass-chevron${expandedAccessPassId === pass.id ? ' bo-pass-chevron--open' : ''}`} aria-hidden="true" />
+                  </button>
+
+                  <div
+                    id={`bo-pass-content-${pass.id}`}
+                    aria-hidden={isMobileAccessLayout && expandedAccessPassId !== pass.id}
+                    className={`bo-pass-card-content${expandedAccessPassId === pass.id ? ' bo-pass-card-content--expanded' : ''}`}
+                  >
+                    <p className="bo-pass-description">
+                      {pass.description || 'Business access pass configured by CHS.'}
+                    </p>
+
+                    {pass.appBundles && pass.appBundles.length > 0 && (
+                      <div className="bo-pass-bundles">
+                        <p className="bo-pass-list-label">Included platform access</p>
+                        <ul className="bo-pass-list">
+                          {pass.appBundles.map((bundle, bundleIndex) => (
+                            <li key={bundle.id || `${pass.id}-bundle-${bundleIndex}`} className="bo-pass-list-item">
+                              <Check className="bo-pass-check" />
+                              <span>{bundle.platform}{bundle.packageName ? ` · ${bundle.packageName}` : ''}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {pass.features?.length > 0 && (
+                      <div className="bo-pass-features">
+                        <p className="bo-pass-list-label">Pass benefits</p>
+                        <ul className="bo-pass-list">
+                          {pass.features.map((feature, featureIndex) => (
+                            <li key={`${pass.id}-feature-${featureIndex}`} className="bo-pass-list-item bo-pass-list-item--feature">
+                              <Check className="bo-pass-check" /> {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="bo-pass-card-footer">
+                      <div className="bo-pass-price-panel">
+                        <div>
+                          <p className="bo-pass-price-label">One-time payment</p>
+                          <p className="bo-pass-renewal">No auto-renewal</p>
+                        </div>
+                        <span className="bo-pass-price">£{Number(pass.price).toFixed(2)}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAccessPass(pass)}
+                        className="bo-button bo-button--orange bo-pass-buy"
+                      >
+                        Buy for my business <ArrowRight />
+                      </button>
+                    </div>
+                  </div>
+                </motion.article>
+              ))}
+            </div>
+          )}
+
+          <p className="bo-access-footnote">Have a code already? Return to the access options to redeem it.</p>
+        </main>
+
+        {selectedAccessPass && (
+          <AccessPassPaymentModal
+            plan={selectedAccessPass}
+            onboarding
+            onClose={() => setSelectedAccessPass(null)}
+            onSuccess={() => {
+              setSelectedAccessPass(null);
+              void completeOnboardingAndEnterDashboard();
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   if (showProgrammeIntro) {
     return (
-      <div className="registration-page relative flex min-h-dvh items-center overflow-x-hidden bg-[#fafafa] px-4 py-8 font-sans sm:px-6 sm:py-12 lg:px-8">
-        <ChsLogoPattern className="fixed !opacity-[0.055]" />
-        <main className="relative z-10 mx-auto w-full max-w-6xl">
+      <div className="registration-page bo-access-page bo-access-selection">
+        <ChsLogoPattern className="bo-access-pattern" />
+        <main className="bo-access-container">
           <motion.header
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35 }}
-            className="mx-auto mb-8 max-w-3xl text-center sm:mb-10"
+            className="bo-access-header"
           >
-            <img src="/chs-icon.png" alt="Central Hub Solutions" className="mx-auto mb-4 h-11 w-11 object-contain" />
-            <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">Your next 90 days</p>
-            <h1 className="text-3xl font-extrabold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">Business Success Programme</h1>
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
-              A practical programme to help you build your business presence, strengthen customer relationships and find new opportunities across MCOM.
+            <img src="/chs-icon.png" alt="Central Hub Solutions" className="bo-access-logo" />
+            <p className="bo-access-eyebrow">Your next step</p>
+            <h1 className="bo-access-title">Business Success Programme</h1>
+            <p className="bo-access-description">
+              Choose how your business will access the programme and MCOM services. Start with a trial, redeem an access code, browse access passes, or select a membership.
             </p>
+            {isAccessSelectionDemo && !hasToken && (
+              <p className="bo-demo-note">
+                Demo preview: you can explore the options here. Redeeming a code or completing a purchase requires a signed-in business account.
+              </p>
+            )}
           </motion.header>
 
-          <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.7fr)] lg:gap-6">
+          <div className="bo-access-options">
             <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.4 }}
-              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+              className={`bo-option-card bo-option-card--trial ${expandedAccessOption === 'trial' ? 'bo-option-card--expanded' : ''}`}
             >
-              <div className="mb-5 sm:mb-6">
-                <h2 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">What we’ll work on together</h2>
-                <p className="mt-1.5 text-sm leading-6 text-slate-500">Your dashboard will guide you through each part at a manageable pace.</p>
-              </div>
-              <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
-                {[
-                  'Build your digital business profile',
-                  'Strengthen your brand',
-                  'Increase customer loyalty',
-                  'Expand your business network',
-                  'Improve your online presence',
-                  'Prepare for a professional Business Audit',
-                  'Receive personalised recommendations for growth',
-                ].map((item, i) => (
-                  <motion.div
-                    key={item}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.16 + i * 0.045, duration: 0.25 }}
-                    className="flex min-h-[58px] items-center gap-3 rounded-2xl border border-orange-100/80 bg-orange-50/55 px-3.5 py-3 sm:px-4"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-orange-600 ring-1 ring-orange-100">
-                      <Check className="h-4 w-4" strokeWidth={2.5} />
-                    </span>
-                    <span className="text-sm font-medium leading-5 text-slate-700">{item}</span>
-                  </motion.div>
-                ))}
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'trial'}
+                aria-controls="access-option-trial-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'trial' ? null : 'trial')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--trial"><Clock /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Start with a trial</span>
+                    <span className="bo-option-subtitle">Begin the configured trial period</span>
+                  </span>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'trial' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-trial-content" className={`bo-option-content${expandedAccessOption === 'trial' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">
+                      {`Complete the one-time £${verificationFeeAmount.toFixed(2)} business verification payment to start your ${trialConfigDays}-day trial.`}
+                    </p>
+                    <div className="bo-option-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowProgrammeIntro(false);
+                          setShowVerificationModal(true);
+                        }}
+                        className="bo-button bo-button--orange"
+                      >
+                        {`Start ${trialConfigDays}-day trial`}
+                        <ArrowRight />
+                      </button>
+                      <p className="bo-option-hint">One-time £{verificationFeeAmount.toFixed(2)} verification payment</p>
+                    </div>
               </div>
             </motion.section>
 
-            <motion.aside
+            <motion.section
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.18, duration: 0.4 }}
-              className="flex flex-col rounded-3xl border border-orange-200 bg-white p-5 shadow-[0_18px_55px_rgba(15,23,42,0.07)] sm:p-7 lg:p-8"
+              transition={{ delay: 0.16, duration: 0.4 }}
+              className={`bo-option-card bo-option-card--code ${expandedAccessOption === 'code' ? 'bo-option-card--expanded' : ''}`}
             >
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.15em] text-orange-700">
-                <span className="h-2 w-2 rounded-full bg-orange-500" />
-                Flexible timeframe
-              </div>
-              <div className="mt-5 border-b border-slate-100 pb-5">
-                <p className="text-5xl font-extrabold tracking-tight text-slate-950 sm:text-6xl">90</p>
-                <p className="mt-1 text-sm font-semibold text-slate-500">days to build momentum</p>
-              </div>
-              <p className="mt-5 text-sm leading-6 text-slate-600">
-                Most businesses complete the programme within 90 days. Some finish in as little as two weeks. Move at your own pace; your dashboard will guide you through each step.
-              </p>
-              <div className="mt-auto pt-7">
-                <motion.button
-                  whileHover={{ y: -1 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    setShowProgrammeIntro(false);
-                    if (verificationRequired) {
-                      setShowVerificationModal(true);
-                    } else {
-                      // Verification is optional — go straight to plan selection
-                      // and let the business start their free trial.
-                      setShowChoosePlan(true);
-                    }
-                  }}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-orange-600 px-5 py-4 text-center text-sm font-bold text-white shadow-lg shadow-orange-600/20 transition-colors hover:bg-orange-700 sm:text-base"
-                >
-                  <span>
-                    {verificationRequired
-                      ? 'Verify Business & Start Trial'
-                      : `Start ${trialConfigDays}-Day Free Trial`}
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'code'}
+                aria-controls="access-option-code-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'code' ? null : 'code')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--code"><KeyRound /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Access pass</span>
+                    <span className="bo-option-subtitle">Use a code or browse available passes</span>
                   </span>
-                  <ArrowRight className="h-5 w-5 shrink-0" />
-                </motion.button>
-                <p className="mt-3 text-center text-xs font-medium text-slate-500">
-                  {verificationRequired
-                    ? `One-time verification fee: £${verificationFeeAmount.toFixed(2)}`
-                    : `No card required — ${trialConfigDays} days of full access.`}
-                </p>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'code' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-code-content" className={`bo-option-content${expandedAccessOption === 'code' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">Your code will be checked and, if valid, activate the access pass assigned to it.</p>
+                    <div className="bo-access-code-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccessCodeError(null);
+                          setShowAccessCodeModal(true);
+                        }}
+                        className="bo-button bo-button--orange"
+                      >
+                        I have an access code
+                        <ArrowRight />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowRewardsAccessPasses(true)}
+                        className="bo-button bo-button--outline"
+                      >
+                        <Layers /> Browse access passes <ArrowRight />
+                      </button>
+                    </div>
               </div>
-            </motion.aside>
+            </motion.section>
+
+            <motion.section
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.22, duration: 0.4 }}
+              className={`bo-option-card bo-option-card--membership ${expandedAccessOption === 'membership' ? 'bo-option-card--expanded' : ''}`}
+            >
+              <button
+                type="button"
+                className="bo-option-trigger"
+                aria-expanded={!isMobileAccessLayout || expandedAccessOption === 'membership'}
+                aria-controls="access-option-membership-content"
+                disabled={!isMobileAccessLayout}
+                onClick={() => setExpandedAccessOption((current) => current === 'membership' ? null : 'membership')}
+              >
+                <span className="bo-option-heading">
+                  <span className="bo-option-icon bo-option-icon--membership"><Crown /></span>
+                  <span className="bo-option-copy">
+                    <span className="bo-option-title">Choose a membership</span>
+                    <span className="bo-option-subtitle">Compare the available plans</span>
+                  </span>
+                </span>
+                <ChevronDown className={`bo-option-chevron ${expandedAccessOption === 'membership' ? 'bo-option-chevron--open' : ''}`} />
+              </button>
+              <div id="access-option-membership-content" className={`bo-option-content${expandedAccessOption === 'membership' ? ' bo-option-content--expanded' : ''}`}>
+                    <p className="bo-option-description">View the membership options configured for your business and continue through the existing secure payment process.</p>
+                    <div className="bo-option-actions">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccessCodeError(null);
+                          setShowProgrammeIntro(false);
+                          setShowChoosePlan(true);
+                        }}
+                        className="bo-button bo-button--dark"
+                      >
+                        View membership plans <ArrowRight />
+                      </button>
+                      <p className="bo-option-hint">Membership selection and checkout remain unchanged.</p>
+                    </div>
+              </div>
+            </motion.section>
           </div>
+
+          <p className="bo-access-footer-note">
+            The Business Success Programme guides you through building your business profile, strengthening your brand and customer relationships, and finding opportunities across MCOM. Your dashboard guides you through the programme at your own pace.
+          </p>
         </main>
+        {showAccessCodeModal && (
+          <div className="bo-code-modal-overlay" onMouseDown={() => setShowAccessCodeModal(false)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="onboarding-access-code-title"
+              className="bo-code-modal"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <p className="bo-access-eyebrow">Business access</p>
+              <h2 id="onboarding-access-code-title">I have an access code</h2>
+              <p className="bo-code-modal-description">Enter your code to validate and activate its assigned access pass.</p>
+              <form onSubmit={handleAccessCodeRedeem} className="bo-access-code-form">
+                <label htmlFor="onboarding-access-code" className="bo-code-modal-label">Access code</label>
+                <input
+                  id="onboarding-access-code"
+                  type="text"
+                  autoComplete="off"
+                  autoFocus
+                  value={accessCode}
+                  onChange={(event) => {
+                    setAccessCode(event.target.value);
+                    if (accessCodeError) setAccessCodeError(null);
+                  }}
+                  placeholder="Paste your access code"
+                  aria-invalid={Boolean(accessCodeError)}
+                  aria-describedby={accessCodeError ? 'onboarding-access-code-error' : undefined}
+                  className="bo-access-code-input"
+                />
+                {accessCodeError && <p id="onboarding-access-code-error" role="alert" className="bo-access-code-error">{accessCodeError}</p>}
+                <div className="bo-code-modal-actions">
+                  <button type="button" className="bo-button bo-button--outline" onClick={() => setShowAccessCodeModal(false)}>Cancel</button>
+                  <button type="submit" disabled={isRedeemingAccessCode || !accessCode.trim()} className="bo-button bo-button--orange">
+                    {isRedeemingAccessCode ? <><RefreshCw className="bo-spin" /> Checking code…</> : <>Confirm &amp; redeem <ArrowRight /></>}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
+        {selectedAccessPass && (
+          <AccessPassPaymentModal
+            plan={selectedAccessPass}
+            onboarding
+            onClose={() => setSelectedAccessPass(null)}
+            onSuccess={() => {
+              setSelectedAccessPass(null);
+              void completeOnboardingAndEnterDashboard();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -5105,9 +5423,6 @@ function BusinessOnboardingInner() {
   // Step 6 — Choose Annual Plan
   // ═══════════════════════════════════════════════════════
   if (showChoosePlan) {
-    const QUARTERLY_DISCOUNT = 0.1;
-    const YEARLY_DISCOUNT = 0.2;
-
     // Map source param to platform name for external plans
 
     const handlePlatformPlanSelect = async (plan: any, provider: 'stripe' | 'paypal') => {
@@ -5483,18 +5798,19 @@ function BusinessOnboardingInner() {
       );
     }
 
-    // ─── Default MCOM Solutions Membership Plans ────────────────────────────
-    const membershipPlans = DEFAULT_MCOM_MEMBERSHIP_PLANS.map((fallbackPlan) => {
-      const livePlan = plans.find((plan) => (plan.name || plan.id).toLowerCase() === fallbackPlan.name.toLowerCase());
-      return {
-        ...fallbackPlan,
-        ...(livePlan || {}),
-        id: livePlan?.id || fallbackPlan.id,
-        name: fallbackPlan.name,
-        description: livePlan?.description || fallbackPlan.description,
-        features: livePlan?.features?.length ? livePlan.features : fallbackPlan.features,
-      };
+    // Only display memberships configured in Admin Hub and returned by the
+    // active-plan pricing endpoint. Never synthesize plans when the API is empty.
+    const membershipPlans = plans;
+    const membershipPlansForTier = membershipPlans.flatMap((plan) => {
+      const tier = plan.tiers?.find((configuredTier) => configuredTier.tier === selectedMembershipTier);
+      return tier ? [{ plan, tier }] : [];
     });
+    const isLoadingMembershipPlans = membershipPlansQuery.isLoading || (
+      !membershipPlansQuery.isError &&
+      Array.isArray(membershipPlansQuery.data) &&
+      membershipPlansQuery.data.length > 0 &&
+      membershipPlans.length === 0
+    );
 
     return (
       <div className="min-h-screen bg-slate-50 px-3 py-5 sm:px-5 sm:py-8 md:px-6 md:py-10">
@@ -5502,10 +5818,13 @@ function BusinessOnboardingInner() {
           {/* Top Bar Navigation */}
           <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
             <button
-              onClick={handleRestartOnboarding}
+              onClick={() => {
+                setShowChoosePlan(false);
+                setShowProgrammeIntro(true);
+              }}
               className="text-[11px] sm:text-xs md:text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg sm:rounded-xl hover:bg-gray-50 transition-all flex items-center gap-1 sm:gap-1.5 shadow-2xs active:scale-95 duration-100"
             >
-              <RefreshCw className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Restart
+              <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Back
             </button>
             <button
               onClick={handleLogout}
@@ -5536,47 +5855,64 @@ function BusinessOnboardingInner() {
               </div>
             </motion.div>
 
-            {/* Billing Toggle (Mobile Friendly Horizontal Segmented Control) */}
+            {/* Admin-configured membership duration and pricing tiers */}
             <div className="mt-5 sm:mt-8 flex justify-center w-full">
               <div className="grid grid-cols-3 p-1 bg-gray-200/70 rounded-xl sm:rounded-full w-full max-w-md gap-1 shadow-inner">
-                {(['monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
+                {(['Standard', 'Pro', 'Pro+'] as const).map((tier) => (
                   <button
-                    key={cycle}
-                    onClick={() => setPlanBillingCycle(cycle)}
+                    key={tier}
+                    type="button"
+                    onClick={() => setSelectedMembershipTier(tier)}
+                    aria-pressed={selectedMembershipTier === tier}
                     className={cn(
-                      "py-2 sm:py-2.5 px-1 sm:px-3 rounded-lg sm:rounded-full text-[11px] sm:text-xs md:text-sm font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5",
-                      planBillingCycle === cycle ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
+                      "py-2.5 px-2 sm:px-4 rounded-lg sm:rounded-full text-xs sm:text-sm font-bold transition-all",
+                      selectedMembershipTier === tier ? "bg-white text-orange-600 shadow-md" : "text-gray-600 hover:text-gray-900"
                     )}
                   >
-                    <span>{cycle.charAt(0).toUpperCase() + cycle.slice(1)}</span>
-                    {cycle === 'quarterly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 10%</span>}
-                    {cycle === 'yearly' && <span className="text-[9px] sm:text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full uppercase font-extrabold tracking-wide">Save 20%</span>}
+                    {tier}
                   </button>
                 ))}
               </div>
             </div>
+            <p className="mt-2 text-center text-[11px] sm:text-xs text-slate-500">
+              Each tier shows the duration, price, benefits, and payment options configured by the administrator.
+            </p>
           </div>
 
-          {/* Membership Cards */}
+          {/* Membership cards and API states */}
+          {membershipPlansQuery.isError ? (
+            <section role="alert" className="mx-auto mb-8 max-w-3xl rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-500" />
+              <h2 className="text-lg font-bold text-slate-900">Membership plans couldn’t be loaded</h2>
+              <p className="mt-2 text-sm text-slate-600">Please try again. Your trial and access code options are still available.</p>
+              <button
+                type="button"
+                onClick={() => { void membershipPlansQuery.refetch(); }}
+                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+              >
+                <RefreshCw className="h-4 w-4" /> Try again
+              </button>
+            </section>
+          ) : isLoadingMembershipPlans ? (
+            <div role="status" className="mx-auto mb-8 flex min-h-40 max-w-5xl items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
+              <RefreshCw className="h-5 w-5 animate-spin text-orange-600" /> Loading available memberships…
+            </div>
+          ) : membershipPlans.length === 0 ? (
+            <section className="mx-auto mb-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <Crown className="mx-auto mb-3 h-8 w-8 text-slate-400" />
+              <h2 className="text-lg font-bold text-slate-900">No membership plans available</h2>
+              <p className="mt-2 text-sm text-slate-600">There are no active membership plans configured right now. You can continue with the trial or redeem an access code.</p>
+            </section>
+          ) : membershipPlansForTier.length === 0 ? (
+            <section className="mx-auto mb-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
+              <Crown className="mx-auto mb-3 h-8 w-8 text-slate-400" />
+              <h2 className="text-lg font-bold text-slate-900">No {selectedMembershipTier} memberships available</h2>
+              <p className="mt-2 text-sm text-slate-600">No active membership plan includes this configured tier. Choose another tier or continue with a trial or access pass.</p>
+            </section>
+          ) : (
           <div className="mx-auto mb-8 grid max-w-5xl grid-cols-1 items-stretch gap-5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6 sm:mb-10">
-            {membershipPlans.map((plan, index) => {
+            {membershipPlansForTier.map(({ plan, tier }, index) => {
               const isGold = !!plan.badge || plan.id === 'Gold' || plan.name?.toLowerCase().includes('gold') || plan.name?.toLowerCase().includes('popular');
-              const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
-              const calculatedQuarterlyPrice = Math.round(monthlyPrice * 3 * (1 - QUARTERLY_DISCOUNT) * 100) / 100;
-              const calculatedAnnualPrice = Math.round(monthlyPrice * 12 * (1 - YEARLY_DISCOUNT) * 100) / 100;
-              const quarterlyPrice = calculatedQuarterlyPrice;
-              const annualPrice = calculatedAnnualPrice;
-
-              let displayPrice = monthlyPrice;
-              let totalPerCycle = monthlyPrice;
-
-              if (planBillingCycle === 'quarterly') {
-                displayPrice = quarterlyPrice / 3;
-                totalPerCycle = quarterlyPrice;
-              } else if (planBillingCycle === 'yearly') {
-                displayPrice = annualPrice / 12;
-                totalPerCycle = annualPrice;
-              }
               const PlanIcon = ICON_MAP[(plan.iconName || 'Building2') as keyof typeof ICON_MAP] || Building2;
               return (
                 <motion.div
@@ -5620,23 +5956,13 @@ function BusinessOnboardingInner() {
                     </div>
                   </div>
 
-                  {/* Price */}
+                  {/* Admin-configured tier price and duration */}
                   <div className="mb-4 border-b border-dashed border-slate-200 pb-4">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">£{formatMembershipPrice(displayPrice)}</span>
-                      <span className="text-sm font-semibold text-slate-500">/mo</span>
+                      <span className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">£{formatMembershipPrice(Number(tier.fullPrice))}</span>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
-                      <span>
-                        {planBillingCycle === 'monthly'
-                          ? 'Billed monthly'
-                          : `£${formatMembershipPrice(totalPerCycle)} billed ${planBillingCycle === 'yearly' ? 'annually' : 'every 3 months'}`}
-                      </span>
-                      {planBillingCycle !== 'monthly' && (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
-                          Save {planBillingCycle === 'yearly' ? '20%' : '10%'}
-                        </span>
-                      )}
+                      <span>{tier.durationDays} days of membership access</span>
                     </div>
                   </div>
 
@@ -5674,7 +6000,7 @@ function BusinessOnboardingInner() {
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 sm:text-[11px]">
                       Membership Inclusions:
                     </div>
-                    {(Array.isArray(plan?.features) ? plan.features : []).map((f, i) => (
+                    {(tier.features.length > 0 ? tier.features : plan.features).map((f, i) => (
                       <div key={i} className="flex items-start gap-2">
                         <Check className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
                         <span className="text-sm font-medium leading-snug text-slate-700">{f}</span>
@@ -5682,17 +6008,28 @@ function BusinessOnboardingInner() {
                     ))}
                   </div>
 
+                  {tier.paymentOptions.length > 0 && (
+                    <div className="mb-4 flex flex-wrap gap-1.5">
+                      {tier.paymentOptions.map((option) => (
+                        <span key={option.paymentPlan} className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                          {option.paymentPlan === 'full' ? 'Pay in full' : option.paymentPlan === 'halfYearly' ? 'Every 6 months' : `Pay ${option.paymentPlan}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Action Button */}
                   <button
                     onClick={() => {
                       setSelectedMembershipForPayment({
                         id: plan.id,
                         name: plan.name,
-                        price: monthlyPrice,
-                        billingCycle: planBillingCycle,
-                        totalPerCycle: totalPerCycle,
+                        price: Number(tier.fullPrice),
+                        billingCycle: 'monthly',
+                        totalPerCycle: Number(tier.fullPrice),
                         description: plan.description,
                         includedApps: plan.includedApps,
+                        selectedTier: selectedMembershipTier,
                       });
                       setShowMembershipPaymentModal(true);
                     }}
@@ -5701,12 +6038,13 @@ function BusinessOnboardingInner() {
                       isGold ? "bg-slate-950 text-white shadow-slate-900/15 hover:bg-slate-800" : "bg-orange-600 text-white shadow-orange-600/20 hover:bg-orange-700"
                     )}
                   >
-                    Select {plan.name} Membership
+                    Continue with {plan.name} · {selectedMembershipTier}
                   </button>
                 </motion.div>
               );
             })}
           </div>
+          )}
 
           <p className="text-center text-[11px] sm:text-xs text-gray-500 font-medium">All tiers include the 90-Day Business Success Programme and digital business storefront</p>
 
@@ -6070,6 +6408,7 @@ function BusinessOnboardingInner() {
   // Main Onboarding Flow
   // ═══════════════════════════════════════════════════════
   return (
+    <>
     <div className="registration-page relative flex min-h-dvh flex-col overflow-x-hidden overflow-y-auto bg-[#fafafa] font-sans">
       <ChsLogoPattern className={`opacity-[0.09] ${!isGoogleOnboarding && ['storefront', 'details'].includes(currentQuest.id) ? 'fixed' : ''}`} />
 
@@ -6278,7 +6617,7 @@ function BusinessOnboardingInner() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
-                        Phone Number {(!selectedGoogleBranch?.businessPhone) && <span className="text-red-500">*</span>}
+                        Phone Number<FieldRequirementHint kind="important" />
                       </label>
                       <Input
                         value={googlePhoneInput}
@@ -6299,7 +6638,7 @@ function BusinessOnboardingInner() {
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Sector</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Sector<FieldRequirementHint kind="required" /></label>
                           <select
                             value={googleSectorId}
                             onChange={(e) => {
@@ -6317,7 +6656,7 @@ function BusinessOnboardingInner() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Category</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Category<FieldRequirementHint kind="required" /></label>
                           <select
                             value={googleCategoryId}
                             onChange={(e) => {
@@ -6335,7 +6674,7 @@ function BusinessOnboardingInner() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Subcategory</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Subcategory<FieldRequirementHint kind="required" /></label>
                           <select
                             value={googleSubCategoryId}
                             onChange={(e) => setGoogleSubCategoryId(e.target.value)}
@@ -6387,11 +6726,11 @@ function BusinessOnboardingInner() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">First Name</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">First Name<FieldRequirementHint kind="required" /></label>
                           <Input value={ownerFirstName} onChange={(e) => setOwnerFirstName(e.target.value)} placeholder="Jane" className="h-10 rounded-lg text-xs" />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-gray-600 mb-1">Last Name</label>
+                          <label className="block text-xs font-semibold text-gray-600 mb-1">Last Name<FieldRequirementHint kind="required" /></label>
                           <Input value={ownerLastName} onChange={(e) => setOwnerLastName(e.target.value)} placeholder="Smith" className="h-10 rounded-lg text-xs" />
                         </div>
                       </div>
@@ -6435,7 +6774,7 @@ function BusinessOnboardingInner() {
                   <div className="space-y-5">
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">
-                        Business Email Address
+                        Business Email Address<FieldRequirementHint kind="required" />
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6488,6 +6827,7 @@ function BusinessOnboardingInner() {
                 {/* ─── Step 1: OTP Verification ─────── */}
                 {!isGoogleOnboarding && currentQuest.id === 'otp' && (
                   <div className="space-y-6">
+                    <p className="text-sm font-bold text-gray-800">Verification code<FieldRequirementHint kind="required" /></p>
                     <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4">
                       <p className="text-sm text-orange-900 font-medium leading-relaxed">
                         {otpMode === 'mock'
@@ -6535,8 +6875,7 @@ function BusinessOnboardingInner() {
                           setDevOtpCode(res?.code ?? null);
                           setOtpResendCooldown(60);
                         } catch (err: unknown) {
-                          const e = err as { message?: string };
-                          setSubmitError(e?.message || 'Failed to resend verification code. Please try again.');
+                          setSubmitError(signupErrorMessage(err, 'Failed to resend verification code. Please try again.'));
                         } finally {
                           setOtpResending(false);
                         }
@@ -6562,7 +6901,7 @@ function BusinessOnboardingInner() {
                     </div>
                     <div className="space-y-2">
                       <label className="block text-sm font-bold text-gray-800 tracking-tight">
-                        Business Postcode
+                        Business Postcode<FieldRequirementHint kind="important" />
                       </label>
                       <p className="text-xs text-gray-500 -mt-1">Enter the postcode where your business operates from</p>
                       <button
@@ -6855,7 +7194,7 @@ function BusinessOnboardingInner() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Name</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Name<FieldRequirementHint kind="required" /></label>
                       <Input
                         type="text"
                         value={formData.businessName}
@@ -6866,7 +7205,7 @@ function BusinessOnboardingInner() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Short Description<FieldRequirementHint kind="required" /></label>
                       <div className="relative">
                         <textarea
                           value={formData.shortDescription}
@@ -6928,7 +7267,7 @@ function BusinessOnboardingInner() {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">First Name</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">First Name<FieldRequirementHint kind="required" /></label>
                       <p className="text-xs text-gray-500 -mt-1">Your personal first name for the account</p>
                       <div className="relative">
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6944,7 +7283,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Last Name</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Last Name<FieldRequirementHint kind="required" /></label>
                       <p className="text-xs text-gray-500 -mt-1">Your personal last name for the account</p>
                       <div className="relative">
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6959,7 +7298,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Phone Number</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Phone Number<FieldRequirementHint kind="important" /></label>
                       <p className="text-xs text-gray-500 -mt-1">A contact number where customers and partners can reach you</p>
                       <div className="relative">
                         <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -6974,7 +7313,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Password</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Password<FieldRequirementHint kind="required" /></label>
                       <p className="text-xs text-gray-500 -mt-1">Choose a strong password to protect your account</p>
                       <div className="relative">
                         <Input
@@ -6992,7 +7331,7 @@ function BusinessOnboardingInner() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Confirm Password</label>
+                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Confirm Password<FieldRequirementHint kind="required" /></label>
                       <p className="text-xs text-gray-500 -mt-1">Re-enter your password to make sure it's correct</p>
                       <div className="relative">
                         <Input
@@ -7015,24 +7354,26 @@ function BusinessOnboardingInner() {
                         <input
                           type="checkbox"
                           checked={termsAccepted}
-                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          onChange={(e) => { if (e.target.checked && !termsAccepted) setLegalDocumentOpen('terms'); else if (!e.target.checked) setTermsAccepted(false); }}
                           className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
                         />
                         <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                          I accept the{' '}
-                          <a href="/terms" target="_blank" className="text-orange-600 font-bold hover:underline">Terms of Service</a>
+                          I agree to the{' '}
+                          <button type="button" onClick={() => setLegalDocumentOpen('terms')} className="text-orange-600 font-bold hover:underline">Terms of Service</button>
+                          <FieldRequirementHint kind="required" />
                         </span>
                       </label>
                       <label className="flex items-start gap-3 cursor-pointer group">
                         <input
                           type="checkbox"
                           checked={privacyAccepted}
-                          onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                          onChange={(e) => { if (e.target.checked && !privacyAccepted) setLegalDocumentOpen('privacy'); else if (!e.target.checked) setPrivacyAccepted(false); }}
                           className="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5 shrink-0"
                         />
                         <span className="text-sm font-medium text-gray-600 group-hover:text-gray-900 transition-colors">
-                          I accept the{' '}
-                          <a href="/privacy" target="_blank" className="text-orange-600 font-bold hover:underline">Privacy Policy</a>
+                          I understand the{' '}
+                          <button type="button" onClick={() => setLegalDocumentOpen('privacy')} className="text-orange-600 font-bold hover:underline">Privacy Policy</button>
+                          <FieldRequirementHint kind="required" />
                         </span>
                       </label>
                     </div>
@@ -7045,7 +7386,7 @@ function BusinessOnboardingInner() {
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Business Name
+                        Business Name<FieldRequirementHint kind="required" />
                       </label>
                       <Input
                         value={formData.businessName}
@@ -7073,7 +7414,7 @@ function BusinessOnboardingInner() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Business Phone Number
+                        Business Phone Number<FieldRequirementHint kind="important" />
                       </label>
                       <Input
                         value={formData.businessPhone}
@@ -7140,14 +7481,16 @@ function BusinessOnboardingInner() {
                         Tell us how you operate so we can tailor your dashboard, set the right shipping and tax defaults, and recommend the best tools for your business.
                       </p>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                    <p className="text-sm font-bold text-gray-800">Choose how your business operates<FieldRequirementHint kind="required" /></p>
+                    <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                       {/* Option: Physical Store */}
                       <button
                         type="button"
+                        aria-pressed={formData.businessOperation === 'physical'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'physical', businessType: 'products' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'physical'
-                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
-                            : 'border-gray-200 hover:border-orange-300'
+                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'physical'
+                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
+                            : 'border-gray-200 hover:border-orange-400'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'physical'
@@ -7158,21 +7501,22 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Physical Store</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Brick-and-mortar retail space or showroom for customers.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'physical'
-                            ? 'opacity-100 scale-100'
-                            : 'opacity-0 scale-50'
+                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'physical'
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
                           }`}>
-                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
+                          {formData.businessOperation === 'physical' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
                         </div>
                       </button>
 
                       {/* Option: Home Business */}
                       <button
                         type="button"
+                        aria-pressed={formData.businessOperation === 'home'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'home', businessType: 'both' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'home'
-                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
-                            : 'border-gray-200 hover:border-orange-300'
+                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'home'
+                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
+                            : 'border-gray-200 hover:border-orange-400'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'home'
@@ -7183,21 +7527,22 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Home Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Operated from a private residence with or without visitors.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'home'
-                            ? 'opacity-100 scale-100'
-                            : 'opacity-0 scale-50'
+                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'home'
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
                           }`}>
-                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
+                          {formData.businessOperation === 'home' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
                         </div>
                       </button>
 
                       {/* Option: Mobile Business */}
                       <button
                         type="button"
+                        aria-pressed={formData.businessOperation === 'mobile'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'mobile', businessType: 'services' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'mobile'
-                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
-                            : 'border-gray-200 hover:border-orange-300'
+                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'mobile'
+                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
+                            : 'border-gray-200 hover:border-orange-400'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'mobile'
@@ -7208,21 +7553,22 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Mobile Business</h3>
                         <p className="text-xs text-gray-505 mt-1 leading-relaxed">Services provided at client locations or on-the-go.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'mobile'
-                            ? 'opacity-100 scale-100'
-                            : 'opacity-0 scale-50'
+                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'mobile'
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
                           }`}>
-                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
+                          {formData.businessOperation === 'mobile' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
                         </div>
                       </button>
 
                       {/* Option: Online Business */}
                       <button
                         type="button"
+                        aria-pressed={formData.businessOperation === 'online'}
                         onClick={() => setFormData({ ...formData, businessOperation: 'online', businessType: 'products' })}
-                        className={`group relative flex flex-col items-start p-6 bg-white border rounded-2xl text-left transition-all duration-200 ${formData.businessOperation === 'online'
-                            ? 'border-orange-500 bg-orange-50/50 shadow-sm'
-                            : 'border-gray-200 hover:border-orange-300'
+                        className={`group relative flex cursor-pointer flex-col items-start p-4 sm:p-6 bg-white border rounded-2xl text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 ${formData.businessOperation === 'online'
+                            ? 'border-orange-500 bg-orange-50/70 shadow-md ring-1 ring-orange-200'
+                            : 'border-gray-200 hover:border-orange-400'
                           }`}
                       >
                         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 transition-colors ${formData.businessOperation === 'online'
@@ -7233,11 +7579,11 @@ function BusinessOnboardingInner() {
                         </div>
                         <h3 className="font-bold text-gray-900 text-base">Online Business</h3>
                         <p className="text-xs text-gray-550 mt-1 leading-relaxed">E-commerce, digital services, or remote operations.</p>
-                        <div className={`absolute top-4 right-4 transition-all duration-200 ${formData.businessOperation === 'online'
-                            ? 'opacity-100 scale-100'
-                            : 'opacity-0 scale-50'
+                        <div className={`absolute right-3 top-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-colors sm:right-4 sm:top-4 sm:px-2.5 sm:text-xs ${formData.businessOperation === 'online'
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-orange-50 text-orange-700 group-hover:bg-orange-100'
                           }`}>
-                          <CheckCircle2 className="w-6 h-6 text-orange-600" />
+                          {formData.businessOperation === 'online' ? <><CheckCircle2 className="h-4 w-4" /> Selected</> : 'Select'}
                         </div>
                       </button>
                     </div>
@@ -7254,75 +7600,23 @@ function BusinessOnboardingInner() {
                       </p>
                     </div>
 
-                    {isUsingLocalCatalog && (
-                      <div className="flex items-start gap-2.5 rounded-xl border border-orange-100 bg-orange-50 px-4 py-3">
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
-                        <p className="text-sm font-medium text-orange-900">
-                          {preferLocalCatalog
-                            ? 'Using the built-in sample categories for development.'
-                            : 'The category service is unavailable. Showing built-in sample categories so you can continue.'}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Sector</label>
-                      <p className="text-xs text-gray-500 -mt-1">Choose the broad industry your business belongs to</p>
-                      {sectorsLoading && !preferLocalCatalog ? (
-                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
-                      ) : (
-                        <select
-                          value={formData.sectorId}
-                          onChange={(e) => setFormData({ ...formData, sectorId: e.target.value, categoryId: '', subCategoryId: '' })}
-                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
-                        >
-                          <option value="">Select a Sector</option>
-                          {onboardingSectors.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Primary Category</label>
-                      <p className="text-xs text-gray-500 -mt-1">Narrow down to the specific group within your sector</p>
-                      {categoriesLoading && !preferLocalCatalog ? (
-                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
-                      ) : (
-                        <select
-                          value={formData.categoryId}
-                          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subCategoryId: '' })}
-                          disabled={!formData.sectorId}
-                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Select a Category</option>
-                          {onboardingCategories.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-bold text-gray-800 tracking-tight">Business Type</label>
-                      <p className="text-xs text-gray-500 -mt-1">Pick the exact type that matches your operations (optional)</p>
-                      {subcategoriesLoading && !preferLocalCatalog ? (
-                        <div className="w-full h-12 rounded-xl bg-gray-100 animate-pulse" />
-                      ) : (
-                        <select
-                          value={formData.subCategoryId}
-                          onChange={(e) => setFormData({ ...formData, subCategoryId: e.target.value })}
-                          disabled={!formData.categoryId}
-                          className="w-full h-12 px-4 rounded-xl border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                        >
-                          <option value="">Select a Business Type</option>
-                          {onboardingSubcategories.map(sc => (
-                            <option key={sc.id} value={sc.id}>{sc.name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
+                    <BusinessCategorySelectors
+                      sectors={catalogSectors}
+                      categories={catalogCategories}
+                      subcategories={catalogSubcategories}
+                      sectorId={formData.sectorId}
+                      categoryId={formData.categoryId}
+                      subcategoryId={formData.subCategoryId}
+                      sectorsLoading={sectorsLoading}
+                      categoriesLoading={categoriesLoading}
+                      subcategoriesLoading={subcategoriesLoading}
+                      sectorsError={!!sectorsError}
+                      categoriesError={!!categoriesError}
+                      subcategoriesError={!!subcategoriesError}
+                      onSectorChange={(sectorId) => setFormData({ ...formData, sectorId, categoryId: '', subCategoryId: '' })}
+                      onCategoryChange={(categoryId) => setFormData({ ...formData, categoryId, subCategoryId: '' })}
+                      onSubcategoryChange={(subCategoryId) => setFormData({ ...formData, subCategoryId })}
+                    />
                   </div>
                 )}
 
@@ -7908,6 +8202,8 @@ function BusinessOnboardingInner() {
         }}
       />
     </div>
+    {legalDocumentOpen && <LegalConsentDialog kind={legalDocumentOpen} onClose={() => setLegalDocumentOpen(null)} onAccept={() => { if (legalDocumentOpen === 'terms') setTermsAccepted(true); else setPrivacyAccepted(true); setLegalDocumentOpen(null); }} />}
+    </>
   );
 }
 

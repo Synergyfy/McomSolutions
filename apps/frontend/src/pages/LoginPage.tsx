@@ -8,7 +8,6 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 import { isAuthOrOnboardingRedirect } from '../lib/redirects';
 import CHSLogo from '../components/CHSLogo';
-import ChsLogoPattern from '../components/ChsLogoPattern';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -575,24 +574,40 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="registration-page relative flex min-h-[100dvh] items-start justify-center overflow-x-hidden bg-gray-50 px-2.5 py-2.5 sm:min-h-screen sm:items-center sm:px-6 sm:py-5">
-      <ChsLogoPattern />
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="relative z-10 grid min-h-[calc(100dvh-1.25rem)] w-full max-w-5xl overflow-hidden rounded-[1.25rem] border border-white/80 bg-white/95 shadow-lg shadow-slate-900/10 sm:min-h-0 sm:rounded-[1.5rem] sm:border-white/80 sm:shadow-2xl sm:shadow-slate-900/10 md:grid-cols-[0.78fr_1.22fr]"
+    <div className="relative flex min-h-dvh items-start justify-center overflow-x-hidden bg-[#f5f7fb] px-4 pb-8 pt-20 sm:items-center sm:px-8 sm:py-24">
+      <div className="pointer-events-none absolute -right-40 -top-44 h-[30rem] w-[30rem] rounded-full bg-orange-100/70 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-48 -left-40 h-[28rem] w-[28rem] rounded-full bg-blue-100/60 blur-3xl" />
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        className="absolute left-4 top-4 z-20 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white/90 px-3.5 text-sm font-semibold text-slate-600 shadow-sm backdrop-blur transition hover:border-orange-200 hover:text-slate-950 sm:left-8 sm:top-7 sm:px-4"
       >
-        <section className="flex items-center gap-3 border-b border-orange-100 bg-orange-50 px-5 py-4 sm:gap-4 sm:border-0 sm:px-8 sm:py-5 md:flex-col md:items-start md:justify-center md:gap-14 md:px-10 md:py-10" aria-label="Welcome">
-          <div className="shrink-0 md:shrink">
-            <CHSLogo variant="full" size="xl" imageClassName="h-9 sm:h-12 md:h-14" />
+        <ArrowRight className="h-4 w-4 rotate-180 text-orange-600" />
+        Back
+      </button>
+      <motion.div 
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative z-10 grid w-full max-w-6xl overflow-hidden rounded-[1.5rem] border border-white bg-white shadow-[0_28px_90px_rgba(20,30,48,0.16)] sm:rounded-[2rem] md:grid-cols-[0.86fr_1.14fr] lg:min-h-[650px]"
+      >
+        <section className="relative flex flex-col justify-between overflow-hidden bg-[#14243a] px-5 py-5 text-white sm:px-8 sm:py-7 md:px-9 md:py-10 lg:px-12 lg:py-12" aria-label="Welcome">
+          <div className="pointer-events-none absolute -bottom-24 -right-24 h-72 w-72 rounded-full border border-white/10" />
+          <div className="pointer-events-none absolute -bottom-12 -right-12 h-48 w-48 rounded-full border border-orange-400/20" />
+          <div className="relative">
+            <CHSLogo variant="full" size="xl" imageClassName="h-9 sm:h-11 md:h-12" />
           </div>
-          <div className="min-w-0">
-            <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.14em] text-orange-600 sm:text-[10px] md:mb-2 md:text-xs md:tracking-[0.16em]">One connected ecosystem</p>
-            <h1 className="text-xl font-bold leading-tight text-slate-900 sm:text-xl md:max-w-xs md:text-3xl">Your business, all connected.</h1>
-            <p className="mt-1.5 hidden max-w-xs text-sm leading-6 text-slate-600 sm:block md:mt-3 md:text-base">Sign in to manage your storefront, reach customers, and access your Central Hub tools.</p>
+          <div className="relative mt-5 hidden md:mt-14 md:block lg:mt-20">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-300 sm:text-xs">One connected ecosystem</p>
+            <h1 className="max-w-md text-[1.55rem] font-semibold leading-[1.08] tracking-[-0.04em] sm:text-2xl md:text-4xl lg:text-[2.7rem]">
+              One account.<br />Your whole world, <span className="text-orange-400">connected.</span>
+            </h1>
+            <p className="mt-3 max-w-md text-xs leading-5 text-slate-300 sm:text-sm sm:leading-6 md:mt-5 md:text-base">
+              For customers, businesses, partners, and teams: one secure sign-in for your Central Hub services.
+            </p>
           </div>
+          <p className="relative mt-5 hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:mt-12 md:block">Customers <span className="mx-1 text-orange-400">·</span> Businesses <span className="mx-1 text-orange-400">·</span> Partners</p>
         </section>
-        <section className="min-w-0 bg-white px-5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-7 md:px-10 md:py-8" aria-label="Sign in">
+        <section className="min-w-0 bg-white px-5 py-7 pb-[max(1.75rem,env(safe-area-inset-bottom))] sm:px-9 sm:py-10 lg:px-14 lg:py-12" aria-label="Sign in">
         <AnimatePresence>
           {shouldCheckSession && sessionLoading ? (
             <motion.div
@@ -686,8 +701,9 @@ export default function LoginPage() {
               exit={{ opacity: 0, y: -10 }}
             >
               <div className="mb-5">
-                <h2 className="text-2xl font-bold text-gray-900 mb-1 sm:text-3xl">Sign in to your account</h2>
-                <p className="text-sm leading-5 text-gray-500">Enter your details to continue to Central Hub Solution.</p>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-orange-700">Welcome back</p>
+                <h2 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">Sign in to your account</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-500">Access your CHS services with one secure sign-in.</p>
               </div>
 
               {clientId && (
@@ -698,26 +714,49 @@ export default function LoginPage() {
               )}
 
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl flex items-start gap-2.5">
+                <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700" role="alert">
                   <AlertCircle className="w-5 h-5 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
 
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                  className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-800 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? <Loader2 className="h-5 w-5 animate-spin text-orange-600" /> : (
+                  <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.2 7.7 23 12 23z" fill="#34A853" />
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" />
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                  </svg>
+                )}
+                {loading ? 'Connecting to Google…' : 'Continue with Google'}
+              </button>
+
+              <div className="relative my-5">
+                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+                <div className="relative flex justify-center text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400"><span className="bg-white px-3">or sign in with email</span></div>
+              </div>
+
               <form className="space-y-4" onSubmit={handleLogin}>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Email Address</label>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.1em] text-slate-600">Email address</label>
                   <input 
                     type="email" 
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="min-h-12 w-full px-4 py-3 text-base bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-500 focus:bg-white focus:ring-4 focus:ring-orange-500/10 sm:text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Password</label>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.1em] text-slate-600">Password</label>
                   <div className="relative">
                     <input 
                       type={showPassword ? 'text' : 'password'} 
@@ -725,24 +764,24 @@ export default function LoginPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="min-h-12 w-full px-4 py-3 pr-12 text-base bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all"
+                      autoComplete="current-password"
+                      className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-12 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-500 focus:bg-white focus:ring-4 focus:ring-orange-500/10 sm:text-sm"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer rounded-md p-1.5 text-slate-400 transition-colors hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      tabIndex={-1}
                     >
                       {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center justify-between gap-3 text-sm">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" className="w-4 h-4 rounded border-gray-300 text-brand-blue focus:ring-brand-blue" />
-                    <span className="text-gray-600">Remember me</span>
+                    <input type="checkbox" className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-orange-600 focus:ring-orange-500" />
+                    <span className="text-slate-600">Remember me</span>
                   </label>
                   <button
                     type="button"
@@ -755,37 +794,23 @@ export default function LoginPage() {
 
                 <button 
                   disabled={loading}
-                  className="min-h-12 w-full bg-brand-blue text-white py-3.5 rounded-xl font-bold text-base hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 group disabled:opacity-50"
+                  className="group flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f45100] to-[#ff6900] py-3.5 text-base font-semibold text-white shadow-[0_10px_22px_rgba(244,81,0,0.2)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {loading ? 'Signing In...' : 'Sign In'}
-                  {!loading && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
+                  {!loading && <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />}
                 </button>
               </form>
 
               <p className="text-center text-sm text-gray-600 mt-4">
                 Don't have an account?{' '}
-                <Link to={searchParams.toString() ? `/register?${searchParams.toString()}` : "/register"} className="text-brand-blue font-bold hover:underline">
+                <Link to={searchParams.toString() ? `/register?${searchParams.toString()}` : "/register"} className="font-semibold text-orange-700 hover:underline">
                   Create Account
                 </Link>
               </p>
 
-              <div className="mt-6 pt-5 border-t border-gray-100 text-center">
-                <p className="text-sm text-gray-500 mb-3">Or sign in with</p>
-                <div className="flex justify-center">
-                  <button 
-                    type="button"
-                    onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-3 py-3 border border-gray-200 rounded-xl hover:bg-gray-50 transition-all font-bold text-gray-700 shadow-sm hover:shadow cursor-pointer"
-                  >
-                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
-                    Google
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-5 flex items-center justify-center gap-2 text-xs text-gray-400">
-                <Shield className="w-3 h-3" />
-                <span>Secure SSO by Central Hub Solution (CHS)</span>
+              <div className="mt-6 flex items-center justify-center gap-2 border-t border-slate-100 pt-5 text-xs text-slate-400">
+                <Shield className="h-3.5 w-3.5 text-orange-600" />
+                <span>Secure sign-in by Central Hub Solution</span>
               </div>
             </motion.div>
           )}

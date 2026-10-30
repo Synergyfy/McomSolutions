@@ -13,6 +13,7 @@ apps/backend/uploads/
 # Logs
 *.log
 npm-debug.log*
+temp_auto_push.bat
 yarn-debug.log*
 yarn-error.log*
 
@@ -22,10 +23,11 @@ yarn-error.log*
 
 # IDE / System
 .DS_Store
-.vscode/
 .idea/
 
 # Developer-local project notes (never add to the repository)
 /LOCAL_PROJECT_NOTES.md
 
 
+.gitignore
+branch_structure.json
