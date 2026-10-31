@@ -285,6 +285,11 @@ export default function AppList({ onManage, onRegisterClick }: AppListProps) {
                                 <Shield className="w-2.5 h-2.5" /> System
                               </span>
                             )}
+                            {app.allowWhitelabel && (
+                              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-md text-[9px] font-bold uppercase tracking-wider flex items-center gap-1">
+                                <ShieldCheck className="w-2.5 h-2.5" /> White-label
+                              </span>
+                            )}
                           </div>
                           <span className="text-[11px] text-gray-400 font-mono">
                             Created {new Date(app.createdAt).toLocaleDateString()}
@@ -496,6 +501,11 @@ function AppCard({
                 {app.isSystemApp && (
                   <span className="px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-200/60 rounded text-[9px] font-bold uppercase tracking-wider flex items-center gap-0.5">
                     <Shield className="w-2 h-2" /> System
+                  </span>
+                )}
+                {app.allowWhitelabel && (
+                  <span className="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded text-[9px] font-bold uppercase tracking-wider flex items-center gap-0.5">
+                    <ShieldCheck className="w-2 h-2" /> White-label
                   </span>
                 )}
               </div>

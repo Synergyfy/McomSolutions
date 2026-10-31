@@ -85,6 +85,7 @@ export class ConsoleService {
         webhookSecret: dto.webhookUrl ? encrypt(secrets.webhookSecret, this.encryptionKey()) : null,
         hmacSecret: encrypt(secrets.hmacSecret, this.encryptionKey()),
         isSystemApp: dto.isSystemApp ?? false,
+        allowWhitelabel: dto.allowWhitelabel ?? false,
         feePercent: dto.feePercent ?? null,
         feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
         metadata: this.buildMetadata(dto.planSchemaEndpoint, dto.accessPassPlansEndpoint),
@@ -162,11 +163,21 @@ export class ConsoleService {
     if (dto.serviceScopes !== undefined) data.serviceScopes = dto.serviceScopes;
     if (dto.allowedAudiences !== undefined) data.allowedAudiences = dto.allowedAudiences;
     if (dto.allowedCallers !== undefined) data.allowedCallers = dto.allowedCallers;
+    if (dto.allowWhitelabel !== undefined) data.allowWhitelabel = dto.allowWhitelabel;
 
     const updated = await this.prisma.ssoClient.update({
       where: { clientId },
       data,
     });
+
+    // Turning white-label mode off revokes every business grant for this
+    // platform and kills live SSO sessions so access cannot outlive the switch.
+    if (dto.allowWhitelabel === false && existing.allowWhitelabel) {
+      await this.prisma.$transaction([
+        this.prisma.whitelabelAccess.deleteMany({ where: { clientId } }),
+        this.prisma.ssoSession.deleteMany({ where: { clientId: existing.id } }),
+      ]);
+    }
 
     await this.redis.del(`sso_client:${clientId}`);
     await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
@@ -601,6 +612,7 @@ export class ConsoleService {
       'serviceScopes',
       'allowedAudiences',
       'allowedCallers',
+      'allowWhitelabel',
     ];
     for (const field of fields) {
       const isMetadataField = field === 'planSchemaEndpoint' || field === 'accessPassPlansEndpoint';
@@ -674,6 +686,7 @@ export class ConsoleService {
       platformSlug: client.platformSlug,
       isActive: client.isActive,
       isSystemApp: client.isSystemApp,
+      allowWhitelabel: client.allowWhitelabel ?? false,
       serviceScopes: client.serviceScopes ?? [],
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
@@ -703,6 +716,7 @@ export class ConsoleService {
       webhookSecret: client.webhookSecret ? MASK : null,
       isActive: client.isActive,
       isSystemApp: client.isSystemApp,
+      allowWhitelabel: client.allowWhitelabel ?? false,
       feePercent: client.feePercent != null ? Number(client.feePercent) : null,
       feeFixedMinor: client.feeFixedMinor != null ? Number(client.feeFixedMinor) : null,
       serviceEnabled: client.serviceEnabled ?? true,

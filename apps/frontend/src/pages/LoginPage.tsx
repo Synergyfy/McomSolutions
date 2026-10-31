@@ -49,6 +49,20 @@ export default function LoginPage() {
   // Only verify session if credentials actually exist in browser storage/cookies
   const shouldCheckSession = hasToken || hasCookie;
 
+  // Surface SSO admission errors (e.g. a white-label grant that was never
+  // issued or has been revoked) instead of silently bouncing back to login.
+  useEffect(() => {
+    const ssoError = searchParams.get('sso_error');
+    if (!ssoError) return;
+    if (ssoError === 'whitelabel_denied') {
+      setError(
+        'Your business has not been granted white-label access to this platform. Please contact the MCOM team.',
+      );
+    } else {
+      setError('Single sign-on was denied. Please try again or contact support.');
+    }
+  }, [searchParams]);
+
   // When handing off to onboarding, keep the SSO intent but drop any
   // redirect that points back into the auth/onboarding funnel. Otherwise a
   // login started from the onboarding "Log in here" link bounces straight

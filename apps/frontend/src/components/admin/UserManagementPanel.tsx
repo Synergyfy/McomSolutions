@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import WhitelabelAccessModal from './WhitelabelAccessModal';
 import {
   useAdminBusinesses, useAdminCustomers, useAdminAgents, useAdminConsultants, useAdminAccountManagers,
   useCreateBusiness, useUpdateBusiness, useDeleteBusiness,
@@ -44,6 +45,7 @@ export default function UserManagementPanel() {
   const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [whitelabelBusiness, setWhitelabelBusiness] = useState<{ id: string; name: string } | null>(null);
 
   const isLoading = bizLoading || custLoading || agentLoading || consLoading || amLoading;
 
@@ -70,7 +72,7 @@ export default function UserManagementPanel() {
       );
     }
     switch (userTab) {
-      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} onWhitelabel={(b: any) => setWhitelabelBusiness({ id: b.id, name: b.name })} />;
       case 'customers': return <CustomerTable data={filterBySearch(customers)} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
       case 'agents': return <AgentTable data={filterBySearch(agents)} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
       case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
@@ -132,6 +134,12 @@ export default function UserManagementPanel() {
             }}
           />
         )}
+        {whitelabelBusiness && (
+          <WhitelabelAccessModal
+            business={whitelabelBusiness}
+            onClose={() => setWhitelabelBusiness(null)}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -139,11 +147,11 @@ export default function UserManagementPanel() {
 
 // ── Sub-components (BusinessTable, CustomerTable, etc.) ──
 
-function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
+function BusinessTable({ data, onEdit, onDelete, onAdd, onWhitelabel }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-left min-w-[640px]">
+        <table className="w-full text-left min-w-[760px]">
           <thead><tr className="bg-gray-50/50">
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Business</th>
             <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Membership</th>
@@ -162,6 +170,9 @@ function BusinessTable({ data, onEdit, onDelete, onAdd }: any) {
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", b.status === 'Active' ? 'bg-green-500' : b.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500')} /><span className="text-xs font-bold">{b.status}</span></div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{b.revenue}</td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
+                  <button onClick={() => onWhitelabel?.(b)} className="flex items-center gap-1.5 px-2.5 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-all text-[10px] font-bold" aria-label="Give white-label access" title="Give white-label access">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Give Access
+                  </button>
                   <button onClick={() => onEdit(b)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
                   <button onClick={() => onDelete(b.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>

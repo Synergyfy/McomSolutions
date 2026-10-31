@@ -104,6 +104,15 @@ export class RegisterAppDto {
   isSystemApp?: boolean;
 
   @ApiPropertyOptional({
+    example: false,
+    description:
+      'White-label platform: only businesses an admin explicitly grants access to may SSO in. Membership and access-pass checks are skipped for granted businesses.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowWhitelabel?: boolean;
+
+  @ApiPropertyOptional({
     example: 0.029,
     description: 'MCOM Pay fee percentage per charge (0.029 = 2.9%). Omit to use the platform default.',
   })

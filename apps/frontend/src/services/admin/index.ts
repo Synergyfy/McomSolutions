@@ -6,6 +6,7 @@ import type {
   AgentUser,
   ConsultantUser,
   AccountManager,
+  BusinessWhitelabelAccess,
   MembershipPlan,
   Subscription,
   Platform,
@@ -104,6 +105,17 @@ export const adminApi = {
   deleteBusiness: async (id: string) => {
     const res = await apiClient.delete(`/admin/users/businesses/${id}`)
     return res.data
+  },
+
+  // ─── White-label access (business only) ──────────────
+  getBusinessWhitelabelAccess: async (businessId: string) => {
+    const res = await apiClient.get(`/admin/users/businesses/${businessId}/whitelabel`)
+    return res.data as ApiResponse<BusinessWhitelabelAccess>
+  },
+
+  setBusinessWhitelabelAccess: async (businessId: string, clientIds: string[]) => {
+    const res = await apiClient.put(`/admin/users/businesses/${businessId}/whitelabel`, { clientIds })
+    return res.data as ApiResponse<BusinessWhitelabelAccess>
   },
 
   // ─── Customer Users ──────────────────────────────────

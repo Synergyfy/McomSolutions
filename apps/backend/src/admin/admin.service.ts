@@ -45,6 +45,7 @@ import {
   UpdatePlatformLaunchRuleDto,
   UpdateBroadcastNotificationDto,
   ClearAuditLogsDto,
+  UpdateWhitelabelAccessDto,
 } from './dto/admin.dto';
 
 export interface AdminStatsResult {
@@ -567,6 +568,137 @@ export class AdminService implements OnModuleInit {
     });
 
     return { success: true, data: updated };
+  }
+
+  // ─── White-label Access (business only) ───────────────
+  /**
+   * Lists every white-label-enabled platform plus the grants this business
+   * currently holds. Only BUSINESS profiles can own white-label grants.
+   */
+  async getBusinessWhitelabelAccess(businessId: string) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      select: { id: true, userId: true, businessName: true },
+    });
+    if (!business) throw new NotFoundException('Business profile not found');
+
+    const [platforms, grants] = await Promise.all([
+      this.prisma.ssoClient.findMany({
+        where: { allowWhitelabel: true, isActive: true },
+        select: {
+          clientId: true,
+          name: true,
+          platformSlug: true,
+          description: true,
+          appUrl: true,
+          logoUrl: true,
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.whitelabelAccess.findMany({
+        where: { businessId },
+        select: { clientId: true, createdAt: true },
+      }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        business: { id: business.id, name: business.businessName },
+        platforms,
+        grantedClientIds: grants.map((g) => g.clientId),
+      },
+    };
+  }
+
+  /**
+   * Replaces a business's white-label grants with the supplied set. Grants are
+   * business-only and bypass membership/access-pass entitlements entirely.
+   * Removing a grant also revokes live SSO sessions for that platform so
+   * access cannot be extended by refreshing tokens.
+   */
+  async setBusinessWhitelabelAccess(
+    businessId: string,
+    dto: UpdateWhitelabelAccessDto,
+    adminName?: string,
+  ) {
+    const business = await this.prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      select: { id: true, userId: true, businessName: true },
+    });
+    if (!business) throw new NotFoundException('Business profile not found');
+
+    const requested = [...new Set((dto.clientIds ?? []).map((id) => id.trim()).filter(Boolean))];
+
+    const platforms = requested.length
+      ? await this.prisma.ssoClient.findMany({
+          where: { clientId: { in: requested } },
+          select: { id: true, clientId: true, name: true, allowWhitelabel: true, isActive: true },
+        })
+      : [];
+
+    const invalid = requested.filter(
+      (clientId) =>
+        !platforms.some((p) => p.clientId === clientId && p.allowWhitelabel && p.isActive),
+    );
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `These platforms are not active white-label platforms: ${invalid.join(', ')}`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.whitelabelAccess.findMany({
+        where: { businessId },
+        select: { clientId: true },
+      });
+      const existingIds = existing.map((g) => g.clientId);
+      const toRemove = existingIds.filter((clientId) => !requested.includes(clientId));
+      const toAdd = requested.filter((clientId) => !existingIds.includes(clientId));
+
+      if (toRemove.length > 0) {
+        await tx.whitelabelAccess.deleteMany({
+          where: { businessId, clientId: { in: toRemove } },
+        });
+
+        // Kill live SSO sessions for revoked platforms (SsoSession.clientId is
+        // the internal cuid, so resolve it from the natural key).
+        const revokedClients = await tx.ssoClient.findMany({
+          where: { clientId: { in: toRemove } },
+          select: { id: true },
+        });
+        if (revokedClients.length > 0) {
+          await tx.ssoSession.deleteMany({
+            where: {
+              userId: business.userId,
+              clientId: { in: revokedClients.map((c) => c.id) },
+            },
+          });
+        }
+      }
+
+      if (toAdd.length > 0) {
+        await tx.whitelabelAccess.createMany({
+          data: toAdd.map((clientId) => ({
+            businessId,
+            clientId,
+            grantedBy: adminName ?? null,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      await this.logAuditTx(
+        tx,
+        'White-label Access Updated',
+        'Business',
+        business.businessName,
+        `Granted platforms: [${requested.join(', ')}]${toRemove.length ? ` · Revoked: [${toRemove.join(', ')}]` : ''}`,
+        adminName,
+      );
+    });
+
+    return this.getBusinessWhitelabelAccess(businessId);
   }
 
   /**

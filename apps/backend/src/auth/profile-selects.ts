@@ -181,4 +181,5 @@ export const ssoEntitlementClientSelect = {
   clientId: true,
   platformSlug: true,
   name: true,
+  allowWhitelabel: true,
 } satisfies Prisma.SsoClientSelect;

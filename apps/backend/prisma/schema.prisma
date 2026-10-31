@@ -136,6 +136,7 @@ model BusinessProfile {
   supportTickets         SupportTicket[]
   couponRedemptions      CouponRedemption[]
   accessPurchases        AccessPurchase[]
+  whitelabelAccess       WhitelabelAccess[]
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   deletedAt              DateTime?            @map("deleted_at")
@@ -452,11 +453,38 @@ model SsoClient {
   allowedAudiences String[] @default([]) @map("allowed_audiences")
   allowedCallers   String[] @default([]) @map("allowed_callers")
 
+  // ── White-label access (additive) ───────────────────────────────────────
+  // When true, this platform only admits businesses that an admin has
+  // explicitly granted white-label access to. It bypasses membership and
+  // access-pass checks entirely (grant = immediate dashboard access).
+  allowWhitelabel  Boolean  @default(false) @map("allow_whitelabel")
+  whitelabelAccess WhitelabelAccess[]
+
   @@index([clientId])
   @@index([apiKey])
   @@index([platformSlug])
   @@index([isActive])
+  @@index([allowWhitelabel])
   @@map("sso_clients")
+}
+
+// Per-business white-label grant. A row means "this business may SSO into this
+// white-label platform", independent of membership tier, packages or access
+// passes. Business-only by design: only BusinessProfile can own a grant.
+model WhitelabelAccess {
+  id         String          @id @default(cuid())
+  businessId String          @map("business_id")
+  business   BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  clientId   String          @map("client_id")
+  client     SsoClient       @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  grantedBy  String?         @map("granted_by")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@unique([businessId, clientId])
+  @@index([businessId])
+  @@index([clientId])
+  @@map("whitelabel_accesses")
 }
 
 // Audit trail for issued ecosystem service tokens (control-plane traceability).

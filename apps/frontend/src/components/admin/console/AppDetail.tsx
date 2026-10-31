@@ -226,6 +226,11 @@ export default function AppDetail({ clientId, onBack }: AppDetailProps) {
                     <Shield className="w-2.5 h-2.5" /> System Core
                   </span>
                 )}
+                {detail.allowWhitelabel && (
+                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                    <ShieldCheck className="w-2.5 h-2.5" /> White-label
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-3 mt-1 text-xs">
@@ -536,6 +541,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [redirectUris, setRedirectUris] = useState<string[]>(detail.redirectUris);
   const [corsOrigins, setCorsOrigins] = useState<string[]>(detail.corsOrigins);
   const [serviceEnabled, setServiceEnabled] = useState(detail.serviceEnabled ?? true);
+  const [allowWhitelabel, setAllowWhitelabel] = useState(detail.allowWhitelabel ?? false);
   const [serviceBaseUrl, setServiceBaseUrl] = useState(detail.serviceBaseUrl ?? '');
   const [serviceScopes, setServiceScopes] = useState<string[]>(detail.serviceScopes ?? []);
   const [allowedAudiences, setAllowedAudiences] = useState<string[]>(detail.allowedAudiences ?? []);
@@ -578,6 +584,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       serviceScopes,
       allowedAudiences,
       allowedCallers,
+      allowWhitelabel,
     };
     try {
       await updateApp.mutateAsync({ clientId: detail.clientId, data: payload });
@@ -762,6 +769,48 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
           placeholder="https://api.vcard.mcom.com/webhooks"
         />
         <p className="text-[10px] text-gray-400 mt-1">Lifecycle events are dispatched to this endpoint.</p>
+      </div>
+
+      {/* ── White-label access ───────────────────────────────────────────── */}
+      <div className="pt-4 border-t border-gray-100 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h5 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              Allow White-Label Access
+            </h5>
+            <p className="text-[10px] text-gray-400 mt-1 max-w-lg">
+              White-label platforms admit only businesses an admin explicitly grants in{' '}
+              <b>/admin/users → Businesses → Give Access</b>. Membership tier, packages and access
+              passes are ignored for granted businesses. Turning this off revokes all grants and
+              live SSO sessions for this platform.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAllowWhitelabel((v) => !v)}
+            className={cn(
+              'relative w-11 h-6 rounded-full transition-colors flex-shrink-0',
+              allowWhitelabel ? 'bg-emerald-600' : 'bg-gray-300',
+            )}
+            aria-label="Toggle white-label access"
+          >
+            <span
+              className={cn(
+                'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                allowWhitelabel && 'translate-x-5',
+              )}
+            />
+          </button>
+        </div>
+
+        {allowWhitelabel && (
+          <div className="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-100 text-[11px] text-emerald-800 leading-relaxed">
+            <b>White-label mode is on.</b> Business-only SSO is grant-gated. Grant or revoke access
+            per business from the Users panel. No membership or access-pass entitlement is checked
+            for this platform.
+          </div>
+        )}
       </div>
 
       {/* ── Service Access (M2M) ─────────────────────────────────────────── */}

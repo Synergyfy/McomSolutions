@@ -28,6 +28,20 @@ export class UpdateUserRoleDto {
   role: Role;
 }
 
+// --- White-label access grants (business only) ---
+export class UpdateWhitelabelAccessDto {
+  @ApiProperty({
+    example: ['247gbs-rewards'],
+    type: [String],
+    description:
+      'SsoClient.clientId values of white-label-enabled platforms this business may access. Send the full desired set; omitted entries are revoked.',
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(100)
+  clientIds: string[];
+}
+
 // --- Generic Query DTO ---
 export class AdminQueryDto {
   @ApiPropertyOptional({ example: 1 })

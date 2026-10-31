@@ -17,6 +17,7 @@ export function generateAiIntegrationPrompt(
   const scopes = client.scopes?.join(' ') || 'profile email business';
   const hasBilling = !!client.billingApiUrl;
   const hasWebhook = !!client.webhookUrl;
+  const allowWhitelabel = client.allowWhitelabel === true;
   const serviceEnabled = client.serviceEnabled !== false;
   const serviceBaseUrl = client.serviceBaseUrl || client.billingApiUrl || 'https://api.your-app.com';
   const serviceScopes = client.serviceScopes?.length
@@ -44,8 +45,8 @@ export function generateAiIntegrationPrompt(
 
   return `---
 name: mcom-ecosystem-integration
-description: Complete executable AI integration skill for ${client.name} with MCOM Solutions Central Hub and Ecosystem Service Mesh
-version: 2.0.0
+description: Complete executable AI integration skill for ${client.name} with MCOM Solutions Central Hub and Ecosystem Service Mesh${allowWhitelabel ? ' — includes business-only white-label SSO rules (grant-gated, no membership checks)' : ''}
+version: 2.1.0
 target_platform: ${client.name} (${client.clientId})
 protocol_version: 2026-10-01
 mode: executable-agent-directive
@@ -61,6 +62,8 @@ mode: executable-agent-directive
 > 1. Run the **Immediate 30-Second Smoke Test** in Phase 1 right now to verify live credentials and mesh access.
 > 2. Create the required config (\`.env\`) and integration modules.
 > 3. Verify all acceptance criteria.
+>
+> ${allowWhitelabel ? '🔓 **WHITE-LABEL PLATFORM:** This app is in white-label mode. Access is **business-only and grant-gated** — never gate a granted business behind membership, packages, access passes or billing. Read Task 4.6 before writing the auth callback.' : 'ℹ️ This app is **not** in white-label mode. Normal membership/trial entitlement gates apply. Task 4.6 still describes the white-label contract in case MCOM enables it later.'}
 
 ---
 
@@ -152,6 +155,9 @@ MCOM_WEBHOOK_SECRET="${webhookSecret}"
 MCOM_PLATFORM_SLUG="${platformSlug}"
 MCOM_REDIRECT_URI="${redirectUri}"
 MCOM_SCOPES="${scopes}"
+
+# White-label platform mode (business-only, grant-gated SSO — no membership checks)
+MCOM_WHITELABEL_ENABLED="${allowWhitelabel}"
 
 # -------------------------------------------------------------------------
 # DIRECT APP-TO-APP COMMUNICATION (SERVICE MESH M2M)
@@ -469,15 +475,49 @@ app.get('/auth/callback', async (req, res) => {
   const { accessToken, refreshToken, user, entitlement } = tokenRes.data;
 
   // 3. ENFORCE UNIFIED ENTITLEMENT
-  // MCOM Central provides standardized access rules:
+  // MCOM returns entitlement.access.hasAccess for every platform. White-label
+  // platforms additionally return:
+  //   entitlement.whitelabel = { enabled, granted, roleEligible, grantedAt }
+  const isWhitelabel = entitlement?.whitelabel?.enabled === true;
+
   if (!entitlement?.access?.hasAccess) {
-    const reason = entitlement?.access?.reason; // e.g. 'PLATFORM_NOT_IN_MEMBERSHIP', 'TRIAL_EXPIRED', 'UNVERIFIED'
-    const upgradeUrl = entitlement?.access?.upgradeUrl;
+    const reason = entitlement?.access?.reason; // 'WHITELABEL_ACCESS_DENIED', 'TRIAL_EXPIRED', ...
     console.warn(\`Access denied for \${user.email}: \${reason}\`);
+
+    // NEVER send a white-label business to an upgrade/checkout flow.
+    if (isWhitelabel) {
+      return res.status(403).send(
+        reason === 'WHITELABEL_BUSINESS_ONLY'
+          ? 'White-label access is available to business accounts only'
+          : 'White-label access has not been granted for this business',
+      );
+    }
+
+    const upgradeUrl = entitlement?.access?.upgradeUrl;
     return res.redirect(\`/upgrade?reason=\${reason}&upgradeUrl=\${encodeURIComponent(upgradeUrl)}\`);
   }
 
-  // User is entitled! Provision session according to plan:
+  // 4. WHITE-LABEL ADMISSION GATE (business-only, grant-only)
+  // A grant is the entire entitlement. Do NOT check membership, packages,
+  // access passes, verification or billing for a granted business.
+  if (isWhitelabel) {
+    const granted =
+      user.profileType === 'BUSINESS' &&
+      entitlement.access.accessType === 'WHITELABEL' &&
+      entitlement.whitelabel?.granted === true;
+
+    if (!granted) {
+      return res.status(403).send('White-label access has not been granted for this business');
+    }
+
+    // Grant = immediate dashboard access. Provision the local account and go.
+    req.session.user = user;
+    req.session.accessToken = accessToken;
+    req.session.refreshToken = refreshToken;
+    return res.redirect('/dashboard');
+  }
+
+  // 5. Membership / trial platforms: provision session according to plan:
   const isTrial = entitlement.access.accessType === 'TRIAL_PROGRAMME';
   const planId = entitlement.plan?.planId;
   const planName = entitlement.plan?.planName;
@@ -823,6 +863,71 @@ profile objects are \`null\`.
 > Every role gets the same top-level fields. The only difference is which
 > profile object (and its role-specific fields) is populated.
 
+${
+  allowWhitelabel
+    ? `### Task 4.6: White-Label Access (ENABLED for this platform — business-only, grant-gated)
+
+> 🔓 **WHITE-LABEL MODE IS ON for ${client.name}.**
+> Access is decided solely by an explicit MCOM admin grant for a BUSINESS account.
+> Membership tier, packages, access passes, verification and billing are **not** checked.
+
+**Rules**
+1. Only \`profileType === 'BUSINESS'\` accounts can enter.
+2. An admin grants access at **/admin/users → Businesses → Give Access** (this platform must be ticked and saved).
+3. A grant means immediate dashboard access — no plan picker, no checkout, no upgrade page.
+4. MCOM re-checks the grant at authorize, token exchange and refresh. Revocation kills live sessions.
+
+**Exact admission gate**
+\`\`\`ts
+const entitled =
+  user.profileType === 'BUSINESS' &&
+  user.entitlement?.access?.hasAccess === true &&
+  user.entitlement.access.accessType === 'WHITELABEL' &&
+  user.entitlement.whitelabel?.granted === true;
+\`\`\`
+
+**What the token exchange returns for a granted business**
+\`\`\`json
+"entitlement": {
+  "access": { "hasAccess": true, "accessType": "WHITELABEL" },
+  "plan": { "planId": "whitelabel_${platformSlug}", "planName": "White-label Access", "source": "whitelabel", "status": "active" },
+  "whitelabel": { "enabled": true, "granted": true, "roleEligible": true, "grantedAt": "2026-10-30T12:00:00.000Z" },
+  "membershipContext": { "isIncludedInMembership": false }
+}
+\`\`\`
+
+**Do NOT**
+- ❌ Check membership, plans, packages, access passes, verification or billing for a granted business.
+- ❌ Redirect a denied white-label business to an upgrade or checkout page.
+- ❌ Allow CUSTOMER, AGENT, CONSULTANT or ACCOUNT_MANAGER accounts through this platform.
+- ❌ Trust a businessId/userId supplied by the browser — use the token-exchange result only.
+
+**Failure modes**
+
+| Situation | MCOM response | App behaviour |
+|:--|:--|:--|
+| Not a BUSINESS account | \`403\` / login with \`?sso_error=whitelabel_denied\` | Show "white-label access is for business accounts only". |
+| No grant for the business | \`403\` / login with \`?sso_error=whitelabel_denied\` | Show "access has not been granted — contact MCOM". |
+| Grant revoked mid-session | Refresh returns \`401/403\` | Clear the local session and return to login. |
+| White-label mode turned off | Authorize/token/refresh all fail | Treat as access denied. |
+
+**Admin/tooling endpoints**
+\`\`\`http
+GET /api/v1/admin/users/businesses/:businessId/whitelabel
+PUT /api/v1/admin/users/businesses/:businessId/whitelabel
+    { "clientIds": ["${client.clientId}"] }
+\`\`\`
+`
+    : `### Task 4.6: White-Label Access (not enabled for this platform)
+
+This app is **not** in white-label mode, so normal membership/trial entitlement
+gates apply (Task 4.2). If MCOM later enables white-label on this platform, the
+token exchange will start returning \`entitlement.whitelabel.enabled = true\`.
+At that point gate entry on \`entitlement.access.accessType === 'WHITELABEL'\`
+and \`entitlement.whitelabel.granted === true\` instead of membership, and never
+show an upgrade flow to a granted business.
+`
+}
 
 ---
 
@@ -901,6 +1006,14 @@ app.post('${new URL(client.webhookUrl || 'https://app.com/webhooks').pathname}',
 - [ ] Callback handles \`entitlement.access.hasAccess\` and gates features accordingly.
 - [ ] Local account is provisioned from \`user\` (firstName, lastName, email, phone, address, country, business/role profile) — see Task 4.4.
 - [ ] Business accounts persist \`businessProfile\` details (business name, type, industry, website, logo, address).
+${
+  allowWhitelabel
+    ? `- [ ] White-label gate requires \`profileType === 'BUSINESS'\`, \`accessType === 'WHITELABEL'\` and \`whitelabel.granted === true\`.
+- [ ] Granted businesses land directly on the dashboard — no membership, package, access-pass or billing check.
+- [ ] Denied white-label users see an access-denied screen, never an upgrade/checkout page.
+- [ ] Revoked grants are detected on token refresh and clear the local session.`
+    : ''
+}
 
 ### Troubleshooting Quick Guide:
 | Error Symptom | Root Cause | Fix |
@@ -909,5 +1022,12 @@ app.post('${new URL(client.webhookUrl || 'https://app.com/webhooks').pathname}',
 | \`403 Caller is not permitted to call this service\` | Inbound caller not in target's \`allowedCallers\` | In **MCOM Console**, ensure target peer allows your \`clientId\` in Ingress, or set wildcard \`*\`. |
 | \`401 Invalid client credentials\` | \`MCOM_CLIENT_ID\` or \`MCOM_CLIENT_SECRET\` invalid | Verify credentials in MCOM Console → App Details → Credentials Vault. |
 | \`JWTExpired\` | Service token exceeded its 5-minute TTL | Ensure your client re-fetches or refreshes the token using \`getServiceToken\`. |
+${
+  allowWhitelabel
+    ? `| \`403 WHITELABEL_ACCESS_DENIED\` | Business has no grant for this platform | Admin must grant access in **/admin/users → Businesses → Give Access**. |
+| \`403 WHITELABEL_BUSINESS_ONLY\` | Account is not a BUSINESS | Only business accounts can use white-label SSO. |
+| User has a valid session but access was revoked | Grant removed or white-label mode turned off | Expect refresh to fail; clear local session and return to login. |`
+    : ''
+}
 `;
 }
