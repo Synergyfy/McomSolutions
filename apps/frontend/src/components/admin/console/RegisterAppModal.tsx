@@ -117,6 +117,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   const [feePercent, setFeePercent] = useState('');
   const [feeFixedMinor, setFeeFixedMinor] = useState('');
   const [serviceEnabled, setServiceEnabled] = useState(true);
+  const [allowWhitelabel, setAllowWhitelabel] = useState(false);
   const [serviceScopes, setServiceScopes] = useState<string[]>([]);
   const [allowedAudiences, setAllowedAudiences] = useState<string[]>([]);
   const [allowedCallers, setAllowedCallers] = useState<string[]>([]);
@@ -223,6 +224,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         serviceScopes,
         allowedAudiences,
         allowedCallers,
+        allowWhitelabel,
       });
       onRegistered(result);
     } catch (err: any) {
@@ -368,6 +370,37 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                     className={inputCls}
                   />
                   <p className="text-[10px] text-gray-400 mt-1">Short summary for the app registry directory.</p>
+                </div>
+              </div>
+
+              {/* White-label opt-in */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-start justify-between gap-4 p-3.5 rounded-2xl border border-gray-200 bg-gray-50/60">
+                  <div>
+                    <label className={labelCls}>Allow White-Label Access</label>
+                    <p className="text-[11px] text-gray-500 mt-0.5 max-w-lg leading-relaxed">
+                      Businesses only get in when an admin grants them access in{' '}
+                      <b>/admin/users → Businesses → Give Access</b>. Granted businesses skip
+                      membership and access-pass checks and land straight on the platform
+                      dashboard.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllowWhitelabel((v) => !v)}
+                    className={cn(
+                      'relative w-11 h-6 rounded-full transition-colors flex-shrink-0 mt-0.5',
+                      allowWhitelabel ? 'bg-emerald-600' : 'bg-gray-300',
+                    )}
+                    aria-label="Toggle white-label access"
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+                        allowWhitelabel && 'translate-x-5',
+                      )}
+                    />
+                  </button>
                 </div>
               </div>
 
@@ -673,6 +706,13 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                     <span className="font-bold text-gray-900">{scopes.length} selected</span>
                   </div>
                 </div>
+
+                {allowWhitelabel && (
+                  <div className="pt-2 border-t border-gray-200/60 flex items-center gap-2 text-[11px] font-bold text-emerald-700">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    White-label mode enabled — business access is grant-only
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-gray-200/60 text-xs space-y-1">
                   <div className="flex items-center justify-between text-gray-500 text-[11px]">

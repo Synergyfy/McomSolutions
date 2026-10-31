@@ -19,6 +19,12 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
+    whitelabelAccess: {
+      findUnique: jest.fn(),
+    },
+    user: {
+      findUnique: jest.fn(),
+    },
     programmeSetting: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -454,6 +460,138 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
       expect(result.entitlement?.access.hasAccess).toBe(false);
       expect(result.entitlement?.access.reason).toBe('TRIAL_EXPIRED');
       expect(result.entitlement?.access.upgradeUrl).toContain('/dashboard/memberships');
+    });
+
+    describe('white-label access', () => {
+      const whitelabelClient: EntitlementClient = {
+        id: 'client_247_1',
+        clientId: '247gbs-rewards',
+        platformSlug: '247gbs_rewards',
+        name: '247GBS Rewards',
+        allowWhitelabel: true,
+      };
+
+      const businessUser: EntitlementUser = {
+        id: 'usr_wl_1',
+        email: 'owner@whitelabel.test',
+        role: 'BUSINESS',
+        businessProfile: {
+          id: 'biz_wl_1',
+          businessName: 'White-label Business',
+          membershipLevel: 'Bronze',
+          membershipStatus: 'active',
+          packages: [],
+        },
+      };
+
+      beforeEach(() => {
+        mockPrisma.membershipPlan.findFirst.mockResolvedValue(null);
+        mockPrisma.taskDefinition.findMany.mockResolvedValue([]);
+      });
+
+      it('grants WHITELABEL access on an explicit business grant with no membership or packages', async () => {
+        mockPrisma.whitelabelAccess.findUnique.mockResolvedValue({
+          createdAt: new Date('2026-10-30T10:00:00.000Z'),
+        });
+
+        const result = await service.resolveEntitlements(businessUser, whitelabelClient);
+
+        expect(result.entitlement?.access.hasAccess).toBe(true);
+        expect(result.entitlement?.access.accessType).toBe('WHITELABEL');
+        expect(result.entitlement?.plan?.source).toBe('whitelabel');
+        expect(result.entitlement?.whitelabel?.enabled).toBe(true);
+        expect(result.entitlement?.whitelabel?.granted).toBe(true);
+        expect(result.entitlement?.whitelabel?.roleEligible).toBe(true);
+        expect(result.entitlement?.membershipContext.isIncludedInMembership).toBe(false);
+        expect(result.permissions.canAccess_247gbs_rewards).toBe(true);
+      });
+
+      it('denies a business that has no grant with WHITELABEL_ACCESS_DENIED', async () => {
+        mockPrisma.whitelabelAccess.findUnique.mockResolvedValue(null);
+
+        const result = await service.resolveEntitlements(businessUser, whitelabelClient);
+
+        expect(result.entitlement?.access.hasAccess).toBe(false);
+        expect(result.entitlement?.access.reason).toBe('WHITELABEL_ACCESS_DENIED');
+        expect(result.entitlement?.whitelabel?.granted).toBe(false);
+        expect(result.permissions.canAccess_247gbs_rewards).toBeUndefined();
+      });
+
+      it('denies non-business roles with WHITELABEL_BUSINESS_ONLY even if a grant exists', async () => {
+        mockPrisma.whitelabelAccess.findUnique.mockResolvedValue({
+          createdAt: new Date('2026-10-30T10:00:00.000Z'),
+        });
+
+        const customer: EntitlementUser = {
+          id: 'usr_wl_2',
+          email: 'customer@whitelabel.test',
+          role: 'CUSTOMER',
+          businessProfile: null,
+        };
+
+        const result = await service.resolveEntitlements(customer, whitelabelClient);
+
+        expect(result.entitlement?.access.hasAccess).toBe(false);
+        expect(result.entitlement?.access.reason).toBe('WHITELABEL_BUSINESS_ONLY');
+        expect(result.entitlement?.whitelabel?.granted).toBe(false);
+        expect(result.entitlement?.whitelabel?.roleEligible).toBe(false);
+      });
+    });
+  });
+
+  describe('assertWhitelabelAccess', () => {
+    it('is a no-op for platforms that are not white-label enabled', async () => {
+      await expect(
+        service.assertWhitelabelAccess('usr_1', { clientId: 'mcom-mall' }),
+      ).resolves.toBeUndefined();
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('admits a business that holds an explicit grant', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        role: 'BUSINESS',
+        businessProfile: { id: 'biz_wl_1' },
+      });
+      mockPrisma.whitelabelAccess.findUnique.mockResolvedValue({
+        createdAt: new Date('2026-10-30T10:00:00.000Z'),
+      });
+
+      await expect(
+        service.assertWhitelabelAccess('usr_wl_1', {
+          clientId: '247gbs-rewards',
+          allowWhitelabel: true,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it('rejects a business without a grant', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        role: 'BUSINESS',
+        businessProfile: { id: 'biz_wl_1' },
+      });
+      mockPrisma.whitelabelAccess.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.assertWhitelabelAccess('usr_wl_1', {
+          clientId: '247gbs-rewards',
+          allowWhitelabel: true,
+        }),
+      ).rejects.toThrow('White-label access has not been granted');
+    });
+
+    it('rejects non-business roles', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        role: 'CUSTOMER',
+        businessProfile: null,
+      });
+
+      await expect(
+        service.assertWhitelabelAccess('usr_customer_1', {
+          clientId: '247gbs-rewards',
+          allowWhitelabel: true,
+        }),
+      ).rejects.toThrow('business accounts only');
+      expect(mockPrisma.whitelabelAccess.findUnique).not.toHaveBeenCalled();
     });
   });
 });

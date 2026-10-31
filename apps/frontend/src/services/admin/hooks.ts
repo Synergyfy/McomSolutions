@@ -98,6 +98,28 @@ export const useDeleteBusiness = () => {
   })
 }
 
+// ─── White-label access (business only) ────────────────
+export const useBusinessWhitelabelAccess = (businessId: string | null) => {
+  return useQuery({
+    queryKey: ['admin', 'businesses', businessId, 'whitelabel'],
+    queryFn: () => adminApi.getBusinessWhitelabelAccess(businessId as string),
+    enabled: !!businessId,
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useSetBusinessWhitelabelAccess = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ businessId, clientIds }: { businessId: string; clientIds: string[] }) =>
+      adminApi.setBusinessWhitelabelAccess(businessId, clientIds),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'businesses', vars.businessId, 'whitelabel'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'businesses'] })
+    },
+  })
+}
+
 // ─── Customers ─────────────────────────────────────────
 export const useAdminCustomers = (params?: { page?: number; limit?: number; search?: string }) => {
   return useQuery({

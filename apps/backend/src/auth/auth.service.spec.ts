@@ -3,7 +3,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { ConflictException, HttpException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 
@@ -45,6 +45,12 @@ describe('AuthService', () => {
     },
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
+    },
+    ssoClient: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    whitelabelAccess: {
+      findUnique: jest.fn(),
     },
     $transaction: jest.fn((fnOrOps: any) => {
       // Interactive transactions run the callback against the mock itself.
@@ -514,6 +520,46 @@ describe('AuthService', () => {
         expect.objectContaining({ aud: 'mcom-ecosystem' }),
         expect.any(Object),
       );
+    });
+
+    it('rejects the legacy launch token for a white-label platform without a grant', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: '1',
+        email: 'test@test.com',
+        role: Role.BUSINESS,
+        firstName: 'Owner',
+        lastName: 'Person',
+        businessProfile: { id: 'b1', businessName: 'Test Biz' },
+      });
+      mockPrisma.ssoClient.findUnique.mockResolvedValue({
+        clientId: '247gbs-rewards',
+        allowWhitelabel: true,
+      });
+      mockPrisma.whitelabelAccess.findUnique.mockResolvedValue(null);
+
+      await expect(service.generateSsoToken('user-1', '247gbs-rewards')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('issues the legacy launch token for a granted white-label business', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: '1',
+        email: 'test@test.com',
+        role: Role.BUSINESS,
+        firstName: 'Owner',
+        lastName: 'Person',
+        businessProfile: { id: 'b1', businessName: 'Test Biz' },
+      });
+      mockPrisma.ssoClient.findUnique.mockResolvedValue({
+        clientId: '247gbs-rewards',
+        allowWhitelabel: true,
+      });
+      mockPrisma.whitelabelAccess.findUnique.mockResolvedValue({ id: 'grant-1' });
+
+      await expect(service.generateSsoToken('user-1', '247gbs-rewards')).resolves.toEqual({
+        ssoToken: 'mock-token',
+      });
     });
   });
 

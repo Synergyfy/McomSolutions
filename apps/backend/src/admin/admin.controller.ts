@@ -50,6 +50,7 @@ import {
   UpdateBroadcastNotificationDto,
   ClearAuditLogsDto,
   UpdateUserRoleDto,
+  UpdateWhitelabelAccessDto,
 } from './dto/admin.dto';
 
 @ApiTags('Admin')
@@ -111,6 +112,23 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete business user' })
   async deleteBusiness(@Req() req: any, @Param('id') id: string) {
     await this.adminService.deleteBusiness(id, this.getAdminName(req));
+  }
+
+  // ─── White-label access grants (business only) ────────
+  @Get('users/businesses/:id/whitelabel')
+  @ApiOperation({ summary: 'List white-label platforms and grants for a business' })
+  async getBusinessWhitelabelAccess(@Param('id') id: string) {
+    return this.adminService.getBusinessWhitelabelAccess(id);
+  }
+
+  @Put('users/businesses/:id/whitelabel')
+  @ApiOperation({ summary: 'Replace a business’s white-label platform grants' })
+  async setBusinessWhitelabelAccess(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateWhitelabelAccessDto,
+  ) {
+    return this.adminService.setBusinessWhitelabelAccess(id, dto, this.getAdminName(req));
   }
 
   // ─── Customer Users Management ────────────────────────

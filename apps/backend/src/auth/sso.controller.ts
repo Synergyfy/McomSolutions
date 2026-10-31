@@ -76,6 +76,17 @@ export class SsoController {
       );
 
     if (userId && prompt !== 'login' && prompt !== 'select_account' && isEligibleAffiliate) {
+      // White-label platforms admit only explicitly granted businesses. On a
+      // denial, return to the login screen with a readable error instead of
+      // issuing a code the business was never granted.
+      if (client.allowWhitelabel) {
+        try {
+          await this.ssoService.assertWhitelabelAccess(userId, client);
+        } catch {
+          const deniedUrl = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000'}/login?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=${encodeURIComponent(scopes.join(' '))}&sso_error=whitelabel_denied`;
+          return res.redirect(deniedUrl);
+        }
+      }
       // Already authenticated with valid role, generate auth code and redirect back to client app
       const code = await this.ssoService.generateAuthCode(userId, clientId, redirectUri, scopes);
       return res.redirect(`${redirectUri}?code=${code}&state=${state}`);

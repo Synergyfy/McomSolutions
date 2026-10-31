@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, SsoClient } from '@prisma/client';
@@ -65,14 +65,22 @@ export interface PlatformEntitlement {
   };
   access: {
     hasAccess: boolean;
-    accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'NONE';
-    reason?: 'PLATFORM_NOT_IN_MEMBERSHIP' | 'TRIAL_NO_TASKS' | 'TRIAL_EXPIRED' | 'UNVERIFIED' | 'MEMBERSHIP_EXPIRED' | 'NO_ACTIVE_ENTITLEMENT';
+    accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'WHITELABEL' | 'NONE';
+    reason?:
+      | 'PLATFORM_NOT_IN_MEMBERSHIP'
+      | 'TRIAL_NO_TASKS'
+      | 'TRIAL_EXPIRED'
+      | 'UNVERIFIED'
+      | 'MEMBERSHIP_EXPIRED'
+      | 'NO_ACTIVE_ENTITLEMENT'
+      | 'WHITELABEL_ACCESS_DENIED'
+      | 'WHITELABEL_BUSINESS_ONLY';
     upgradeUrl: string;
   };
   plan: {
     planId: string;
     planName: string;
-    source: 'membership' | 'trial' | 'direct';
+    source: 'membership' | 'trial' | 'direct' | 'whitelabel';
     status: string;
     billingCycle?: string | null;
     expiresAt?: Date | string | null;
@@ -80,6 +88,16 @@ export interface PlatformEntitlement {
     limits: Record<string, unknown>;
     features: string[];
   } | null;
+  /**
+   * Present only when the target platform has `allowWhitelabel` enabled.
+   * `granted` is the single source of truth for white-label SSO admission.
+   */
+  whitelabel?: {
+    enabled: boolean;
+    granted: boolean;
+    grantedAt?: Date | string | null;
+    roleEligible: boolean;
+  };
   membershipContext: {
     membershipPlanName: string | null;
     membershipLevel: string;
@@ -137,6 +155,7 @@ export interface EntitlementClient {
   clientId?: string;
   platformSlug?: string | null;
   name?: string;
+  allowWhitelabel?: boolean;
   [key: string]: unknown;
 }
 
@@ -193,6 +212,59 @@ export class SsoService {
     });
   }
 
+  /**
+   * White-label grant lookup. `businessId` is the BusinessProfile id and
+   * `clientId` is the SsoClient natural key. Returns null when either side is
+   * missing or no grant exists.
+   */
+  private async findWhitelabelGrant(
+    businessId: string | null | undefined,
+    clientId: string | null | undefined,
+  ) {
+    if (!businessId || !clientId) return null;
+    return this.prisma.whitelabelAccess.findUnique({
+      where: { businessId_clientId: { businessId, clientId } },
+      select: { createdAt: true },
+    });
+  }
+
+  /**
+   * Admission gate for white-label platforms. Enforced at authorization-code
+   * issuance, token exchange and refresh — not just at entitlement read time —
+   * so a business cannot obtain tokens for a platform it was never granted.
+   *
+   * Rules:
+   *  - Only BUSINESS accounts (with a business profile) are eligible.
+   *  - An explicit admin grant must exist for that business + platform.
+   *  - Membership tier / packages / access passes are irrelevant.
+   */
+  async assertWhitelabelAccess(
+    userId: string,
+    client: { clientId: string; allowWhitelabel?: boolean | null },
+  ): Promise<void> {
+    if (!client.allowWhitelabel) return;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, businessProfile: { select: { id: true } } },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    if (user.role !== 'BUSINESS' || !user.businessProfile?.id) {
+      throw new ForbiddenException(
+        'White-label platforms are available to business accounts only',
+      );
+    }
+
+    const grant = await this.findWhitelabelGrant(user.businessProfile.id, client.clientId);
+    if (!grant) {
+      throw new ForbiddenException(
+        'White-label access has not been granted for this business on this platform',
+      );
+    }
+  }
+
   async generateAuthCode(userId: string, clientId: string, redirectUri: string, scopes: string[]): Promise<string> {
     const client = await this.prisma.ssoClient.findUnique({
       where: { clientId },
@@ -208,6 +280,9 @@ export class SsoService {
     if (!isAllowed) {
       throw new BadRequestException('Redirect URI not allowed for this client');
     }
+
+    // White-label platforms: business-only + explicit admin grant.
+    await this.assertWhitelabelAccess(userId, client);
 
     const code = crypto.randomBytes(32).toString('hex');
     const codeTtl = parseInt(this.configService.get<string>('SSO_CODE_TTL_SECONDS') || '300', 10);
@@ -275,7 +350,10 @@ export class SsoService {
       throw new UnauthorizedException('User not found');
     }
 
-    // Generate tokens
+    // Defensive re-check: an authorization code minted before a grant was
+    // revoked must not be exchangeable for tokens.
+    await this.assertWhitelabelAccess(user.id, authCode.client);
+
     const jwtSecret = this.getSsoJwtSecret();
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
@@ -401,6 +479,7 @@ export class SsoService {
     const hashedToken = this.hashToken(refreshToken);
     let session = await this.prisma.ssoSession.findUnique({
       where: { refreshToken: hashedToken },
+      include: { client: { select: { clientId: true, allowWhitelabel: true } } },
     });
 
     // TODO: Remove after migration — run hash-sessions script
@@ -408,6 +487,7 @@ export class SsoService {
     if (!session) {
       session = await this.prisma.ssoSession.findUnique({
         where: { refreshToken },
+        include: { client: { select: { clientId: true, allowWhitelabel: true } } },
       });
       if (session) {
         this.logger.warn(`Legacy plaintext refresh token detected for session ${session.id}; upgrading to SHA-256 hash.`);
@@ -441,6 +521,17 @@ export class SsoService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    // White-label grants are checked again on refresh; revocation kills the
+    // session so access cannot be extended by rotating tokens.
+    if (session.client) {
+      try {
+        await this.assertWhitelabelAccess(user.id, session.client);
+      } catch (e) {
+        await this.prisma.ssoSession.delete({ where: { id: session.id } });
+        throw e;
+      }
     }
 
     const identity = buildSsoIdentity(user);
@@ -672,6 +763,18 @@ export class SsoService {
     let appPlan: AppPlanView | null = null;
     const targetPlatformIdent = targetClient?.clientId || targetClient?.platformSlug || targetClient?.name || explicitPlatform;
 
+    // White-label admission: business-only, explicit admin grant, and no
+    // membership/access-pass dependency. This verdict overrides the normal
+    // package/membership resolution below.
+    const isWhitelabelPlatform = Boolean(targetClient?.allowWhitelabel);
+    const whitelabelBusinessId = businessProfile?.id ?? null;
+    const whitelabelRoleEligible = user?.role === 'BUSINESS' && Boolean(whitelabelBusinessId);
+    const whitelabelGrant =
+      isWhitelabelPlatform && whitelabelRoleEligible
+        ? await this.findWhitelabelGrant(whitelabelBusinessId, targetClient?.clientId)
+        : null;
+    const hasWhitelabelAccess = isWhitelabelPlatform && whitelabelRoleEligible && Boolean(whitelabelGrant);
+
     // 1. Check for active direct package
     const directPackageMatch = targetPlatformIdent
       ? enrichedPackages.find(
@@ -874,7 +977,7 @@ export class SsoService {
     // Determine access verdict & build protocol PlatformEntitlement
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     let hasAccess = false;
-    let accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'NONE' = 'NONE';
+    let accessType: 'PAID_MEMBERSHIP' | 'TRIAL_PROGRAMME' | 'DIRECT_PACKAGE' | 'WHITELABEL' | 'NONE' = 'NONE';
     let accessReason:
       | 'PLATFORM_NOT_IN_MEMBERSHIP'
       | 'TRIAL_NO_TASKS'
@@ -882,10 +985,37 @@ export class SsoService {
       | 'UNVERIFIED'
       | 'MEMBERSHIP_EXPIRED'
       | 'NO_ACTIVE_ENTITLEMENT'
+      | 'WHITELABEL_ACCESS_DENIED'
+      | 'WHITELABEL_BUSINESS_ONLY'
       | undefined;
     let upgradeUrl = `${frontendUrl}/dashboard/memberships`;
 
-    if (membershipAppPlanMatch) {
+    if (isWhitelabelPlatform) {
+      if (hasWhitelabelAccess) {
+        hasAccess = true;
+        accessType = 'WHITELABEL';
+        appPlan = {
+          source: 'whitelabel',
+          platform: targetClient?.name || explicitPlatform || 'White-label Platform',
+          clientId: targetClient?.clientId || null,
+          planId: `whitelabel_${targetClient?.platformSlug || targetClient?.clientId || 'app'}`,
+          planName: 'White-label Access',
+          status: 'active',
+          quotas: {},
+          limits: {},
+          expiresAt: null,
+          membershipPlanName: null,
+          directPlan: null,
+          membershipPlan: null,
+        };
+      } else {
+        hasAccess = false;
+        accessType = 'NONE';
+        appPlan = null;
+        accessReason = whitelabelRoleEligible ? 'WHITELABEL_ACCESS_DENIED' : 'WHITELABEL_BUSINESS_ONLY';
+        upgradeUrl = `${frontendUrl}/dashboard`;
+      }
+    } else if (membershipAppPlanMatch) {
       hasAccess = true;
       accessType = 'PAID_MEMBERSHIP';
     } else if (directPackageMatch) {
@@ -934,7 +1064,19 @@ export class SsoService {
 
     let planDetails: PlatformEntitlement['plan'] = null;
     if (hasAccess) {
-      if (membershipAppPlanMatch) {
+      if (isWhitelabelPlatform && hasWhitelabelAccess) {
+        planDetails = {
+          planId: `whitelabel_${targetClient?.platformSlug || targetClient?.clientId || 'app'}`,
+          planName: 'White-label Access',
+          source: 'whitelabel',
+          status: 'active',
+          billingCycle: null,
+          expiresAt: null,
+          quotas: {},
+          limits: {},
+          features: [],
+        };
+      } else if (membershipAppPlanMatch) {
         planDetails = {
           planId: membershipAppPlanMatch.planId,
           planName: membershipAppPlanMatch.planName,
@@ -1004,6 +1146,16 @@ export class SsoService {
               daysRemaining,
               programmeTasks,
             },
+            ...(isWhitelabelPlatform
+              ? {
+                  whitelabel: {
+                    enabled: true,
+                    granted: hasWhitelabelAccess,
+                    grantedAt: whitelabelGrant?.createdAt ?? null,
+                    roleEligible: whitelabelRoleEligible,
+                  },
+                }
+              : {}),
           }
         : null;
 
@@ -1013,6 +1165,15 @@ export class SsoService {
       membershipStatus,
       enrichedPackages,
     );
+
+    // White-label grants bypass membership gates, so surface the dynamic
+    // permission flag explicitly when the business has been granted access.
+    if (hasWhitelabelAccess) {
+      const slug = targetClient?.platformSlug || targetClient?.clientId;
+      if (slug) {
+        permissions[`canAccess_${slug.toLowerCase().replace(/[^a-z0-9]/g, '_')}`] = true;
+      }
+    }
 
     const membership = {
       planName: businessProfile?.membershipPlanName || (isMembershipActive ? membershipPlan?.name || membershipLevel : null),

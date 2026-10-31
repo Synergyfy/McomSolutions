@@ -27,12 +27,14 @@ import {
 import { cn } from '../../../lib/utils';
 import { generateAiIntegrationPrompt } from './utils/aiPromptGenerator';
 import { generateServiceMeshSkillPrompt } from './utils/meshSkillGenerator';
+import { generateWhitelabelSkillPrompt } from './utils/whitelabelSkillGenerator';
+import { useConsoleApps } from './hooks/useConsoleApps';
 
 interface ConsoleArchitectureModalProps {
   onClose: () => void;
 }
 
-type TabType = 'overview' | 'ai-skill' | 'sso' | 'hmac' | 'service-mesh' | 'permissions' | 'connector' | 'quickstart';
+type TabType = 'overview' | 'ai-skill' | 'sso' | 'whitelabel' | 'hmac' | 'service-mesh' | 'permissions' | 'connector' | 'quickstart';
 
 export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectureModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -41,6 +43,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
     { id: 'overview', label: 'Ecosystem Architecture', icon: Network },
     { id: 'ai-skill', label: '🤖 AI Agent Skill / Blueprint', icon: Bot },
     { id: 'sso', label: 'OAuth 2.0 SSO Flow', icon: KeyRound },
+    { id: 'whitelabel', label: 'White-Label Access', icon: ShieldCheck },
     { id: 'hmac', label: 'Inter-Service HMAC', icon: Lock },
     { id: 'service-mesh', label: 'Service Mesh (M2M)', icon: Radio },
     { id: 'permissions', label: 'Dynamic Permissions', icon: Zap },
@@ -105,6 +108,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'ai-skill' && <AiSkillTab />}
           {activeTab === 'sso' && <SsoTab />}
+          {activeTab === 'whitelabel' && <WhitelabelTab />}
           {activeTab === 'hmac' && <HmacTab />}
           {activeTab === 'service-mesh' && <ServiceMeshTab />}
           {activeTab === 'permissions' && <PermissionsTab />}
@@ -222,6 +226,7 @@ function AiSkillTab() {
     serviceScopes: ['service:read', 'service:write', 'cards:issue'],
     allowedAudiences: ['mcom-rewards', 'mcom-mall', 'mcom-central'],
     allowedCallers: ['mcom-rewards', 'mcom-mall'],
+    allowWhitelabel: true,
   });
 
   const handleCopy = () => {
@@ -384,6 +389,163 @@ agentProfile | consultantProfile | accountManagerProfile | customerProfile`}
         <p><b>247GBS affiliate portal</b> → <code>profileType</code> is <code>AGENT</code>, <code>CONSULTANT</code>, or <code>ACCOUNT_MANAGER</code>.</p>
         <p>Any custom ecosystem app → all of the above. Branch on <code>user.profileType</code>; <code>businessProfile</code> is <code>null</code> for non-business roles.</p>
       </div>
+
+      <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-100 text-[11px] text-emerald-900 space-y-1.5">
+        <p className="font-bold flex items-center gap-1.5">
+          <ShieldCheck className="w-3.5 h-3.5" /> White-label platforms
+        </p>
+        <p>
+          When an app has <b>Allow White-Label Access</b> enabled, only <code>BUSINESS</code>{' '}
+          accounts with an explicit admin grant can sign in. The platform must gate on{' '}
+          <code>entitlement.access.accessType === 'WHITELABEL'</code> and{' '}
+          <code>entitlement.whitelabel.granted === true</code> — and must <b>not</b> check
+          membership or access passes. See the <b>White-Label Access</b> tab for the full
+          copy-pasteable skill.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function WhitelabelTab() {
+  const [copied, setCopied] = useState(false);
+  const { data: apps = [] } = useConsoleApps();
+  const whitelabelApps = apps.filter((app) => app.allowWhitelabel);
+  const skillPrompt = generateWhitelabelSkillPrompt(apps);
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(skillPrompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([skillPrompt], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'MCOM_WHITELABEL_SSO_SKILL.md';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 rounded-2xl border border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md flex-shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="font-bold text-gray-900 text-sm font-display flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              White-Label SSO AI Agent Skill
+            </h4>
+            <p className="text-xs text-gray-600 mt-0.5">
+              Copy this into the white-label platform’s repository. It implements business-only,
+              grant-gated SSO with no membership or access-pass checks.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" /> Download SKILL.md
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-md"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied Skill' : 'Copy Skill'}
+          </button>
+        </div>
+      </div>
+
+      <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+        <h4 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          How white-label admission works
+        </h4>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          A platform becomes white-label when <b>Allow White-Label Access</b> is enabled in the
+          registration wizard or its Configuration tab. Access is then <b>grant-only</b>: an admin
+          grants a business access in{' '}
+          <code>/admin/users → Businesses → Give Access</code>. Central enforces the grant at
+          authorization-code issuance, token exchange and refresh — the platform never checks
+          membership tiers, packages or access passes.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-100">
+          <span className="font-bold text-emerald-900 block mb-1">1. Business only</span>
+          <p className="text-[11px] text-emerald-800">
+            Customers, agents, consultants and account managers can never use white-label SSO.
+          </p>
+        </div>
+        <div className="p-3.5 bg-blue-50/70 rounded-2xl border border-blue-100">
+          <span className="font-bold text-blue-900 block mb-1">2. Grant = access</span>
+          <p className="text-[11px] text-blue-800">
+            Granted businesses skip every plan, package and access-pass check and land on the
+            dashboard.
+          </p>
+        </div>
+        <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-100">
+          <span className="font-bold text-amber-900 block mb-1">3. Revocation is live</span>
+          <p className="text-[11px] text-amber-800">
+            Removing a grant kills sessions and denies the next refresh. Disabling the mode revokes
+            all grants.
+          </p>
+        </div>
+      </div>
+
+      <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+        <div className="flex items-center justify-between">
+          <h4 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+            <Layers className="w-4 h-4 text-brand-blue" />
+            White-label platforms ({whitelabelApps.length})
+          </h4>
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+            Console registry
+          </span>
+        </div>
+        {whitelabelApps.length === 0 ? (
+          <p className="text-[11px] text-gray-400">
+            None yet. Enable “Allow White-Label Access” while registering or editing an app.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {whitelabelApps.map((app) => (
+              <span
+                key={app.clientId}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[10px] font-bold text-emerald-700"
+              >
+                <ShieldCheck className="w-3 h-3" />
+                {app.name}
+                <code className="font-mono text-[9px] text-emerald-600">{app.clientId}</code>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-gray-900 rounded-2xl p-3.5 text-emerald-300 font-mono text-[11px] space-y-1 overflow-x-auto">
+        <p className="text-gray-400">// The platform’s only admission gate</p>
+        <p>user.profileType === 'BUSINESS'</p>
+        <p>&amp;&amp; user.entitlement.access.hasAccess === true</p>
+        <p>&amp;&amp; user.entitlement.access.accessType === 'WHITELABEL'</p>
+        <p>&amp;&amp; user.entitlement.whitelabel.granted === true</p>
+      </div>
+
+      <pre className="p-4 bg-gray-900 rounded-2xl font-mono text-[11px] text-emerald-300 leading-relaxed overflow-x-auto whitespace-pre border border-gray-800 shadow-inner max-h-[320px] overflow-y-auto">
+        {skillPrompt}
+      </pre>
     </div>
   );
 }
@@ -809,6 +971,21 @@ function QuickstartTab() {
             <p className="font-bold text-gray-900">Verify User Access Rights</p>
             <p className="text-gray-500 text-[11px]">
               Check <code>userInfo.permissions.canAccess_&#123;slug&#125;</code> to confirm active subscription status. Provision the local account from <code>userInfo</code> — it includes <code>firstName</code>, <code>lastName</code>, <code>fullName</code>, <code>email</code>, <code>phone</code>, <code>address</code>, <code>postcode</code>, <code>country</code>, <code>businessId</code>/<code>businessName</code>, and the role-specific profile (<code>businessProfile</code>, <code>agentProfile</code>, <code>consultantProfile</code>, <code>accountManagerProfile</code> or <code>customerProfile</code>).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3 p-3.5 bg-emerald-50 rounded-xl border border-emerald-100">
+          <div className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center mt-0.5">
+            5
+          </div>
+          <div>
+            <p className="font-bold text-gray-900">White-Label Platforms (grant-only)</p>
+            <p className="text-gray-500 text-[11px]">
+              If this app has <b>Allow White-Label Access</b> enabled, gate entry on{' '}
+              <code>user.entitlement.access.accessType === 'WHITELABEL'</code> and{' '}
+              <code>user.entitlement.whitelabel.granted === true</code>. Do not check membership,
+              packages or access passes. Copy the full skill from the <b>White-Label Access</b> tab.
             </p>
           </div>
         </div>

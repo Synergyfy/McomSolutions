@@ -798,11 +798,14 @@ export interface SsoClientListItem {
   name: string
   description?: string | null
   appUrl?: string | null
+  billingApiUrl?: string | null
+  serviceBaseUrl?: string | null
   logoUrl?: string | null
   redirectUris?: string[]
   platformSlug: string | null
   isActive: boolean
   isSystemApp: boolean
+  allowWhitelabel?: boolean
   serviceScopes: string[]
   createdAt: string
   updatedAt: string
@@ -854,6 +857,7 @@ export interface RegisterAppInput {
   serviceScopes?: string[]
   allowedAudiences?: string[]
   allowedCallers?: string[]
+  allowWhitelabel?: boolean
 }
 
 export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>
@@ -886,6 +890,22 @@ export interface ServicePolicyApp {
 
 export interface ServicePolicyResponse {
   apps: ServicePolicyApp[]
+}
+
+// ─── White-label access (business-only) ────────────────────────────────
+export interface WhitelabelPlatform {
+  clientId: string
+  name: string
+  platformSlug: string | null
+  description?: string | null
+  appUrl?: string | null
+  logoUrl?: string | null
+}
+
+export interface BusinessWhitelabelAccess {
+  business: { id: string; name: string }
+  platforms: WhitelabelPlatform[]
+  grantedClientIds: string[]
 }
 
 export interface SetServicePolicyInput {

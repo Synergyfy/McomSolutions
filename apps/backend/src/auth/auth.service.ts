@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   UnauthorizedException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   ServiceUnavailableException,
@@ -1021,6 +1022,37 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    // Legacy launch-token guard: if the target platform is white-label, apply
+    // the same business-only + explicit-grant rule as the OAuth flow. Keeps the
+    // older `?sso_token=` handoff from bypassing Console grants.
+    if (targetClientId) {
+      const targetClient = await this.prisma.ssoClient.findUnique({
+        where: { clientId: targetClientId },
+        select: { clientId: true, allowWhitelabel: true },
+      });
+      if (targetClient?.allowWhitelabel) {
+        if (user.role !== Role.BUSINESS || !user.businessProfile?.id) {
+          throw new ForbiddenException(
+            'White-label platforms are available to business accounts only',
+          );
+        }
+        const grant = await this.prisma.whitelabelAccess.findUnique({
+          where: {
+            businessId_clientId: {
+              businessId: user.businessProfile.id,
+              clientId: targetClient.clientId,
+            },
+          },
+          select: { id: true },
+        });
+        if (!grant) {
+          throw new ForbiddenException(
+            'White-label access has not been granted for this business on this platform',
+          );
+        }
+      }
     }
 
     const identity = buildSsoIdentity(user);
