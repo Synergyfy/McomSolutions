@@ -1160,9 +1160,11 @@ export class CreateLocalMallDto {
   @IsString({ each: true })
   supportTeam?: string[];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'Ordered category priorities. Accepts either an array of { name, action } entries or a JSON object.',
+  })
   @IsOptional()
-  @IsObject()
   categoryPriorities?: any;
 
   // ── Extended LocalMall fields (full panel coverage) ──
@@ -1822,9 +1824,11 @@ export class UpdateLocalMallDto {
   @IsString({ each: true })
   supportTeam?: string[];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description:
+      'Ordered category priorities. Accepts either an array of { name, action } entries or a JSON object.',
+  })
   @IsOptional()
-  @IsObject()
   categoryPriorities?: any;
 
   // â”€â”€ Extended LocalMall fields (full panel coverage) â”€â”€

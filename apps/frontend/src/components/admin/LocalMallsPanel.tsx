@@ -1,4 +1,4 @@
-import { useState, ReactNode, useEffect } from 'react';
+import { useState, ReactNode, useEffect, useMemo } from 'react';
 import {
   Plus, Search, Filter, MoreVertical, MapPin, Users, Building2, Activity,
   BarChart3, ShoppingBag, Clock, CheckCircle2, AlertCircle, X, Save, Eye,
@@ -124,6 +124,57 @@ function getAffiliateNames(affiliates: AffiliateUser[], ids: string[]): string[]
 
 function getAffiliatesByRole(affiliates: AffiliateUser[], role: AffiliateUser['role']): AffiliateUser[] {
   return affiliates.filter(u => u.role === role);
+}
+
+/**
+ * Strip server-owned fields before sending a LocalMall back to the API.
+ * The admin DTO uses `forbidNonWhitelisted`, so sending `id`, `createdAt` or
+ * `updatedAt` makes the whole request fail with a 400.
+ */
+function toLocalMallPayload(mall: Partial<LocalMallData> | Record<string, any>) {
+  const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...payload } = mall as any;
+  return payload;
+}
+
+/** Client-side check for the fields the create DTO marks as required. */
+function localMallValidationError(mall: Partial<LocalMallData>): string | null {
+  const required: Array<[keyof LocalMallData, string]> = [
+    ['name', 'Name'],
+    ['slug', 'Slug'],
+    ['borough', 'Borough'],
+    ['primaryHighStreet', 'Primary high street'],
+    ['description', 'Description'],
+    ['longDescription', 'Long description'],
+    ['welcomeMessage', 'Welcome message'],
+    ['tagline', 'Tagline'],
+    ['radiusCoverage', 'Radius coverage'],
+  ];
+  for (const [key, label] of required) {
+    if (!String((mall as any)[key] ?? '').trim()) return `${label} is required.`;
+  }
+  if (!Array.isArray(mall.postcodes) || mall.postcodes.length === 0) {
+    return 'At least one postcode is required.';
+  }
+  return null;
+}
+
+function apiErrorMessage(err: any, fallback: string): string {
+  const message = err?.response?.data?.message;
+  if (Array.isArray(message)) return message.join(' ');
+  if (typeof message === 'string' && message.trim()) return message;
+  return fallback;
+}
+
+/** Older rows stored category priorities as a JSON object instead of an array. */
+function normalizeCategoryPriorities(value: unknown): LocalMallData['categoryPriorities'] {
+  if (Array.isArray(value)) return value as LocalMallData['categoryPriorities'];
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).map(([name, action]) => ({
+      name,
+      action: action as LocalMallData['categoryPriorities'][number]['action'],
+    }));
+  }
+  return [];
 }
 
 // ─── Multi-Select Dropdown Component ──────────────────────────────────────
@@ -280,7 +331,12 @@ export default function LocalMallsPanel() {
   const { data: mallCampaignsRes } = useAdminCampaigns({ locationType: 'local_mall', page: 1, limit: 100 });
   const mallCampaigns: any[] = mallCampaignsRes?.data ?? [];
   const activeMallCampaigns = mallCampaigns.filter(c => c.status === 'active');
-  const allMalls: LocalMallData[] = (mallsRes?.data ?? []) as LocalMallData[];
+  // Memoise so the sync effect below only fires when the API data actually
+  // changes, not on every render (which would clobber optimistic updates).
+  const allMalls = useMemo(
+    () => (mallsRes?.data ?? []) as LocalMallData[],
+    [mallsRes?.data],
+  );
 
   const allAffiliates: AffiliateUser[] = [
     ...((agentsRes?.data ?? []).map((a: any) => ({ id: a.id, name: a.name || a.email, role: 'agent' as const, email: a.email }))),
@@ -310,10 +366,11 @@ export default function LocalMallsPanel() {
   const LIST_PAGE_SIZE = 10;
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  // Keep the editable copy in sync with the server after every create,
+  // update, delete or merge. Without this, the list only reflected the data
+  // loaded on first mount and new/edited malls disappeared until a reload.
   useEffect(() => {
-    if (allMalls.length > 0 && localMalls.length === 0) {
-      setLocalMalls(allMalls);
-    }
+    setLocalMalls((prev) => (prev === allMalls ? prev : allMalls));
   }, [allMalls]);
 
   const selectedMall = localMalls.find(m => m.id === selectedId) || null;
@@ -402,23 +459,39 @@ export default function LocalMallsPanel() {
   };
 
   const handleEdit = (mall: LocalMallData) => {
-    setFormData({ ...mall });
+    setFormData({
+      ...mall,
+      categoryPriorities: normalizeCategoryPriorities(mall.categoryPriorities),
+    });
     setView('edit');
   };
 
   const handleSave = async () => {
+    const validationError = localMallValidationError(formData);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return;
+    }
+
+    const payload = toLocalMallPayload(formData);
     try {
       if (view === 'create') {
-        await createMall.mutateAsync(formData as any);
+        const result = await createMall.mutateAsync(payload as any);
+        const created = (result as any)?.data;
+        if (created) setLocalMalls(prev => [...prev, created as LocalMallData]);
         showToast('LocalMall created successfully', 'success');
       } else if (view === 'edit' && selectedId) {
-        await updateMall.mutateAsync({ id: selectedId, data: formData as any });
+        const result = await updateMall.mutateAsync({ id: selectedId, data: payload as any });
+        const updated = (result as any)?.data;
+        if (updated) {
+          setLocalMalls(prev => prev.map(m => (m.id === selectedId ? (updated as LocalMallData) : m)));
+        }
         showToast('LocalMall updated successfully', 'success');
       }
       setView('list');
       setSelectedId(null);
     } catch (err) {
-      showToast('Failed to save LocalMall', 'error');
+      showToast(apiErrorMessage(err, 'Failed to save LocalMall'), 'error');
     }
   };
 
@@ -536,13 +609,18 @@ export default function LocalMallsPanel() {
       assignedAgentIds: [...new Set(mallsToMerge.flatMap(m => m.assignedAgentIds))],
     };
     try {
-      await createMall.mutateAsync(merged as any);
+      const result = await createMall.mutateAsync(toLocalMallPayload(merged) as any);
       await Promise.all(mallsToMerge.map(m => deleteMall.mutateAsync(m.id)));
+      const created = (result as any)?.data;
+      if (created) {
+        const removed = new Set(mallsToMerge.map(m => m.id));
+        setLocalMalls(prev => [...prev.filter(m => !removed.has(m.id)), created as LocalMallData]);
+      }
       showToast(`Merged ${mallsToMerge.length} malls into "${merged.name}"`, 'success');
       setMergeModalOpen(false);
       setSelectedLocalMalls([]);
-    } catch {
-      showToast('Failed to merge LocalMalls', 'error');
+    } catch (err) {
+      showToast(apiErrorMessage(err, 'Failed to merge LocalMalls'), 'error');
     }
   };
 
