@@ -1847,7 +1847,7 @@ model TaskDefinition {
   externalPlatformSlug           String?                      @map("external_platform_slug")
   externalAppUrl                 String?                      @map("external_app_url")
   deadlineDays                   Int                          @default(7) @map("deadline_days")
-  rewardPoints                   Int                          @default(50) @map("reward_points")
+  rewardPoints                   Int                          @default(0) @map("reward_points")
   // Optional completion reward: a personal single-use coupon issued when the
   // assignment is completed (user, admin, or event worker).
   rewardCouponEnabled            Boolean                      @default(false) @map("reward_coupon_enabled")

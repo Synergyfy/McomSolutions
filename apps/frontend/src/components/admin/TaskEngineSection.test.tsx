@@ -18,7 +18,6 @@ vi.mock('../../services/admin/hooks', () => ({
       completedAssignments: 0,
       pendingAssignments: 0,
       expiredAssignments: 0,
-      totalPointsAwarded: 0,
       completionRate: 0,
     },
     refetch: vi.fn(),

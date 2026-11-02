@@ -23,7 +23,6 @@ import {
   User,
   Filter,
   RefreshCw,
-  Gift,
   Ticket,
   HelpCircle,
   Globe,
@@ -60,7 +59,6 @@ interface TaskFormData {
   featureKey: string;
   externalClientId: string;
   deadlineDays: number;
-  rewardPoints: number;
   rewardCouponEnabled: boolean;
   rewardCouponDiscountType: 'PERCENTAGE' | 'FIXED';
   rewardCouponValue: number;
@@ -86,7 +84,6 @@ const DEFAULT_FORM: TaskFormData = {
   featureKey: 'business.logo_uploaded',
   externalClientId: '',
   deadlineDays: 7,
-  rewardPoints: 50,
   rewardCouponEnabled: false,
   rewardCouponDiscountType: 'PERCENTAGE',
   rewardCouponValue: 10,
@@ -155,7 +152,6 @@ export default function TaskEngineSection() {
     completedAssignments: 0,
     pendingAssignments: 0,
     expiredAssignments: 0,
-    totalPointsAwarded: 0,
     completionRate: 0,
   };
   const tasks = tasksRes?.data || [];
@@ -310,7 +306,6 @@ export default function TaskEngineSection() {
       featureKey: task.featureKey || 'business.logo_uploaded',
       externalClientId: task.externalClientId || '',
       deadlineDays: task.deadlineDays,
-      rewardPoints: task.rewardPoints,
       rewardCouponEnabled: !!task.rewardCouponEnabled,
       rewardCouponDiscountType: task.rewardCouponDiscountType || 'PERCENTAGE',
       rewardCouponValue: Number(task.rewardCouponValue) || 10,
@@ -406,7 +401,6 @@ export default function TaskEngineSection() {
       submissionType: formData.taskSource === 'INTERNAL' ? formData.submissionType : 'AUTO',
       taskSource: formData.taskSource,
       deadlineDays: formData.deadlineDays,
-      rewardPoints: formData.rewardPoints,
       isActive: formData.isActive,
       rewardCouponEnabled: formData.rewardCouponEnabled,
       ...(formData.rewardCouponEnabled
@@ -489,7 +483,7 @@ export default function TaskEngineSection() {
   return (
     <div className="space-y-6">
       {/* ─── Top Stats Bar ────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Tasks</p>
@@ -535,20 +529,6 @@ export default function TaskEngineSection() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Points Awarded</p>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-2xl font-black text-gray-900">{stats.totalPointsAwarded.toLocaleString()}</span>
-              <span className="text-xs text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full">
-                MCOM Points
-              </span>
-            </div>
-          </div>
-          <div className="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center text-amber-600">
-            <Award className="w-6 h-6" />
-          </div>
-        </div>
       </div>
 
       {/* ─── Automation Status Banner ─────────────────────────────── */}
@@ -566,8 +546,8 @@ export default function TaskEngineSection() {
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-1 max-w-2xl">
-              Tasks automatically complete and deposit MCOM Points directly into user wallets whenever the specified
-              module action is detected. Nightly sweeps automatically expire tasks past their deadline.
+              Tasks automatically complete whenever the specified module action is detected. Nightly sweeps
+              automatically expire tasks past their deadline.
             </p>
           </div>
         </div>
@@ -586,7 +566,7 @@ export default function TaskEngineSection() {
         <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-bold text-gray-900">Configured Tasks</h3>
-            <p className="text-xs text-gray-500">Customizable missions with deadlines and reward points</p>
+            <p className="text-xs text-gray-500">Customizable missions with deadlines and completion rewards</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -727,11 +707,6 @@ export default function TaskEngineSection() {
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 flex items-center gap-1">
                         <Clock className="w-3 h-3 text-gray-500" />
                         {task.deadlineDays} Days
-                      </span>
-
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/60 flex items-center gap-1">
-                        <Gift className="w-3 h-3 text-amber-500" />
-                        +{task.rewardPoints} Points
                       </span>
 
                       {task.rewardCouponEnabled && (
@@ -923,7 +898,7 @@ export default function TaskEngineSection() {
                 {selectedTaskForProgress.title}
               </h3>
               <p className="text-xs text-gray-500">
-                Deadline: {selectedTaskForProgress.deadlineDays} days from assignment | Reward: {selectedTaskForProgress.rewardPoints} MCOM points
+                Deadline: {selectedTaskForProgress.deadlineDays} days from assignment
               </p>
             </div>
 
@@ -995,7 +970,6 @@ export default function TaskEngineSection() {
                     <th className="py-3 px-4">Assigned On</th>
                     <th className="py-3 px-4">Deadline</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Points Credited</th>
                     <th className="py-3 px-4 text-right">Manual Override</th>
                   </tr>
                 </thead>
@@ -1058,24 +1032,13 @@ export default function TaskEngineSection() {
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4">
-                          {assign.rewardGranted ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
-                              <Award className="w-3.5 h-3.5 text-emerald-600" />
-                              +{assign.rewardPoints} MCOM
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 text-[11px]">—</span>
-                          )}
-                        </td>
-
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             {!isCompleted ? (
                               <button
                                 onClick={() => handleToggleManualStatus(assign, 'COMPLETED', true)}
                                 className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] transition-all"
-                                title="Manually mark completed and grant reward"
+                                title="Manually mark completed"
                               >
                                 Mark Done
                               </button>
@@ -1510,8 +1473,8 @@ export default function TaskEngineSection() {
                   </div>
                 )}
 
-                {/* Deadline & Points Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Deadline */}
+                <div className="grid grid-cols-1 gap-4">
                   {/* Deadline in days */}
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
@@ -1541,39 +1504,6 @@ export default function TaskEngineSection() {
                           className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 text-[11px] font-semibold"
                         >
                           {d}d
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Reward in points */}
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                      Reward Points *
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min={0}
-                        required
-                        value={formData.rewardPoints}
-                        onChange={(e) => setFormData({ ...formData, rewardPoints: parseInt(e.target.value, 10) || 0 })}
-                        className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-500">
-                        Points
-                      </span>
-                    </div>
-                    {/* Quick Presets */}
-                    <div className="flex gap-1.5 mt-1.5">
-                      {[25, 50, 100, 250].map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setFormData({ ...formData, rewardPoints: p })}
-                          className="px-2 py-0.5 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 text-[11px] font-bold"
-                        >
-                          +{p}
                         </button>
                       ))}
                     </div>

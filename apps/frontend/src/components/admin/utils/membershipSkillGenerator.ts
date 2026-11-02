@@ -140,7 +140,6 @@ export interface PlatformEntitlement {
       title: string;
       description: string;
       deadlineDays: number;
-      rewardPoints: number;
       status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED';
     }>;
   };

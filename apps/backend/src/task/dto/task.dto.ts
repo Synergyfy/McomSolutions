@@ -105,10 +105,14 @@ export class CreateTaskDefinitionDto {
   @Min(1)
   deadlineDays: number;
 
-  @ApiProperty({ example: 50, description: 'Reward in points credited to wallet upon completion' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Deprecated: task reward points are no longer awarded. Completion rewards use coupons instead.',
+  })
+  @IsOptional()
   @IsInt()
   @Min(0)
-  rewardPoints: number;
+  rewardPoints?: number;
 
   @ApiPropertyOptional({ example: true, description: 'Whether the task definition is active' })
   @IsOptional()

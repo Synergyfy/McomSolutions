@@ -141,7 +141,7 @@ function TaskStartModal({
           <div className="flex-1 min-w-0">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 leading-tight break-words">{mission.title}</h3>
             <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-              {mission.estimatedMinutes ? `${mission.estimatedMinutes} · ` : ''}{mission.reward}
+              {mission.estimatedMinutes}
             </p>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-colors shrink-0">
@@ -165,7 +165,7 @@ function TaskStartModal({
               <div>
                 <p className="text-sm font-bold text-amber-800">Automated Reward Verification</p>
                 <p className="text-xs text-amber-700 mt-1">
-                  Once started, you will be directed to the corresponding section. When you complete the action, our background workers will automatically mark it done and deposit your points!
+                  Once started, you will be directed to the corresponding section. When you complete the action, our background workers will automatically mark it done.
                 </p>
               </div>
             </div>
@@ -419,8 +419,6 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           externalAppName: t.externalAppName || null,
           externalAppUrl: t.externalAppUrl || null,
           externalClientId: t.externalClientId || null,
-          reward: `+${t.rewardPoints} points`,
-          rewardPoints: t.rewardPoints,
           rewardCouponEnabled: !!t.rewardCouponEnabled,
           rewardCoupon: t.rewardCoupon || null,
           submissionType: t.submissionType || 'AUTO',

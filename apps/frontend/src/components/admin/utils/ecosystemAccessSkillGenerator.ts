@@ -122,7 +122,6 @@ export interface PlatformEntitlement {
       title: string;
       description: string;
       deadlineDays: number;
-      rewardPoints: number;
       status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'EXPIRED' | string;
     }>;
   };
@@ -535,7 +534,6 @@ Response:
         "title": "Publish your first listing",
         "description": "Create a product listing to activate your storefront.",
         "deadlineDays": 7,
-        "rewardPoints": 50,
         "status": "PENDING"
       }
     ]

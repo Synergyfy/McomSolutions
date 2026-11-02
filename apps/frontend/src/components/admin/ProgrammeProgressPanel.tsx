@@ -42,8 +42,6 @@ interface ProgrammeUserTask {
   deadlineAt?: string;
   daysRemaining?: number;
   completedAt?: string | null;
-  rewardPoints?: number;
-  rewardGranted?: boolean;
   rewardCouponEnabled?: boolean;
   rewardCouponCode?: string | null;
 }
@@ -142,11 +140,6 @@ function AdminTaskRow({ task }: { key?: React.Key; task: ProgrammeUserTask }) {
             {!isDone && !isExpired && typeof task.daysRemaining === 'number' && (
               <span className="font-bold text-gray-600">{task.daysRemaining}d left</span>
             )}
-            {typeof task.rewardPoints === 'number' && task.rewardPoints > 0 && (
-              <span className="inline-flex items-center gap-1 font-bold text-amber-600">
-                <Target className="h-3 w-3" /> {task.rewardPoints} pts
-              </span>
-            )}
             {task.rewardCouponCode && (
               <span className="inline-flex items-center gap-1 font-mono font-bold text-emerald-700">
                 <Gift className="h-3 w-3" /> {task.rewardCouponCode}
@@ -158,9 +151,6 @@ function AdminTaskRow({ task }: { key?: React.Key; task: ProgrammeUserTask }) {
       </div>
       <div className="flex shrink-0 items-center gap-2 sm:justify-end">
         <TaskStateBadge status={task.status} />
-        {task.rewardGranted && isDone && (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">Rewarded</span>
-        )}
       </div>
     </div>
   );
