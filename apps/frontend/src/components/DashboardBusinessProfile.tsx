@@ -199,7 +199,7 @@ export default function DashboardBusinessProfile() {
       {logoSuccess && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-bold rounded-2xl flex items-center gap-2.5 animate-in fade-in">
           <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
-          <span>Official business logo updated and verified! Points awarded to your wallet.</span>
+          <span>Official business logo updated and verified!</span>
         </div>
       )}
 

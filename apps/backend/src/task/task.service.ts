@@ -485,7 +485,7 @@ export class TaskService {
         externalPlatformSlug: external?.externalPlatformSlug ?? null,
         externalAppUrl: external?.externalAppUrl ?? null,
         deadlineDays: dto.deadlineDays,
-        rewardPoints: dto.rewardPoints,
+        rewardPoints: 0,
         isActive: dto.isActive ?? true,
         platform,
         rewardCouponEnabled: rewardEnabled,
@@ -553,7 +553,6 @@ export class TaskService {
     if (dto.targetAudience !== undefined) data.targetAudience = dto.targetAudience;
     if (dto.accessScope !== undefined) data.accessScope = dto.accessScope;
     if (dto.deadlineDays !== undefined) data.deadlineDays = dto.deadlineDays;
-    if (dto.rewardPoints !== undefined) data.rewardPoints = dto.rewardPoints;
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
 
     // Source/submission transitions: re-validate trigger/app pairing whenever
@@ -843,7 +842,7 @@ export class TaskService {
             userId: u.id,
             userType: u.role,
             status: TaskAssignmentStatus.PENDING,
-            rewardPoints: task.rewardPoints,
+            rewardPoints: 0,
             assignedAt: now,
             deadlineAt,
             rewardGranted: false,

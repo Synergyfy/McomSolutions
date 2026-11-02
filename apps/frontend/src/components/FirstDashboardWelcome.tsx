@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import {
   Lock, CheckCircle2, ArrowRight, Sparkles, Clock,
-  Users, User, HeadphonesIcon, Target, Briefcase
+  Users, User, HeadphonesIcon, Briefcase
 } from 'lucide-react';
 import { PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay, getTaskStatus, getTotalMissions } from '../lib/programmeData';
 import { useProfile, useMyTasks } from '../services/business/hooks';
@@ -133,11 +133,6 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
               <span className="font-bold text-gray-900 whitespace-nowrap">{firstMission.estimatedMinutes} min</span>
             </div>
-            <div className="h-4 w-px bg-gray-200 shrink-0" />
-            <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-500">
-              <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="font-bold text-amber-600 whitespace-nowrap">{firstMission.reward}</span>
-            </div>
           </div>
 
           <button
@@ -216,7 +211,7 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-gray-900 text-sm leading-tight break-words">{mission.title}</p>
-                <p className="text-xs text-gray-400 mt-0.5 leading-tight">{mission.estimatedMinutes} min · {mission.reward}</p>
+                <p className="text-xs text-gray-400 mt-0.5 leading-tight">{mission.estimatedMinutes} min</p>
               </div>
             </div>
             );

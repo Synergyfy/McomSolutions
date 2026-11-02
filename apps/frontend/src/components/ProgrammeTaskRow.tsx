@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Clock, ExternalLink, Gift,
-  Play, RotateCcw, Target,
+  Play, RotateCcw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { TaskStatus } from '../lib/programmeData';
@@ -90,9 +90,6 @@ export default function ProgrammeTaskRow({
                 <Clock className="w-3 h-3 shrink-0" /> {mission.estimatedMinutes}
               </span>
             )}
-            <span className="text-[11px] sm:text-xs text-amber-600 font-bold flex items-center gap-1">
-              <Target className="w-3 h-3 shrink-0" /> {mission.reward}
-            </span>
             {mission.rewardCouponEnabled && !mission.rewardCoupon && (
               <span className="text-[10px] sm:text-xs text-emerald-600 font-bold flex items-center gap-1">
                 <Gift className="w-3 h-3 shrink-0" /> Coupon reward

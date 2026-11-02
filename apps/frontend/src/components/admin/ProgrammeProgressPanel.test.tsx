@@ -53,7 +53,6 @@ const tasks = [
     status: 'PENDING',
     deadlineAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
     daysRemaining: 2,
-    rewardPoints: 50,
   },
   {
     id: 'a2',
@@ -62,7 +61,6 @@ const tasks = [
     status: 'EXPIRED',
     deadlineAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     daysRemaining: 0,
-    rewardPoints: 30,
   },
   {
     id: 'a3',
@@ -72,8 +70,6 @@ const tasks = [
     deadlineAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
     completedAt: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
     daysRemaining: 0,
-    rewardPoints: 20,
-    rewardGranted: true,
   },
 ];
 
