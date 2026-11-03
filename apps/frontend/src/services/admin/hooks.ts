@@ -16,6 +16,8 @@ import type {
   Borough,
   HighStreet,
   LocalMall,
+  City,
+  AssignedBusiness,
   CreateBusinessInput,
   CreateCustomerInput,
   CreateAgentInput,
@@ -650,6 +652,67 @@ export const useDeleteLocalMall = () => {
   return useMutation({
     mutationFn: (id: string) => adminApi.deleteLocalMall(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] }),
+  })
+}
+
+// ─── Cities ────────────────────────────────────────────
+export const useAdminCities = () => {
+  return useQuery({
+    queryKey: ['admin', 'cities'],
+    queryFn: () => adminApi.getCities(),
+    staleTime: 1000 * 60 * 10,
+  })
+}
+
+export const useCreateCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Partial<City>) => adminApi.createCity(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+export const useUpdateCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<City> }) =>
+      adminApi.updateCity(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+export const useDeleteCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteCity(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+// ─── Assigned businesses per entity ────────────────────
+type AssignedEntity =
+  | { type: 'city' | 'borough' | 'highStreet' | 'localMall' | 'sector' | 'category' | 'subcategory'; id: string }
+
+export const useAssignedBusinesses = (entity: AssignedEntity | null) => {
+  return useQuery({
+    queryKey: ['admin', 'assignedBusinesses', entity?.type, entity?.id],
+    queryFn: () => adminApi.getAssignedBusinesses(entity as AssignedEntity),
+    enabled: Boolean(entity?.id),
+    staleTime: 1000 * 60,
+  })
+}
+
+export const useRunLocationAggregation = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => adminApi.runLocationAggregation(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+    },
   })
 }
 

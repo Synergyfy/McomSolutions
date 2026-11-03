@@ -21,6 +21,8 @@ import type {
   Borough,
   HighStreet,
   LocalMall,
+  City,
+  AssignedBusiness,
   PaginatedResponse,
   ApiResponse,
   LaunchRule,
@@ -375,6 +377,54 @@ export const adminApi = {
   },
 
   // ─── Localities ──────────────────────────────────────
+  getCities: async () => {
+    const res = await apiClient.get('/admin/localities/cities')
+    return res.data as ApiResponse<City[]>
+  },
+
+  createCity: async (data: Partial<City>) => {
+    const res = await apiClient.post('/admin/localities/cities', data)
+    return res.data as ApiResponse<City>
+  },
+
+  updateCity: async (id: string, data: Partial<City>) => {
+    const res = await apiClient.put(`/admin/localities/cities/${id}`, data)
+    return res.data as ApiResponse<City>
+  },
+
+  deleteCity: async (id: string) => {
+    const res = await apiClient.delete(`/admin/localities/cities/${id}`)
+    return res.data
+  },
+
+  getAssignedBusinesses: async (
+    entity:
+      | { type: 'city' | 'borough' | 'highStreet' | 'localMall'; id: string }
+      | { type: 'sector' | 'category' | 'subcategory'; id: string },
+  ) => {
+    const base =
+      entity.type === 'sector' || entity.type === 'category' || entity.type === 'subcategory'
+        ? '/admin/catalog'
+        : '/admin/localities'
+    const segmentMap: Record<string, string> = {
+      city: 'cities',
+      borough: 'boroughs',
+      highStreet: 'high-streets',
+      localMall: 'local-malls',
+      sector: 'sectors',
+      category: 'categories',
+      subcategory: 'subcategories',
+    }
+    const segment = segmentMap[entity.type]
+    const res = await apiClient.get(`${base}/${segment}/${entity.id}/businesses`)
+    return res.data as ApiResponse<AssignedBusiness[]> & { total?: number }
+  },
+
+  runLocationAggregation: async () => {
+    const res = await apiClient.post('/admin/localities/aggregate')
+    return res.data
+  },
+
   getBoroughs: async () => {
     const res = await apiClient.get('/admin/localities/boroughs')
     return res.data as ApiResponse<Borough[]>

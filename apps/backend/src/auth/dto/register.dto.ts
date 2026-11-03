@@ -84,15 +84,30 @@ export class RegisterDto {
   @IsOptional()
   industry?: string;
 
-  @ApiPropertyOptional({ example: 'Fashion', description: 'Category' })
+  @ApiPropertyOptional({ example: 'clx123sector', description: 'Sector catalogue ID (auto-assigned location scope)' })
+  @IsString()
+  @IsOptional()
+  sectorId?: string;
+
+  @ApiPropertyOptional({ example: 'Retail', description: 'Category' })
   @IsString()
   @IsOptional()
   category?: string;
+
+  @ApiPropertyOptional({ example: 'clx123category', description: 'Category catalogue ID' })
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
 
   @ApiPropertyOptional({ example: 'Clothing & Apparel', description: 'Sub category' })
   @IsString()
   @IsOptional()
   subCategory?: string;
+
+  @ApiPropertyOptional({ example: 'clx123subcategory', description: 'Subcategory catalogue ID' })
+  @IsString()
+  @IsOptional()
+  subCategoryId?: string;
 
   @ApiPropertyOptional({ example: 'https://example.com', description: 'Website URL' })
   @IsString()

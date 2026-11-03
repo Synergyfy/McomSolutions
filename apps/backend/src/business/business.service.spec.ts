@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 
 // Force external lookups (Nominatim, postcodes.io) to fail so the service
 // exercise its error paths deterministically without network access.
@@ -37,6 +38,7 @@ describe('BusinessService', () => {
     },
     localMall: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
     },
     membershipPlan: {
       findFirst: jest.fn().mockResolvedValue({ name: 'Bronze', price: 10 }),
@@ -78,6 +80,11 @@ describe('BusinessService', () => {
     get: jest.fn((key: string) => (key === 'APP_URL' ? 'http://localhost:3010' : undefined)),
   };
 
+  const mockLocationAssignment = {
+    resolvePostcode: jest.fn().mockRejectedValue(new BadRequestException('We could not find that UK postcode.')),
+    assignBusiness: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -86,6 +93,7 @@ describe('BusinessService', () => {
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GoogleOAuthService, useValue: mockGoogleOAuth },
+        { provide: LocationAssignmentService, useValue: mockLocationAssignment },
       ],
     }).compile();
 
@@ -119,9 +127,20 @@ describe('BusinessService', () => {
     });
 
     it('should return the matching LocalMall when the postcode area is covered', async () => {
-      mockPrisma.localMall.findMany.mockResolvedValue([
-        { id: 'mall-1', name: 'Peckham LocalMall', borough: 'Southwark', postcodes: ['SE15', 'SE5', 'SE22'] },
-      ]);
+      mockLocationAssignment.resolvePostcode.mockResolvedValueOnce({
+        postcode: 'SE15 4PT',
+        outwardCode: 'SE15',
+        city: 'Greater London',
+        borough: 'Southwark',
+        highStreet: 'Peckham',
+        localMall: 'Peckham LocalMall',
+        region: 'London',
+        latitude: 51.47,
+        longitude: -0.06,
+        adminDistrict: 'Southwark',
+        adminWard: 'Peckham',
+      });
+      mockPrisma.localMall.findFirst.mockResolvedValue({ id: 'mall-1', name: 'Peckham LocalMall' });
       const result = await service.checkLocationProximity('SE15 4PT');
       expect(result.status).toBe('active');
       expect(result.localMallId).toBe('mall-1');

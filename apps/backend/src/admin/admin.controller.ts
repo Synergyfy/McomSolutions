@@ -41,6 +41,8 @@ import {
   CreateBoroughDto,
   CreateHighStreetDto,
   CreateLocalMallDto,
+  CreateCityDto,
+  UpdateCityDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -597,5 +599,84 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete local mall' })
   async deleteLocalMall(@Req() req: any, @Param('id') id: string) {
     await this.adminService.deleteLocalMall(id, this.getAdminName(req));
+  }
+
+  // ─── Cities ─────────────────────────────────────────────
+  @Get('localities/cities')
+  @ApiOperation({ summary: 'List cities with borough/high-street/local-mall counts' })
+  async getCities() {
+    return this.adminService.getCities();
+  }
+
+  @Post('localities/cities')
+  @ApiOperation({ summary: 'Create city' })
+  async createCity(@Req() req: any, @Body() dto: CreateCityDto) {
+    return this.adminService.createCity(dto, this.getAdminName(req));
+  }
+
+  @Put('localities/cities/:id')
+  @ApiOperation({ summary: 'Update city' })
+  async updateCity(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateCityDto,
+  ) {
+    return this.adminService.updateCity(id, dto, this.getAdminName(req));
+  }
+
+  @Delete('localities/cities/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete city' })
+  async deleteCity(@Req() req: any, @Param('id') id: string) {
+    await this.adminService.deleteCity(id, this.getAdminName(req));
+  }
+
+  // ─── Assigned business users per entity ─────────────────
+  @Get('localities/cities/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a city' })
+  async getCityBusinesses(@Param('id') id: string) {
+    return this.adminService.getCityBusinesses(id);
+  }
+
+  @Get('localities/boroughs/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a borough' })
+  async getBoroughBusinesses(@Param('id') id: string) {
+    return this.adminService.getBoroughBusinesses(id);
+  }
+
+  @Get('localities/high-streets/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a high street' })
+  async getHighStreetBusinesses(@Param('id') id: string) {
+    return this.adminService.getHighStreetBusinesses(id);
+  }
+
+  @Get('localities/local-malls/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a local mall' })
+  async getLocalMallBusinesses(@Param('id') id: string) {
+    return this.adminService.getLocalMallBusinesses(id);
+  }
+
+  @Get('catalog/sectors/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a sector' })
+  async getSectorBusinesses(@Param('id') id: string) {
+    return this.adminService.getSectorBusinesses(id);
+  }
+
+  @Get('catalog/categories/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a category' })
+  async getCategoryBusinesses(@Param('id') id: string) {
+    return this.adminService.getCategoryBusinesses(id);
+  }
+
+  @Get('catalog/subcategories/:id/businesses')
+  @ApiOperation({ summary: 'List business users assigned to a subcategory' })
+  async getSubCategoryBusinesses(@Param('id') id: string) {
+    return this.adminService.getSubCategoryBusinesses(id);
+  }
+
+  @Post('localities/aggregate')
+  @ApiOperation({ summary: 'Run the delta-checked business-total aggregation now' })
+  async runLocationAggregation() {
+    return this.adminService.runLocationAggregation();
   }
 }

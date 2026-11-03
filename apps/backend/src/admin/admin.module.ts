@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ServiceConnectorsModule } from '../service-connectors/service-connectors.module';
+import { GeographyModule } from '../geography/geography.module';
 import { AdminController } from './admin.controller';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminOpsController } from './admin-ops.controller';
@@ -15,6 +16,7 @@ import { AdminCatalogService } from './admin-catalog.service';
   imports: [
     PrismaModule,
     ServiceConnectorsModule,
+    GeographyModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

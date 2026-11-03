@@ -21,7 +21,7 @@ import {
 import HighStreetActivationWizard from './HighStreetActivationWizard';
 import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
-import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
+import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign, useAssignedBusinesses } from '../../services/admin/hooks';
 import type { HighStreet, AccountManager } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
@@ -53,6 +53,11 @@ export default function HighStreetsPanel() {
   const [campaignName, setCampaignName] = useState('');
   const [campaignDescription, setCampaignDescription] = useState('');
   const [campaignError, setCampaignError] = useState('');
+  const [selectedHighStreetId, setSelectedHighStreetId] = useState<string | null>(null);
+  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(
+    selectedHighStreetId ? { type: 'highStreet', id: selectedHighStreetId } : null,
+  );
+  const assignedBusinesses = assignedRes?.data ?? [];
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -265,7 +270,7 @@ export default function HighStreetsPanel() {
             <tbody className="divide-y divide-gray-50">
               {filteredHighStreets.length > 0 ? (
                 filteredHighStreets.map((hs) => (
-                  <tr key={hs.id} className="hover:bg-gray-50/50 transition-colors group">
+                  <tr key={hs.id} onClick={() => setSelectedHighStreetId(hs.id)} className="hover:bg-gray-50/50 transition-colors group cursor-pointer">
                     <td className="px-6 py-4 font-bold text-sm text-gray-900">{hs.name}</td>
                     <td className="px-6 py-4 text-xs font-semibold text-gray-500">{hs.borough}</td>
                     <td className="px-6 py-4">
@@ -323,6 +328,60 @@ export default function HighStreetsPanel() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Assigned business users for the selected high street */}
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-gray-50 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-gray-950 text-base">Assigned Business Users</h3>
+            <p className="text-[11px] font-semibold text-gray-400">
+              {selectedHighStreetId
+                ? `${allHighStreets.find((h) => h.id === selectedHighStreetId)?.name ?? 'High street'} · ${assignedBusinesses.length} assigned`
+                : 'Select a high street above to inspect its business users'}
+            </p>
+          </div>
+        </div>
+        {!selectedHighStreetId ? (
+          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
+            No high street selected.
+          </div>
+        ) : assignedLoading ? (
+          <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-brand-blue" /></div>
+        ) : assignedBusinesses.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
+            No businesses are assigned to this high street yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50/50">
+                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Business</th>
+                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Owner</th>
+                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Postcode</th>
+                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Joined</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {assignedBusinesses.map((business) => (
+                  <tr key={business.id} className="hover:bg-gray-50/60">
+                    <td className="px-6 py-3">
+                      <p className="text-sm font-bold text-gray-900">{business.businessName}</p>
+                      <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
+                    </td>
+                    <td className="px-6 py-3">
+                      <p className="text-xs font-semibold text-gray-700">{[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}</p>
+                      <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
+                    </td>
+                    <td className="px-6 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
+                    <td className="px-6 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Activation Wizard */}

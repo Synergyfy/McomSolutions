@@ -23,6 +23,7 @@ import { buildSsoIdentity } from './sso-identity';
 import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { RedisService } from '../redis/redis.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 import {
   OTP_COOLDOWN_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -46,6 +47,7 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private redis: RedisService,
+    private locationAssignment: LocationAssignmentService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -791,6 +793,14 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
+    // UK postcode is mandatory for every business signup and is validated
+    // against postcodes.io/Nominatim before the account is created.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required for business registration.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
+
     // Never persist an empty/placeholder business name. Prefer the submitted
     // name, then the owner's name, then a readable email-derived fallback.
     const businessName = this.deriveBusinessName(data, email);
@@ -828,7 +838,7 @@ export class AuthService {
               isOnGoogle: data.isOnGoogle || false,
               googlePlaceId: data.googlePlaceId || null,
               address: data.address || '',
-              postcode: data.postcode || '',
+              postcode: resolvedPostcode.postcode,
               industry: data.industry || '',
               category: data.category || '',
               description: data.description || '',
@@ -849,6 +859,29 @@ export class AuthService {
       });
     } catch (e) {
       rethrowAsConflictOnUniqueViolation(e);
+    }
+
+    if (newUser?.businessProfile?.id) {
+      try {
+        await this.locationAssignment.assignBusiness(newUser.businessProfile.id, {
+          postcode: resolvedPostcode.postcode,
+          resolvedPostcode,
+          sectorId: data.sectorId,
+          categoryId: data.categoryId,
+          subCategoryId: data.subCategoryId,
+          industry: data.industry,
+          category: data.category,
+          subCategory: data.subCategory,
+        });
+      } catch (error) {
+        // Registration itself already committed. Surface the assignment failure
+        // in logs rather than returning a misleading 500 to the new user.
+        this.logger.error(
+          `Business ${newUser.businessProfile.id} could not be auto-assigned to a location: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     return this.login(newUser);

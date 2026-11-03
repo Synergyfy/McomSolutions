@@ -33,6 +33,7 @@ import {
   useCreateSubCategory,
   useUpdateSubCategory,
   useDeleteSubCategory,
+  useAssignedBusinesses,
 } from '../../services/admin/hooks';
 import type {
   AdminSector,
@@ -91,6 +92,24 @@ export default function SectorsCategoriesPanel() {
   }, [activeCategories, selectedCategoryId]);
 
   const activeSubCategories = useMemo(() => activeCategory?.subCategories ?? [], [activeCategory]);
+  const [assignmentLevel, setAssignmentLevel] = useState<'sector' | 'category' | 'subcategory'>('sector');
+  const [assignmentSubId, setAssignmentSubId] = useState<string | null>(null);
+  const assignmentEntity = useMemo(() => {
+    if (assignmentLevel === 'subcategory') {
+      const subId = assignmentSubId || activeSubCategories[0]?.id;
+      return subId ? { type: 'subcategory' as const, id: subId } : null;
+    }
+    if (assignmentLevel === 'category') {
+      return activeCategory ? { type: 'category' as const, id: activeCategory.id } : null;
+    }
+    return activeSector ? { type: 'sector' as const, id: activeSector.id } : null;
+  }, [assignmentLevel, assignmentSubId, activeSubCategories, activeCategory, activeSector]);
+  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(assignmentEntity);
+  const assignedBusinesses = assignedRes?.data ?? [];
+  const totalAssigned = useMemo(
+    () => sectors.reduce((sum, sector) => sum + (sector.businessCount ?? 0), 0),
+    [sectors],
+  );
 
   // Modals state
   const [sectorModal, setSectorModal] = useState<{
@@ -226,7 +245,7 @@ export default function SectorsCategoriesPanel() {
       )}
 
       {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Sectors</p>
@@ -257,6 +276,17 @@ export default function SectorsCategoriesPanel() {
           </div>
           <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
             <FolderTree className="w-6 h-6" />
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned Businesses</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{totalAssigned.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Across all sectors</p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+            <Layers className="w-6 h-6" />
           </div>
         </div>
       </div>
@@ -387,6 +417,9 @@ export default function SectorsCategoriesPanel() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-gray-400 font-mono">#{sector.slug}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 font-bold">
+                            {sector.businessCount ?? 0} businesses
+                          </span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
                             {catCount} {catCount === 1 ? 'category' : 'categories'}
                           </span>
@@ -542,6 +575,9 @@ export default function SectorsCategoriesPanel() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-gray-400 font-mono">#{cat.slug}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 font-bold">
+                            {cat.businessCount ?? 0} businesses
+                          </span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
                             {subCount} {subCount === 1 ? 'subcategory' : 'subcategories'}
                           </span>
@@ -680,7 +716,7 @@ export default function SectorsCategoriesPanel() {
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold text-gray-800 truncate">{sub.name}</p>
-                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug} · {sub.businessCount ?? 0} businesses</p>
                       </div>
                     </div>
 
@@ -729,6 +765,89 @@ export default function SectorsCategoriesPanel() {
           </div>
         </div>
       )}
+
+      {/* ─── ASSIGNED BUSINESSES ─────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Assigned Businesses</h3>
+            <p className="text-[11px] font-semibold text-gray-400 mt-0.5">
+              {assignmentEntity
+                ? `${assignmentLevel === 'sector' ? activeSector?.name : assignmentLevel === 'category' ? activeCategory?.name : activeSubCategories.find((s) => s.id === assignmentEntity.id)?.name} · ${assignedBusinesses.length} assigned`
+                : 'Select a sector, category, or subcategory'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 rounded-xl bg-white p-1 border border-gray-200">
+            {(['sector', 'category', 'subcategory'] as const).map((level) => (
+              <button
+                key={level}
+                onClick={() => setAssignmentLevel(level)}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors',
+                  assignmentLevel === level ? 'bg-brand-blue text-white' : 'text-gray-500 hover:bg-gray-50',
+                )}
+              >
+                {level === 'subcategory' ? 'Sub' : level}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {assignmentLevel === 'subcategory' && activeSubCategories.length > 0 && (
+          <div className="px-4 pt-3">
+            <select
+              value={assignmentEntity?.id || ''}
+              onChange={(event) => setAssignmentSubId(event.target.value)}
+              className="w-full sm:w-72 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700"
+            >
+              {activeSubCategories.map((sub) => (
+                <option key={sub.id} value={sub.id}>{sub.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {assignedLoading ? (
+          <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-brand-blue" /></div>
+        ) : !assignmentEntity ? (
+          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
+            Select an entity to view its assigned businesses.
+          </div>
+        ) : assignedBusinesses.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
+            No businesses are assigned to this {assignmentLevel} yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50/50">
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Business</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Owner</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Postcode</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Joined</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {assignedBusinesses.map((business) => (
+                  <tr key={business.id} className="hover:bg-gray-50/60">
+                    <td className="px-4 py-3">
+                      <p className="text-xs font-bold text-gray-900">{business.businessName}</p>
+                      <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-xs font-semibold text-gray-700">{[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}</p>
+                      <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
+                    <td className="px-4 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* ─── FULL HIERARCHY TREE VIEW ────────────────────────── */}
       {viewMode === 'tree' && (

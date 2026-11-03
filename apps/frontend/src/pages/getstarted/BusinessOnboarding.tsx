@@ -113,6 +113,11 @@ function useCreateUser() {
         country: 'United Kingdom',
         phone: data.phoneNumber || data.phone || '',
         phoneNumber: data.phoneNumber || data.phone || '',
+        postcode: data.postcode || undefined,
+        address: data.address || undefined,
+        sectorId: data.sectorId || undefined,
+        categoryId: data.categoryId || undefined,
+        subCategoryId: data.subCategoryId || undefined,
         role: data.role || 'BUSINESS',
       });
       return { data: res };
@@ -2428,6 +2433,11 @@ function BusinessOnboardingInner() {
 
     // ── Final step: register + auto-login + create profile ──────────────────
     if (currentStep === activeQuests.length - 1) {
+      if (!formData.postcode || formData.postcode.trim().length < 3) {
+        setSubmitError('A valid UK postcode is required to create your business account.');
+        setIsSubmitting(false);
+        return;
+      }
       const selectedSectorExists = catalogSectors.some((sector) => sector.id === formData.sectorId);
       const selectedCategory = catalogCategories.find((category) => category.id === formData.categoryId);
       const selectedSubcategory = catalogSubcategories.find((subcategory) => subcategory.id === formData.subCategoryId);
@@ -2449,6 +2459,11 @@ function BusinessOnboardingInner() {
               password: formData.password,
               confirm_password: formData.confirmPassword,
               businessName: formData.businessName,
+              postcode: formData.postcode,
+              address: formData.address,
+              sectorId: formData.sectorId,
+              categoryId: formData.categoryId,
+              subCategoryId: formData.subCategoryId,
               role: UserRole.OWNER,
             });
           } catch (err: any) {

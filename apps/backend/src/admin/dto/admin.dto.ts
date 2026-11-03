@@ -944,6 +944,11 @@ export class CreateBoroughDto {
   @IsNotEmpty()
   name: string;
 
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID in the geographic hierarchy' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
   @ApiProperty({ example: 'High' })
   @IsString()
   @IsNotEmpty()
@@ -1005,6 +1010,16 @@ export class CreateHighStreetDto {
   @IsNotEmpty()
   name: string;
 
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123borough', description: 'Parent borough ID' })
+  @IsOptional()
+  @IsString()
+  boroughId?: string;
+
   @ApiProperty({ example: 'Southwark' })
   @IsString()
   @IsNotEmpty()
@@ -1041,6 +1056,21 @@ export class CreateLocalMallDto {
   @IsString()
   @IsNotEmpty()
   name: string;
+
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123borough', description: 'Parent borough ID' })
+  @IsOptional()
+  @IsString()
+  boroughId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123highstreet', description: 'Parent high street ID' })
+  @IsOptional()
+  @IsString()
+  highStreetId?: string;
 
   @ApiProperty({ type: [String], example: ['SE15', 'SE5'] })
   @IsArray()
@@ -1605,6 +1635,11 @@ export class UpdateBoroughDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
   @ApiPropertyOptional({ example: 'High' })
   @IsOptional()
   @IsString()
@@ -1667,6 +1702,16 @@ export class UpdateHighStreetDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123borough', description: 'Parent borough ID' })
+  @IsOptional()
+  @IsString()
+  boroughId?: string;
+
   @ApiPropertyOptional({ example: 'Southwark' })
   @IsOptional()
   @IsString()
@@ -1703,6 +1748,21 @@ export class UpdateLocalMallDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @ApiPropertyOptional({ example: 'clx123city', description: 'Parent city ID' })
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123borough', description: 'Parent borough ID' })
+  @IsOptional()
+  @IsString()
+  boroughId?: string;
+
+  @ApiPropertyOptional({ example: 'clx123highstreet', description: 'Parent high street ID' })
+  @IsOptional()
+  @IsString()
+  highStreetId?: string;
 
   @ApiPropertyOptional({ type: [String], example: ['SE15', 'SE5'] })
   @IsOptional()
@@ -2229,3 +2289,39 @@ export class ClearAuditLogsDto {
   @IsNotEmpty()
   confirm: string;
 }
+
+// ─── Cities (top of the geographic hierarchy) ───────────────────────────────
+export class CreateCityDto {
+  @ApiProperty({ example: 'Greater London' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiPropertyOptional({ example: 'London' })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional({ example: 'United Kingdom' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+}
+
+export class UpdateCityDto {
+  @ApiPropertyOptional({ example: 'Greater London' })
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'London' })
+  @IsOptional()
+  @IsString()
+  region?: string;
+
+  @ApiPropertyOptional({ example: 'United Kingdom' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+}
+

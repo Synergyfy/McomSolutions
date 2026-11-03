@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
+import { LocationAggregationService } from '../geography/location-aggregation.service';
 import { Role } from '@prisma/client';
 
 describe('AdminService', () => {
@@ -56,6 +57,10 @@ describe('AdminService', () => {
         {
           provide: JwtService,
           useValue: mockJwtService,
+        },
+        {
+          provide: LocationAggregationService,
+          useValue: { aggregateAll: jest.fn().mockResolvedValue({}) },
         },
       ],
     }).compile();

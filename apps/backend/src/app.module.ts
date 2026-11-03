@@ -1,6 +1,7 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppThrottlerGuard } from './common/throttler/app-throttler.guard';
 import { PrismaModule } from './prisma/prisma.module';
@@ -29,6 +30,7 @@ import { AccessModule } from './access/access.module';
 import { CustomerModule } from './customer/customer.module';
 import { RecurringModule } from './recurring/recurring.module';
 import { PartnerModule } from './partner/partner.module';
+import { GeographyModule } from './geography/geography.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -68,6 +70,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
       isGlobal: true,
       validate: validateEnv,
     }),
+    ScheduleModule.forRoot(),
     // Global rate limiter — registered ONCE here. Per-route @Throttle()
     // overrides live in the controllers (Console, Wallet partner/admin).
     // Phase 3 (G4): Redis-backed storage so budgets hold across instances
@@ -109,6 +112,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     CustomerModule,
     RecurringModule,
     PartnerModule,
+    GeographyModule,
   ],
   controllers: [],
   // Global throttler: AppThrottlerGuard keys by userId for authenticated

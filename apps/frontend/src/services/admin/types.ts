@@ -361,6 +361,8 @@ export interface SystemSettings {
 export interface Borough {
   id: string
   name: string
+  cityId?: string | null
+  city?: City | null
   populationActivity: string
   businessCount: number
   activeCampaigns: number
@@ -372,16 +374,36 @@ export interface Borough {
   engagement: string
   health: string
   activity: string
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
+  _count?: { highStreets?: number; localMalls?: number }
+}
+
+export interface City {
+  id: string
+  name: string
+  region?: string | null
+  country: string
+  businessCount: number
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
+  _count?: { boroughs?: number; highStreets?: number; localMalls?: number }
 }
 
 export interface HighStreet {
   id: string
   name: string
   borough: string
+  cityId?: string | null
+  boroughId?: string | null
   status: string
   businessCount: number
   lat?: number
   lng?: number
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
 }
 
 export interface LocalMall {
@@ -389,9 +411,14 @@ export interface LocalMall {
   name: string
   postcodes: string[]
   borough: string
+  cityId?: string | null
+  boroughId?: string | null
+  highStreetId?: string | null
   primaryHighStreet: string
   additionalHighStreets: string[]
   status: string
+  businesses?: number
+  customers?: number
   description: string
   longDescription: string
   slug: string
@@ -411,6 +438,31 @@ export interface LocalMall {
   assignedAgents?: string[]
   supportTeam?: string[]
   categoryPriorities?: Record<string, any>
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
+}
+
+/** Business-owner row shown in the per-entity assignment tables. */
+export interface AssignedBusiness {
+  id: string
+  businessName: string
+  businessType?: string
+  email: string
+  phone?: string
+  address?: string | null
+  postcode?: string | null
+  industry?: string | null
+  category?: string | null
+  subCategory?: string | null
+  membershipLevel?: string
+  membershipStatus?: string
+  createdAt: string
+  user?: {
+    id: string
+    email: string
+    firstName?: string | null
+    lastName?: string | null
+  } | null
 }
 
 // ─── Input DTOs (matching backend Create*Dto shapes) ──
@@ -942,6 +994,9 @@ export interface AdminSubCategory {
   slug: string
   sortOrder: number
   imageUrl?: string | null
+  businessCount?: number
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
   createdAt?: string
   updatedAt?: string
   category?: {
@@ -959,6 +1014,9 @@ export interface AdminCategory {
   slug: string
   sortOrder: number
   imageUrl?: string | null
+  businessCount?: number
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
   createdAt?: string
   updatedAt?: string
   subCategories?: AdminSubCategory[]
@@ -972,6 +1030,9 @@ export interface AdminSector {
   slug: string
   sortOrder: number
   imageUrl?: string | null
+  businessCount?: number
+  lastItemCreatedAt?: string | null
+  aggregatedAt?: string | null
   createdAt?: string
   updatedAt?: string
   categories?: AdminCategory[]

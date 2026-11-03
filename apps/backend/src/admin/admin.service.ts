@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { LocationAggregationService } from '../geography/location-aggregation.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
@@ -37,6 +38,8 @@ import {
   CreateBoroughDto,
   CreateHighStreetDto,
   CreateLocalMallDto,
+  CreateCityDto,
+  UpdateCityDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -111,6 +114,7 @@ export class AdminService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private locationAggregation: LocationAggregationService,
   ) {}
 
   /**
@@ -2458,6 +2462,9 @@ export class AdminService implements OnModuleInit {
           name: dto.name,
           postcodes: dto.postcodes,
           borough: dto.borough,
+          cityId: dto.cityId,
+          boroughId: dto.boroughId,
+          highStreetId: dto.highStreetId,
           primaryHighStreet: dto.primaryHighStreet,
           additionalHighStreets: dto.additionalHighStreets,
           businesses: dto.businesses ?? 0,
@@ -2585,5 +2592,132 @@ export class AdminService implements OnModuleInit {
     });
 
     return { success: true };
+  }
+
+  // ─── Cities ───────────────────────────────────────────────
+  async getCities() {
+    const items = await this.prisma.city.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        _count: {
+          select: { boroughs: true, highStreets: true, localMalls: true },
+        },
+      },
+    });
+    return { success: true, data: items };
+  }
+
+  async createCity(dto: CreateCityDto, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { name: dto.name } });
+    if (existing) throw new ConflictException('A city with this name already exists');
+
+    const city = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.city.create({
+        data: {
+          name: dto.name,
+          region: dto.region,
+          country: dto.country || 'United Kingdom',
+        },
+      });
+      await this.logAuditTx(tx, 'City Created', 'City', dto.name, `Created city ${dto.name}`, adminName);
+      return result;
+    });
+
+    return { success: true, data: city };
+  }
+
+  async updateCity(id: string, dto: UpdateCityDto, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('City not found');
+
+    if (dto.name && dto.name !== existing.name) {
+      const nameMatch = await this.prisma.city.findUnique({ where: { name: dto.name } });
+      if (nameMatch) throw new ConflictException('A city with this name already exists');
+    }
+
+    const city = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.city.update({ where: { id }, data: dto });
+      await this.logAuditTx(tx, 'City Updated', 'City', result.name, `Updated city ${result.name}`, adminName);
+      return result;
+    });
+
+    return { success: true, data: city };
+  }
+
+  async deleteCity(id: string, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('City not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.city.delete({ where: { id } });
+      await this.logAuditTx(tx, 'City Deleted', 'City', existing.name, `Deleted city ${existing.name}`, adminName);
+    });
+
+    return { success: true };
+  }
+
+  // ─── Assigned business users per entity ───────────────────
+  private async getAssignedBusinesses(where: Prisma.BusinessProfileWhereInput) {
+    const data = await this.prisma.businessProfile.findMany({
+      where: { ...where, deletedAt: null },
+      select: {
+        id: true,
+        businessName: true,
+        businessType: true,
+        email: true,
+        phone: true,
+        address: true,
+        postcode: true,
+        industry: true,
+        category: true,
+        subCategory: true,
+        membershipLevel: true,
+        membershipStatus: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { success: true, data, total: data.length };
+  }
+
+  getCityBusinesses(id: string) {
+    return this.getAssignedBusinesses({ cityId: id });
+  }
+
+  getBoroughBusinesses(id: string) {
+    return this.getAssignedBusinesses({ boroughId: id });
+  }
+
+  getHighStreetBusinesses(id: string) {
+    return this.getAssignedBusinesses({ highStreetId: id });
+  }
+
+  getLocalMallBusinesses(id: string) {
+    return this.getAssignedBusinesses({ localMallId: id });
+  }
+
+  getSectorBusinesses(id: string) {
+    return this.getAssignedBusinesses({ sectorId: id });
+  }
+
+  getCategoryBusinesses(id: string) {
+    return this.getAssignedBusinesses({ categoryId: id });
+  }
+
+  getSubCategoryBusinesses(id: string) {
+    return this.getAssignedBusinesses({ subCategoryId: id });
+  }
+
+  /** Manual trigger for the same delta-checked aggregation the cron runs. */
+  runLocationAggregation() {
+    return this.locationAggregation.aggregateAll();
   }
 }
