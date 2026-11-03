@@ -735,6 +735,22 @@ export const useBackfillBusinessLocations = () => {
   })
 }
 
+export const useImportUkReferenceData = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data?: { includeAdministrative?: boolean; includeMalls?: boolean; mallLimit?: number }) =>
+      adminApi.importUkReferenceData(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'assignedBusinesses'] })
+    },
+  })
+}
+
 // ─── External Service Plans (MCOM Mall, etc.) ──────────────────────────
 export const useExternalPlans = (platform: string) => {
   return useQuery({

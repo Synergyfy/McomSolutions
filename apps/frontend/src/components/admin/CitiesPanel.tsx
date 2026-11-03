@@ -12,6 +12,7 @@ import {
   RefreshCw,
   ChevronRight,
   Wand2,
+  Globe2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
@@ -20,6 +21,7 @@ import {
   useDeleteCity,
   useRunLocationAggregation,
   useBackfillBusinessLocations,
+  useImportUkReferenceData,
 } from '../../services/admin/hooks';
 import AssignedUsersTable from './AssignedUsersTable';
 import type { City } from '../../services/admin/types';
@@ -60,6 +62,7 @@ export default function CitiesPanel() {
   const deleteCity = useDeleteCity();
   const runAggregation = useRunLocationAggregation();
   const backfill = useBackfillBusinessLocations();
+  const importReference = useImportUkReferenceData();
 
   const [search, setSearch] = useState('');
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
@@ -129,6 +132,34 @@ export default function CitiesPanel() {
     }
   };
 
+  const handleImportReference = async () => {
+    if (
+      !window.confirm(
+        'Import UK cities, boroughs, high streets, and shopping malls from ONS/OpenStreetMap? This can take several minutes.',
+      )
+    ) {
+      return;
+    }
+    setBackfillMessage('');
+    try {
+      const response = await importReference.mutateAsync({
+        includeAdministrative: true,
+        includeMalls: true,
+      });
+      const admin = response.data.administrative;
+      const malls = response.data.malls;
+      setBackfillMessage(
+        `Import complete: ${admin?.regions ?? 0} cities, ${admin?.boroughs ?? 0} boroughs, ` +
+          `${admin?.highStreets ?? 0} high streets; malls ${malls?.created ?? 0} created, ` +
+          `${malls?.updated ?? 0} updated.`,
+      );
+    } catch (err: any) {
+      setBackfillMessage(
+        err?.response?.data?.message || 'Import failed. Check the backend logs and try again.',
+      );
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -154,6 +185,15 @@ export default function CitiesPanel() {
           >
             <RefreshCw className={cn('h-4 w-4', runAggregation.isPending && 'animate-spin')} />
             Recalculate totals
+          </button>
+          <button
+            onClick={handleImportReference}
+            disabled={importReference.isPending}
+            title="Import UK cities, boroughs, high streets and malls from ONS/OpenStreetMap"
+            className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs font-bold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-60"
+          >
+            <Globe2 className={cn('h-4 w-4', importReference.isPending && 'animate-spin')} />
+            {importReference.isPending ? 'Importing UK data…' : 'Import UK data'}
           </button>
           <button
             onClick={handleBackfill}

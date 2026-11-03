@@ -45,6 +45,8 @@ export default function HighStreetsPanel() {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Pending' | 'Inactive'>('All');
   const [boroughFilter, setBoroughFilter] = useState('All Boroughs');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
+  const [listPage, setListPage] = useState(0);
+  const LIST_PAGE_SIZE = 10;
 
   const [ecosystemModal, setEcosystemModal] = useState<HighStreet | null>(null);
   const [assignModal, setAssignModal] = useState<HighStreet | null>(null);
@@ -63,6 +65,12 @@ export default function HighStreetsPanel() {
     const matchesBorough = boroughFilter === 'All Boroughs' || hs.borough === boroughFilter;
     return matchesSearch && matchesStatus && matchesBorough;
   });
+  const totalListPages = Math.max(1, Math.ceil(filteredHighStreets.length / LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, totalListPages - 1);
+  const pagedHighStreets = filteredHighStreets.slice(
+    safeListPage * LIST_PAGE_SIZE,
+    safeListPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
+  );
 
   const handleAssignManager = async () => {
     if (!assignModal || !assignManagerId) return;
@@ -265,8 +273,8 @@ export default function HighStreetsPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredHighStreets.length > 0 ? (
-                filteredHighStreets.map((hs) => (
+              {pagedHighStreets.length > 0 ? (
+                pagedHighStreets.map((hs) => (
                   <tr key={hs.id} onClick={() => setSelectedHighStreetId(hs.id)} className="hover:bg-gray-50/50 transition-colors group cursor-pointer">
                     <td className="px-6 py-4 font-bold text-sm text-gray-900">{hs.name}</td>
                     <td className="px-6 py-4 text-xs font-semibold text-gray-500">{hs.borough}</td>
@@ -339,6 +347,32 @@ export default function HighStreetsPanel() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col gap-2 border-t border-gray-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            {filteredHighStreets.length
+              ? `${safeListPage * LIST_PAGE_SIZE + 1}–${Math.min((safeListPage + 1) * LIST_PAGE_SIZE, filteredHighStreets.length)} of ${filteredHighStreets.length}`
+              : '0 results'}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setListPage(Math.max(0, safeListPage - 1))}
+              disabled={safeListPage <= 0}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <span className="text-[10px] font-bold text-gray-500">{safeListPage + 1} / {totalListPages}</span>
+            <button
+              type="button"
+              onClick={() => setListPage(Math.min(totalListPages - 1, safeListPage + 1))}
+              disabled={safeListPage >= totalListPages - 1}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 

@@ -96,8 +96,12 @@ export class PostcodeService {
     const region: string = result.region || '';
     const postTown: string = result.post_town || '';
     const parish: string = result.parish || '';
+    const country: string = result.country || '';
 
-    const city = county || region || district || postTown;
+    const devolvedCountry = ['Wales', 'Scotland', 'Northern Ireland'].includes(country)
+      ? country
+      : '';
+    const city = devolvedCountry || region || county || district || postTown;
     const borough = district || region || city;
     const highStreet = ward || parish || borough;
     const localMall = postTown ? `${postTown} Local Mall` : `${highStreet} Local Mall`;
@@ -150,7 +154,11 @@ export class PostcodeService {
     }
 
     const address = item.address || {};
-    const city = address.city || address.town || address.village || address.county || '';
+    const country = address.country || '';
+    const devolvedCountry = ['Wales', 'Scotland', 'Northern Ireland'].includes(country)
+      ? country
+      : '';
+    const city = devolvedCountry || address.city || address.town || address.village || address.county || '';
     const borough = address.borough || address.city_district || address.county || city;
     const highStreet =
       address.suburb || address.neighbourhood || address.quarter || borough;

@@ -2378,3 +2378,34 @@ export class BackfillBusinessLocationsDto {
   limit?: number;
 }
 
+export class ImportUkReferenceDataDto {
+  @ApiPropertyOptional({
+    example: true,
+    default: true,
+    description: 'Import ONS regions, local authority districts, and wards.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  includeAdministrative?: boolean = true;
+
+  @ApiPropertyOptional({
+    example: true,
+    default: true,
+    description: 'Best-effort import of named shopping malls from OpenStreetMap.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  includeMalls?: boolean = true;
+
+  @ApiPropertyOptional({
+    example: 250,
+    description: 'Maximum number of OSM malls to import. Omit for no cap.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  mallLimit?: number;
+}
+

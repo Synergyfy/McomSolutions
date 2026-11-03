@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LocationAggregationService } from '../geography/location-aggregation.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { UkReferenceDataService } from '../geography/uk-reference-data.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
@@ -43,6 +44,7 @@ import {
   UpdateCityDto,
   AssignedUsersQueryDto,
   BackfillBusinessLocationsDto,
+  ImportUkReferenceDataDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -136,6 +138,7 @@ export class AdminService implements OnModuleInit {
     private jwtService: JwtService,
     private locationAggregation: LocationAggregationService,
     private locationAssignment: LocationAssignmentService,
+    private ukReferenceData: UkReferenceDataService,
   ) {}
 
   /**
@@ -2926,5 +2929,23 @@ export class AdminService implements OnModuleInit {
         : await this.locationAggregation.aggregateAll();
 
     return { success: true, data: { ...summary, aggregation } };
+  }
+
+  /**
+   * One-time UK reference data import. Administrative areas come from the ONS
+   * Open Geography Portal; malls are a best-effort OSM import.
+   */
+  async importUkReferenceData(dto: ImportUkReferenceDataDto = {}) {
+    const administrative =
+      dto.includeAdministrative === false
+        ? null
+        : await this.ukReferenceData.importAdministrativeAreas();
+
+    const malls =
+      dto.includeMalls === false ? null : await this.ukReferenceData.importMalls(dto.mallLimit);
+
+    const aggregation = dto.includeAdministrative === false ? null : await this.locationAggregation.aggregateAll();
+
+    return { success: true, data: { administrative, malls, aggregation } };
   }
 }

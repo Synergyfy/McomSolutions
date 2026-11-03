@@ -48,6 +48,8 @@ export default function BoroughsPanel() {
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState('businesses');
   const [chartRange, setChartRange] = useState<'6M' | '30D'>('30D');
+  const [listPage, setListPage] = useState(0);
+  const LIST_PAGE_SIZE = 10;
 
   // Modals for detail view
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -101,6 +103,12 @@ export default function BoroughsPanel() {
   const filteredBoroughs = boroughs.filter(b =>
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     b.manager.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  const totalListPages = Math.max(1, Math.ceil(filteredBoroughs.length / LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, totalListPages - 1);
+  const pagedBoroughs = filteredBoroughs.slice(
+    safeListPage * LIST_PAGE_SIZE,
+    safeListPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
   );
 
   const boroughStats = [
@@ -531,7 +539,7 @@ export default function BoroughsPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filteredBoroughs.map((b) => (
+                {pagedBoroughs.map((b) => (
                   <tr 
                     key={b.id}
                     className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
@@ -628,6 +636,32 @@ export default function BoroughsPanel() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-col gap-2 border-t border-gray-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              {filteredBoroughs.length
+                ? `${safeListPage * LIST_PAGE_SIZE + 1}–${Math.min((safeListPage + 1) * LIST_PAGE_SIZE, filteredBoroughs.length)} of ${filteredBoroughs.length}`
+                : '0 results'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setListPage(Math.max(0, safeListPage - 1))}
+                disabled={safeListPage <= 0}
+                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+              >
+                Prev
+              </button>
+              <span className="text-[10px] font-bold text-gray-500">{safeListPage + 1} / {totalListPages}</span>
+              <button
+                type="button"
+                onClick={() => setListPage(Math.min(totalListPages - 1, safeListPage + 1))}
+                disabled={safeListPage >= totalListPages - 1}
+                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
 

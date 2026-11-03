@@ -45,6 +45,7 @@ import {
   UpdateCityDto,
   AssignedUsersQueryDto,
   BackfillBusinessLocationsDto,
+  ImportUkReferenceDataDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -688,5 +689,13 @@ export class AdminController {
   })
   async backfillBusinessLocations(@Body() dto: BackfillBusinessLocationsDto) {
     return this.adminService.backfillBusinessLocations(dto);
+  }
+
+  @Post('localities/import-uk-reference-data')
+  @ApiOperation({
+    summary: 'Import UK cities/boroughs/high streets from ONS and named malls from OpenStreetMap',
+  })
+  async importUkReferenceData(@Body() dto: ImportUkReferenceDataDto) {
+    return this.adminService.importUkReferenceData(dto);
   }
 }

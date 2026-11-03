@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { LocationAggregationService } from '../geography/location-aggregation.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { UkReferenceDataService } from '../geography/uk-reference-data.service';
 import { Role } from '@prisma/client';
 
 describe('AdminService', () => {
@@ -76,6 +77,13 @@ describe('AdminService', () => {
               failed: 0,
               errors: [],
             }),
+          },
+        },
+        {
+          provide: UkReferenceDataService,
+          useValue: {
+            importAdministrativeAreas: jest.fn().mockResolvedValue({}),
+            importMalls: jest.fn().mockResolvedValue({}),
           },
         },
       ],

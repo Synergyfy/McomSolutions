@@ -11,6 +11,7 @@
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "import:uk-reference": "ts-node scripts/import-uk-reference-data.ts",
     "prisma:migrate:staging": "dotenv -e .env.staging -- prisma migrate deploy",
     "test": "jest --maxWorkers=2 --forceExit",
     "test:unit": "jest --maxWorkers=2 --forceExit",

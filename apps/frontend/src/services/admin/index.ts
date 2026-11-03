@@ -451,6 +451,42 @@ export const adminApi = {
     }
   },
 
+  importUkReferenceData: async (data?: {
+    includeAdministrative?: boolean
+    includeMalls?: boolean
+    mallLimit?: number
+  }) => {
+    const res = await apiClient.post('/admin/localities/import-uk-reference-data', data || {})
+    return res.data as {
+      success: boolean
+      data: {
+        administrative: {
+          regions: number
+          boroughs: number
+          highStreets: number
+          citiesCreated: number
+          citiesUpdated: number
+          boroughsCreated: number
+          boroughsUpdated: number
+          highStreetsCreated: number
+          highStreetsUpdated: number
+          skipped: number
+          errors: string[]
+        } | null
+        malls: {
+          fetched: number
+          created: number
+          updated: number
+          skipped: number
+          failed: number
+          sourceErrors: string[]
+          errors: Array<{ name: string; postcode: string; message: string }>
+        } | null
+        aggregation: Record<string, number> | null
+      }
+    }
+  },
+
   getBoroughs: async () => {
     const res = await apiClient.get('/admin/localities/boroughs')
     return res.data as ApiResponse<Borough[]>

@@ -1624,6 +1624,7 @@ model RevenueRecord {
 model City {
   id                     String                  @id @default(cuid())
   name                   String                  @unique @map("name")
+  gssCode                String?                 @unique @map("gss_code")
   region                 String?                 @map("region")
   country                String                  @default("United Kingdom") @map("country")
   businessCount          Int                     @default(0) @map("business_count")
@@ -1647,6 +1648,7 @@ model City {
 model Borough {
   id                     String                  @id @default(cuid())
   name                   String                  @unique @map("name")
+  gssCode                String?                 @unique @map("gss_code")
   cityId                 String?                 @map("city_id")
   city                   City?                   @relation(fields: [cityId], references: [id], onDelete: SetNull)
   populationActivity     String                  @map("population_activity")
@@ -1680,6 +1682,7 @@ model Borough {
 model HighStreet {
   id                String    @id @default(cuid())
   name              String    @map("name")
+  gssCode           String?   @unique @map("gss_code")
   borough           String    @map("borough")
   cityId            String?   @map("city_id")
   city              City?     @relation(fields: [cityId], references: [id], onDelete: SetNull)
@@ -1711,6 +1714,8 @@ model HighStreet {
 model LocalMall {
   id                                String      @id @default(cuid())
   name                              String      @map("name")
+  osmId                             String?     @unique @map("osm_id")
+  source                            String      @default("manual") @map("source")
   postcodes                         String[]    @map("postcodes")
   borough                           String      @map("borough")
   cityId                            String?     @map("city_id")
