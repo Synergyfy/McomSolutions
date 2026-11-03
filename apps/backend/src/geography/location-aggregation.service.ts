@@ -207,6 +207,18 @@ export class LocationAggregationService {
   }
 
   private async aggregateHighStreets(): Promise<number> {
+    // Fast-path the huge number of imported wards that have no users at all.
+    await this.prisma.highStreet.updateMany({
+      where: {
+        aggregatedAt: null,
+        businessProfiles: { none: {} },
+        agentProfiles: { none: {} },
+        consultantProfiles: { none: {} },
+        accountManagerProfiles: { none: {} },
+      },
+      data: { businessCount: 0, affiliateCount: 0, aggregatedAt: new Date() },
+    });
+
     const rows = (await this.prisma.highStreet.findMany({
       select: { id: true, lastItemCreatedAt: true, aggregatedAt: true },
     })) as ScopeRow[];
@@ -237,6 +249,17 @@ export class LocationAggregationService {
   }
 
   private async aggregateLocalMalls(): Promise<number> {
+    await this.prisma.localMall.updateMany({
+      where: {
+        aggregatedAt: null,
+        businessProfiles: { none: {} },
+        agentProfiles: { none: {} },
+        consultantProfiles: { none: {} },
+        accountManagerProfiles: { none: {} },
+      },
+      data: { businesses: 0, affiliateCount: 0, aggregatedAt: new Date() },
+    });
+
     const rows = (await this.prisma.localMall.findMany({
       select: { id: true, lastItemCreatedAt: true, aggregatedAt: true },
     })) as ScopeRow[];
