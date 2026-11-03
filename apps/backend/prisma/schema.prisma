@@ -652,6 +652,7 @@ model CustomerProfile {
   userId           String    @unique @map("user_id")
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   phone            String?   @map("phone")
+  postcode         String?   @map("postcode")
   loyaltyPoints    Int       @default(0) @map("loyalty_points")
   platformUsage    String[]  @map("platform_usage")
   membershipStatus String    @default("None") @map("membership_status")
@@ -666,50 +667,92 @@ model CustomerProfile {
 }
 
 model AgentProfile {
-  id          String    @id @default(cuid())
-  userId      String    @unique @map("user_id")
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone       String?   @map("phone")
-  permissions String[]  @map("permissions")
-  status      String    @default("Active") @map("status")
-  deletedAt   DateTime? @map("deleted_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id                 String      @id @default(cuid())
+  userId             String      @unique @map("user_id")
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone              String?     @map("phone")
+  postcode           String?     @map("postcode")
+  cityId             String?     @map("city_id")
+  city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  boroughId          String?     @map("borough_id")
+  borough            Borough?    @relation(fields: [boroughId], references: [id], onDelete: SetNull)
+  highStreetId       String?     @map("high_street_id")
+  highStreet         HighStreet? @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  localMallId        String?     @map("local_mall_id")
+  localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
+  locationAssignedAt DateTime?   @map("location_assigned_at")
+  permissions        String[]    @map("permissions")
+  status             String      @default("Active") @map("status")
+  deletedAt          DateTime?   @map("deleted_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
+  @@index([cityId])
+  @@index([boroughId])
+  @@index([highStreetId])
+  @@index([localMallId])
   @@map("agent_profiles")
 }
 
 model ConsultantProfile {
-  id             String    @id @default(cuid())
-  userId         String    @unique @map("user_id")
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone          String?   @map("phone")
-  specialisation String    @map("specialisation")
-  status         String    @default("Active") @map("status")
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id                 String      @id @default(cuid())
+  userId             String      @unique @map("user_id")
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone              String?     @map("phone")
+  postcode           String?     @map("postcode")
+  cityId             String?     @map("city_id")
+  city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  boroughId          String?     @map("borough_id")
+  borough            Borough?    @relation(fields: [boroughId], references: [id], onDelete: SetNull)
+  highStreetId       String?     @map("high_street_id")
+  highStreet         HighStreet? @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  localMallId        String?     @map("local_mall_id")
+  localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
+  locationAssignedAt DateTime?   @map("location_assigned_at")
+  specialisation     String      @map("specialisation")
+  status             String      @default("Active") @map("status")
+  deletedAt          DateTime?   @map("deleted_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
+  @@index([cityId])
+  @@index([boroughId])
+  @@index([highStreetId])
+  @@index([localMallId])
   @@map("consultant_profiles")
 }
 
 model AccountManagerProfile {
-  id                 String    @id @default(cuid())
-  userId             String    @unique @map("user_id")
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phone              String?   @map("phone")
-  assignedBusinesses Int       @default(0) @map("assigned_businesses")
-  status             String    @default("Active") @map("status")
-  deletedAt          DateTime? @map("deleted_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                 String      @id @default(cuid())
+  userId             String      @unique @map("user_id")
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone              String?     @map("phone")
+  postcode           String?     @map("postcode")
+  cityId             String?     @map("city_id")
+  city               City?       @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  boroughId          String?     @map("borough_id")
+  borough            Borough?    @relation(fields: [boroughId], references: [id], onDelete: SetNull)
+  highStreetId       String?     @map("high_street_id")
+  highStreet         HighStreet? @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  localMallId        String?     @map("local_mall_id")
+  localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
+  locationAssignedAt DateTime?   @map("location_assigned_at")
+  assignedBusinesses Int         @default(0) @map("assigned_businesses")
+  status             String      @default("Active") @map("status")
+  deletedAt          DateTime?   @map("deleted_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  updatedAt          DateTime    @updatedAt @map("updated_at")
 
   @@index([userId])
   @@index([deletedAt])
+  @@index([cityId])
+  @@index([boroughId])
+  @@index([highStreetId])
+  @@index([localMallId])
   @@map("account_manager_profiles")
 }
 
@@ -1579,48 +1622,56 @@ model RevenueRecord {
 }
 
 model City {
-  id                String            @id @default(cuid())
-  name              String            @unique @map("name")
-  region            String?           @map("region")
-  country           String            @default("United Kingdom") @map("country")
-  businessCount     Int               @default(0) @map("business_count")
-  lastItemCreatedAt DateTime?         @map("last_item_created_at")
-  aggregatedAt      DateTime?         @map("aggregated_at")
-  boroughs          Borough[]
-  highStreets       HighStreet[]
-  localMalls        LocalMall[]
-  businessProfiles  BusinessProfile[]
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  id                     String                  @id @default(cuid())
+  name                   String                  @unique @map("name")
+  region                 String?                 @map("region")
+  country                String                  @default("United Kingdom") @map("country")
+  businessCount          Int                     @default(0) @map("business_count")
+  affiliateCount         Int                     @default(0) @map("affiliate_count")
+  lastItemCreatedAt      DateTime?               @map("last_item_created_at")
+  aggregatedAt           DateTime?               @map("aggregated_at")
+  boroughs               Borough[]
+  highStreets            HighStreet[]
+  localMalls             LocalMall[]
+  businessProfiles       BusinessProfile[]
+  agentProfiles          AgentProfile[]
+  consultantProfiles     ConsultantProfile[]
+  accountManagerProfiles AccountManagerProfile[]
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
 
   @@index([name])
   @@map("cities")
 }
 
 model Borough {
-  id                   String            @id @default(cuid())
-  name                 String            @unique @map("name")
-  cityId               String?           @map("city_id")
-  city                 City?             @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  populationActivity   String            @map("population_activity")
-  businessCount        Int               @default(0) @map("business_count")
-  activeCampaigns      Int               @default(0) @map("active_campaigns")
-  rewardsParticipation String            @map("rewards_participation")
-  healthScore          Int               @map("health_score")
-  manager              String            @map("manager")
-  area                 String            @map("area")
-  region               String            @map("region")
-  engagement           String            @map("engagement")
-  health               String            @map("health")
-  activity             String            @map("activity")
-  lastItemCreatedAt    DateTime?         @map("last_item_created_at")
-  aggregatedAt         DateTime?         @map("aggregated_at")
-  createdAt            DateTime          @default(now()) @map("created_at")
-  updatedAt            DateTime          @updatedAt @map("updated_at")
-  metrics              BoroughMetric[]
-  highStreets          HighStreet[]
-  localMalls           LocalMall[]
-  businessProfiles     BusinessProfile[]
+  id                     String                  @id @default(cuid())
+  name                   String                  @unique @map("name")
+  cityId                 String?                 @map("city_id")
+  city                   City?                   @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  populationActivity     String                  @map("population_activity")
+  businessCount          Int                     @default(0) @map("business_count")
+  affiliateCount         Int                     @default(0) @map("affiliate_count")
+  activeCampaigns        Int                     @default(0) @map("active_campaigns")
+  rewardsParticipation   String                  @map("rewards_participation")
+  healthScore            Int                     @map("health_score")
+  manager                String                  @map("manager")
+  area                   String                  @map("area")
+  region                 String                  @map("region")
+  engagement             String                  @map("engagement")
+  health                 String                  @map("health")
+  activity               String                  @map("activity")
+  lastItemCreatedAt      DateTime?               @map("last_item_created_at")
+  aggregatedAt           DateTime?               @map("aggregated_at")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  metrics                BoroughMetric[]
+  highStreets            HighStreet[]
+  localMalls             LocalMall[]
+  businessProfiles       BusinessProfile[]
+  agentProfiles          AgentProfile[]
+  consultantProfiles     ConsultantProfile[]
+  accountManagerProfiles AccountManagerProfile[]
 
   @@index([cityId])
   @@map("boroughs")
@@ -1636,6 +1687,7 @@ model HighStreet {
   boroughRef        Borough?  @relation(fields: [boroughId], references: [id], onDelete: SetNull)
   status            String    @default("Active") @map("status")
   businessCount     Int       @default(0) @map("business_count")
+  affiliateCount    Int       @default(0) @map("affiliate_count")
   lat               Float?    @map("lat")
   lng               Float?    @map("lng")
   assignedTo        String?   @map("assigned_to")
@@ -1644,9 +1696,12 @@ model HighStreet {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  activities       ActivityFeed[]
-  localMalls       LocalMall[]
-  businessProfiles BusinessProfile[]
+  activities             ActivityFeed[]
+  localMalls             LocalMall[]
+  businessProfiles       BusinessProfile[]
+  agentProfiles          AgentProfile[]
+  consultantProfiles     ConsultantProfile[]
+  accountManagerProfiles AccountManagerProfile[]
 
   @@index([boroughId])
   @@index([cityId])
@@ -1669,6 +1724,7 @@ model LocalMall {
   primaryHighStreet                 String      @map("primary_high_street")
   additionalHighStreets             String[]    @map("additional_high_streets")
   businesses                        Int         @default(0) @map("businesses")
+  affiliateCount                    Int         @default(0) @map("affiliate_count")
   customers                         Int         @default(0) @map("customers")
   campaigns                         Int         @default(0) @map("campaigns")
   events                            Int         @default(0) @map("events")
@@ -1753,7 +1809,10 @@ model LocalMall {
   createdAt                         DateTime    @default(now()) @map("created_at")
   updatedAt                         DateTime    @updatedAt @map("updated_at")
 
-  businessProfiles BusinessProfile[]
+  businessProfiles       BusinessProfile[]
+  agentProfiles          AgentProfile[]
+  consultantProfiles     ConsultantProfile[]
+  accountManagerProfiles AccountManagerProfile[]
 
   @@index([cityId])
   @@index([boroughId])

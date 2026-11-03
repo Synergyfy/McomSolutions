@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import AuthSidebar from "../components/affiliate-auth/AuthSidebar";
 import AuthInput from "../components/affiliate-auth/AuthInput";
 import { useAffiliateAuth } from "../hooks/useAffiliateAuth";
-import { validateSignup } from "../lib/validation";
+import { validateSignup, validatePostcode, normalizeUkPostcode } from "../lib/validation";
 import { persistReferralCodeFromSearchParams } from "../lib/referral";
 import { UserRole } from "../types/affiliate-auth";
 import CHSLogo from "../components/CHSLogo";
@@ -37,10 +37,17 @@ export default function AffiliateSignup() {
         const lastName = (formData.get('lastName') as string || '').trim();
         const email = (formData.get('email') as string || '').trim().toLowerCase();
         const password = (formData.get('password') as string || '');
+        const postcode = normalizeUkPostcode((formData.get('postcode') as string) || '');
 
         const validationError = validateSignup({ firstName, lastName, email, password });
         if (validationError) {
             setError(validationError);
+            return;
+        }
+
+        const postcodeError = validatePostcode(postcode, true);
+        if (postcodeError) {
+            setError(postcodeError);
             return;
         }
 
@@ -60,7 +67,7 @@ export default function AffiliateSignup() {
             // query params so verify-email can send the user back afterwards)
             const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
             navigate(`/register/affiliate/verify-email${searchStr}`, {
-                state: { firstName, lastName, email, password, role, devCode: otpRes?.code, mode: otpRes?.mode },
+                state: { firstName, lastName, email, password, postcode, role, devCode: otpRes?.code, mode: otpRes?.mode },
             });
         } catch (err: any) {
             console.error("Signup failed", err);
@@ -157,6 +164,20 @@ export default function AffiliateSignup() {
                             icon="mail"
                             required
                         />
+
+                        <AuthInput
+                            id="postcode"
+                            name="postcode"
+                            label="UK Postcode"
+                            type="text"
+                            placeholder="e.g. SW1A 1AA"
+                            icon="location_on"
+                            autoComplete="postal-code"
+                            required
+                        />
+                        <p className="-mt-3 text-[11px] text-slate-400 font-semibold uppercase tracking-wider ml-1 font-display">
+                            Required — used to assign you to your local city, borough, high street and local mall.
+                        </p>
 
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-text-main ml-1 uppercase tracking-wider font-display">Password</label>

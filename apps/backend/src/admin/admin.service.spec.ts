@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { LocationAggregationService } from '../geography/location-aggregation.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 import { Role } from '@prisma/client';
 
 describe('AdminService', () => {
@@ -61,6 +62,21 @@ describe('AdminService', () => {
         {
           provide: LocationAggregationService,
           useValue: { aggregateAll: jest.fn().mockResolvedValue({}) },
+        },
+        {
+          provide: LocationAssignmentService,
+          useValue: {
+            backfillBusinesses: jest.fn().mockResolvedValue({
+              dryRun: false,
+              scanned: 0,
+              eligible: 0,
+              processed: 0,
+              assigned: 0,
+              skipped: 0,
+              failed: 0,
+              errors: [],
+            }),
+          },
         },
       ],
     }).compile();

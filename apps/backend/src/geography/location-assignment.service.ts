@@ -26,6 +26,17 @@ export interface AssignedHierarchy {
   localMallName: string;
 }
 
+export interface BackfillBusinessSummary {
+  dryRun: boolean;
+  scanned: number;
+  eligible: number;
+  processed: number;
+  assigned: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ businessId: string; postcode: string; message: string }>;
+}
+
 function slugify(value: string): string {
   return (
     (value || '')
@@ -140,6 +151,225 @@ export class LocationAssignmentService {
 
     this.logger.log(
       `Assigned business ${businessId} to ${hierarchy.cityName} > ${hierarchy.boroughName} > ` +
+        `${hierarchy.highStreetName} > ${hierarchy.localMallName}`,
+    );
+    return hierarchy;
+  }
+
+  /**
+   * One-off backfill for businesses that already have a postcode but were
+   * created before location assignment existed (or whose location links are
+   * incomplete). Resolves each unique postcode once, assigns the business, and
+   * leaves aggregates to the caller.
+   */
+  async backfillBusinesses(
+    options: { limit?: number; dryRun?: boolean } = {},
+  ): Promise<BackfillBusinessSummary> {
+    const dryRun = Boolean(options.dryRun);
+    const candidates = await this.prisma.businessProfile.findMany({
+      where: {
+        deletedAt: null,
+        postcode: { not: null },
+        OR: [
+          { locationAssignedAt: null },
+          { cityId: null },
+          { boroughId: null },
+          { highStreetId: null },
+          { localMallId: null },
+        ],
+      },
+      select: {
+        id: true,
+        postcode: true,
+        sectorId: true,
+        categoryId: true,
+        subCategoryId: true,
+        industry: true,
+        category: true,
+        subCategory: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const eligible = candidates.filter((business) => (business.postcode || '').trim().length > 0);
+    const limited = options.limit ? eligible.slice(0, options.limit) : eligible;
+
+    const summary: BackfillBusinessSummary = {
+      dryRun,
+      scanned: candidates.length,
+      eligible: eligible.length,
+      processed: limited.length,
+      assigned: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    // Postcodes are shared across many businesses; resolve each unique one once.
+    const resolvedCache = new Map<string, ResolvedPostcode | { error: string }>();
+
+    const resolveOnce = async (postcode: string) => {
+      const key = postcode.toUpperCase().replace(/\s+/g, ' ').trim();
+      const cached = resolvedCache.get(key);
+      if (cached) return cached;
+      try {
+        const resolved = await this.postcodeService.resolve(postcode);
+        resolvedCache.set(key, resolved);
+        return resolved;
+      } catch (error) {
+        const recorded = {
+          error: error instanceof Error ? error.message : String(error),
+        };
+        resolvedCache.set(key, recorded);
+        return recorded;
+      }
+    };
+
+    for (const business of limited) {
+      const postcode = (business.postcode || '').trim();
+      if (!postcode) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      const resolved = await resolveOnce(postcode);
+      if ('error' in resolved) {
+        summary.failed += 1;
+        summary.errors.push({
+          businessId: business.id,
+          postcode,
+          message: resolved.error,
+        });
+        continue;
+      }
+
+      if (dryRun) {
+        summary.assigned += 1;
+        continue;
+      }
+
+      try {
+        await this.assignBusiness(business.id, {
+          postcode: resolved.postcode,
+          resolvedPostcode: resolved,
+          sectorId: business.sectorId,
+          categoryId: business.categoryId,
+          subCategoryId: business.subCategoryId,
+          industry: business.industry,
+          category: business.category,
+          subCategory: business.subCategory,
+        });
+        summary.assigned += 1;
+      } catch (error) {
+        summary.failed += 1;
+        summary.errors.push({
+          businessId: business.id,
+          postcode,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    this.logger.log(
+      `Postcode backfill ${dryRun ? '(dry run) ' : ''}complete: ` +
+        `${summary.assigned} assigned, ${summary.failed} failed, ${summary.skipped} skipped ` +
+        `across ${summary.processed} businesses`,
+    );
+
+    return summary;
+  }
+
+  /**
+   * Assigns an affiliate profile (Agent / Consultant / Account Manager) to the
+   * same City → Borough → High Street → Local Mall hierarchy derived from its
+   * validated postcode.
+   */
+  async assignAffiliate(
+    profileType: 'agent' | 'consultant' | 'accountManager',
+    profileId: string,
+    postcode: string,
+    resolvedPostcode?: ResolvedPostcode,
+  ): Promise<AssignedHierarchy | null> {
+    const select = {
+      id: true,
+      postcode: true,
+      cityId: true,
+      boroughId: true,
+      highStreetId: true,
+      localMallId: true,
+    } as const;
+
+    let profile:
+      | {
+          id: string;
+          postcode: string | null;
+          cityId: string | null;
+          boroughId: string | null;
+          highStreetId: string | null;
+          localMallId: string | null;
+        }
+      | null = null;
+
+    if (profileType === 'agent') {
+      profile = await this.prisma.agentProfile.findUnique({ where: { id: profileId }, select });
+    } else if (profileType === 'consultant') {
+      profile = await this.prisma.consultantProfile.findUnique({ where: { id: profileId }, select });
+    } else {
+      profile = await this.prisma.accountManagerProfile.findUnique({
+        where: { id: profileId },
+        select,
+      });
+    }
+
+    if (!profile) return null;
+
+    const effectivePostcode = postcode?.trim() || profile.postcode?.trim();
+    if (!effectivePostcode) return null;
+
+    const resolved =
+      resolvedPostcode ?? (await this.postcodeService.resolve(effectivePostcode));
+    const assignedAt = new Date();
+
+    const hierarchy = await this.prisma.$transaction(async (tx) => {
+      const hierarchy = await this.ensureHierarchy(tx, resolved);
+      const locationData = {
+        postcode: resolved.postcode,
+        cityId: hierarchy.cityId,
+        boroughId: hierarchy.boroughId,
+        highStreetId: hierarchy.highStreetId,
+        localMallId: hierarchy.localMallId,
+        locationAssignedAt: assignedAt,
+      };
+
+      if (profileType === 'agent') {
+        await tx.agentProfile.update({ where: { id: profileId }, data: locationData });
+      } else if (profileType === 'consultant') {
+        await tx.consultantProfile.update({ where: { id: profileId }, data: locationData });
+      } else {
+        await tx.accountManagerProfile.update({ where: { id: profileId }, data: locationData });
+      }
+
+      await this.touchScopes(
+        tx,
+        hierarchy,
+        { sectorId: null, categoryId: null, subCategoryId: null },
+        assignedAt,
+        {
+          cityId: profile.cityId,
+          boroughId: profile.boroughId,
+          highStreetId: profile.highStreetId,
+          localMallId: profile.localMallId,
+          sectorId: null,
+          categoryId: null,
+          subCategoryId: null,
+        },
+      );
+
+      return hierarchy;
+    });
+
+    this.logger.log(
+      `Assigned ${profileType} ${profileId} to ${hierarchy.cityName} > ${hierarchy.boroughName} > ` +
         `${hierarchy.highStreetName} > ${hierarchy.localMallName}`,
     );
     return hierarchy;

@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ResolvedPostcode } from '../geography/postcode.service';
 import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -964,6 +965,14 @@ export class BusinessService {
     const email = grant ? grant.email : emailFromBody;
     const defaultMembership = await this.getDefaultMembership();
 
+    // A valid UK postcode is mandatory even when the business arrives through
+    // the Google claim flow. Prevents location-less business records.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required to complete business onboarding.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
+
     const existing = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -996,7 +1005,7 @@ export class BusinessService {
                 isOnGoogle: true,
                 googlePlaceId: data.googlePlaceId,
                 address: data.address || '',
-                postcode: data.postcode || '',
+                postcode: resolvedPostcode.postcode,
                 industry: data.industry || 'Food & Beverage',
                 category: data.category || 'Cafe',
                 subCategory: data.subCategory || '',
@@ -1011,7 +1020,7 @@ export class BusinessService {
                 isOnGoogle: true,
                 googlePlaceId: data.googlePlaceId,
                 address: data.address || '',
-                postcode: data.postcode || '',
+                postcode: resolvedPostcode.postcode,
                 openingHours: data.openingHours || '',
                 industry: data.industry || undefined,
                 category: data.category || undefined,
@@ -1023,7 +1032,16 @@ export class BusinessService {
         include: { businessProfile: true },
       });
       if (updatedUser.businessProfile) {
-        await this.assignBusinessLocation(updatedUser.businessProfile.id, data);
+        await this.assignBusinessLocation(updatedUser.businessProfile.id, {
+          postcode: resolvedPostcode.postcode,
+          resolvedPostcode,
+          sectorId: data.sectorId as string | undefined,
+          categoryId: data.categoryId as string | undefined,
+          subCategoryId: data.subCategoryId as string | undefined,
+          industry: data.industry,
+          category: data.category,
+          subCategory: data.subCategory,
+        });
         await this.ensureBusinessProgramme(
           updatedUser.businessProfile.id,
           updatedUser.businessProfile.businessName,
@@ -1067,7 +1085,7 @@ export class BusinessService {
             isOnGoogle: true,
             googlePlaceId: data.googlePlaceId,
             address: data.address || '',
-            postcode: data.postcode || '',
+            postcode: resolvedPostcode.postcode,
             industry: data.industry || 'Food & Beverage',
             category: data.category || 'Cafe',
             subCategory: data.subCategory || '',
@@ -1091,7 +1109,16 @@ export class BusinessService {
     }
 
     if (newUser.businessProfile) {
-      await this.assignBusinessLocation(newUser.businessProfile.id, data);
+      await this.assignBusinessLocation(newUser.businessProfile.id, {
+        postcode: resolvedPostcode.postcode,
+        resolvedPostcode,
+        sectorId: data.sectorId as string | undefined,
+        categoryId: data.categoryId as string | undefined,
+        subCategoryId: data.subCategoryId as string | undefined,
+        industry: data.industry,
+        category: data.category,
+        subCategory: data.subCategory,
+      });
       await this.ensureBusinessProgramme(
         newUser.businessProfile.id,
         newUser.businessProfile.businessName,
@@ -1229,6 +1256,7 @@ export class BusinessService {
       industry?: string;
       category?: string;
       subCategory?: string;
+      resolvedPostcode?: ResolvedPostcode;
     },
   ): Promise<void> {
     if (!input.postcode?.trim()) return;

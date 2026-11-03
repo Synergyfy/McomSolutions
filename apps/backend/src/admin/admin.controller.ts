@@ -43,6 +43,8 @@ import {
   CreateLocalMallDto,
   CreateCityDto,
   UpdateCityDto,
+  AssignedUsersQueryDto,
+  BackfillBusinessLocationsDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -633,50 +635,58 @@ export class AdminController {
 
   // ─── Assigned business users per entity ─────────────────
   @Get('localities/cities/:id/businesses')
-  @ApiOperation({ summary: 'List business users assigned to a city' })
-  async getCityBusinesses(@Param('id') id: string) {
-    return this.adminService.getCityBusinesses(id);
+  @ApiOperation({ summary: 'List businesses and affiliates assigned to a city' })
+  async getCityBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getCityBusinesses(id, query);
   }
 
   @Get('localities/boroughs/:id/businesses')
-  @ApiOperation({ summary: 'List business users assigned to a borough' })
-  async getBoroughBusinesses(@Param('id') id: string) {
-    return this.adminService.getBoroughBusinesses(id);
+  @ApiOperation({ summary: 'List businesses and affiliates assigned to a borough' })
+  async getBoroughBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getBoroughBusinesses(id, query);
   }
 
   @Get('localities/high-streets/:id/businesses')
-  @ApiOperation({ summary: 'List business users assigned to a high street' })
-  async getHighStreetBusinesses(@Param('id') id: string) {
-    return this.adminService.getHighStreetBusinesses(id);
+  @ApiOperation({ summary: 'List businesses and affiliates assigned to a high street' })
+  async getHighStreetBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getHighStreetBusinesses(id, query);
   }
 
   @Get('localities/local-malls/:id/businesses')
-  @ApiOperation({ summary: 'List business users assigned to a local mall' })
-  async getLocalMallBusinesses(@Param('id') id: string) {
-    return this.adminService.getLocalMallBusinesses(id);
+  @ApiOperation({ summary: 'List businesses and affiliates assigned to a local mall' })
+  async getLocalMallBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getLocalMallBusinesses(id, query);
   }
 
   @Get('catalog/sectors/:id/businesses')
   @ApiOperation({ summary: 'List business users assigned to a sector' })
-  async getSectorBusinesses(@Param('id') id: string) {
-    return this.adminService.getSectorBusinesses(id);
+  async getSectorBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getSectorBusinesses(id, query);
   }
 
   @Get('catalog/categories/:id/businesses')
   @ApiOperation({ summary: 'List business users assigned to a category' })
-  async getCategoryBusinesses(@Param('id') id: string) {
-    return this.adminService.getCategoryBusinesses(id);
+  async getCategoryBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getCategoryBusinesses(id, query);
   }
 
   @Get('catalog/subcategories/:id/businesses')
   @ApiOperation({ summary: 'List business users assigned to a subcategory' })
-  async getSubCategoryBusinesses(@Param('id') id: string) {
-    return this.adminService.getSubCategoryBusinesses(id);
+  async getSubCategoryBusinesses(@Param('id') id: string, @Query() query: AssignedUsersQueryDto) {
+    return this.adminService.getSubCategoryBusinesses(id, query);
   }
 
   @Post('localities/aggregate')
   @ApiOperation({ summary: 'Run the delta-checked business-total aggregation now' })
   async runLocationAggregation() {
     return this.adminService.runLocationAggregation();
+  }
+
+  @Post('localities/backfill-business-locations')
+  @ApiOperation({
+    summary: 'Backfill city/borough/high-street/local-mall assignments for existing businesses with a postcode',
+  })
+  async backfillBusinessLocations(@Body() dto: BackfillBusinessLocationsDto) {
+    return this.adminService.backfillBusinessLocations(dto);
   }
 }

@@ -9,7 +9,7 @@ import CHSLogo from '../components/CHSLogo';
 import FieldRequirementHint from '../components/onboarding/FieldRequirementHint';
 
 import { apiClient, setSharedAuthCookies } from '../services/api';
-import { validateEmailAddress } from '../lib/validation';
+import { validateEmailAddress, validatePostcode, normalizeUkPostcode } from '../lib/validation';
 import { persistReferralCodeFromSearchParams, getStoredReferralCode } from '../lib/referral';
 import { isAuthOrOnboardingRedirect } from '../lib/redirects';
 
@@ -199,6 +199,7 @@ export default function CustomerRegistration() {
     confirmPassword: '',
     otp: '',
     country: 'United Kingdom',
+    postcode: '',
   });
 
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
@@ -215,6 +216,7 @@ export default function CustomerRegistration() {
     role: '',
     terms: '',
     otp: '',
+    postcode: '',
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [otpMode, setOtpMode] = useState<'mock' | 'email' | null>(null);
@@ -513,6 +515,15 @@ export default function CustomerRegistration() {
           isValid = false;
         }
 
+        const requiresPostcode = selectedRole !== UserRole.CUSTOMER;
+        const postcodeErr = validatePostcode(formData.postcode, requiresPostcode);
+        if (postcodeErr) {
+          newErrors.postcode = postcodeErr;
+          isValid = false;
+        } else {
+          newErrors.postcode = '';
+        }
+
         if (!termsAccepted) {
           newErrors.terms = 'You must accept the Terms and Conditions.';
           isValid = false;
@@ -578,6 +589,7 @@ export default function CustomerRegistration() {
       password: formData.password,
       confirm_password: formData.confirmPassword,
       role: selectedRole!,
+      postcode: formData.postcode ? normalizeUkPostcode(formData.postcode) : undefined,
     };
 
     try {
@@ -826,6 +838,27 @@ export default function CustomerRegistration() {
                       className={`w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.phoneNumber ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`} 
                     />
                     {errors.phoneNumber && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.phoneNumber}</p>}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      Postcode
+                      <FieldRequirementHint kind={selectedRole !== UserRole.CUSTOMER ? 'required' : 'important'} />
+                    </label>
+                    <input
+                      name="postcode"
+                      value={formData.postcode}
+                      onChange={handleInputChange}
+                      placeholder="e.g. SW1A 1AA"
+                      autoComplete="postal-code"
+                      className={`w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${errors.postcode ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''}`}
+                    />
+                    {errors.postcode && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.postcode}</p>}
+                    <p className="text-[11px] text-gray-400 font-medium">
+                      {selectedRole !== UserRole.CUSTOMER
+                        ? 'Required for business and affiliate accounts.'
+                        : 'Optional for customer accounts.'}
+                    </p>
                   </div>
 
                   <div className="space-y-1">

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { LocationAggregationService } from '../geography/location-aggregation.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
@@ -40,6 +41,8 @@ import {
   CreateLocalMallDto,
   CreateCityDto,
   UpdateCityDto,
+  AssignedUsersQueryDto,
+  BackfillBusinessLocationsDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -76,6 +79,23 @@ export interface AdminStatsResult {
     };
     platforms: { id: string; name: string; totalUsers: number }[];
   };
+}
+
+export interface AssignedUserRow {
+  id: string;
+  userType: 'BUSINESS' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER';
+  businessName: string;
+  email: string;
+  phone: string | null;
+  postcode: string | null;
+  category: string | null;
+  createdAt: Date;
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
 }
 
 @Injectable()
@@ -115,6 +135,7 @@ export class AdminService implements OnModuleInit {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private locationAggregation: LocationAggregationService,
+    private locationAssignment: LocationAssignmentService,
   ) {}
 
   /**
@@ -2656,8 +2677,46 @@ export class AdminService implements OnModuleInit {
     return { success: true };
   }
 
-  // ─── Assigned business users per entity ───────────────────
-  private async getAssignedBusinesses(where: Prisma.BusinessProfileWhereInput) {
+  // ─── Assigned users per entity (businesses + affiliates) ───
+  private paginateAssignedUsers(rows: AssignedUserRow[], query?: AssignedUsersQueryDto) {
+    const search = (query?.search || '').trim().toLowerCase();
+    const filtered = search
+      ? rows.filter((row) =>
+          [
+            row.businessName,
+            row.email,
+            row.phone,
+            row.postcode,
+            row.category,
+            row.user?.firstName,
+            row.user?.lastName,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search)),
+        )
+      : rows;
+
+    filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 10));
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit);
+
+    return {
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  private async getAssignedBusinesses(
+    where: Prisma.BusinessProfileWhereInput,
+    query?: AssignedUsersQueryDto,
+  ) {
     const data = await this.prisma.businessProfile.findMany({
       where: { ...where, deletedAt: null },
       select: {
@@ -2683,41 +2742,189 @@ export class AdminService implements OnModuleInit {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
-    return { success: true, data, total: data.length };
+
+    const rows: AssignedUserRow[] = data.map((business) => ({
+      id: business.id,
+      userType: 'BUSINESS',
+      businessName: business.businessName,
+      email: business.email,
+      phone: business.phone,
+      postcode: business.postcode,
+      category: business.category || business.industry || business.businessType,
+      createdAt: business.createdAt,
+      user: business.user,
+    }));
+    return this.paginateAssignedUsers(rows, query);
   }
 
-  getCityBusinesses(id: string) {
-    return this.getAssignedBusinesses({ cityId: id });
+  /**
+   * Combined business + affiliate listing for a geographic scope.
+   * Affiliates only participate in geographic scopes (not sector/category).
+   */
+  private async getAssignedUsers(
+    field: 'cityId' | 'boroughId' | 'highStreetId' | 'localMallId',
+    id: string,
+    query?: AssignedUsersQueryDto,
+  ) {
+    const role = query?.role || 'ALL';
+
+    const businessPromise =
+      role === 'ALL' || role === 'BUSINESS'
+        ? this.prisma.businessProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: {
+              id: true,
+              businessName: true,
+              businessType: true,
+              email: true,
+              phone: true,
+              postcode: true,
+              industry: true,
+              category: true,
+              createdAt: true,
+              user: {
+                select: { id: true, email: true, firstName: true, lastName: true },
+              },
+            },
+          })
+        : Promise.resolve([]);
+
+    const affiliateSelect = {
+      id: true,
+      phone: true,
+      postcode: true,
+      createdAt: true,
+      user: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+    } as const;
+
+    const agentPromise =
+      role === 'ALL' || role === 'AGENT'
+        ? this.prisma.agentProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const consultantPromise =
+      role === 'ALL' || role === 'CONSULTANT'
+        ? this.prisma.consultantProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const managerPromise =
+      role === 'ALL' || role === 'ACCOUNT_MANAGER'
+        ? this.prisma.accountManagerProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const [businesses, agents, consultants, managers] = await Promise.all([
+      businessPromise,
+      agentPromise,
+      consultantPromise,
+      managerPromise,
+    ]);
+
+    const businessRows: AssignedUserRow[] = businesses.map((business) => ({
+      id: business.id,
+      userType: 'BUSINESS',
+      businessName: business.businessName,
+      email: business.email,
+      phone: business.phone,
+      postcode: business.postcode,
+      category: business.category || business.industry || business.businessType,
+      createdAt: business.createdAt,
+      user: business.user,
+    }));
+
+    const mapAffiliate = (
+      rows: typeof agents,
+      userType: AssignedUserRow['userType'],
+      label: string,
+    ): AssignedUserRow[] =>
+      rows.map((profile) => {
+        const fullName = [profile.user?.firstName, profile.user?.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        return {
+          id: profile.id,
+          userType,
+          businessName: fullName || profile.user?.email || label,
+          email: profile.user?.email || '',
+          phone: profile.phone,
+          postcode: profile.postcode,
+          category: label,
+          createdAt: profile.createdAt,
+          user: profile.user,
+        };
+      });
+
+    const rows = [
+      ...businessRows,
+      ...mapAffiliate(agents, 'AGENT', 'Agent'),
+      ...mapAffiliate(consultants, 'CONSULTANT', 'Consultant'),
+      ...mapAffiliate(managers, 'ACCOUNT_MANAGER', 'Account Manager'),
+    ];
+
+    return this.paginateAssignedUsers(rows, query);
   }
 
-  getBoroughBusinesses(id: string) {
-    return this.getAssignedBusinesses({ boroughId: id });
+  getCityBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('cityId', id, query);
   }
 
-  getHighStreetBusinesses(id: string) {
-    return this.getAssignedBusinesses({ highStreetId: id });
+  getBoroughBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('boroughId', id, query);
   }
 
-  getLocalMallBusinesses(id: string) {
-    return this.getAssignedBusinesses({ localMallId: id });
+  getHighStreetBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('highStreetId', id, query);
   }
 
-  getSectorBusinesses(id: string) {
-    return this.getAssignedBusinesses({ sectorId: id });
+  getLocalMallBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('localMallId', id, query);
   }
 
-  getCategoryBusinesses(id: string) {
-    return this.getAssignedBusinesses({ categoryId: id });
+  getSectorBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ sectorId: id }, query);
   }
 
-  getSubCategoryBusinesses(id: string) {
-    return this.getAssignedBusinesses({ subCategoryId: id });
+  getCategoryBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ categoryId: id }, query);
+  }
+
+  getSubCategoryBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ subCategoryId: id }, query);
   }
 
   /** Manual trigger for the same delta-checked aggregation the cron runs. */
   runLocationAggregation() {
     return this.locationAggregation.aggregateAll();
+  }
+
+  /**
+   * Backfills location assignments for existing businesses that already have a
+   * postcode but predate auto-assignment. Runs the delta-checked aggregation
+   * afterwards so the admin counts update immediately.
+   */
+  async backfillBusinessLocations(dto: BackfillBusinessLocationsDto = {}) {
+    const summary = await this.locationAssignment.backfillBusinesses({
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    });
+
+    const aggregation =
+      summary.dryRun || summary.assigned === 0
+        ? null
+        : await this.locationAggregation.aggregateAll();
+
+    return { success: true, data: { ...summary, aggregation } };
   }
 }

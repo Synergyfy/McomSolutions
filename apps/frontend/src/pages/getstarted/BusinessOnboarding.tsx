@@ -27,6 +27,7 @@ import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
 import { persistReferralCodeFromSearchParams } from '../../lib/referral';
+import { validatePostcode, normalizeUkPostcode } from '../../lib/validation';
 import { isAuthOrOnboardingRedirect } from '../../lib/redirects';
 import { assertSignupEmailAvailable, isDuplicateSignupError, signupErrorMessage } from './businessOnboardingAuth';
 import BusinessCategorySelectors from './BusinessCategorySelectors';
@@ -992,6 +993,7 @@ function BusinessOnboardingInner() {
 
   // Fail-Safe Edit Form state
   const [googlePhoneInput, setGooglePhoneInput] = useState('');
+  const [googlePostcodeInput, setGooglePostcodeInput] = useState('');
   const [googleSectorId, setGoogleSectorId] = useState('');
   const [googleCategoryId, setGoogleCategoryId] = useState('');
   const [googleSubCategoryId, setGoogleSubCategoryId] = useState('');
@@ -1311,8 +1313,11 @@ function BusinessOnboardingInner() {
         }
       }
       setGoogleMapping(mapping);
+      const branchPostcode =
+        safeBranch.postcode || extractPostcode(safeBranch.address || safeBranch.formatted_address || '') || '';
+      setGooglePostcodeInput(branchPostcode);
 
-      if (mapping && mapping.sectorId && mapping.categoryId && mapping.subCategoryId && safeBranch.businessPhone) {
+      if (mapping && mapping.sectorId && mapping.categoryId && mapping.subCategoryId && safeBranch.businessPhone && branchPostcode) {
         setGoogleSectorId(mapping.sectorId);
         setGoogleCategoryId(mapping.categoryId);
         setGoogleSubCategoryId(mapping.subCategoryId);
@@ -1342,6 +1347,12 @@ function BusinessOnboardingInner() {
       setSubmitError('All category levels must be selected.');
       return;
     }
+    const postcodeError = validatePostcode(googlePostcodeInput, true);
+    if (postcodeError) {
+      setSubmitError(postcodeError);
+      return;
+    }
+    setGooglePostcodeInput(normalizeUkPostcode(googlePostcodeInput));
     setGoogleStep('review_claim');
   };
 
@@ -1351,12 +1362,17 @@ function BusinessOnboardingInner() {
       setSubmitError('Please enter your First Name and Last Name.');
       return;
     }
+    const postcodeError = validatePostcode(googlePostcodeInput, true);
+    if (postcodeError) {
+      setSubmitError(postcodeError);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const b = selectedPreviewBusiness || selectedGoogleBranch || {};
       const businessName = b.businessName || b.name || '';
       const address = b.address || b.formatted_address || '';
-      const postcode = b.postcode || extractPostcode(address) || '';
+      const postcode = normalizeUkPostcode(googlePostcodeInput || b.postcode || extractPostcode(address) || '');
       const phone = googlePhoneInput || b.businessPhone || b.formatted_phone_number || '';
 
       const effectiveGrant =
@@ -6632,6 +6648,25 @@ function BusinessOnboardingInner() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Postcode<FieldRequirementHint kind="required" />
+                      </label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500" />
+                        <Input
+                          value={googlePostcodeInput}
+                          onChange={(e) => setGooglePostcodeInput(e.target.value)}
+                          className="h-11 rounded-xl bg-white border-gray-200 text-sm pl-9"
+                          placeholder="e.g. SW1A 1AA"
+                          autoComplete="postal-code"
+                        />
+                      </div>
+                      {!selectedGoogleBranch?.postcode && (
+                        <p className="text-[11px] text-amber-600 mt-1 font-semibold">Google did not provide a postcode. Please enter it here.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
                         Phone Number<FieldRequirementHint kind="important" />
                       </label>
                       <Input
@@ -6753,6 +6788,20 @@ function BusinessOnboardingInner() {
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 mb-1">Login Email (Verified Google Account)</label>
                         <Input value={googleEmail} disabled className="h-10 rounded-lg text-xs bg-gray-100 text-gray-400" />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Business Postcode<FieldRequirementHint kind="required" /></label>
+                        <Input
+                          value={googlePostcodeInput}
+                          onChange={(e) => setGooglePostcodeInput(e.target.value)}
+                          placeholder="e.g. SW1A 1AA"
+                          autoComplete="postal-code"
+                          className="h-10 rounded-lg text-xs"
+                        />
+                        <p className="text-[11px] text-gray-400 mt-1 font-medium">
+                          Used to assign this business to its city, borough, high street and local mall.
+                        </p>
                       </div>
                     </div>
 

@@ -33,8 +33,8 @@ import {
   useCreateSubCategory,
   useUpdateSubCategory,
   useDeleteSubCategory,
-  useAssignedBusinesses,
 } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import type {
   AdminSector,
   AdminCategory,
@@ -104,8 +104,6 @@ export default function SectorsCategoriesPanel() {
     }
     return activeSector ? { type: 'sector' as const, id: activeSector.id } : null;
   }, [assignmentLevel, assignmentSubId, activeSubCategories, activeCategory, activeSector]);
-  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(assignmentEntity);
-  const assignedBusinesses = assignedRes?.data ?? [];
   const totalAssigned = useMemo(
     () => sectors.reduce((sum, sector) => sum + (sector.businessCount ?? 0), 0),
     [sectors],
@@ -767,17 +765,17 @@ export default function SectorsCategoriesPanel() {
       )}
 
       {/* ─── ASSIGNED BUSINESSES ─────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">Assigned Businesses</h3>
-            <p className="text-[11px] font-semibold text-gray-400 mt-0.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900">Assigned Businesses</h3>
+            <p className="mt-0.5 text-[11px] font-semibold text-gray-400">
               {assignmentEntity
-                ? `${assignmentLevel === 'sector' ? activeSector?.name : assignmentLevel === 'category' ? activeCategory?.name : activeSubCategories.find((s) => s.id === assignmentEntity.id)?.name} · ${assignedBusinesses.length} assigned`
+                ? `${assignmentLevel === 'sector' ? activeSector?.name : assignmentLevel === 'category' ? activeCategory?.name : activeSubCategories.find((s) => s.id === assignmentEntity.id)?.name}`
                 : 'Select a sector, category, or subcategory'}
             </p>
           </div>
-          <div className="flex items-center gap-1 rounded-xl bg-white p-1 border border-gray-200">
+          <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
             {(['sector', 'category', 'subcategory'] as const).map((level) => (
               <button
                 key={level}
@@ -794,59 +792,24 @@ export default function SectorsCategoriesPanel() {
         </div>
 
         {assignmentLevel === 'subcategory' && activeSubCategories.length > 0 && (
-          <div className="px-4 pt-3">
-            <select
-              value={assignmentEntity?.id || ''}
-              onChange={(event) => setAssignmentSubId(event.target.value)}
-              className="w-full sm:w-72 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700"
-            >
-              {activeSubCategories.map((sub) => (
-                <option key={sub.id} value={sub.id}>{sub.name}</option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={assignmentEntity?.id || ''}
+            onChange={(event) => setAssignmentSubId(event.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 sm:w-72"
+          >
+            {activeSubCategories.map((sub) => (
+              <option key={sub.id} value={sub.id}>{sub.name}</option>
+            ))}
+          </select>
         )}
 
-        {assignedLoading ? (
-          <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-brand-blue" /></div>
-        ) : !assignmentEntity ? (
-          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
-            Select an entity to view its assigned businesses.
-          </div>
-        ) : assignedBusinesses.length === 0 ? (
-          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
-            No businesses are assigned to this {assignmentLevel} yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-gray-50/50">
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Business</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Owner</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Postcode</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Joined</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {assignedBusinesses.map((business) => (
-                  <tr key={business.id} className="hover:bg-gray-50/60">
-                    <td className="px-4 py-3">
-                      <p className="text-xs font-bold text-gray-900">{business.businessName}</p>
-                      <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-xs font-semibold text-gray-700">{[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}</p>
-                      <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
-                    <td className="px-4 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <AssignedUsersTable
+          entity={assignmentEntity}
+          title="Assigned Businesses"
+          titleHint="Search, filter and page through businesses assigned to this taxonomy level."
+          emptyMessage={`No businesses are assigned to this ${assignmentLevel} yet.`}
+          allowRoleFilter={false}
+        />
       </div>
 
       {/* ─── FULL HIERARCHY TREE VIEW ────────────────────────── */}

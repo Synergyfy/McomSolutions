@@ -897,6 +897,14 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
+    // Customer postcode is optional, but when supplied it must be a valid UK
+    // postcode. No location hierarchy assignment is performed for customers.
+    let customerPostcode: string | null = null;
+    if (data.postcode && String(data.postcode).trim()) {
+      const resolved = await this.locationAssignment.resolvePostcode(String(data.postcode));
+      customerPostcode = resolved.postcode;
+    }
+
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
@@ -919,7 +927,7 @@ export class AuthService {
             create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
           },
           customerProfile: {
-            create: {},
+            create: customerPostcode ? { postcode: customerPostcode } : {},
           },
         },
       });
@@ -941,6 +949,15 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('Email already registered');
     }
+
+    // UK postcode is mandatory for every affiliate role and is validated before
+    // the account is created. Affiliates are also assigned to the same location
+    // hierarchy as businesses.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required for affiliate registration.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
 
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
@@ -981,6 +998,7 @@ export class AuthService {
                 agentProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     permissions: ['view_tasks', 'submit_deliverables'],
                   },
@@ -991,6 +1009,7 @@ export class AuthService {
                 accountManagerProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     assignedBusinesses: 0,
                   },
@@ -1000,6 +1019,7 @@ export class AuthService {
                 consultantProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     specialisation: data.specialisation || 'General Consulting',
                   },
@@ -1016,6 +1036,39 @@ export class AuthService {
       });
     } catch (e) {
       rethrowAsConflictOnUniqueViolation(e);
+    }
+
+    try {
+      if (affiliateUser.agentProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'agent',
+          affiliateUser.agentProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      } else if (affiliateUser.accountManagerProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'accountManager',
+          affiliateUser.accountManagerProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      } else if (affiliateUser.consultantProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'consultant',
+          affiliateUser.consultantProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      }
+    } catch (error) {
+      // Account creation already committed; keep signup successful but surface
+      // assignment problems in logs.
+      this.logger.error(
+        `Affiliate ${affiliateUser.id} could not be auto-assigned to a location: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
 
     return this.login(affiliateUser);

@@ -95,9 +95,47 @@ export class LocationAggregationService {
   private needsRefresh(rows: ScopeRow[]): ScopeRow[] {
     return rows.filter(
       (row) =>
-        row.lastItemCreatedAt &&
-        (!row.aggregatedAt || row.aggregatedAt.getTime() < row.lastItemCreatedAt.getTime()),
+        row.aggregatedAt === null ||
+        (row.lastItemCreatedAt !== null &&
+          row.aggregatedAt.getTime() < row.lastItemCreatedAt.getTime()),
     );
+  }
+
+  /**
+   * Sums Agent + Consultant + Account Manager totals per location scope.
+   * Three grouped queries total (independent of the number of scopes).
+   */
+  private async affiliateCountsFor(
+    field: 'cityId' | 'boroughId' | 'highStreetId' | 'localMallId',
+  ): Promise<Map<string, number>> {
+    const where = { deletedAt: null, [field]: { not: null } };
+    const [agents, consultants, managers] = await Promise.all([
+      this.prisma.agentProfile.groupBy({
+        by: [field],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.consultantProfile.groupBy({
+        by: [field],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.accountManagerProfile.groupBy({
+        by: [field],
+        where,
+        _count: { _all: true },
+      }),
+    ]);
+
+    const counts = new Map<string, number>();
+    for (const group of [agents, consultants, managers]) {
+      for (const row of group as Array<Record<string, unknown> & { _count: { _all: number } }>) {
+        const id = row[field] as string | null;
+        if (!id) continue;
+        counts.set(id, (counts.get(id) ?? 0) + row._count._all);
+      }
+    }
+    return counts;
   }
 
   private async aggregateCities(): Promise<number> {
@@ -107,11 +145,14 @@ export class LocationAggregationService {
     const changed = this.needsRefresh(rows);
     if (changed.length === 0) return 0;
 
-    const grouped = await this.prisma.businessProfile.groupBy({
-      by: ['cityId'],
-      where: { deletedAt: null, cityId: { not: null } },
-      _count: { _all: true },
-    });
+    const [grouped, affiliateCounts] = await Promise.all([
+      this.prisma.businessProfile.groupBy({
+        by: ['cityId'],
+        where: { deletedAt: null, cityId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.affiliateCountsFor('cityId'),
+    ]);
     const counts = new Map(grouped.map((g) => [g.cityId as string, g._count._all]));
 
     await this.prisma.$transaction(
@@ -120,7 +161,8 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            affiliateCount: affiliateCounts.get(row.id) ?? 0,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -135,11 +177,14 @@ export class LocationAggregationService {
     const changed = this.needsRefresh(rows);
     if (changed.length === 0) return 0;
 
-    const grouped = await this.prisma.businessProfile.groupBy({
-      by: ['boroughId'],
-      where: { deletedAt: null, boroughId: { not: null } },
-      _count: { _all: true },
-    });
+    const [grouped, affiliateCounts] = await Promise.all([
+      this.prisma.businessProfile.groupBy({
+        by: ['boroughId'],
+        where: { deletedAt: null, boroughId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.affiliateCountsFor('boroughId'),
+    ]);
     const counts = new Map(grouped.map((g) => [g.boroughId as string, g._count._all]));
 
     await this.prisma.$transaction(
@@ -148,7 +193,8 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            affiliateCount: affiliateCounts.get(row.id) ?? 0,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -163,11 +209,14 @@ export class LocationAggregationService {
     const changed = this.needsRefresh(rows);
     if (changed.length === 0) return 0;
 
-    const grouped = await this.prisma.businessProfile.groupBy({
-      by: ['highStreetId'],
-      where: { deletedAt: null, highStreetId: { not: null } },
-      _count: { _all: true },
-    });
+    const [grouped, affiliateCounts] = await Promise.all([
+      this.prisma.businessProfile.groupBy({
+        by: ['highStreetId'],
+        where: { deletedAt: null, highStreetId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.affiliateCountsFor('highStreetId'),
+    ]);
     const counts = new Map(grouped.map((g) => [g.highStreetId as string, g._count._all]));
 
     await this.prisma.$transaction(
@@ -176,7 +225,8 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            affiliateCount: affiliateCounts.get(row.id) ?? 0,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -191,11 +241,14 @@ export class LocationAggregationService {
     const changed = this.needsRefresh(rows);
     if (changed.length === 0) return 0;
 
-    const grouped = await this.prisma.businessProfile.groupBy({
-      by: ['localMallId'],
-      where: { deletedAt: null, localMallId: { not: null } },
-      _count: { _all: true },
-    });
+    const [grouped, affiliateCounts] = await Promise.all([
+      this.prisma.businessProfile.groupBy({
+        by: ['localMallId'],
+        where: { deletedAt: null, localMallId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.affiliateCountsFor('localMallId'),
+    ]);
     const counts = new Map(grouped.map((g) => [g.localMallId as string, g._count._all]));
 
     await this.prisma.$transaction(
@@ -204,7 +257,8 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businesses: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            affiliateCount: affiliateCounts.get(row.id) ?? 0,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -232,7 +286,7 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -260,7 +314,7 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),
@@ -288,7 +342,7 @@ export class LocationAggregationService {
           where: { id: row.id },
           data: {
             businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt,
+            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
           },
         }),
       ),

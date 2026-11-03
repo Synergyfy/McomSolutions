@@ -401,6 +401,7 @@ export const adminApi = {
     entity:
       | { type: 'city' | 'borough' | 'highStreet' | 'localMall'; id: string }
       | { type: 'sector' | 'category' | 'subcategory'; id: string },
+    params?: { page?: number; limit?: number; search?: string; role?: string },
   ) => {
     const base =
       entity.type === 'sector' || entity.type === 'category' || entity.type === 'subcategory'
@@ -416,13 +417,38 @@ export const adminApi = {
       subcategory: 'subcategories',
     }
     const segment = segmentMap[entity.type]
-    const res = await apiClient.get(`${base}/${segment}/${entity.id}/businesses`)
-    return res.data as ApiResponse<AssignedBusiness[]> & { total?: number }
+    const res = await apiClient.get(`${base}/${segment}/${entity.id}/businesses`, {
+      params,
+    })
+    return res.data as ApiResponse<AssignedBusiness[]> & {
+      total?: number
+      page?: number
+      limit?: number
+      totalPages?: number
+    }
   },
 
   runLocationAggregation: async () => {
     const res = await apiClient.post('/admin/localities/aggregate')
     return res.data
+  },
+
+  backfillBusinessLocations: async (data?: { dryRun?: boolean; limit?: number }) => {
+    const res = await apiClient.post('/admin/localities/backfill-business-locations', data || {})
+    return res.data as {
+      success: boolean
+      data: {
+        dryRun: boolean
+        scanned: number
+        eligible: number
+        processed: number
+        assigned: number
+        skipped: number
+        failed: number
+        errors: Array<{ businessId: string; postcode: string; message: string }>
+        aggregation: Record<string, number> | null
+      }
+    }
   },
 
   getBoroughs: async () => {

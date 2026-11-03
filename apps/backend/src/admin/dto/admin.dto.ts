@@ -2325,3 +2325,56 @@ export class UpdateCityDto {
   country?: string;
 }
 
+export class AssignedUsersQueryDto {
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 10, default: 10 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 10;
+
+  @ApiPropertyOptional({ example: 'bakery', description: 'Search name, email, phone, or postcode' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
+    example: 'ALL',
+    enum: ['ALL', 'BUSINESS', 'AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'],
+    default: 'ALL',
+  })
+  @IsOptional()
+  @IsIn(['ALL', 'BUSINESS', 'AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'])
+  role?: 'ALL' | 'BUSINESS' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER' = 'ALL';
+}
+
+export class BackfillBusinessLocationsDto {
+  @ApiPropertyOptional({
+    example: false,
+    default: false,
+    description: 'Preview what would be backfilled without writing to the database.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean = false;
+
+  @ApiPropertyOptional({
+    example: 500,
+    description: 'Maximum number of businesses to process in this run. Omit for no cap.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  limit?: number;
+}
+

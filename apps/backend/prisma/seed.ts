@@ -541,10 +541,10 @@ async function main() {
   // 16. Seed Boroughs (reference data — upsert by name, never wiped)
   console.log('Seeding boroughs...');
   for (const b of [
-      { name: 'Westminster', populationActivity: 'High', businessCount: 452, activeCampaigns: 12, rewardsParticipation: '88%', healthScore: 94, manager: 'James Wilson', area: 'Central London', region: 'West End', engagement: '94.2%', health: 'A+', activity: 'Active Operational' },
-      { name: 'Camden', populationActivity: 'Medium', businessCount: 318, activeCampaigns: 8, rewardsParticipation: '76%', healthScore: 82, manager: 'Sarah Chen', area: 'North London', region: 'North-West', engagement: '88.5%', health: 'A', activity: 'Operational' },
-      { name: 'Tower Hamlets', populationActivity: 'Very High', businessCount: 284, activeCampaigns: 15, rewardsParticipation: '92%', healthScore: 89, manager: 'David G.', area: 'East London', region: 'East', engagement: '92.1%', health: 'A+', activity: 'High Activity' },
-      { name: 'Hackney', populationActivity: 'High', businessCount: 215, activeCampaigns: 6, rewardsParticipation: '81%', healthScore: 85, manager: 'Emma Thompson', area: 'East London', region: 'East End', engagement: '85.4%', health: 'B+', activity: 'Operational' },
+      { name: 'Westminster', populationActivity: 'High', businessCount: 0, activeCampaigns: 0, rewardsParticipation: '88%', healthScore: 94, manager: 'James Wilson', area: 'Central London', region: 'West End', engagement: '94.2%', health: 'A+', activity: 'Active Operational' },
+      { name: 'Camden', populationActivity: 'Medium', businessCount: 0, activeCampaigns: 0, rewardsParticipation: '76%', healthScore: 82, manager: 'Sarah Chen', area: 'North London', region: 'North-West', engagement: '88.5%', health: 'A', activity: 'Operational' },
+      { name: 'Tower Hamlets', populationActivity: 'Very High', businessCount: 0, activeCampaigns: 0, rewardsParticipation: '92%', healthScore: 89, manager: 'David G.', area: 'East London', region: 'East', engagement: '92.1%', health: 'A+', activity: 'High Activity' },
+      { name: 'Hackney', populationActivity: 'High', businessCount: 0, activeCampaigns: 0, rewardsParticipation: '81%', healthScore: 85, manager: 'Emma Thompson', area: 'East London', region: 'East End', engagement: '85.4%', health: 'B+', activity: 'Operational' },
   ]) {
     await prisma.borough.upsert({
       where: { name: b.name },
@@ -556,10 +556,10 @@ async function main() {
   // 17. Seed High Streets (reference data — create-if-missing by name+borough, never wiped)
   console.log('Seeding high streets...');
   for (const h of [
-      { name: 'Rye Lane', borough: 'Southwark', status: 'Active', businessCount: 156 },
-      { name: 'Peckham Road', borough: 'Southwark', status: 'Active', businessCount: 45 },
-      { name: 'Bellenden Road', borough: 'Southwark', status: 'Active', businessCount: 44 },
-      { name: 'Brixton Road', borough: 'Lambeth', status: 'Active', businessCount: 180 },
+      { name: 'Rye Lane', borough: 'Southwark', status: 'Active', businessCount: 0 },
+      { name: 'Peckham Road', borough: 'Southwark', status: 'Active', businessCount: 0 },
+      { name: 'Bellenden Road', borough: 'Southwark', status: 'Active', businessCount: 0 },
+      { name: 'Brixton Road', borough: 'Lambeth', status: 'Active', businessCount: 0 },
   ]) {
     const existing = await prisma.highStreet.findFirst({ where: { name: h.name, borough: h.borough } });
     if (!existing) {
@@ -578,10 +578,10 @@ async function main() {
       borough: 'Southwark',
       primaryHighStreet: 'Rye Lane',
       additionalHighStreets: ['Peckham Road', 'Bellenden Road'],
-      businesses: 245,
-      customers: 12800,
-      campaigns: 8,
-      events: 12,
+      businesses: 0,
+      customers: 0,
+      campaigns: 0,
+      events: 0,
       status: 'Active',
       description: 'Supporting local businesses in Peckham',
       longDescription: 'Peckham LocalMall is the digital town centre for the Peckham area, connecting residents with local businesses, events, and rewards.',

@@ -693,12 +693,15 @@ export const useDeleteCity = () => {
 type AssignedEntity =
   | { type: 'city' | 'borough' | 'highStreet' | 'localMall' | 'sector' | 'category' | 'subcategory'; id: string }
 
-export const useAssignedBusinesses = (entity: AssignedEntity | null) => {
+export const useAssignedBusinesses = (
+  entity: AssignedEntity | null,
+  params?: { page?: number; limit?: number; search?: string; role?: string },
+) => {
   return useQuery({
-    queryKey: ['admin', 'assignedBusinesses', entity?.type, entity?.id],
-    queryFn: () => adminApi.getAssignedBusinesses(entity as AssignedEntity),
+    queryKey: ['admin', 'assignedBusinesses', entity?.type, entity?.id, params],
+    queryFn: () => adminApi.getAssignedBusinesses(entity as AssignedEntity, params),
     enabled: Boolean(entity?.id),
-    staleTime: 1000 * 60,
+    staleTime: 1000 * 30,
   })
 }
 
@@ -712,6 +715,22 @@ export const useRunLocationAggregation = () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+    },
+  })
+}
+
+export const useBackfillBusinessLocations = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data?: { dryRun?: boolean; limit?: number }) =>
+      adminApi.backfillBusinessLocations(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'assignedBusinesses'] })
     },
   })
 }

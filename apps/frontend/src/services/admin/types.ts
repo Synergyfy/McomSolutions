@@ -365,6 +365,7 @@ export interface Borough {
   city?: City | null
   populationActivity: string
   businessCount: number
+  affiliateCount?: number
   activeCampaigns: number
   rewardsParticipation: string
   healthScore: number
@@ -385,6 +386,7 @@ export interface City {
   region?: string | null
   country: string
   businessCount: number
+  affiliateCount?: number
   lastItemCreatedAt?: string | null
   aggregatedAt?: string | null
   createdAt?: string
@@ -400,6 +402,7 @@ export interface HighStreet {
   boroughId?: string | null
   status: string
   businessCount: number
+  affiliateCount?: number
   lat?: number
   lng?: number
   lastItemCreatedAt?: string | null
@@ -418,6 +421,7 @@ export interface LocalMall {
   additionalHighStreets: string[]
   status: string
   businesses?: number
+  affiliateCount?: number
   customers?: number
   description: string
   longDescription: string
@@ -442,9 +446,10 @@ export interface LocalMall {
   aggregatedAt?: string | null
 }
 
-/** Business-owner row shown in the per-entity assignment tables. */
+/** Business or affiliate row shown in the per-entity assignment tables. */
 export interface AssignedBusiness {
   id: string
+  userType?: 'BUSINESS' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER'
   businessName: string
   businessType?: string
   email: string

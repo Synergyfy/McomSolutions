@@ -28,7 +28,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminHighStreets, useAssignedBusinesses } from '../../services/admin/hooks';
+import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminHighStreets } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import { Loader2 } from 'lucide-react';
 import type { Borough, AccountManager } from '../../services/admin/types';
 
@@ -45,7 +46,7 @@ export default function BoroughsPanel() {
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
-  const [activeDetailTab, setActiveDetailTab] = useState('overview');
+  const [activeDetailTab, setActiveDetailTab] = useState('businesses');
   const [chartRange, setChartRange] = useState<'6M' | '30D'>('30D');
 
   // Modals for detail view
@@ -87,10 +88,6 @@ export default function BoroughsPanel() {
   });
 
   const selectedBorough = boroughs.find(b => b.id === selectedBoroughId);
-  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(
-    selectedBoroughId ? { type: 'borough', id: selectedBoroughId } : null,
-  );
-  const assignedBusinesses = assignedRes?.data ?? [];
   const { data: boroughStatsRes } = useBoroughStats(selectedBoroughId ?? '');
   const chartData = boroughStatsRes?.data?.chart ?? { footfall: [], revenue: [], months: [] };
   const rawValues: number[] = chartData.footfall?.length ? chartData.footfall : [];
@@ -106,12 +103,11 @@ export default function BoroughsPanel() {
     b.manager.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const healthScores = boroughs.map(b => b.healthScore ?? 0);
   const boroughStats = [
-    { title: 'Active Businesses', value: boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0).toLocaleString(), trend: `across ${boroughs.length} boroughs`, icon: Store, trendType: 'up' as const },
+    { title: 'Assigned Users', value: boroughs.reduce((s, b) => s + (b.businessCount ?? 0) + (b.affiliateCount ?? 0), 0).toLocaleString(), trend: `${boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0)} affiliates`, icon: Store, trendType: 'up' as const },
     { title: 'Total Boroughs', value: String(boroughs.length), trend: `${allHighStreets.length} high streets`, icon: Users, trendType: 'up' as const },
     { title: 'High Streets', value: String(allHighStreets.length), trend: 'linked locations', icon: Rocket, trendType: 'up' as const },
-    { title: 'Avg Health Score', value: boroughs.length > 0 ? `${Math.round(boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length)}%` : '0%', trend: healthScores.length > 0 ? `${Math.min(...healthScores)}–${Math.max(...healthScores)} range` : 'no data', icon: Gift, trendType: 'up' as const },
+    { title: 'Affiliates', value: boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0).toLocaleString(), trend: 'agents, consultants, managers', icon: Gift, trendType: 'up' as const },
   ];
 
   if (isLoading) {
@@ -349,10 +345,10 @@ export default function BoroughsPanel() {
           {activeDetailTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard2 title="Total Businesses" value={String(boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0))} trend="" icon={Store} color="orange" />
+                <StatCard2 title="Assigned Users" value={String(boroughs.reduce((s, b) => s + (b.businessCount ?? 0) + (b.affiliateCount ?? 0), 0))} trend="" icon={Store} color="orange" />
                 <StatCard2 title="Active Boroughs" value={String(boroughs.length)} trend="" icon={Building2} color="blue" />
                 <StatCard2 title="High Streets" value={String(allHighStreets.length)} trend="" icon={MapPin} color="indigo" />
-                <StatCard2 title="Health Score" value={boroughs.length > 0 ? (boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length).toFixed(0) + '%' : '—'} trend="" icon={Zap} color="emerald" />
+                <StatCard2 title="Affiliates" value={String(boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0))} trend="" icon={Zap} color="emerald" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -414,8 +410,8 @@ export default function BoroughsPanel() {
                       <span className="text-sm font-bold text-gray-900">{selectedBorough.populationActivity || '—'}</span>
                     </div>
                     <div className="flex items-center justify-between rounded-xl bg-gray-50 p-3">
-                      <span className="text-xs font-semibold text-gray-500">Health score</span>
-                      <span className="text-sm font-bold text-gray-900">{selectedBorough.healthScore ?? 0}%</span>
+                      <span className="text-xs font-semibold text-gray-500">Affiliates</span>
+                      <span className="text-sm font-bold text-gray-900">{selectedBorough.affiliateCount ?? 0}</span>
                     </div>
                   </div>
                 </div>
@@ -424,48 +420,12 @@ export default function BoroughsPanel() {
           )}
 
           {activeDetailTab === 'businesses' && (
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 animate-in fade-in duration-300">
-              <div className="flex items-center gap-2 mb-1">
-                <Store className="h-5 w-5 text-orange-500" />
-                <h4 className="font-bold text-sm text-gray-800">Assigned Businesses</h4>
-                <span className="ml-auto text-xs font-bold text-gray-400">{assignedBusinesses.length} assigned</span>
-              </div>
-              <p className="text-xs text-gray-400 font-semibold max-w-md">Every registered business auto-assigned to this borough from its validated UK postcode.</p>
-              {assignedLoading ? (
-                <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-brand-blue" /></div>
-              ) : assignedBusinesses.length === 0 ? (
-                <p className="text-xs text-gray-400 font-semibold mt-4">No business users are assigned to this borough yet.</p>
-              ) : (
-                <div className="mt-4 overflow-x-auto rounded-2xl border border-gray-100">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Business</th>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Owner</th>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Postcode</th>
-                        <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {assignedBusinesses.map((business) => (
-                        <tr key={business.id} className="hover:bg-gray-50/60">
-                          <td className="px-4 py-3">
-                            <p className="text-xs font-bold text-gray-900">{business.businessName}</p>
-                            <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
-                          </td>
-                          <td className="px-4 py-3">
-                            <p className="text-xs font-semibold text-gray-700">{[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}</p>
-                            <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
-                          </td>
-                          <td className="px-4 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
-                          <td className="px-4 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            <AssignedUsersTable
+              entity={selectedBorough ? { type: 'borough', id: selectedBorough.id } : null}
+              title="Assigned Users"
+              titleHint={`${selectedBorough?.name ?? 'Borough'} · search, filter and page through businesses and affiliates`}
+              emptyMessage="No businesses or affiliates are assigned to this borough yet."
+            />
           )}
 
           {activeDetailTab === 'community' && (
@@ -566,9 +526,7 @@ export default function BoroughsPanel() {
                 <tr className="bg-gray-50/50">
                   <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-8">Borough Name</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Population Activity</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Active Businesses</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Rewards Participation</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Community Health</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Assigned Users</th>
                   <th className="px-6 py-4 text-right pr-8"></th>
                 </tr>
               </thead>
@@ -577,7 +535,10 @@ export default function BoroughsPanel() {
                   <tr 
                     key={b.id}
                     className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
-                    onClick={() => setSelectedBoroughId(b.id)}
+                    onClick={() => {
+                      setSelectedBoroughId(b.id);
+                      setActiveDetailTab('businesses');
+                    }}
                   >
                     <td className="px-6 py-4 pl-8">
                       <div className="flex items-center gap-4">
@@ -602,25 +563,19 @@ export default function BoroughsPanel() {
                         {b.populationActivity}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-700">{b.businessCount}</td>
                     <td className="px-6 py-4 text-center">
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-600 border border-emerald-100">
-                        {b.rewardsParticipation}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200/50">
-                          <div 
-                            className={cn(
-                              "h-full rounded-full transition-all duration-500",
-                              b.healthScore > 90 ? "bg-emerald-500" : "bg-orange-505"
-                            )}
-                            style={{ width: `${b.healthScore}%` }}
-                          />
-                        </div>
-                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">{b.healthScore}% Health</span>
-                      </div>
+                      <button
+                        type="button"
+                        title={`View all ${(b.businessCount ?? 0) + (b.affiliateCount ?? 0)} assigned users`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedBoroughId(b.id);
+                          setActiveDetailTab('businesses');
+                        }}
+                        className="text-sm font-bold text-orange-600 underline decoration-orange-200 underline-offset-4 hover:text-orange-800"
+                      >
+                        {(b.businessCount ?? 0) + (b.affiliateCount ?? 0)}
+                      </button>
                     </td>
                     <td className="px-6 py-4 text-right pr-8 relative" onClick={e => e.stopPropagation()}>
                       <button 
@@ -637,6 +592,7 @@ export default function BoroughsPanel() {
                             <button 
                               onClick={() => {
                                 setSelectedBoroughId(b.id);
+                                setActiveDetailTab('businesses');
                                 setActiveActionsMenu(null);
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"

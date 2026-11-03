@@ -268,6 +268,22 @@ describe('BusinessService', () => {
 
   // ─── completeGoogleOnboarding ──────────────────
   describe('completeGoogleOnboarding', () => {
+    beforeEach(() => {
+      mockLocationAssignment.resolvePostcode.mockResolvedValue({
+        postcode: 'SW1A 1AA',
+        outwardCode: 'SW1A',
+        city: 'London',
+        borough: 'Westminster',
+        highStreet: "St James's",
+        localMall: "St James's Local Mall",
+        region: 'London',
+        latitude: 51.5,
+        longitude: -0.14,
+        adminDistrict: 'Westminster',
+        adminWard: "St James's",
+      });
+    });
+
     it('should update and login an existing user when a valid Google grant is presented', async () => {
       mockGoogleOAuth.verifyEmailGrant.mockReturnValue({
         email: 'existing@test.com',
@@ -284,6 +300,7 @@ describe('BusinessService', () => {
         email: 'attacker-controlled@test.com', // must be ignored — grant wins
         grant: 'signed.grant.token',
         businessName: 'Updated Biz',
+        postcode: 'SW1A 1AA',
         googlePlaceId: 'mock-place-001',
       });
 
@@ -304,6 +321,7 @@ describe('BusinessService', () => {
         service.completeGoogleOnboarding({
           email: 'existing@test.com',
           businessName: 'Hijacked Biz',
+          postcode: 'SW1A 1AA',
           googlePlaceId: 'mock-place-001',
         }),
       ).rejects.toThrow(ConflictException);
@@ -329,6 +347,7 @@ describe('BusinessService', () => {
         email: 'forged@test.com', // must be ignored — grant wins
         grant: 'signed.grant.token',
         businessName: 'New Biz',
+        postcode: 'SW1A 1AA',
         googlePlaceId: 'mock-place-002',
       });
 
@@ -354,6 +373,7 @@ describe('BusinessService', () => {
       const result = await service.completeGoogleOnboarding({
         email: 'manual@test.com',
         businessName: 'Manual Biz',
+        postcode: 'SW1A 1AA',
       });
 
       expect(mockPrisma.user.create).toHaveBeenCalledWith(
@@ -371,6 +391,7 @@ describe('BusinessService', () => {
       await expect(
         service.completeGoogleOnboarding({
           email: 'claimed@test.com',
+          postcode: 'SW1A 1AA',
           googlePlaceId: 'mock-place-003',
         }),
       ).rejects.toThrow(UnauthorizedException);

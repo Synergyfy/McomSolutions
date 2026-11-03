@@ -21,7 +21,8 @@ import {
 import HighStreetActivationWizard from './HighStreetActivationWizard';
 import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
-import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign, useAssignedBusinesses } from '../../services/admin/hooks';
+import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import type { HighStreet, AccountManager } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
@@ -54,10 +55,6 @@ export default function HighStreetsPanel() {
   const [campaignDescription, setCampaignDescription] = useState('');
   const [campaignError, setCampaignError] = useState('');
   const [selectedHighStreetId, setSelectedHighStreetId] = useState<string | null>(null);
-  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(
-    selectedHighStreetId ? { type: 'highStreet', id: selectedHighStreetId } : null,
-  );
-  const assignedBusinesses = assignedRes?.data ?? [];
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -124,7 +121,7 @@ export default function HighStreetsPanel() {
         <StatCard title="Total High Streets" value={String(allHighStreets.length)} trend={`${allHighStreets.filter(h => h.status === 'Active').length} active`} icon={MapIcon} />
         <StatCard title="Active" value={String(allHighStreets.filter(h => h.status === 'Active').length)} trend={`${allHighStreets.filter(h => h.status !== 'Active').length} not active`} icon={CheckCircle2} />
         <StatCard title="Pending" value={String(allHighStreets.filter(h => h.status === 'Pending').length)} trend="awaiting activation" icon={Clock} />
-        <StatCard title="Total Businesses" value={allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0), 0).toLocaleString()} trend={`across ${boroughNames.length - 1} boroughs`} icon={Store} />
+        <StatCard title="Assigned Users" value={allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0) + (h.affiliateCount ?? 0), 0).toLocaleString()} trend={`${allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0), 0)} businesses · ${allHighStreets.reduce((s, h) => s + (h.affiliateCount ?? 0), 0)} affiliates`} icon={Store} />
       </div>
 
       {/* Main Content Area */}
@@ -263,7 +260,7 @@ export default function HighStreetsPanel() {
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">High Street Name</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Borough</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Businesses</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Assigned Users</th>
                 <th className="px-6 py-4 text-right"></th>
               </tr>
             </thead>
@@ -283,7 +280,22 @@ export default function HighStreetsPanel() {
                         {hs.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-800">{hs.businessCount}</td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        type="button"
+                        title={`View all ${(hs.businessCount ?? 0) + (hs.affiliateCount ?? 0)} assigned users`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedHighStreetId(hs.id);
+                          requestAnimationFrame(() =>
+                            document.getElementById('high-street-assigned-users')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                          );
+                        }}
+                        className="text-sm font-bold text-orange-600 underline decoration-orange-200 underline-offset-4 hover:text-orange-800"
+                      >
+                        {(hs.businessCount ?? 0) + (hs.affiliateCount ?? 0)}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-right">
                       <button 
                         onClick={(e) => {
@@ -330,58 +342,18 @@ export default function HighStreetsPanel() {
         </div>
       </div>
 
-      {/* Assigned business users for the selected high street */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-gray-950 text-base">Assigned Business Users</h3>
-            <p className="text-[11px] font-semibold text-gray-400">
-              {selectedHighStreetId
-                ? `${allHighStreets.find((h) => h.id === selectedHighStreetId)?.name ?? 'High street'} · ${assignedBusinesses.length} assigned`
-                : 'Select a high street above to inspect its business users'}
-            </p>
-          </div>
-        </div>
-        {!selectedHighStreetId ? (
-          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
-            No high street selected.
-          </div>
-        ) : assignedLoading ? (
-          <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-brand-blue" /></div>
-        ) : assignedBusinesses.length === 0 ? (
-          <div className="flex h-32 items-center justify-center text-xs font-semibold text-gray-400">
-            No businesses are assigned to this high street yet.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50/50">
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Business</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Owner</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Postcode</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Joined</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {assignedBusinesses.map((business) => (
-                  <tr key={business.id} className="hover:bg-gray-50/60">
-                    <td className="px-6 py-3">
-                      <p className="text-sm font-bold text-gray-900">{business.businessName}</p>
-                      <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
-                    </td>
-                    <td className="px-6 py-3">
-                      <p className="text-xs font-semibold text-gray-700">{[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}</p>
-                      <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
-                    </td>
-                    <td className="px-6 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
-                    <td className="px-6 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {/* Assigned users for the selected high street */}
+      <div id="high-street-assigned-users">
+        <AssignedUsersTable
+          entity={selectedHighStreetId ? { type: 'highStreet', id: selectedHighStreetId } : null}
+          title="Assigned Users"
+          titleHint={
+            selectedHighStreetId
+              ? `${allHighStreets.find((h) => h.id === selectedHighStreetId)?.name ?? 'High street'} · search, filter and page through businesses and affiliates`
+              : 'Select a high street above to inspect its assigned users'
+          }
+          emptyMessage="No businesses or affiliates are assigned to this high street yet."
+        />
       </div>
 
       {/* Activation Wizard */}

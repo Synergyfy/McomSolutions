@@ -8,7 +8,8 @@ import {
   Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers, useAssignedBusinesses } from '../../services/admin/hooks';
+import { useAdminLocalMalls, useCreateLocalMall, useUpdateLocalMall, useDeleteLocalMall, useAdminAgents, useAdminConsultants, useAdminAccountManagers } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import { Loader2 } from 'lucide-react';
 
 // ─── Types & Helpers ─────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ interface LocalMallData {
   primaryHighStreet: string;
   additionalHighStreets: string[];
   businesses: number;
+  affiliateCount: number;
   customers: number;
   campaigns: number;
   events: number;
@@ -353,7 +355,7 @@ export default function LocalMallsPanel() {
   const [consultantFilter, setConsultantFilter] = useState('All');
   const [managerFilter, setManagerFilter] = useState('All');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<'overview' | 'businesses' | 'customers' | 'rewards' | 'spin' | 'team' | 'analytics'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'businesses' | 'rewards' | 'spin' | 'team' | 'analytics'>('overview');
   const [formData, setFormData] = useState<Partial<LocalMallData>>({});
   const [selectedLocalMalls, setSelectedLocalMalls] = useState<string[]>([]);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
@@ -372,10 +374,6 @@ export default function LocalMallsPanel() {
   }, [allMalls]);
 
   const selectedMall = localMalls.find(m => m.id === selectedId) || null;
-  const { data: assignedRes, isLoading: assignedLoading } = useAssignedBusinesses(
-    selectedId ? { type: 'localMall', id: selectedId } : null,
-  );
-  const assignedBusinesses = assignedRes?.data ?? [];
 
   // ─── Filter Logic ──────────────────────────────────────────────────────
 
@@ -419,7 +417,7 @@ export default function LocalMallsPanel() {
     setFormData({
       name: '', description: '', longDescription: '', slug: '', status: 'Draft',
       postcodes: [], borough: '', primaryHighStreet: '', additionalHighStreets: [],
-      businesses: 0, customers: 0, campaigns: 0, events: 0,
+      businesses: 0, affiliateCount: 0, customers: 0, campaigns: 0, events: 0,
       primaryColour: '#2563EB', secondaryColour: '#F59E0B',
       welcomeMessage: '', tagline: '', radiusCoverage: '',
       allowBusinessesOutsidePostcode: false, allowVirtualBusinesses: false,
@@ -529,7 +527,7 @@ export default function LocalMallsPanel() {
 
   const handleSelectMall = (id: string) => {
     setSelectedId(id);
-    setDetailTab('overview');
+    setDetailTab('businesses');
     setView('detail');
   };
 
@@ -600,6 +598,7 @@ export default function LocalMallsPanel() {
       postcodes: [...new Set(mallsToMerge.flatMap(m => m.postcodes))],
       additionalHighStreets: [...new Set(mallsToMerge.flatMap(m => m.additionalHighStreets))],
       businesses: mallsToMerge.reduce((a, m) => a + m.businesses, 0),
+      affiliateCount: mallsToMerge.reduce((a, m) => a + (m.affiliateCount ?? 0), 0),
       customers: mallsToMerge.reduce((a, m) => a + m.customers, 0),
       campaigns: mallsToMerge.reduce((a, m) => a + m.campaigns, 0),
       events: mallsToMerge.reduce((a, m) => a + m.events, 0),
@@ -690,11 +689,10 @@ export default function LocalMallsPanel() {
           </div>
         </div>
 
-        {/* Overview Stats (live API rows only — no estimated campaign/event data) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {/* Overview Stats (live API rows only — no estimated counters) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <StatCard title="Total LocalMalls" value={String(localMalls.length)} trend={`${localMalls.filter(m => m.status === 'Active').length} active`} icon={ShoppingBag} color="blue" />
-          <StatCard title="Total Businesses" value={String(localMalls.reduce((a, m) => a + (m.businesses ?? 0), 0))} trend={`across ${localMalls.length} malls`} icon={Store} color="green" />
-          <StatCard title="Total Customers" value={String(localMalls.reduce((a, m) => a + (m.customers ?? 0), 0))} trend={`across ${localMalls.length} malls`} icon={Users} color="purple" />
+          <StatCard title="Assigned Users" value={String(localMalls.reduce((a, m) => a + (m.businesses ?? 0) + (m.affiliateCount ?? 0), 0))} trend={`${localMalls.reduce((a, m) => a + (m.businesses ?? 0), 0)} businesses · ${localMalls.reduce((a, m) => a + (m.affiliateCount ?? 0), 0)} affiliates`} icon={Store} color="green" />
           <StatCard title="Active Status" value={String(localMalls.filter(m => m.status === 'Active').length)} trend={String(localMalls.filter(m => m.status === 'Draft').length) + ' draft'} icon={CheckCircle2} color="cyan" />
         </div>
 
@@ -745,8 +743,7 @@ export default function LocalMallsPanel() {
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Postcode Coverage</th>
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Borough</th>
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Primary High Street</th>
-                  <th className="text-center px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Businesses</th>
-                  <th className="text-center px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Customers</th>
+                  <th className="text-center px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Assigned Users</th>
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Created Date</th>
                   <th className="text-left px-4 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -754,7 +751,7 @@ export default function LocalMallsPanel() {
               </thead>
               <tbody>
                 {pagedMalls.length === 0 ? (
-                  <tr><td colSpan={10} className="px-4 py-12 text-center"><div className="text-gray-400 text-sm font-medium">No LocalMalls found matching your filters.</div></td></tr>
+                  <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="text-gray-400 text-sm font-medium">No LocalMalls found matching your filters.</div></td></tr>
                 ) : (
                   pagedMalls.map((mall) => (
                     <tr key={mall.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
@@ -771,8 +768,16 @@ export default function LocalMallsPanel() {
                       </td>
                       <td className="px-4 py-3 text-xs font-medium text-gray-700">{mall.borough}</td>
                       <td className="px-4 py-3 text-xs font-medium text-gray-700">{mall.primaryHighStreet}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-gray-900 text-center">{mall.businesses}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-gray-900 text-center">{(mall.customers / 1000).toFixed(1)}k</td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          title={`View all ${(mall.businesses ?? 0) + (mall.affiliateCount ?? 0)} assigned users`}
+                          onClick={() => handleSelectMall(mall.id)}
+                          className="text-xs font-bold text-orange-600 underline decoration-orange-200 underline-offset-4 hover:text-orange-800"
+                        >
+                          {(mall.businesses ?? 0) + (mall.affiliateCount ?? 0)}
+                        </button>
+                      </td>
                       <td className="px-4 py-3"><Badge status={mall.status} /></td>
                       <td className="px-4 py-3 text-xs text-gray-500">{mall.createdDate}</td>
                       <td className="px-4 py-3 relative">
@@ -1447,10 +1452,10 @@ export default function LocalMallsPanel() {
           </div>
         </div>
 
-        {/* Dashboard Cards (stored mall counters only) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {/* Dashboard Cards (live assignment counters only) */}
+        <div className="grid grid-cols-3 gap-3">
           <StatCard title="Businesses" value={String(mall.businesses ?? 0)} icon={Store} color="blue" />
-          <StatCard title="Customers" value={((mall.customers ?? 0) / 1000).toFixed(1) + 'k'} icon={Users} color="green" />
+          <StatCard title="Affiliates" value={String(mall.affiliateCount ?? 0)} icon={Users} color="green" />
           <StatCard title="Status" value={mall.status} icon={CheckCircle2} color="purple" />
         </div>
 
@@ -1461,7 +1466,6 @@ export default function LocalMallsPanel() {
               {[
                 { key: 'overview' as const, label: 'Overview', icon: Eye },
                 { key: 'businesses' as const, label: 'Businesses', icon: Store },
-                { key: 'customers' as const, label: 'Customers', icon: Users },
                 { key: 'rewards' as const, label: 'Rewards', icon: Gift },
                 { key: 'spin' as const, label: 'Spin', icon: Sparkles },
                 { key: 'team' as const, label: 'Team', icon: Users },
@@ -1491,7 +1495,7 @@ export default function LocalMallsPanel() {
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       { label: 'Total Businesses', value: String(mall.businesses), icon: Building2 },
-                      { label: 'Total Customers', value: (mall.customers / 1000).toFixed(1) + 'k', icon: Users },
+                      { label: 'Affiliates', value: String(mall.affiliateCount ?? 0), icon: Users },
                     ].map(s => (
                       <div key={s.label} className="p-4 bg-gray-50 rounded-xl">
                         <div className="flex items-center gap-2 mb-2"><s.icon className="w-4 h-4 text-brand-blue" /><span className="text-[10px] font-bold text-gray-500 uppercase">{s.label}</span></div>
@@ -1503,64 +1507,12 @@ export default function LocalMallsPanel() {
               </div>
             )}
             {detailTab === 'businesses' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Assigned Business Users ({assignedBusinesses.length})
-                  </h4>
-                </div>
-                {assignedLoading ? (
-                  <div className="flex items-center justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-brand-blue" /></div>
-                ) : assignedBusinesses.length === 0 ? (
-                  <div className="bg-gray-50 rounded-xl p-6 text-center">
-                    <Store className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-gray-700">No businesses assigned to this LocalMall yet</p>
-                    <p className="text-xs text-gray-500 mt-1">Signups are auto-assigned when their validated postcode resolves here.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-xl border border-gray-100">
-                    <table className="w-full text-left">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Business</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Owner</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Postcode</th>
-                          <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">Joined</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {assignedBusinesses.map((business) => (
-                          <tr key={business.id} className="hover:bg-gray-50/60">
-                            <td className="px-4 py-3">
-                              <p className="text-xs font-bold text-gray-900">{business.businessName}</p>
-                              <p className="text-[10px] font-semibold text-gray-400">{business.category || business.industry || business.businessType}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <p className="text-xs font-semibold text-gray-700">
-                                {[business.user?.firstName, business.user?.lastName].filter(Boolean).join(' ') || '—'}
-                              </p>
-                              <p className="text-[10px] font-semibold text-gray-400">{business.email}</p>
-                            </td>
-                            <td className="px-4 py-3 text-xs font-semibold uppercase text-gray-500">{business.postcode || '—'}</td>
-                            <td className="px-4 py-3 text-[10px] font-semibold text-gray-500">{new Date(business.createdAt).toLocaleDateString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-            {detailTab === 'customers' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">{mall.customers.toLocaleString()} Registered Customers</h4>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-6 text-center">
-                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm font-bold text-gray-700">Per-customer engagement metrics live in the Analytics tab</p>
-                </div>
-              </div>
+              <AssignedUsersTable
+                entity={mall ? { type: 'localMall', id: mall.id } : null}
+                title="Assigned Users"
+                titleHint={`${mall.name} · search, filter and page through businesses and affiliates`}
+                emptyMessage="No businesses or affiliates are assigned to this LocalMall yet."
+              />
             )}
             {detailTab === 'rewards' && (
               <div>
@@ -1654,8 +1606,8 @@ export default function LocalMallsPanel() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                   {[
                     { label: 'Businesses', value: String(mall.businesses ?? 0), icon: Store },
-                    { label: 'Registered Customers', value: ((mall.customers ?? 0) / 1000).toFixed(1) + 'k', icon: Users },
-                    { label: 'Assigned Users', value: String(assignedBusinesses.length), icon: Target },
+                    { label: 'Affiliates', value: String(mall.affiliateCount ?? 0), icon: Users },
+                    { label: 'Assigned Users', value: String((mall.businesses ?? 0) + (mall.affiliateCount ?? 0)), icon: Target },
                   ].map(m => (
                     <div key={m.label} className="p-4 bg-gray-50 rounded-xl">
                       <div className="flex items-center gap-2 mb-2"><m.icon className="w-4 h-4 text-brand-blue" /><span className="text-[10px] font-bold text-gray-500 uppercase">{m.label}</span></div>
