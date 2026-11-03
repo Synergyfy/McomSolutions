@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as https from 'https';
+import * as fs from 'fs';
+import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostcodeService, ResolvedPostcode } from './postcode.service';
 
@@ -424,6 +426,11 @@ export class UkReferenceDataService {
 
     const elements = await this.fetchOsmMalls(summary);
     summary.fetched = elements.length;
+    if (elements.length === 0) {
+      summary.sourceErrors.push('OSM unavailable; using bundled mall fixture.');
+      await this.importMallsFromFixture(summary);
+      return summary;
+    }
     const selected = limit ? elements.slice(0, limit) : elements;
     const resolvedCache = new Map<string, ResolvedPostcode | { error: string }>();
 
@@ -539,6 +546,103 @@ export class UkReferenceDataService {
         `${summary.failed} failed`,
     );
     return summary;
+  }
+
+  private async importMallsFromFixture(summary: ImportMallsSummary): Promise<void> {
+    const fixturePath = join(process.cwd(), 'prisma', 'reference-data', 'uk-malls.json');
+    if (!fs.existsSync(fixturePath)) {
+      summary.sourceErrors.push(`Mall fixture not found at ${fixturePath}`);
+      return;
+    }
+
+    const records = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as Array<{
+      name: string;
+      osmId: string;
+      postcodes: string[];
+      city: string;
+      borough: string;
+      highStreet: string;
+      primaryHighStreet: string;
+    }>;
+
+    summary.fetched = records.length;
+
+    for (const record of records) {
+      try {
+        const city = await this.prisma.city.findFirst({ where: { name: record.city } });
+        const borough = await this.prisma.borough.findFirst({ where: { name: record.borough } });
+        const highStreet = await this.prisma.highStreet.findFirst({
+          where: { name: record.highStreet, borough: record.borough },
+        });
+        if (!city || !borough) {
+          summary.failed += 1;
+          summary.errors.push({
+            name: record.name,
+            postcode: record.postcodes?.[0] || '',
+            message: 'City or borough not found for fixture mall.',
+          });
+          continue;
+        }
+
+        const existing = await this.prisma.localMall.findFirst({
+          where: {
+            OR: [{ osmId: record.osmId }, { name: record.name, borough: record.borough }],
+          },
+          select: { id: true, postcodes: true },
+        });
+
+        if (existing) {
+          await this.prisma.localMall.update({
+            where: { id: existing.id },
+            data: {
+              osmId: record.osmId,
+              source: 'osm',
+              cityId: city.id,
+              boroughId: borough.id,
+              highStreetId: highStreet?.id,
+              primaryHighStreet: record.primaryHighStreet || highStreet?.name || borough.name,
+              postcodes: [...new Set([...(existing.postcodes || []), ...(record.postcodes || [])])],
+            },
+          });
+          summary.updated += 1;
+        } else {
+          const slug = await this.uniqueMallSlug(
+            `${record.name}-${record.postcodes?.[0] || borough.name}`,
+          );
+          await this.prisma.localMall.create({
+            data: {
+              name: record.name,
+              osmId: record.osmId,
+              source: 'osm',
+              postcodes: record.postcodes || [],
+              borough: record.borough,
+              cityId: city.id,
+              boroughId: borough.id,
+              highStreetId: highStreet?.id,
+              primaryHighStreet: record.primaryHighStreet || highStreet?.name || borough.name,
+              additionalHighStreets: [],
+              status: 'Active',
+              description: `${record.name} — imported from OpenStreetMap.`,
+              longDescription: `${record.name} connects local businesses to the MCOM ecosystem.`,
+              slug,
+              primaryColour: '#1D4ED8',
+              secondaryColour: '#F97316',
+              welcomeMessage: `Welcome to ${record.name}.`,
+              tagline: 'Shop local, earn rewards.',
+              radiusCoverage: '5 miles',
+            },
+          });
+          summary.created += 1;
+        }
+      } catch (error) {
+        summary.failed += 1;
+        summary.errors.push({
+          name: record.name,
+          postcode: record.postcodes?.[0] || '',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   private async fetchOsmMalls(summary: ImportMallsSummary): Promise<any[]> {
