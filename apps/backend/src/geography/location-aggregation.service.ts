@@ -101,6 +101,14 @@ export class LocationAggregationService {
     );
   }
 
+  /** Keep interactive transactions small when a bulk import creates many scopes. */
+  private async applyBatched<T>(rows: T[], makeUpdate: (row: T) => any): Promise<void> {
+    const batchSize = 200;
+    for (let index = 0; index < rows.length; index += batchSize) {
+      await this.prisma.$transaction(rows.slice(index, index + batchSize).map(makeUpdate));
+    }
+  }
+
   /**
    * Sums Agent + Consultant + Account Manager totals per location scope.
    * Three grouped queries total (independent of the number of scopes).
@@ -155,17 +163,15 @@ export class LocationAggregationService {
     ]);
     const counts = new Map(grouped.map((g) => [g.cityId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.city.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            affiliateCount: affiliateCounts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.city.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          affiliateCount: affiliateCounts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -187,17 +193,15 @@ export class LocationAggregationService {
     ]);
     const counts = new Map(grouped.map((g) => [g.boroughId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.borough.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            affiliateCount: affiliateCounts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.borough.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          affiliateCount: affiliateCounts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -219,17 +223,15 @@ export class LocationAggregationService {
     ]);
     const counts = new Map(grouped.map((g) => [g.highStreetId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.highStreet.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            affiliateCount: affiliateCounts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.highStreet.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          affiliateCount: affiliateCounts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -251,17 +253,15 @@ export class LocationAggregationService {
     ]);
     const counts = new Map(grouped.map((g) => [g.localMallId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.localMall.update({
-          where: { id: row.id },
-          data: {
-            businesses: counts.get(row.id) ?? 0,
-            affiliateCount: affiliateCounts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.localMall.update({
+        where: { id: row.id },
+        data: {
+          businesses: counts.get(row.id) ?? 0,
+          affiliateCount: affiliateCounts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -280,16 +280,14 @@ export class LocationAggregationService {
     });
     const counts = new Map(grouped.map((g) => [g.sectorId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.sector.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.sector.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -308,16 +306,14 @@ export class LocationAggregationService {
     });
     const counts = new Map(grouped.map((g) => [g.categoryId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.category.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.category.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
@@ -336,16 +332,14 @@ export class LocationAggregationService {
     });
     const counts = new Map(grouped.map((g) => [g.subCategoryId as string, g._count._all]));
 
-    await this.prisma.$transaction(
-      changed.map((row) =>
-        this.prisma.subCategory.update({
-          where: { id: row.id },
-          data: {
-            businessCount: counts.get(row.id) ?? 0,
-            aggregatedAt: row.lastItemCreatedAt ?? new Date(),
-          },
-        }),
-      ),
+    await this.applyBatched(changed, (row) =>
+      this.prisma.subCategory.update({
+        where: { id: row.id },
+        data: {
+          businessCount: counts.get(row.id) ?? 0,
+          aggregatedAt: row.lastItemCreatedAt ?? new Date(),
+        },
+      }),
     );
     return changed.length;
   }
