@@ -6,7 +6,7 @@ import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
   Wallet, Building2, ShieldCheck,
-  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare, Ticket, KeyRound
+  User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare, Ticket, KeyRound, UserCog, ClipboardList
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useProfile } from '../services/business/hooks';
@@ -14,6 +14,8 @@ import { useLogout } from '../services/auth/hooks';
 import DashboardMemberships from '../components/DashboardMemberships';
 import DashboardCoupons from '../components/DashboardCoupons';
 import DashboardMessages from '../components/DashboardMessages';
+import DashboardAccountManager from '../components/DashboardAccountManager';
+import DashboardDelegatedTasks from '../components/DashboardDelegatedTasks';
 
 import DashboardOverview from '../components/DashboardOverview';
 import DashboardAllProducts from '../components/DashboardAllProducts';
@@ -32,6 +34,7 @@ import { apiClient } from '../services/api';
 
 const DASHBOARD_TABS = [
   'overview', 'all-products', 'access', 'access-passes', 'notifications', 'messages',
+  'account-manager', 'tasks',
   'memberships', 'billing', 'business-profile',
   'referrals', 'support', 'settings', 'wallet', 'coupons',
 ] as const;
@@ -194,6 +197,8 @@ export default function Dashboard() {
           <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => handleNav('access')} />
           <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
           <NavItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
+          <NavItem icon={UserCog} label="Account Manager" active={activeTab === 'account-manager'} onClick={() => handleNav('account-manager')} />
+          <NavItem icon={ClipboardList} label="Task Delegation" active={activeTab === 'tasks'} onClick={() => handleNav('tasks')} />
           <div className="pt-8 pb-4 px-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Billing & Plans</span>
           </div>
@@ -449,6 +454,8 @@ export default function Dashboard() {
           {activeTab === 'access-passes' && <DashboardAccessPasses />}
           {activeTab === 'notifications' && <DashboardNotifications />}
           {activeTab === 'messages' && <DashboardMessages />}
+          {activeTab === 'account-manager' && <DashboardAccountManager />}
+          {activeTab === 'tasks' && <DashboardDelegatedTasks />}
           {activeTab === 'memberships' && <DashboardMemberships />}
           {activeTab === 'coupons' && <DashboardCoupons />}
 
@@ -523,6 +530,8 @@ export default function Dashboard() {
                     <SheetItem icon={ShieldCheck} label="Access" active={activeTab === 'access'} onClick={() => handleNav('access')} />
                     <SheetItem icon={Bell} label="Alerts" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
                     <SheetItem icon={MessageSquare} label="Messages" active={activeTab === 'messages'} onClick={() => handleNav('messages')} />
+                    <SheetItem icon={UserCog} label="Manager" active={activeTab === 'account-manager'} onClick={() => handleNav('account-manager')} />
+                    <SheetItem icon={ClipboardList} label="Tasks" active={activeTab === 'tasks'} onClick={() => handleNav('tasks')} />
                     <SheetItem icon={HelpCircle} label="Support" active={activeTab === 'support'} onClick={() => handleNav('support')} />
                   </div>
                 </div>

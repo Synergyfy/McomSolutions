@@ -5,6 +5,15 @@ export const TASK_EVENT_QUEUE = 'task-event';
 export const TASK_REWARD_QUEUE = 'task-reward';
 export const TASK_COUPON_QUEUE = 'task-coupon';
 
+export const AFFILIATE_TASK_QUEUE = 'affiliate-task';
+
+export type AffiliateTaskJobName = 'delegate-task' | 'push-review';
+
+export interface AffiliateTaskJobData {
+  taskId: string;
+  action: AffiliateTaskJobName;
+}
+
 export interface WebhookJobData {
   platformIdentifier: string;
   event: string;

@@ -105,6 +105,17 @@ export default function DashboardBusinessProfile() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+
+  const handlePostcodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // UK postcode characters only; normalised to upper case.
+    const value = e.target.value
+      .toUpperCase()
+      .replace(/[^A-Z0-9 ]/g, '')
+      .slice(0, 8);
+    setFormData((prev) => ({ ...prev, postcode: value }));
+  };
+
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -140,8 +151,14 @@ export default function DashboardBusinessProfile() {
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    const normalisedPostcode = formData.postcode.trim().toUpperCase();
+    if (normalisedPostcode && !UK_POSTCODE_REGEX.test(normalisedPostcode)) {
+      setError('Please enter a valid UK postcode (e.g. SW1A 1AA).');
+      setSaving(false);
+      return;
+    }
     try {
-      await updateProfile(formData);
+      await updateProfile({ ...formData, postcode: normalisedPostcode });
       setEditing(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to update business profile.');
@@ -330,6 +347,55 @@ export default function DashboardBusinessProfile() {
                 </div>
               );
             })}
+
+            {/* Address + UK postcode (used for affiliate matching / distance) */}
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">
+                Business Address
+              </label>
+              {editing ? (
+                <input
+                  name="address"
+                  value={formData.address}
+                  onChange={handleChange}
+                  placeholder="Street, area, city"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900 font-semibold text-sm"
+                />
+              ) : (
+                <div className="flex items-center gap-3">
+                  <MapPin className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                  <span className="text-gray-800 font-semibold text-sm">
+                    {formData.address || 'Not specified'}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">
+                Postcode <span className="text-orange-500">(UK only)</span>
+              </label>
+              {editing ? (
+                <input
+                  name="postcode"
+                  value={formData.postcode}
+                  onChange={handlePostcodeChange}
+                  placeholder="e.g. SW1A 1AA"
+                  maxLength={8}
+                  autoComplete="postal-code"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900 font-semibold text-sm uppercase"
+                />
+              ) : (
+                <div className="flex items-center gap-3">
+                  <MapPin className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                  <span className="text-gray-800 font-semibold text-sm">
+                    {formData.postcode || 'Not specified'}
+                  </span>
+                </div>
+              )}
+              <p className="mt-1.5 text-[11px] text-gray-400">
+                Used to match you with nearby agents, consultants and account managers.
+              </p>
+            </div>
           </div>
         </div>
 

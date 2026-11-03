@@ -4,14 +4,15 @@ import {
   CheckCircle2, ArrowRight, X,
   Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Briefcase
+  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Briefcase,
+  Send, Loader2
 } from 'lucide-react';
 import {
   PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay,
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
-import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile } from '../services/business/hooks';
+import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile, useAccountManager, usePlatformAccess, useCreateAffiliateTask } from '../services/business/hooks';
 import ProgrammeCountdown from './ProgrammeCountdown';
 import ProgrammeTaskRow from './ProgrammeTaskRow';
 import ProgrammeTaskGroup from './ProgrammeTaskGroup';
@@ -308,6 +309,283 @@ function TaskStartModal({
   );
 }
 
+function DelegateTaskModal({
+  open,
+  task,
+  onClose,
+  onViewTasks,
+  onViewManager,
+}: {
+  open: boolean;
+  task?: any | null;
+  onClose: () => void;
+  onViewTasks: () => void;
+  onViewManager: () => void;
+}) {
+  const { data: managerRes } = useAccountManager();
+  const { data: accessRes } = usePlatformAccess();
+  const createTask = useCreateAffiliateTask();
+  const manager = managerRes?.data;
+  const platforms = accessRes?.data?.platforms ?? [];
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [outcome, setOutcome] = useState<{ pending: boolean; assigneeName?: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(task?.title ?? '');
+    setDescription(task?.description ?? '');
+    setSelectedPlatforms([]);
+    setError(null);
+    setDone(false);
+    setOutcome(null);
+  }, [open, task]);
+
+  if (!open) return null;
+
+  const togglePlatform = (key: string) => {
+    setSelectedPlatforms((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key],
+    );
+  };
+
+  const submit = async () => {
+    if (!title.trim() || !description.trim()) return;
+    setError(null);
+    try {
+      const response = await createTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim(),
+        platforms: selectedPlatforms,
+        ...(task?.id ? { assignmentId: task.id } : {}),
+      });
+      const created = response?.data ?? response;
+      const pending = created?.status === 'PENDING_ASSIGNMENT';
+      const assigneeName =
+        [created?.assignee?.firstName, created?.assignee?.lastName].filter(Boolean).join(' ') ||
+        created?.assignee?.email ||
+        null;
+      setOutcome({ pending, assigneeName });
+      setDone(true);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message ||
+          'Could not delegate the task. Please try again.',
+      );
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-black text-gray-900">Delegate a task</h3>
+            <p className="text-xs text-gray-500 font-medium">
+              {manager
+                ? `This will go directly to ${manager.name} (your account manager).`
+                : 'No account manager yet — our admin team will route it to an available affiliate.'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+
+        {done ? (
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+              {outcome?.pending
+                ? 'Task submitted — our admin team will assign an available agent or consultant and you will be emailed once assigned.'
+                : `Task delegated${outcome?.assigneeName ? ` to ${outcome.assigneeName}` : ''}. You'll get updates as it progresses.`}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={onClose}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  onClose();
+                  onViewTasks();
+                }}
+                className="rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark"
+              >
+                View delegated tasks
+              </button>
+            </div>
+          </div>
+        ) : task ? (
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                Activity Programme task
+              </p>
+              <p className="text-sm font-black text-gray-900">{task.title}</p>
+              <p className="text-xs text-gray-600 whitespace-pre-wrap">{task.description}</p>
+              {(task.platforms?.length > 0 || task.platform) && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {(task.platforms?.length > 0 ? task.platforms : [task.platform]).map((platform: string) => (
+                    <span
+                      key={platform}
+                      className="rounded-full bg-brand-blue/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-brand-blue"
+                    >
+                      {String(platform).replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500">
+              This task was configured by the admin — no need to re-enter anything.
+              {manager
+                ? ` It will be delegated to ${manager.name}, your account manager.`
+                : ' Our admin team will route it to an available affiliate.'}
+            </p>
+
+            {error && (
+              <p className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onViewManager();
+                }}
+                className="text-[11px] font-bold text-brand-blue hover:underline"
+              >
+                View account manager
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submit}
+                  disabled={createTask.isPending}
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark disabled:opacity-50"
+                >
+                  {createTask.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  Delegate to {manager?.name || 'account manager'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What do you need done?"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+            />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder="Describe the outcome, links, files or steps involved."
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+            />
+
+            <div>
+              <p className="text-[11px] font-bold text-gray-700 mb-1.5">
+                Platform tags <span className="text-gray-400 font-medium">(from your current membership)</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {platforms.length === 0 && (
+                  <span className="text-xs text-gray-400">
+                    No platform access detected — you can still delegate general support.
+                  </span>
+                )}
+                {platforms.map((platform) => {
+                  const active = selectedPlatforms.includes(platform.key);
+                  return (
+                    <button
+                      key={platform.key}
+                      type="button"
+                      onClick={() => togglePlatform(platform.key)}
+                      className={
+                        active
+                          ? 'rounded-full border border-brand-blue bg-brand-blue px-3 py-1.5 text-[11px] font-bold text-white'
+                          : 'rounded-full border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50'
+                      }
+                    >
+                      {platform.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {error && (
+              <p className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-[11px] font-semibold text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onViewManager();
+                }}
+                className="text-[11px] font-bold text-brand-blue hover:underline"
+              >
+                View account manager
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submit}
+                  disabled={createTask.isPending || !title.trim() || !description.trim()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark disabled:opacity-50"
+                >
+                  {createTask.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  Delegate
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: string) => void }) {
   const userRaw = localStorage.getItem('business_user');
   let businessName = 'Your Business';
@@ -390,6 +668,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   });
   const [activeMission, setActiveMission] = useState<any | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [delegateOpen, setDelegateOpen] = useState(false);
+  const [delegateTask, setDelegateTask] = useState<any | null>(null);
 
   useEffect(() => {
     localStorage.setItem('businessTaskStatuses', JSON.stringify(taskStatuses));
@@ -421,6 +701,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           externalClientId: t.externalClientId || null,
           rewardCouponEnabled: !!t.rewardCouponEnabled,
           rewardCoupon: t.rewardCoupon || null,
+          delegation: t.delegation || null,
           submissionType: t.submissionType || 'AUTO',
           actionUrl: t.actionUrl || null,
           actionLabel: t.actionLabel || null,
@@ -497,6 +778,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
       startTaskMutation.mutate(mission.id);
     }
     setTaskStatuses(prev => ({ ...prev, [mission.id]: 'in_progress' }));
+  };
+
+  const openDelegateForTask = (mission: any) => {
+    if (mission?.delegation) return;
+    setDelegateTask(mission);
+    setDelegateOpen(true);
   };
 
   const handleStart = (mission: any) => {
@@ -587,6 +874,17 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
           />
         )}
       </AnimatePresence>
+
+      <DelegateTaskModal
+        open={delegateOpen}
+        task={delegateTask}
+        onClose={() => {
+          setDelegateOpen(false);
+          setDelegateTask(null);
+        }}
+        onViewTasks={() => onNavigate?.('tasks')}
+        onViewManager={() => onNavigate?.('account-manager')}
+      />
 
       {/* ═══ Programme Summary ═══ */}
       <motion.div
@@ -708,6 +1006,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}
                       onComplete={(m) => markComplete(m, hasApiTasks)}
+                      onDelegate={openDelegateForTask}
                     />
                   ))}
                 </div>
@@ -731,6 +1030,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}
                       onComplete={(m) => markComplete(m, hasApiTasks)}
+                      onDelegate={openDelegateForTask}
                     />
                   ))}
                 </ProgrammeTaskGroup>
@@ -754,6 +1054,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}
                       onComplete={(m) => markComplete(m, hasApiTasks)}
+                      onDelegate={openDelegateForTask}
                     />
                   ))}
                 </ProgrammeTaskGroup>
@@ -894,15 +1195,15 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               </div>
               <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
             </button>
-            <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
+            <button onClick={() => setDelegateOpen(true)} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
               <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">
                 <HeadphonesIcon className="w-5 h-5 text-white" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-gray-900 text-sm leading-tight">Account Manager</p>
-                <p className="text-xs text-gray-400 leading-tight">Book a strategy session</p>
+                <p className="text-xs text-gray-400 leading-tight">Delegate a task to your dedicated manager</p>
               </div>
-              <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
+              <Send className="w-4 h-4 text-gray-300 group-hover:text-orange-500 shrink-0" />
             </button>
             <button onClick={() => onNavigate?.('support')} className="w-full flex items-center gap-3 p-3 sm:p-4 bg-orange-50 rounded-xl sm:rounded-2xl hover:bg-orange-100 transition-colors text-left group">
               <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center shrink-0">

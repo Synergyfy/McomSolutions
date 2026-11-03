@@ -62,8 +62,22 @@ const SSO_SEED_CLIENTS: SsoSeedDescriptor[] = [
     corsOrigins: ['http://localhost:7088'],
     secretEnv: 'SSO_SEED_247GBS_AFFILIATE_CLIENT_SECRET',
     apiKeyEnv: 'SSO_SEED_247GBS_AFFILIATE_API_KEY',
+    hmacEnv: 'SSO_SEED_247GBS_AFFILIATE_HMAC_SECRET',
+    webhookEnv: 'SSO_SEED_247GBS_AFFILIATE_WEBHOOK_SECRET',
   },
 ];
+
+// Backend-to-backend bridge settings for the affiliate platform. Kept out of
+// git — the base URL and webhook URL come from env with local defaults.
+const AFFILIATE_BRIDGE_CONFIG = {
+  serviceBaseUrlEnv: 'AFFILIATE_SERVICE_BASE_URL',
+  serviceBaseUrlFallback: 'http://localhost:7088/api/v1',
+  webhookUrlEnv: 'AFFILIATE_WEBHOOK_URL',
+  webhookUrlFallback: 'http://localhost:7088/api/v1/webhooks',
+  serviceScopes: ['tasks:read', 'tasks:write', 'profile:read'],
+  allowedAudiences: ['mcom-central'],
+  allowedCallers: ['mcom-central'],
+};
 
 function randomHex(bytes: number): string {
   return crypto.randomBytes(bytes).toString('hex');
@@ -303,6 +317,45 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
           }
           if (client.appUrl && !existing.appUrl) {
             updates.appUrl = client.appUrl;
+          }
+          // Scope config: only ever add scopes (never silently remove admin-granted ones).
+          if (client.scopes?.length) {
+            const mergedScopes = Array.from(new Set([...(existing.scopes || []), ...client.scopes]));
+            if (mergedScopes.length !== (existing.scopes || []).length) {
+              updates.scopes = mergedScopes;
+            }
+          }
+          // 247GBS affiliate bridge: backfill service config + secrets once.
+          if (client.clientId === '247gbs-affiliate') {
+            const serviceBaseUrl =
+              process.env[AFFILIATE_BRIDGE_CONFIG.serviceBaseUrlEnv]?.trim() ||
+              AFFILIATE_BRIDGE_CONFIG.serviceBaseUrlFallback;
+            const webhookUrl =
+              process.env[AFFILIATE_BRIDGE_CONFIG.webhookUrlEnv]?.trim() ||
+              AFFILIATE_BRIDGE_CONFIG.webhookUrlFallback;
+            if (!existing.serviceBaseUrl && serviceBaseUrl) {
+              updates.serviceBaseUrl = serviceBaseUrl;
+            }
+            if (!existing.webhookUrl && webhookUrl) {
+              updates.webhookUrl = webhookUrl;
+            }
+            if (!existing.serviceScopes?.length) {
+              updates.serviceScopes = AFFILIATE_BRIDGE_CONFIG.serviceScopes;
+            }
+            if (!existing.allowedAudiences?.length) {
+              updates.allowedAudiences = AFFILIATE_BRIDGE_CONFIG.allowedAudiences;
+            }
+            if (!existing.allowedCallers?.length) {
+              updates.allowedCallers = AFFILIATE_BRIDGE_CONFIG.allowedCallers;
+            }
+            if (encryptionKey && client.hmacEnv && !existing.hmacSecret) {
+              const raw = (process.env[client.hmacEnv] || '').trim();
+              if (raw) updates.hmacSecret = encrypt(raw, encryptionKey);
+            }
+            if (encryptionKey && client.webhookEnv && !existing.webhookSecret) {
+              const raw = (process.env[client.webhookEnv] || '').trim();
+              if (raw) updates.webhookSecret = encrypt(raw, encryptionKey);
+            }
           }
           if (Object.keys(updates).length > 0) {
             await this.ssoClient.update({

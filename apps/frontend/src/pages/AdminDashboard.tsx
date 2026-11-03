@@ -28,6 +28,7 @@ import AdminAccessEditor from './AdminAccessEditor';
 import AccessPlansPanel from '../components/admin/AccessPlansPanel';
 import AdminCouponEditor from './AdminCouponEditor';
 import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
+import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -45,6 +46,7 @@ const ADMIN_TABS: AdminTab[] = [
   'mcom-pay',
   'programme',
   'programme-progress',
+  'affiliate-tasks',
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories', 'cities',
@@ -106,6 +108,7 @@ export default function AdminDashboard() {
       'mcom-pay': { title: 'MCOM Pay Ledger', subtitle: 'Read-only ledger of every charge processed through registered apps' },
       'programme': { title: 'Activity Programme Control', subtitle: 'Full lifecycle control — configure, override, fast-track, monitor every business journey' },
       'programme-progress': { title: 'Programme Progress', subtitle: 'Track every business and customer — tasks done, expired, and still outstanding' },
+      'affiliate-tasks': { title: 'Affiliate Task Delegation', subtitle: 'Route business requests, review submissions, and manage affiliate reputation' },
       'system-settings': { title: 'System Settings', subtitle: 'Global ecosystem configuration' },
       'developer-center': { title: 'Developer Center', subtitle: 'Technical administration and tools' },
       'super-admin': { title: 'Super Admin Control Center', subtitle: 'Highest-level administrative control' },
@@ -180,6 +183,8 @@ export default function AdminDashboard() {
         return <ProgrammeManagementPanel />;
       case 'programme-progress':
         return <ProgrammeProgressPanel />;
+      case 'affiliate-tasks':
+        return <AffiliateTaskAdminPanel />;
       case 'audit-logs':
       case 'system-settings':
       case 'developer-center':

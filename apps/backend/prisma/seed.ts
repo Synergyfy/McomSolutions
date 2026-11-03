@@ -175,6 +175,7 @@ async function main() {
       agentProfile: {
         create: {
           permissions: ['View Businesses', 'Edit Businesses'],
+          postcode: 'B1 1BB',
           status: 'Active',
         },
       },
@@ -194,6 +195,7 @@ async function main() {
       consultantProfile: {
         create: {
           specialisation: 'Digital Transformation',
+          postcode: 'M1 1AE',
           status: 'Active',
         },
       },
@@ -213,6 +215,7 @@ async function main() {
       accountManagerProfile: {
         create: {
           assignedBusinesses: 12,
+          postcode: 'SE15 4PT',
           status: 'Active',
         },
       },

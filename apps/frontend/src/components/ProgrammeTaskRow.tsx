@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Clock, ExternalLink, Gift,
-  Play, RotateCcw,
+  Play, RotateCcw, Send,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { TaskStatus } from '../lib/programmeData';
@@ -24,6 +24,8 @@ export interface ProgrammeTaskRowProps {
   onOpenLink: (mission: any) => void;
   onContinue: (mission: any) => void;
   onComplete: (mission: any) => void;
+  /** Delegate this specific task to the business account manager. */
+  onDelegate?: (mission: any) => void;
   className?: string;
 }
 
@@ -42,6 +44,7 @@ export default function ProgrammeTaskRow({
   onOpenLink,
   onContinue,
   onComplete,
+  onDelegate,
   className,
 }: ProgrammeTaskRowProps) {
   const submissionType = String(mission.submissionType || '').toUpperCase();
@@ -57,6 +60,10 @@ export default function ProgrammeTaskRow({
   const isExpired = status === 'expired';
   const showNumber = typeof index === 'number' && !isCompleted && !isInProgress && !isExpired;
   const isNextUp = showNumber && index === 0;
+  const delegation = mission.delegation as
+    | { id: string; status: string; assigneeName?: string | null }
+    | null
+    | undefined;
 
   return (
     <div
@@ -108,10 +115,25 @@ export default function ProgrammeTaskRow({
                 <ExternalLink className="w-3 h-3 shrink-0" /> Open the link, then mark complete
               </span>
             )}
+            {delegation && !isCompleted && !isExpired && (
+              <span className="text-[10px] sm:text-xs font-bold inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">
+                <Send className="w-3 h-3 shrink-0" />
+                Delegated{delegation.assigneeName ? ` · ${delegation.assigneeName}` : ''}
+              </span>
+            )}
           </div>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto mt-1 sm:mt-0 min-w-0">
+        {onDelegate && !isCompleted && !isExpired && !delegation && (
+          <button
+            onClick={() => onDelegate(mission)}
+            title="Delegate this task to your account manager"
+            className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-orange-300 text-orange-600 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-orange-50 transition-colors"
+          >
+            <Send className="w-3 h-3 shrink-0" /> <span className="truncate">Delegate</span>
+          </button>
+        )}
         {status === 'not_started' && (
           isLinkTask ? (
             <button onClick={() => onOpenLink(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm max-w-full">

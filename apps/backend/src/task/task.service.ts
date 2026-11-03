@@ -26,6 +26,7 @@ import {
   TaskRewardJobData,
 } from '../queue/queue.constants';
 import {
+  AffiliateTaskStatus,
   CouponDiscountType,
   Prisma,
   Role,
@@ -1542,6 +1543,27 @@ export class TaskService {
     const totalProgrammeDays = programmeAggregate._sum.deadlineDays ?? 0;
     const configuredTaskCount = programmeAggregate._count._all;
 
+    // Active delegations for these programme assignments (used by the dashboard
+    // to show "Delegated" and disable the delegate action).
+    const delegations = await this.prisma.affiliateTask.findMany({
+      where: {
+        sourceAssignmentId: { in: assignments.map((a) => a.id) },
+        status: {
+          notIn: [AffiliateTaskStatus.CANCELLED, AffiliateTaskStatus.DECLINED],
+        },
+      },
+      select: {
+        id: true,
+        sourceAssignmentId: true,
+        status: true,
+        assignee: { select: { firstName: true, lastName: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const delegationByAssignment = new Map(
+      delegations.map((d) => [d.sourceAssignmentId as string, d]),
+    );
+
     return {
       success: true,
       data: assignments.map((a) => {
@@ -1587,6 +1609,20 @@ export class TaskService {
                 expiresAt: a.rewardCoupon.expiresAt,
               }
             : null,
+          delegation: (() => {
+            const delegation = delegationByAssignment.get(a.id);
+            if (!delegation) return null;
+            return {
+              id: delegation.id,
+              status: delegation.status,
+              assigneeName:
+                [delegation.assignee?.firstName, delegation.assignee?.lastName]
+                  .filter(Boolean)
+                  .join(' ') ||
+                delegation.assignee?.email ||
+                null,
+            };
+          })(),
         };
       }),
       meta: {
