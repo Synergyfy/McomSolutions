@@ -23,6 +23,7 @@ import { buildSsoIdentity } from './sso-identity';
 import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { RedisService } from '../redis/redis.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 import {
   OTP_COOLDOWN_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -46,6 +47,7 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private redis: RedisService,
+    private locationAssignment: LocationAssignmentService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -791,6 +793,14 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
+    // UK postcode is mandatory for every business signup and is validated
+    // against postcodes.io/Nominatim before the account is created.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required for business registration.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
+
     // Never persist an empty/placeholder business name. Prefer the submitted
     // name, then the owner's name, then a readable email-derived fallback.
     const businessName = this.deriveBusinessName(data, email);
@@ -828,7 +838,7 @@ export class AuthService {
               isOnGoogle: data.isOnGoogle || false,
               googlePlaceId: data.googlePlaceId || null,
               address: data.address || '',
-              postcode: data.postcode || '',
+              postcode: resolvedPostcode.postcode,
               industry: data.industry || '',
               category: data.category || '',
               description: data.description || '',
@@ -851,6 +861,29 @@ export class AuthService {
       rethrowAsConflictOnUniqueViolation(e);
     }
 
+    if (newUser?.businessProfile?.id) {
+      try {
+        await this.locationAssignment.assignBusiness(newUser.businessProfile.id, {
+          postcode: resolvedPostcode.postcode,
+          resolvedPostcode,
+          sectorId: data.sectorId,
+          categoryId: data.categoryId,
+          subCategoryId: data.subCategoryId,
+          industry: data.industry,
+          category: data.category,
+          subCategory: data.subCategory,
+        });
+      } catch (error) {
+        // Registration itself already committed. Surface the assignment failure
+        // in logs rather than returning a misleading 500 to the new user.
+        this.logger.error(
+          `Business ${newUser.businessProfile.id} could not be auto-assigned to a location: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     return this.login(newUser);
   }
 
@@ -862,6 +895,14 @@ export class AuthService {
 
     if (existing) {
       throw new ConflictException('Email already registered');
+    }
+
+    // Customer postcode is optional, but when supplied it must be a valid UK
+    // postcode. No location hierarchy assignment is performed for customers.
+    let customerPostcode: string | null = null;
+    if (data.postcode && String(data.postcode).trim()) {
+      const resolved = await this.locationAssignment.resolvePostcode(String(data.postcode));
+      customerPostcode = resolved.postcode;
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -886,7 +927,7 @@ export class AuthService {
             create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
           },
           customerProfile: {
-            create: {},
+            create: customerPostcode ? { postcode: customerPostcode } : {},
           },
         },
       });
@@ -908,6 +949,15 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('Email already registered');
     }
+
+    // UK postcode is mandatory for every affiliate role and is validated before
+    // the account is created. Affiliates are also assigned to the same location
+    // hierarchy as businesses.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required for affiliate registration.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
 
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
@@ -948,6 +998,7 @@ export class AuthService {
                 agentProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     permissions: ['view_tasks', 'submit_deliverables'],
                   },
@@ -958,6 +1009,7 @@ export class AuthService {
                 accountManagerProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     assignedBusinesses: 0,
                   },
@@ -967,6 +1019,7 @@ export class AuthService {
                 consultantProfile: {
                   create: {
                     phone,
+                    postcode: resolvedPostcode.postcode,
                     status: 'Active',
                     specialisation: data.specialisation || 'General Consulting',
                   },
@@ -983,6 +1036,39 @@ export class AuthService {
       });
     } catch (e) {
       rethrowAsConflictOnUniqueViolation(e);
+    }
+
+    try {
+      if (affiliateUser.agentProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'agent',
+          affiliateUser.agentProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      } else if (affiliateUser.accountManagerProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'accountManager',
+          affiliateUser.accountManagerProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      } else if (affiliateUser.consultantProfile) {
+        await this.locationAssignment.assignAffiliate(
+          'consultant',
+          affiliateUser.consultantProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+      }
+    } catch (error) {
+      // Account creation already committed; keep signup successful but surface
+      // assignment problems in logs.
+      this.logger.error(
+        `Affiliate ${affiliateUser.id} could not be auto-assigned to a location: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
 
     return this.login(affiliateUser);

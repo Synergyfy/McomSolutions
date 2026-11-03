@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 
 // Force external lookups (Nominatim, postcodes.io) to fail so the service
 // exercise its error paths deterministically without network access.
@@ -37,6 +38,7 @@ describe('BusinessService', () => {
     },
     localMall: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
     },
     membershipPlan: {
       findFirst: jest.fn().mockResolvedValue({ name: 'Bronze', price: 10 }),
@@ -78,6 +80,11 @@ describe('BusinessService', () => {
     get: jest.fn((key: string) => (key === 'APP_URL' ? 'http://localhost:3010' : undefined)),
   };
 
+  const mockLocationAssignment = {
+    resolvePostcode: jest.fn().mockRejectedValue(new BadRequestException('We could not find that UK postcode.')),
+    assignBusiness: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -86,6 +93,7 @@ describe('BusinessService', () => {
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GoogleOAuthService, useValue: mockGoogleOAuth },
+        { provide: LocationAssignmentService, useValue: mockLocationAssignment },
       ],
     }).compile();
 
@@ -119,9 +127,20 @@ describe('BusinessService', () => {
     });
 
     it('should return the matching LocalMall when the postcode area is covered', async () => {
-      mockPrisma.localMall.findMany.mockResolvedValue([
-        { id: 'mall-1', name: 'Peckham LocalMall', borough: 'Southwark', postcodes: ['SE15', 'SE5', 'SE22'] },
-      ]);
+      mockLocationAssignment.resolvePostcode.mockResolvedValueOnce({
+        postcode: 'SE15 4PT',
+        outwardCode: 'SE15',
+        city: 'Greater London',
+        borough: 'Southwark',
+        highStreet: 'Peckham',
+        localMall: 'Peckham LocalMall',
+        region: 'London',
+        latitude: 51.47,
+        longitude: -0.06,
+        adminDistrict: 'Southwark',
+        adminWard: 'Peckham',
+      });
+      mockPrisma.localMall.findFirst.mockResolvedValue({ id: 'mall-1', name: 'Peckham LocalMall' });
       const result = await service.checkLocationProximity('SE15 4PT');
       expect(result.status).toBe('active');
       expect(result.localMallId).toBe('mall-1');
@@ -249,6 +268,22 @@ describe('BusinessService', () => {
 
   // ─── completeGoogleOnboarding ──────────────────
   describe('completeGoogleOnboarding', () => {
+    beforeEach(() => {
+      mockLocationAssignment.resolvePostcode.mockResolvedValue({
+        postcode: 'SW1A 1AA',
+        outwardCode: 'SW1A',
+        city: 'London',
+        borough: 'Westminster',
+        highStreet: "St James's",
+        localMall: "St James's Local Mall",
+        region: 'London',
+        latitude: 51.5,
+        longitude: -0.14,
+        adminDistrict: 'Westminster',
+        adminWard: "St James's",
+      });
+    });
+
     it('should update and login an existing user when a valid Google grant is presented', async () => {
       mockGoogleOAuth.verifyEmailGrant.mockReturnValue({
         email: 'existing@test.com',
@@ -265,6 +300,7 @@ describe('BusinessService', () => {
         email: 'attacker-controlled@test.com', // must be ignored — grant wins
         grant: 'signed.grant.token',
         businessName: 'Updated Biz',
+        postcode: 'SW1A 1AA',
         googlePlaceId: 'mock-place-001',
       });
 
@@ -285,6 +321,7 @@ describe('BusinessService', () => {
         service.completeGoogleOnboarding({
           email: 'existing@test.com',
           businessName: 'Hijacked Biz',
+          postcode: 'SW1A 1AA',
           googlePlaceId: 'mock-place-001',
         }),
       ).rejects.toThrow(ConflictException);
@@ -310,6 +347,7 @@ describe('BusinessService', () => {
         email: 'forged@test.com', // must be ignored — grant wins
         grant: 'signed.grant.token',
         businessName: 'New Biz',
+        postcode: 'SW1A 1AA',
         googlePlaceId: 'mock-place-002',
       });
 
@@ -335,6 +373,7 @@ describe('BusinessService', () => {
       const result = await service.completeGoogleOnboarding({
         email: 'manual@test.com',
         businessName: 'Manual Biz',
+        postcode: 'SW1A 1AA',
       });
 
       expect(mockPrisma.user.create).toHaveBeenCalledWith(
@@ -352,6 +391,7 @@ describe('BusinessService', () => {
       await expect(
         service.completeGoogleOnboarding({
           email: 'claimed@test.com',
+          postcode: 'SW1A 1AA',
           googlePlaceId: 'mock-place-003',
         }),
       ).rejects.toThrow(UnauthorizedException);

@@ -10,9 +10,11 @@ import { SsoController } from './sso.controller';
 import { SsoService } from './sso.service';
 import { GoogleOAuthService } from './google-oauth.service';
 import { SsoUserGuard } from './guards/sso-user.guard';
+import { GeographyModule } from '../geography/geography.module';
 
 @Module({
   imports: [
+    GeographyModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

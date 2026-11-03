@@ -17,6 +17,7 @@ import ProgrammeProgressPanel from '../components/admin/ProgrammeProgressPanel';
 import HighStreetsPanel from '../components/admin/HighStreetsPanel';
 import BoroughsPanel from '../components/admin/BoroughsPanel';
 import LocalMallsPanel from '../components/admin/LocalMallsPanel';
+import CitiesPanel from '../components/admin/CitiesPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
 import { McomPayPanel } from '../components/admin/mcom-pay/McomPayPanel';
@@ -46,7 +47,7 @@ const ADMIN_TABS: AdminTab[] = [
   'programme-progress',
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
-  'sectors-categories',
+  'sectors-categories', 'cities',
 ];
 
 export default function AdminDashboard() {
@@ -112,6 +113,7 @@ export default function AdminDashboard() {
       boroughs: { title: 'Borough Management', subtitle: 'Command center for local borough ecosystems and engagement systems' },
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
       'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
+      cities: { title: 'City Management', subtitle: 'Top-level geographic hierarchy with assigned business totals' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -191,6 +193,8 @@ export default function AdminDashboard() {
         return <LocalMallsPanel />;
       case 'sectors-categories':
         return <SectorsCategoriesPanel />;
+      case 'cities':
+        return <CitiesPanel />;
       default:
         return <OverviewPanel onNavigate={(tab: string) => handleTabChange(tab as AdminTab)} />;
     }

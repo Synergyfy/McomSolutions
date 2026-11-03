@@ -28,7 +28,7 @@ export type AdminTab =
   | 'programme' | 'programme-progress'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
-  | 'sectors-categories';
+  | 'sectors-categories' | 'cities';
 
 interface NavGroup {
   label: string;
@@ -43,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Ecosystem',
     items: [
+      { tab: 'cities', icon: Building2, label: 'Cities' },
       { tab: 'high-streets', icon: Store, label: 'High Streets' },
       { tab: 'boroughs', icon: Building2, label: 'Boroughs' },
       { tab: 'local-malls', icon: ShoppingBag, label: 'LocalMalls' },

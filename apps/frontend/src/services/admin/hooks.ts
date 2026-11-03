@@ -16,6 +16,8 @@ import type {
   Borough,
   HighStreet,
   LocalMall,
+  City,
+  AssignedBusiness,
   CreateBusinessInput,
   CreateCustomerInput,
   CreateAgentInput,
@@ -650,6 +652,102 @@ export const useDeleteLocalMall = () => {
   return useMutation({
     mutationFn: (id: string) => adminApi.deleteLocalMall(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] }),
+  })
+}
+
+// ─── Cities ────────────────────────────────────────────
+export const useAdminCities = () => {
+  return useQuery({
+    queryKey: ['admin', 'cities'],
+    queryFn: () => adminApi.getCities(),
+    staleTime: 1000 * 60 * 10,
+  })
+}
+
+export const useCreateCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Partial<City>) => adminApi.createCity(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+export const useUpdateCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<City> }) =>
+      adminApi.updateCity(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+export const useDeleteCity = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteCity(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] }),
+  })
+}
+
+// ─── Assigned businesses per entity ────────────────────
+type AssignedEntity =
+  | { type: 'city' | 'borough' | 'highStreet' | 'localMall' | 'sector' | 'category' | 'subcategory'; id: string }
+
+export const useAssignedBusinesses = (
+  entity: AssignedEntity | null,
+  params?: { page?: number; limit?: number; search?: string; role?: string },
+) => {
+  return useQuery({
+    queryKey: ['admin', 'assignedBusinesses', entity?.type, entity?.id, params],
+    queryFn: () => adminApi.getAssignedBusinesses(entity as AssignedEntity, params),
+    enabled: Boolean(entity?.id),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useRunLocationAggregation = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => adminApi.runLocationAggregation(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+    },
+  })
+}
+
+export const useBackfillBusinessLocations = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data?: { dryRun?: boolean; limit?: number }) =>
+      adminApi.backfillBusinessLocations(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'assignedBusinesses'] })
+    },
+  })
+}
+
+export const useImportUkReferenceData = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data?: { includeAdministrative?: boolean; includeMalls?: boolean; mallLimit?: number }) =>
+      adminApi.importUkReferenceData(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cities'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'boroughs'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'highStreets'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'localMalls'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'catalogTree'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'assignedBusinesses'] })
+    },
   })
 }
 

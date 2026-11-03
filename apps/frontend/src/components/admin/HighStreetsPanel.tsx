@@ -22,6 +22,7 @@ import HighStreetActivationWizard from './HighStreetActivationWizard';
 import AdminHighStreetMap from './AdminHighStreetMap';
 import { cn } from '../../lib/utils';
 import { useAdminHighStreets, useAdminActivities, useAdminBoroughs, useUpdateHighStreet, useAdminAccountManagers, useAdminCampaigns, useCreateCampaign } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import type { HighStreet, AccountManager } from '../../services/admin/types';
 
 export default function HighStreetsPanel() {
@@ -44,6 +45,8 @@ export default function HighStreetsPanel() {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Pending' | 'Inactive'>('All');
   const [boroughFilter, setBoroughFilter] = useState('All Boroughs');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
+  const [listPage, setListPage] = useState(0);
+  const LIST_PAGE_SIZE = 10;
 
   const [ecosystemModal, setEcosystemModal] = useState<HighStreet | null>(null);
   const [assignModal, setAssignModal] = useState<HighStreet | null>(null);
@@ -53,6 +56,7 @@ export default function HighStreetsPanel() {
   const [campaignName, setCampaignName] = useState('');
   const [campaignDescription, setCampaignDescription] = useState('');
   const [campaignError, setCampaignError] = useState('');
+  const [selectedHighStreetId, setSelectedHighStreetId] = useState<string | null>(null);
 
   const filteredHighStreets = allHighStreets.filter(hs => {
     const matchesSearch = hs.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -61,6 +65,12 @@ export default function HighStreetsPanel() {
     const matchesBorough = boroughFilter === 'All Boroughs' || hs.borough === boroughFilter;
     return matchesSearch && matchesStatus && matchesBorough;
   });
+  const totalListPages = Math.max(1, Math.ceil(filteredHighStreets.length / LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, totalListPages - 1);
+  const pagedHighStreets = filteredHighStreets.slice(
+    safeListPage * LIST_PAGE_SIZE,
+    safeListPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
+  );
 
   const handleAssignManager = async () => {
     if (!assignModal || !assignManagerId) return;
@@ -119,7 +129,7 @@ export default function HighStreetsPanel() {
         <StatCard title="Total High Streets" value={String(allHighStreets.length)} trend={`${allHighStreets.filter(h => h.status === 'Active').length} active`} icon={MapIcon} />
         <StatCard title="Active" value={String(allHighStreets.filter(h => h.status === 'Active').length)} trend={`${allHighStreets.filter(h => h.status !== 'Active').length} not active`} icon={CheckCircle2} />
         <StatCard title="Pending" value={String(allHighStreets.filter(h => h.status === 'Pending').length)} trend="awaiting activation" icon={Clock} />
-        <StatCard title="Total Businesses" value={allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0), 0).toLocaleString()} trend={`across ${boroughNames.length - 1} boroughs`} icon={Store} />
+        <StatCard title="Assigned Users" value={allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0) + (h.affiliateCount ?? 0), 0).toLocaleString()} trend={`${allHighStreets.reduce((s, h) => s + (h.businessCount ?? 0), 0)} businesses · ${allHighStreets.reduce((s, h) => s + (h.affiliateCount ?? 0), 0)} affiliates`} icon={Store} />
       </div>
 
       {/* Main Content Area */}
@@ -258,14 +268,14 @@ export default function HighStreetsPanel() {
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">High Street Name</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Borough</th>
                 <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Businesses</th>
+                <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Assigned Users</th>
                 <th className="px-6 py-4 text-right"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredHighStreets.length > 0 ? (
-                filteredHighStreets.map((hs) => (
-                  <tr key={hs.id} className="hover:bg-gray-50/50 transition-colors group">
+              {pagedHighStreets.length > 0 ? (
+                pagedHighStreets.map((hs) => (
+                  <tr key={hs.id} onClick={() => setSelectedHighStreetId(hs.id)} className="hover:bg-gray-50/50 transition-colors group cursor-pointer">
                     <td className="px-6 py-4 font-bold text-sm text-gray-900">{hs.name}</td>
                     <td className="px-6 py-4 text-xs font-semibold text-gray-500">{hs.borough}</td>
                     <td className="px-6 py-4">
@@ -278,7 +288,22 @@ export default function HighStreetsPanel() {
                         {hs.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-800">{hs.businessCount}</td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        type="button"
+                        title={`View all ${(hs.businessCount ?? 0) + (hs.affiliateCount ?? 0)} assigned users`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedHighStreetId(hs.id);
+                          requestAnimationFrame(() =>
+                            document.getElementById('high-street-assigned-users')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                          );
+                        }}
+                        className="text-sm font-bold text-orange-600 underline decoration-orange-200 underline-offset-4 hover:text-orange-800"
+                      >
+                        {(hs.businessCount ?? 0) + (hs.affiliateCount ?? 0)}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-right">
                       <button 
                         onClick={(e) => {
@@ -323,6 +348,46 @@ export default function HighStreetsPanel() {
             </tbody>
           </table>
         </div>
+        <div className="flex flex-col gap-2 border-t border-gray-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+            {filteredHighStreets.length
+              ? `${safeListPage * LIST_PAGE_SIZE + 1}–${Math.min((safeListPage + 1) * LIST_PAGE_SIZE, filteredHighStreets.length)} of ${filteredHighStreets.length}`
+              : '0 results'}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setListPage(Math.max(0, safeListPage - 1))}
+              disabled={safeListPage <= 0}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+            >
+              Prev
+            </button>
+            <span className="text-[10px] font-bold text-gray-500">{safeListPage + 1} / {totalListPages}</span>
+            <button
+              type="button"
+              onClick={() => setListPage(Math.min(totalListPages - 1, safeListPage + 1))}
+              disabled={safeListPage >= totalListPages - 1}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Assigned users for the selected high street */}
+      <div id="high-street-assigned-users">
+        <AssignedUsersTable
+          entity={selectedHighStreetId ? { type: 'highStreet', id: selectedHighStreetId } : null}
+          title="Assigned Users"
+          titleHint={
+            selectedHighStreetId
+              ? `${allHighStreets.find((h) => h.id === selectedHighStreetId)?.name ?? 'High street'} · search, filter and page through businesses and affiliates`
+              : 'Select a high street above to inspect its assigned users'
+          }
+          emptyMessage="No businesses or affiliates are assigned to this high street yet."
+        />
       </div>
 
       {/* Activation Wizard */}

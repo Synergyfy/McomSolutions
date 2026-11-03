@@ -25,6 +25,7 @@ export default function AffiliateVerifyEmail() {
         lastName?: string;
         email: string;
         password?: string;
+        postcode?: string;
         role?: string;
         devCode?: string;
         mode?: string;
@@ -139,12 +140,18 @@ export default function AffiliateVerifyEmail() {
 
             // If we have registration data, complete account creation
             if (regState?.password) {
+                if (!regState.postcode) {
+                    setError('Your UK postcode is missing. Please return to the signup page and enter it.');
+                    setIsVerifying(false);
+                    return;
+                }
                 const normalizedRole = (regState.role || 'agent').toUpperCase().replace('-', '_');
                 await signup({
                     email: regState.email,
                     password: regState.password,
                     firstName: regState.firstName,
                     lastName: regState.lastName,
+                    postcode: regState.postcode,
                     role: normalizedRole,
                 });
             }

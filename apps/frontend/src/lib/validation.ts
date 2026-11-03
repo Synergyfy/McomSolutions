@@ -5,9 +5,33 @@
  */
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
 
 export function isValidEmail(email: string): boolean {
   return EMAIL_REGEX.test(email);
+}
+
+export function isValidUkPostcode(postcode: string): boolean {
+  return UK_POSTCODE_REGEX.test((postcode || '').trim());
+}
+
+export function normalizeUkPostcode(postcode: string): string {
+  const clean = (postcode || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const compact = clean.replace(/\s+/g, '');
+  return `${compact.slice(0, compact.length - 3)} ${compact.slice(-3)}`;
+}
+
+/** Returns an error message, or null when valid. */
+export function validatePostcode(postcode: string, required: boolean): string | null {
+  const value = (postcode || '').trim();
+  if (!value) {
+    return required ? 'Please enter your UK postcode.' : null;
+  }
+  if (!isValidUkPostcode(value)) {
+    return 'Please enter a valid UK postcode (e.g. SW1A 1AA).';
+  }
+  return null;
 }
 
 /** Returns an error message, or null when valid. */

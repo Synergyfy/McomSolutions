@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ServiceUnavailableException, UnauthorizedException, ConflictException, Logger, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ServiceUnavailableException, UnauthorizedException, ConflictException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
@@ -6,6 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ResolvedPostcode } from '../geography/postcode.service';
 import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -89,6 +91,20 @@ const businessDetailSelect = {
   localMallName: true,
   localMallId: true,
   proximityTier: true,
+  cityId: true,
+  boroughId: true,
+  highStreetId: true,
+  sectorId: true,
+  categoryId: true,
+  subCategoryId: true,
+  locationAssignedAt: true,
+  city: { select: { id: true, name: true, region: true } },
+  borough: { select: { id: true, name: true } },
+  highStreet: { select: { id: true, name: true } },
+  localMall: { select: { id: true, name: true } },
+  sector: { select: { id: true, name: true } },
+  categoryRef: { select: { id: true, name: true } },
+  subCategoryRef: { select: { id: true, name: true } },
   createdAt: true,
   updatedAt: true,
   user: {
@@ -149,6 +165,7 @@ export class BusinessService {
     private authService: AuthService,
     private configService: ConfigService,
     private googleOAuth: GoogleOAuthService,
+    private locationAssignment: LocationAssignmentService,
     @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
   ) { }
 
@@ -268,59 +285,49 @@ export class BusinessService {
 
   // ─── Proximity Check ──────────────────────────────────
   async checkLocationProximity(postcode: string) {
-    const clean = postcode.toUpperCase().replace(/\s+/g, '');
-    const outward = clean.slice(0, Math.max(2, clean.length - 3)); // e.g. 'NW1', 'SE15'
-
-    let resolvedArea = '';
     try {
-      const response = await axios.get(`https://api.postcodes.io/postcodes/${encodeURIComponent(clean)}`);
-      if (response.data?.status === 200) {
-        resolvedArea = response.data.result.admin_district || '';
-      }
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 404) {
+      const resolved = await this.locationAssignment.resolvePostcode(postcode);
+
+      // A valid UK postcode always resolves to a hierarchy. If an admin-created
+      // local mall already covers this postcode, link straight to it; otherwise
+      // the missing entities are created on assignment during signup.
+      const matchedMall = await this.prisma.localMall.findFirst({
+        where: { name: resolved.localMall, borough: resolved.borough },
+        select: { id: true, name: true },
+      });
+
+      return {
+        resolvedArea: resolved.borough,
+        status: 'active',
+        localMallName: matchedMall?.name ?? resolved.localMall,
+        localMallId: matchedMall?.id ?? null,
+        city: resolved.city,
+        borough: resolved.borough,
+        highStreet: resolved.highStreet,
+        localMall: resolved.localMall,
+        region: resolved.region,
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
+        postcode: resolved.postcode,
+        proximityTier: 'high_street',
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
         return {
           resolvedArea: '',
           status: 'inactive',
           localMallName: null,
           localMallId: null,
+          city: null,
+          borough: null,
+          highStreet: null,
+          localMall: null,
           proximityTier: 'national',
-          message: 'We could not find that UK postcode. Check it or choose an address suggestion.',
+          message: error.message,
         };
       }
-      this.logger.error('Error fetching postcode info from postcodes.io:', err);
-      throw new ServiceUnavailableException('We could not check this postcode right now. Please try again.');
+      throw error;
     }
-
-    // Match against LocalMall postcode areas (DB-backed — no fabricated malls).
-    const malls = await this.prisma.localMall.findMany({
-      where: { status: 'Active' },
-      select: { id: true, name: true, borough: true, postcodes: true },
-    });
-    const matchedMall = malls.find((m) =>
-      (m.postcodes || []).some((p) => {
-        const area = p.toUpperCase().replace(/\s+/g, '');
-        return outward.startsWith(area) || area.startsWith(outward);
-      }),
-    );
-
-    if (matchedMall) {
-      return {
-        resolvedArea: resolvedArea || matchedMall.borough || 'Local Area',
-        status: 'active',
-        localMallName: matchedMall.name,
-        localMallId: matchedMall.id,
-        proximityTier: 'high_street',
-      };
-    }
-
-    return {
-      resolvedArea: resolvedArea || 'Remote Area',
-      status: 'inactive',
-      localMallName: null,
-      localMallId: null,
-      proximityTier: 'national',
-    };
   }
 
   private getGoogleApiKey(): string {
@@ -958,6 +965,14 @@ export class BusinessService {
     const email = grant ? grant.email : emailFromBody;
     const defaultMembership = await this.getDefaultMembership();
 
+    // A valid UK postcode is mandatory even when the business arrives through
+    // the Google claim flow. Prevents location-less business records.
+    const submittedPostcode = (data.postcode || '').trim();
+    if (!submittedPostcode) {
+      throw new BadRequestException('A UK postcode is required to complete business onboarding.');
+    }
+    const resolvedPostcode = await this.locationAssignment.resolvePostcode(submittedPostcode);
+
     const existing = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -990,7 +1005,7 @@ export class BusinessService {
                 isOnGoogle: true,
                 googlePlaceId: data.googlePlaceId,
                 address: data.address || '',
-                postcode: data.postcode || '',
+                postcode: resolvedPostcode.postcode,
                 industry: data.industry || 'Food & Beverage',
                 category: data.category || 'Cafe',
                 subCategory: data.subCategory || '',
@@ -1005,7 +1020,7 @@ export class BusinessService {
                 isOnGoogle: true,
                 googlePlaceId: data.googlePlaceId,
                 address: data.address || '',
-                postcode: data.postcode || '',
+                postcode: resolvedPostcode.postcode,
                 openingHours: data.openingHours || '',
                 industry: data.industry || undefined,
                 category: data.category || undefined,
@@ -1017,6 +1032,16 @@ export class BusinessService {
         include: { businessProfile: true },
       });
       if (updatedUser.businessProfile) {
+        await this.assignBusinessLocation(updatedUser.businessProfile.id, {
+          postcode: resolvedPostcode.postcode,
+          resolvedPostcode,
+          sectorId: data.sectorId as string | undefined,
+          categoryId: data.categoryId as string | undefined,
+          subCategoryId: data.subCategoryId as string | undefined,
+          industry: data.industry,
+          category: data.category,
+          subCategory: data.subCategory,
+        });
         await this.ensureBusinessProgramme(
           updatedUser.businessProfile.id,
           updatedUser.businessProfile.businessName,
@@ -1060,7 +1085,7 @@ export class BusinessService {
             isOnGoogle: true,
             googlePlaceId: data.googlePlaceId,
             address: data.address || '',
-            postcode: data.postcode || '',
+            postcode: resolvedPostcode.postcode,
             industry: data.industry || 'Food & Beverage',
             category: data.category || 'Cafe',
             subCategory: data.subCategory || '',
@@ -1084,6 +1109,16 @@ export class BusinessService {
     }
 
     if (newUser.businessProfile) {
+      await this.assignBusinessLocation(newUser.businessProfile.id, {
+        postcode: resolvedPostcode.postcode,
+        resolvedPostcode,
+        sectorId: data.sectorId as string | undefined,
+        categoryId: data.categoryId as string | undefined,
+        subCategoryId: data.subCategoryId as string | undefined,
+        industry: data.industry,
+        category: data.category,
+        subCategory: data.subCategory,
+      });
       await this.ensureBusinessProgramme(
         newUser.businessProfile.id,
         newUser.businessProfile.businessName,
@@ -1173,6 +1208,18 @@ export class BusinessService {
       },
     });
 
+    if (postcode) {
+      await this.assignBusinessLocation(businessId, {
+        postcode,
+        sectorId: updates.sectorId,
+        categoryId: updates.categoryId,
+        subCategoryId: updates.subCategoryId,
+        industry,
+        category,
+        subCategory,
+      });
+    }
+
     if (updated?.userId) {
       if (updates.logoUrl && updates.logoUrl.trim().length > 0) {
         this.emitTaskEvent(updated.userId, 'BUSINESS', 'business.logo_uploaded');
@@ -1194,8 +1241,37 @@ export class BusinessService {
     return updated;
   }
 
-  async generateApiKey(businessId: string) {
-    const existing = await this.prisma.businessProfile.findFirst({
+  /**
+   * Postcode-driven hierarchy assignment shared by profile edits and the
+   * Google claim onboarding path. Failures are logged (the profile save has
+   * already committed) so a transient upstream outage never blocks the user.
+   */
+  private async assignBusinessLocation(
+    businessId: string,
+    input: {
+      postcode?: string;
+      sectorId?: string;
+      categoryId?: string;
+      subCategoryId?: string;
+      industry?: string;
+      category?: string;
+      subCategory?: string;
+      resolvedPostcode?: ResolvedPostcode;
+    },
+  ): Promise<void> {
+    if (!input.postcode?.trim()) return;
+    try {
+      await this.locationAssignment.assignBusiness(businessId, input);
+    } catch (error) {
+      this.logger.error(
+        `Business ${businessId} could not be auto-assigned to a location: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  async generateApiKey(businessId: string) {    const existing = await this.prisma.businessProfile.findFirst({
       where: { id: businessId, deletedAt: null },
       select: { id: true },
     });

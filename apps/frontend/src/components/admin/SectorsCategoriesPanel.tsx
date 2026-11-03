@@ -34,6 +34,7 @@ import {
   useUpdateSubCategory,
   useDeleteSubCategory,
 } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import type {
   AdminSector,
   AdminCategory,
@@ -91,6 +92,22 @@ export default function SectorsCategoriesPanel() {
   }, [activeCategories, selectedCategoryId]);
 
   const activeSubCategories = useMemo(() => activeCategory?.subCategories ?? [], [activeCategory]);
+  const [assignmentLevel, setAssignmentLevel] = useState<'sector' | 'category' | 'subcategory'>('sector');
+  const [assignmentSubId, setAssignmentSubId] = useState<string | null>(null);
+  const assignmentEntity = useMemo(() => {
+    if (assignmentLevel === 'subcategory') {
+      const subId = assignmentSubId || activeSubCategories[0]?.id;
+      return subId ? { type: 'subcategory' as const, id: subId } : null;
+    }
+    if (assignmentLevel === 'category') {
+      return activeCategory ? { type: 'category' as const, id: activeCategory.id } : null;
+    }
+    return activeSector ? { type: 'sector' as const, id: activeSector.id } : null;
+  }, [assignmentLevel, assignmentSubId, activeSubCategories, activeCategory, activeSector]);
+  const totalAssigned = useMemo(
+    () => sectors.reduce((sum, sector) => sum + (sector.businessCount ?? 0), 0),
+    [sectors],
+  );
 
   // Modals state
   const [sectorModal, setSectorModal] = useState<{
@@ -226,7 +243,7 @@ export default function SectorsCategoriesPanel() {
       )}
 
       {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Sectors</p>
@@ -257,6 +274,17 @@ export default function SectorsCategoriesPanel() {
           </div>
           <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
             <FolderTree className="w-6 h-6" />
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Assigned Businesses</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{totalAssigned.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Across all sectors</p>
+          </div>
+          <div className="w-12 h-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+            <Layers className="w-6 h-6" />
           </div>
         </div>
       </div>
@@ -387,6 +415,9 @@ export default function SectorsCategoriesPanel() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-gray-400 font-mono">#{sector.slug}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 font-bold">
+                            {sector.businessCount ?? 0} businesses
+                          </span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
                             {catCount} {catCount === 1 ? 'category' : 'categories'}
                           </span>
@@ -542,6 +573,9 @@ export default function SectorsCategoriesPanel() {
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] text-gray-400 font-mono">#{cat.slug}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 font-bold">
+                            {cat.businessCount ?? 0} businesses
+                          </span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
                             {subCount} {subCount === 1 ? 'subcategory' : 'subcategories'}
                           </span>
@@ -680,7 +714,7 @@ export default function SectorsCategoriesPanel() {
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold text-gray-800 truncate">{sub.name}</p>
-                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug}</p>
+                        <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{sub.slug} · {sub.businessCount ?? 0} businesses</p>
                       </div>
                     </div>
 
@@ -729,6 +763,54 @@ export default function SectorsCategoriesPanel() {
           </div>
         </div>
       )}
+
+      {/* ─── ASSIGNED BUSINESSES ─────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900">Assigned Businesses</h3>
+            <p className="mt-0.5 text-[11px] font-semibold text-gray-400">
+              {assignmentEntity
+                ? `${assignmentLevel === 'sector' ? activeSector?.name : assignmentLevel === 'category' ? activeCategory?.name : activeSubCategories.find((s) => s.id === assignmentEntity.id)?.name}`
+                : 'Select a sector, category, or subcategory'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
+            {(['sector', 'category', 'subcategory'] as const).map((level) => (
+              <button
+                key={level}
+                onClick={() => setAssignmentLevel(level)}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors',
+                  assignmentLevel === level ? 'bg-brand-blue text-white' : 'text-gray-500 hover:bg-gray-50',
+                )}
+              >
+                {level === 'subcategory' ? 'Sub' : level}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {assignmentLevel === 'subcategory' && activeSubCategories.length > 0 && (
+          <select
+            value={assignmentEntity?.id || ''}
+            onChange={(event) => setAssignmentSubId(event.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 sm:w-72"
+          >
+            {activeSubCategories.map((sub) => (
+              <option key={sub.id} value={sub.id}>{sub.name}</option>
+            ))}
+          </select>
+        )}
+
+        <AssignedUsersTable
+          entity={assignmentEntity}
+          title="Assigned Businesses"
+          titleHint="Search, filter and page through businesses assigned to this taxonomy level."
+          emptyMessage={`No businesses are assigned to this ${assignmentLevel} yet.`}
+          allowRoleFilter={false}
+        />
+      </div>
 
       {/* ─── FULL HIERARCHY TREE VIEW ────────────────────────── */}
       {viewMode === 'tree' && (

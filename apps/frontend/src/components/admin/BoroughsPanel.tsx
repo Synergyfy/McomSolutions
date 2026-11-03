@@ -28,7 +28,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminCampaigns, useCreateCampaign, useAdminHighStreets } from '../../services/admin/hooks';
+import { useAdminBoroughs, useCreateBorough, useUpdateBorough, useAdminAccountManagers, useBoroughStats, useAdminHighStreets } from '../../services/admin/hooks';
+import AssignedUsersTable from './AssignedUsersTable';
 import { Loader2 } from 'lucide-react';
 import type { Borough, AccountManager } from '../../services/admin/types';
 
@@ -38,44 +39,20 @@ export default function BoroughsPanel() {
   const createBorough = useCreateBorough();
   const { data: managersRes } = useAdminAccountManagers({ page: 1, limit: 100 });
   const managers = (managersRes?.data ?? []) as AccountManager[];
-  const { data: campaignsRes } = useAdminCampaigns({ locationType: 'borough' });
-  const boroughCampaigns = (campaignsRes?.data ?? []) as any[];
-  const activeBoroughCampaigns = boroughCampaigns.filter(c => c.status === 'active');
   const { data: highStreetsRes } = useAdminHighStreets();
   const allHighStreets: any[] = highStreetsRes?.data ?? [];
-  const createCampaign = useCreateCampaign();
 
   const [selectedBoroughId, setSelectedBoroughId] = useState<string | null>(null);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeActionsMenu, setActiveActionsMenu] = useState<string | null>(null);
-  const [activeDetailTab, setActiveDetailTab] = useState('overview');
+  const [activeDetailTab, setActiveDetailTab] = useState('businesses');
   const [chartRange, setChartRange] = useState<'6M' | '30D'>('30D');
+  const [listPage, setListPage] = useState(0);
+  const LIST_PAGE_SIZE = 10;
 
   // Modals for detail view
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
-  const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
-  const [campaignForm, setCampaignForm] = useState({ name: '', description: '' });
-  const [campaignError, setCampaignError] = useState('');
-
-  const handleLaunchCampaign = async () => {
-    if (!selectedBorough || !campaignForm.name) return;
-    setCampaignError('');
-    try {
-      await createCampaign.mutateAsync({
-        name: campaignForm.name,
-        description: campaignForm.description || undefined,
-        locationType: 'borough',
-        locationId: selectedBorough.id,
-        locationName: selectedBorough.name,
-        status: 'active',
-      });
-      setIsNewCampaignOpen(false);
-      setCampaignForm({ name: '', description: '' });
-    } catch {
-      setCampaignError('Failed to launch campaign. Please try again.');
-    }
-  };
 
   const updateBorough = useUpdateBorough();
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -127,13 +104,18 @@ export default function BoroughsPanel() {
     b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     b.manager.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  const totalListPages = Math.max(1, Math.ceil(filteredBoroughs.length / LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, totalListPages - 1);
+  const pagedBoroughs = filteredBoroughs.slice(
+    safeListPage * LIST_PAGE_SIZE,
+    safeListPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE,
+  );
 
-  const healthScores = boroughs.map(b => b.healthScore ?? 0);
   const boroughStats = [
-    { title: 'Active Businesses', value: boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0).toLocaleString(), trend: `across ${boroughs.length} boroughs`, icon: Store, trendType: 'up' as const },
-    { title: 'Total Boroughs', value: String(boroughs.length), trend: `${activeBoroughCampaigns.length} active campaigns`, icon: Users, trendType: 'up' as const },
-    { title: 'Borough Campaigns', value: String(boroughCampaigns.length), trend: `${activeBoroughCampaigns.length} active`, icon: Rocket, trendType: 'up' as const },
-    { title: 'Avg Health Score', value: boroughs.length > 0 ? `${Math.round(boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length)}%` : '0%', trend: healthScores.length > 0 ? `${Math.min(...healthScores)}–${Math.max(...healthScores)} range` : 'no data', icon: Gift, trendType: 'up' as const },
+    { title: 'Assigned Users', value: boroughs.reduce((s, b) => s + (b.businessCount ?? 0) + (b.affiliateCount ?? 0), 0).toLocaleString(), trend: `${boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0)} affiliates`, icon: Store, trendType: 'up' as const },
+    { title: 'Total Boroughs', value: String(boroughs.length), trend: `${allHighStreets.length} high streets`, icon: Users, trendType: 'up' as const },
+    { title: 'High Streets', value: String(allHighStreets.length), trend: 'linked locations', icon: Rocket, trendType: 'up' as const },
+    { title: 'Affiliates', value: boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0).toLocaleString(), trend: 'agents, consultants, managers', icon: Gift, trendType: 'up' as const },
   ];
 
   if (isLoading) {
@@ -345,19 +327,13 @@ export default function BoroughsPanel() {
             >
               <Edit3 className="h-4 w-4" /> Edit Profile
             </button>
-            <button 
-              onClick={() => setIsNewCampaignOpen(true)}
-              className="py-2.5 px-4 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg shadow-orange-100 hover:shadow-xl hover:scale-[1.01] transition-all flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" /> New Campaign
-            </button>
           </div>
         </div>
 
         {/* Detail Tabs */}
         <div className="w-full space-y-6">
           <div className="border-b border-gray-200 flex gap-6 overflow-x-auto no-scrollbar pb-1">
-            {['Overview', 'Businesses', 'Campaigns', 'Community'].map((tab) => (
+            {['Overview', 'Businesses', 'Community'].map((tab) => (
               <button 
                 key={tab} 
                 onClick={() => setActiveDetailTab(tab.toLowerCase())}
@@ -377,10 +353,10 @@ export default function BoroughsPanel() {
           {activeDetailTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard2 title="Total Businesses" value={String(boroughs.reduce((s, b) => s + (b.businessCount ?? 0), 0))} trend="" icon={Store} color="orange" />
+                <StatCard2 title="Assigned Users" value={String(boroughs.reduce((s, b) => s + (b.businessCount ?? 0) + (b.affiliateCount ?? 0), 0))} trend="" icon={Store} color="orange" />
                 <StatCard2 title="Active Boroughs" value={String(boroughs.length)} trend="" icon={Building2} color="blue" />
-                <StatCard2 title="Active Campaigns" value={String(boroughs.reduce((s, b) => s + (b.activeCampaigns ?? 0), 0))} trend="" icon={Activity} color="indigo" />
-                <StatCard2 title="Health Score" value={boroughs.length > 0 ? (boroughs.reduce((s, b) => s + (b.healthScore ?? 0), 0) / boroughs.length).toFixed(0) + '%' : '—'} trend="" icon={Zap} color="emerald" />
+                <StatCard2 title="High Streets" value={String(allHighStreets.length)} trend="" icon={MapPin} color="indigo" />
+                <StatCard2 title="Affiliates" value={String(boroughs.reduce((s, b) => s + (b.affiliateCount ?? 0), 0))} trend="" icon={Zap} color="emerald" />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -422,26 +398,28 @@ export default function BoroughsPanel() {
                   </div>
                 </div>
 
-                {/* Radar Mockup */}
+                {/* Live borough summary (no mock heatmap) */}
                 <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 flex flex-col justify-between">
                   <div>
-                    <h3 className="font-bold text-gray-950 text-base">Regional Activity</h3>
-                    <p className="text-xs text-gray-400 font-semibold mb-4">Density heatmap of active businesses.</p>
+                    <h3 className="font-bold text-gray-950 text-base">Borough Snapshot</h3>
+                    <p className="text-xs text-gray-400 font-semibold mb-4">Live totals for the selected borough.</p>
                   </div>
-                  
-                  <div className="h-48 relative rounded-2xl overflow-hidden bg-gray-950 flex items-center justify-center">
-                    <div className="absolute inset-0 border border-gray-900 rounded-full animate-ping scale-75 opacity-20" />
-                    <div className="absolute inset-0 border border-gray-900 rounded-full animate-ping scale-50 opacity-40" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                      <div className="w-0.5 h-full bg-white" />
-                      <div className="h-0.5 w-full bg-white" />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between rounded-xl bg-gray-50 p-3">
+                      <span className="text-xs font-semibold text-gray-500">Assigned businesses</span>
+                      <span className="text-sm font-bold text-gray-900">{selectedBorough.businessCount || 0}</span>
                     </div>
-                    <div className="absolute top-1/4 left-1/3 w-6 h-6 bg-orange-500 rounded-full blur-md opacity-70 animate-pulse" />
-                    <div className="absolute bottom-1/3 right-1/4 w-8 h-8 bg-blue-500 rounded-full blur-lg opacity-60" />
-                    
-                    <div className="absolute bottom-3 left-3 right-3 p-3 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-150 shadow-lg text-left">
-                      <p className="text-xs font-bold text-gray-900 leading-none">{selectedBorough.name} District</p>
-                      <p className="text-[9px] font-semibold text-gray-500 mt-1">{selectedBorough.businessCount || 0} Active Merchants • {selectedBorough.populationActivity || 'Active'} Density</p>
+                    <div className="flex items-center justify-between rounded-xl bg-gray-50 p-3">
+                      <span className="text-xs font-semibold text-gray-500">High streets</span>
+                      <span className="text-sm font-bold text-gray-900">{allHighStreets.filter(h => h.borough === selectedBorough.name).length}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl bg-gray-50 p-3">
+                      <span className="text-xs font-semibold text-gray-500">Population activity</span>
+                      <span className="text-sm font-bold text-gray-900">{selectedBorough.populationActivity || '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-xl bg-gray-50 p-3">
+                      <span className="text-xs font-semibold text-gray-500">Affiliates</span>
+                      <span className="text-sm font-bold text-gray-900">{selectedBorough.affiliateCount ?? 0}</span>
                     </div>
                   </div>
                 </div>
@@ -449,68 +427,14 @@ export default function BoroughsPanel() {
             </div>
           )}
 
-          {activeDetailTab === 'businesses' && (() => {
-            const streets = allHighStreets.filter(h => h.borough === selectedBorough.name);
-            return (
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 animate-in fade-in duration-300">
-              <div className="flex items-center gap-2 mb-1">
-                <Store className="h-5 w-5 text-orange-500" />
-                <h4 className="font-bold text-sm text-gray-800">Business Registry</h4>
-                <span className="ml-auto text-xs font-bold text-gray-400">{selectedBorough.businessCount} businesses · {streets.length} high streets</span>
-              </div>
-              <p className="text-xs text-gray-400 font-semibold max-w-md">High streets registered in this borough. Per-business rows live in User Management.</p>
-              {streets.length > 0 ? (
-                <div className="mt-4 space-y-2 text-left">
-                  {streets.map((h: any) => (
-                    <div key={h.id} className="p-3 bg-gray-50 border border-gray-100 rounded-2xl flex items-center gap-3">
-                      <MapPin className="h-4 w-4 text-orange-500 shrink-0" />
-                      <p className="font-bold text-sm text-gray-900">{h.name}</p>
-                      <span className="ml-auto text-[10px] font-bold text-gray-500">{h.businessCount ?? 0} businesses · {h.status}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 font-semibold mt-4">No high streets registered in this borough yet.</p>
-              )}
-            </div>
-            );
-          })()}
-
-          {activeDetailTab === 'campaigns' && (() => {
-            const boroughCampaignsList = boroughCampaigns.filter(c => c.locationId === selectedBorough.id);
-            return (
-            <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 animate-in fade-in duration-300">
-              <div className="flex items-center gap-2 mb-4">
-                <Rocket className="h-5 w-5 text-orange-500" />
-                <h4 className="font-bold text-sm text-gray-800">Campaigns Control</h4>
-                <span className="ml-auto text-xs font-bold text-gray-400">{boroughCampaignsList.filter(c => c.status === 'active').length} active · {boroughCampaignsList.length} total</span>
-              </div>
-              {boroughCampaignsList.length > 0 ? (
-                <div className="space-y-3 text-left">
-                  {boroughCampaignsList.map((c) => (
-                    <div key={c.id} className="p-4 bg-gray-50 border border-gray-100 rounded-2xl flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-sm text-gray-900 truncate">{c.name}</p>
-                          <span className={cn(
-                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            c.status === 'active' ? 'bg-green-50 text-green-700' : c.status === 'paused' ? 'bg-amber-50 text-amber-700' : c.status === 'completed' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'
-                          )}>{c.status}</span>
-                        </div>
-                        {c.description && <p className="text-xs text-gray-500 mt-1">{c.description}</p>}
-                        {c.endDate && <p className="text-[10px] text-gray-400 mt-1">Ends {new Date(c.endDate).toLocaleDateString()}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <p className="text-xs text-gray-400 font-semibold max-w-xs mx-auto">No campaigns launched for {selectedBorough.name} yet. Use "New Campaign" to launch one.</p>
-                </div>
-              )}
-            </div>
-            );
-          })()}
+          {activeDetailTab === 'businesses' && (
+            <AssignedUsersTable
+              entity={selectedBorough ? { type: 'borough', id: selectedBorough.id } : null}
+              title="Assigned Users"
+              titleHint={`${selectedBorough?.name ?? 'Borough'} · search, filter and page through businesses and affiliates`}
+              emptyMessage="No businesses or affiliates are assigned to this borough yet."
+            />
+          )}
 
           {activeDetailTab === 'community' && (
             <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6 text-center animate-in fade-in duration-300">
@@ -554,40 +478,6 @@ export default function BoroughsPanel() {
           </div>
         )}
 
-        {/* Modal: New Campaign */}
-        {isNewCampaignOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl w-full max-w-md border border-gray-100 shadow-2xl p-6 relative">
-              <button onClick={() => setIsNewCampaignOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-650 hover:bg-gray-50 rounded-xl transition-all">
-                <X className="h-5 w-5" />
-              </button>
-              <div className="mb-4">
-                <h3 className="text-lg font-bold text-gray-900">Launch New Campaign</h3>
-                <p className="text-xs text-gray-500 font-medium">Create a promotional campaign for merchants on {selectedBorough.name}.</p>
-              </div>
-              <div className="space-y-4 text-left">
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Campaign Name</label>
-                  <input type="text" placeholder="e.g. Summer High Street Boost" value={campaignForm.name} onChange={e => setCampaignForm({ ...campaignForm, name: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1.5">Description</label>
-                  <input type="text" placeholder="Campaign details..." value={campaignForm.description} onChange={e => setCampaignForm({ ...campaignForm, description: e.target.value })} className="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-brand-blue outline-none transition-all font-semibold text-sm text-gray-900" />
-                </div>
-                {campaignError && (
-                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-3">
-                    <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-700 font-semibold">{campaignError}</p>
-                  </div>
-                )}
-              </div>
-              <div className="mt-6 flex justify-end gap-2.5">
-                <button onClick={() => { setIsNewCampaignOpen(false); setCampaignForm({ name: '', description: '' }); setCampaignError(''); }} className="py-2.5 px-4 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-755 bg-white border border-gray-200 hover:bg-gray-50 shadow-sm transition-all">Cancel</button>
-                <button onClick={handleLaunchCampaign} disabled={!campaignForm.name || createCampaign.isPending} className="py-2.5 px-5 rounded-xl text-xs font-bold bg-orange-600 hover:bg-orange-700 text-white shadow-lg transition-all disabled:opacity-50 flex items-center gap-2">{createCampaign.isPending && <Loader2 className="w-4 h-4 animate-spin" />}Launch Campaign</button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   };
@@ -644,19 +534,19 @@ export default function BoroughsPanel() {
                 <tr className="bg-gray-50/50">
                   <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-8">Borough Name</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Population Activity</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Active Businesses</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Live Campaigns</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Rewards Participation</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Community Health</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Assigned Users</th>
                   <th className="px-6 py-4 text-right pr-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filteredBoroughs.map((b) => (
+                {pagedBoroughs.map((b) => (
                   <tr 
                     key={b.id}
                     className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
-                    onClick={() => setSelectedBoroughId(b.id)}
+                    onClick={() => {
+                      setSelectedBoroughId(b.id);
+                      setActiveDetailTab('businesses');
+                    }}
                   >
                     <td className="px-6 py-4 pl-8">
                       <div className="flex items-center gap-4">
@@ -681,26 +571,19 @@ export default function BoroughsPanel() {
                         {b.populationActivity}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-700">{b.businessCount}</td>
-                    <td className="px-6 py-4 text-center font-bold text-sm text-gray-700">{b.activeCampaigns}</td>
                     <td className="px-6 py-4 text-center">
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-600 border border-emerald-100">
-                        {b.rewardsParticipation}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex flex-col items-center gap-1.5">
-                        <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200/50">
-                          <div 
-                            className={cn(
-                              "h-full rounded-full transition-all duration-500",
-                              b.healthScore > 90 ? "bg-emerald-500" : "bg-orange-505"
-                            )}
-                            style={{ width: `${b.healthScore}%` }}
-                          />
-                        </div>
-                        <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter">{b.healthScore}% Health</span>
-                      </div>
+                      <button
+                        type="button"
+                        title={`View all ${(b.businessCount ?? 0) + (b.affiliateCount ?? 0)} assigned users`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setSelectedBoroughId(b.id);
+                          setActiveDetailTab('businesses');
+                        }}
+                        className="text-sm font-bold text-orange-600 underline decoration-orange-200 underline-offset-4 hover:text-orange-800"
+                      >
+                        {(b.businessCount ?? 0) + (b.affiliateCount ?? 0)}
+                      </button>
                     </td>
                     <td className="px-6 py-4 text-right pr-8 relative" onClick={e => e.stopPropagation()}>
                       <button 
@@ -717,6 +600,7 @@ export default function BoroughsPanel() {
                             <button 
                               onClick={() => {
                                 setSelectedBoroughId(b.id);
+                                setActiveDetailTab('businesses');
                                 setActiveActionsMenu(null);
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
@@ -726,20 +610,9 @@ export default function BoroughsPanel() {
                             <button
                               onClick={() => {
                                 setSelectedBoroughId(b.id);
-                                setActiveDetailTab('campaigns');
-                                setIsNewCampaignOpen(true);
-                                setActiveActionsMenu(null);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
-                            >
-                              <Rocket className="h-4 w-4 text-orange-500" /> Launch Activation Campaign
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedBoroughId(b.id);
                                 setActiveDetailTab('overview');
-                                setActiveActionsMenu(null);
                                 setTimeout(openEditProfile, 0);
+                                setActiveActionsMenu(null);
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
                             >
@@ -755,17 +628,6 @@ export default function BoroughsPanel() {
                             >
                               <BarChart3 className="h-4 w-4 text-emerald-500" /> View Growth Analytics
                             </button>
-                            <div className="h-px bg-gray-100 my-1" />
-                            <button
-                              onClick={() => {
-                                setSelectedBoroughId(b.id);
-                                setActiveDetailTab('campaigns');
-                                setActiveActionsMenu(null);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-blue-50 transition-colors text-xs font-bold text-brand-blue"
-                            >
-                              <MessageSquare className="h-4 w-4 text-brand-blue" /> View Campaigns
-                            </button>
                           </div>
                         </>
                       )}
@@ -774,6 +636,32 @@ export default function BoroughsPanel() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex flex-col gap-2 border-t border-gray-100 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+              {filteredBoroughs.length
+                ? `${safeListPage * LIST_PAGE_SIZE + 1}–${Math.min((safeListPage + 1) * LIST_PAGE_SIZE, filteredBoroughs.length)} of ${filteredBoroughs.length}`
+                : '0 results'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setListPage(Math.max(0, safeListPage - 1))}
+                disabled={safeListPage <= 0}
+                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+              >
+                Prev
+              </button>
+              <span className="text-[10px] font-bold text-gray-500">{safeListPage + 1} / {totalListPages}</span>
+              <button
+                type="button"
+                onClick={() => setListPage(Math.min(totalListPages - 1, safeListPage + 1))}
+                disabled={safeListPage >= totalListPages - 1}
+                className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-[10px] font-bold text-gray-600 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
 

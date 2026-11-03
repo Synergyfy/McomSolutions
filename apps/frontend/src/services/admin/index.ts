@@ -21,6 +21,8 @@ import type {
   Borough,
   HighStreet,
   LocalMall,
+  City,
+  AssignedBusiness,
   PaginatedResponse,
   ApiResponse,
   LaunchRule,
@@ -375,6 +377,116 @@ export const adminApi = {
   },
 
   // ─── Localities ──────────────────────────────────────
+  getCities: async () => {
+    const res = await apiClient.get('/admin/localities/cities')
+    return res.data as ApiResponse<City[]>
+  },
+
+  createCity: async (data: Partial<City>) => {
+    const res = await apiClient.post('/admin/localities/cities', data)
+    return res.data as ApiResponse<City>
+  },
+
+  updateCity: async (id: string, data: Partial<City>) => {
+    const res = await apiClient.put(`/admin/localities/cities/${id}`, data)
+    return res.data as ApiResponse<City>
+  },
+
+  deleteCity: async (id: string) => {
+    const res = await apiClient.delete(`/admin/localities/cities/${id}`)
+    return res.data
+  },
+
+  getAssignedBusinesses: async (
+    entity:
+      | { type: 'city' | 'borough' | 'highStreet' | 'localMall'; id: string }
+      | { type: 'sector' | 'category' | 'subcategory'; id: string },
+    params?: { page?: number; limit?: number; search?: string; role?: string },
+  ) => {
+    const base =
+      entity.type === 'sector' || entity.type === 'category' || entity.type === 'subcategory'
+        ? '/admin/catalog'
+        : '/admin/localities'
+    const segmentMap: Record<string, string> = {
+      city: 'cities',
+      borough: 'boroughs',
+      highStreet: 'high-streets',
+      localMall: 'local-malls',
+      sector: 'sectors',
+      category: 'categories',
+      subcategory: 'subcategories',
+    }
+    const segment = segmentMap[entity.type]
+    const res = await apiClient.get(`${base}/${segment}/${entity.id}/businesses`, {
+      params,
+    })
+    return res.data as ApiResponse<AssignedBusiness[]> & {
+      total?: number
+      page?: number
+      limit?: number
+      totalPages?: number
+    }
+  },
+
+  runLocationAggregation: async () => {
+    const res = await apiClient.post('/admin/localities/aggregate')
+    return res.data
+  },
+
+  backfillBusinessLocations: async (data?: { dryRun?: boolean; limit?: number }) => {
+    const res = await apiClient.post('/admin/localities/backfill-business-locations', data || {})
+    return res.data as {
+      success: boolean
+      data: {
+        dryRun: boolean
+        scanned: number
+        eligible: number
+        processed: number
+        assigned: number
+        skipped: number
+        failed: number
+        errors: Array<{ businessId: string; postcode: string; message: string }>
+        aggregation: Record<string, number> | null
+      }
+    }
+  },
+
+  importUkReferenceData: async (data?: {
+    includeAdministrative?: boolean
+    includeMalls?: boolean
+    mallLimit?: number
+  }) => {
+    const res = await apiClient.post('/admin/localities/import-uk-reference-data', data || {})
+    return res.data as {
+      success: boolean
+      data: {
+        administrative: {
+          regions: number
+          boroughs: number
+          highStreets: number
+          citiesCreated: number
+          citiesUpdated: number
+          boroughsCreated: number
+          boroughsUpdated: number
+          highStreetsCreated: number
+          highStreetsUpdated: number
+          skipped: number
+          errors: string[]
+        } | null
+        malls: {
+          fetched: number
+          created: number
+          updated: number
+          skipped: number
+          failed: number
+          sourceErrors: string[]
+          errors: Array<{ name: string; postcode: string; message: string }>
+        } | null
+        aggregation: Record<string, number> | null
+      }
+    }
+  },
+
   getBoroughs: async () => {
     const res = await apiClient.get('/admin/localities/boroughs')
     return res.data as ApiResponse<Borough[]>

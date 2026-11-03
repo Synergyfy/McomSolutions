@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { LocationAggregationService } from '../geography/location-aggregation.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { UkReferenceDataService } from '../geography/uk-reference-data.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
@@ -37,6 +40,11 @@ import {
   CreateBoroughDto,
   CreateHighStreetDto,
   CreateLocalMallDto,
+  CreateCityDto,
+  UpdateCityDto,
+  AssignedUsersQueryDto,
+  BackfillBusinessLocationsDto,
+  ImportUkReferenceDataDto,
   AdminQueryDto,
   UpdateMembershipPlanDto,
   UpdateBoroughDto,
@@ -75,6 +83,23 @@ export interface AdminStatsResult {
   };
 }
 
+export interface AssignedUserRow {
+  id: string;
+  userType: 'BUSINESS' | 'AGENT' | 'CONSULTANT' | 'ACCOUNT_MANAGER';
+  businessName: string;
+  email: string;
+  phone: string | null;
+  postcode: string | null;
+  category: string | null;
+  createdAt: Date;
+  user: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
+}
+
 @Injectable()
 export class AdminService implements OnModuleInit {
 
@@ -111,6 +136,9 @@ export class AdminService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private locationAggregation: LocationAggregationService,
+    private locationAssignment: LocationAssignmentService,
+    private ukReferenceData: UkReferenceDataService,
   ) {}
 
   /**
@@ -2458,6 +2486,9 @@ export class AdminService implements OnModuleInit {
           name: dto.name,
           postcodes: dto.postcodes,
           borough: dto.borough,
+          cityId: dto.cityId,
+          boroughId: dto.boroughId,
+          highStreetId: dto.highStreetId,
           primaryHighStreet: dto.primaryHighStreet,
           additionalHighStreets: dto.additionalHighStreets,
           businesses: dto.businesses ?? 0,
@@ -2585,5 +2616,336 @@ export class AdminService implements OnModuleInit {
     });
 
     return { success: true };
+  }
+
+  // ─── Cities ───────────────────────────────────────────────
+  async getCities() {
+    const items = await this.prisma.city.findMany({
+      orderBy: { name: 'asc' },
+      include: {
+        _count: {
+          select: { boroughs: true, highStreets: true, localMalls: true },
+        },
+      },
+    });
+    return { success: true, data: items };
+  }
+
+  async createCity(dto: CreateCityDto, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { name: dto.name } });
+    if (existing) throw new ConflictException('A city with this name already exists');
+
+    const city = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.city.create({
+        data: {
+          name: dto.name,
+          region: dto.region,
+          country: dto.country || 'United Kingdom',
+        },
+      });
+      await this.logAuditTx(tx, 'City Created', 'City', dto.name, `Created city ${dto.name}`, adminName);
+      return result;
+    });
+
+    return { success: true, data: city };
+  }
+
+  async updateCity(id: string, dto: UpdateCityDto, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('City not found');
+
+    if (dto.name && dto.name !== existing.name) {
+      const nameMatch = await this.prisma.city.findUnique({ where: { name: dto.name } });
+      if (nameMatch) throw new ConflictException('A city with this name already exists');
+    }
+
+    const city = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.city.update({ where: { id }, data: dto });
+      await this.logAuditTx(tx, 'City Updated', 'City', result.name, `Updated city ${result.name}`, adminName);
+      return result;
+    });
+
+    return { success: true, data: city };
+  }
+
+  async deleteCity(id: string, adminName?: string) {
+    const existing = await this.prisma.city.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('City not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.city.delete({ where: { id } });
+      await this.logAuditTx(tx, 'City Deleted', 'City', existing.name, `Deleted city ${existing.name}`, adminName);
+    });
+
+    return { success: true };
+  }
+
+  // ─── Assigned users per entity (businesses + affiliates) ───
+  private paginateAssignedUsers(rows: AssignedUserRow[], query?: AssignedUsersQueryDto) {
+    const search = (query?.search || '').trim().toLowerCase();
+    const filtered = search
+      ? rows.filter((row) =>
+          [
+            row.businessName,
+            row.email,
+            row.phone,
+            row.postcode,
+            row.category,
+            row.user?.firstName,
+            row.user?.lastName,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(search)),
+        )
+      : rows;
+
+    filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query?.limit) || 10));
+    const total = filtered.length;
+    const data = filtered.slice((page - 1) * limit, page * limit);
+
+    return {
+      success: true,
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  private async getAssignedBusinesses(
+    where: Prisma.BusinessProfileWhereInput,
+    query?: AssignedUsersQueryDto,
+  ) {
+    const data = await this.prisma.businessProfile.findMany({
+      where: { ...where, deletedAt: null },
+      select: {
+        id: true,
+        businessName: true,
+        businessType: true,
+        email: true,
+        phone: true,
+        address: true,
+        postcode: true,
+        industry: true,
+        category: true,
+        subCategory: true,
+        membershipLevel: true,
+        membershipStatus: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    const rows: AssignedUserRow[] = data.map((business) => ({
+      id: business.id,
+      userType: 'BUSINESS',
+      businessName: business.businessName,
+      email: business.email,
+      phone: business.phone,
+      postcode: business.postcode,
+      category: business.category || business.industry || business.businessType,
+      createdAt: business.createdAt,
+      user: business.user,
+    }));
+    return this.paginateAssignedUsers(rows, query);
+  }
+
+  /**
+   * Combined business + affiliate listing for a geographic scope.
+   * Affiliates only participate in geographic scopes (not sector/category).
+   */
+  private async getAssignedUsers(
+    field: 'cityId' | 'boroughId' | 'highStreetId' | 'localMallId',
+    id: string,
+    query?: AssignedUsersQueryDto,
+  ) {
+    const role = query?.role || 'ALL';
+
+    const businessPromise =
+      role === 'ALL' || role === 'BUSINESS'
+        ? this.prisma.businessProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: {
+              id: true,
+              businessName: true,
+              businessType: true,
+              email: true,
+              phone: true,
+              postcode: true,
+              industry: true,
+              category: true,
+              createdAt: true,
+              user: {
+                select: { id: true, email: true, firstName: true, lastName: true },
+              },
+            },
+          })
+        : Promise.resolve([]);
+
+    const affiliateSelect = {
+      id: true,
+      phone: true,
+      postcode: true,
+      createdAt: true,
+      user: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+    } as const;
+
+    const agentPromise =
+      role === 'ALL' || role === 'AGENT'
+        ? this.prisma.agentProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const consultantPromise =
+      role === 'ALL' || role === 'CONSULTANT'
+        ? this.prisma.consultantProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const managerPromise =
+      role === 'ALL' || role === 'ACCOUNT_MANAGER'
+        ? this.prisma.accountManagerProfile.findMany({
+            where: { [field]: id, deletedAt: null },
+            select: affiliateSelect,
+          })
+        : Promise.resolve([]);
+
+    const [businesses, agents, consultants, managers] = await Promise.all([
+      businessPromise,
+      agentPromise,
+      consultantPromise,
+      managerPromise,
+    ]);
+
+    const businessRows: AssignedUserRow[] = businesses.map((business) => ({
+      id: business.id,
+      userType: 'BUSINESS',
+      businessName: business.businessName,
+      email: business.email,
+      phone: business.phone,
+      postcode: business.postcode,
+      category: business.category || business.industry || business.businessType,
+      createdAt: business.createdAt,
+      user: business.user,
+    }));
+
+    const mapAffiliate = (
+      rows: typeof agents,
+      userType: AssignedUserRow['userType'],
+      label: string,
+    ): AssignedUserRow[] =>
+      rows.map((profile) => {
+        const fullName = [profile.user?.firstName, profile.user?.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        return {
+          id: profile.id,
+          userType,
+          businessName: fullName || profile.user?.email || label,
+          email: profile.user?.email || '',
+          phone: profile.phone,
+          postcode: profile.postcode,
+          category: label,
+          createdAt: profile.createdAt,
+          user: profile.user,
+        };
+      });
+
+    const rows = [
+      ...businessRows,
+      ...mapAffiliate(agents, 'AGENT', 'Agent'),
+      ...mapAffiliate(consultants, 'CONSULTANT', 'Consultant'),
+      ...mapAffiliate(managers, 'ACCOUNT_MANAGER', 'Account Manager'),
+    ];
+
+    return this.paginateAssignedUsers(rows, query);
+  }
+
+  getCityBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('cityId', id, query);
+  }
+
+  getBoroughBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('boroughId', id, query);
+  }
+
+  getHighStreetBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('highStreetId', id, query);
+  }
+
+  getLocalMallBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedUsers('localMallId', id, query);
+  }
+
+  getSectorBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ sectorId: id }, query);
+  }
+
+  getCategoryBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ categoryId: id }, query);
+  }
+
+  getSubCategoryBusinesses(id: string, query?: AssignedUsersQueryDto) {
+    return this.getAssignedBusinesses({ subCategoryId: id }, query);
+  }
+
+  /** Manual trigger for the same delta-checked aggregation the cron runs. */
+  runLocationAggregation() {
+    return this.locationAggregation.aggregateAll();
+  }
+
+  /**
+   * Backfills location assignments for existing businesses that already have a
+   * postcode but predate auto-assignment. Runs the delta-checked aggregation
+   * afterwards so the admin counts update immediately.
+   */
+  async backfillBusinessLocations(dto: BackfillBusinessLocationsDto = {}) {
+    const summary = await this.locationAssignment.backfillBusinesses({
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    });
+
+    const aggregation =
+      summary.dryRun || summary.assigned === 0
+        ? null
+        : await this.locationAggregation.aggregateAll();
+
+    return { success: true, data: { ...summary, aggregation } };
+  }
+
+  /**
+   * One-time UK reference data import. Administrative areas come from the ONS
+   * Open Geography Portal; malls are a best-effort OSM import.
+   */
+  async importUkReferenceData(dto: ImportUkReferenceDataDto = {}) {
+    const administrative =
+      dto.includeAdministrative === false
+        ? null
+        : await this.ukReferenceData.importAdministrativeAreas();
+
+    const malls =
+      dto.includeMalls === false ? null : await this.ukReferenceData.importMalls(dto.mallLimit);
+
+    const aggregation = dto.includeAdministrative === false ? null : await this.locationAggregation.aggregateAll();
+
+    return { success: true, data: { administrative, malls, aggregation } };
   }
 }

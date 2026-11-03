@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { ConflictException, ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -79,8 +80,7 @@ describe('AuthService', () => {
     }),
   };
 
-  const mockRedis = {
-    isAvailable: jest.fn(() => true),
+  const mockRedis = {    isAvailable: jest.fn(() => true),
     get: jest.fn(async (key: string) => readStore(key)),
     set: jest.fn(async (key: string, value: any, ttlSeconds = 300) => {
       redisStore.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
@@ -100,6 +100,23 @@ describe('AuthService', () => {
     }),
   };
 
+  const mockLocationAssignment = {
+    resolvePostcode: jest.fn().mockResolvedValue({
+      postcode: 'SW1A 1AA',
+      outwardCode: 'SW1A',
+      city: 'Greater London',
+      borough: 'Westminster',
+      highStreet: 'St James',
+      localMall: 'London Local Mall',
+      region: 'London',
+      latitude: 51.5,
+      longitude: -0.14,
+      adminDistrict: 'Westminster',
+      adminWard: 'St James',
+    }),
+    assignBusiness: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -108,6 +125,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: RedisService, useValue: mockRedis },
+        { provide: LocationAssignmentService, useValue: mockLocationAssignment },
       ],
     }).compile();
 
@@ -376,6 +394,7 @@ describe('AuthService', () => {
         firstName: 'Owner',
         lastName: 'Person',
         businessName: 'My Biz',
+        postcode: 'SW1A 1AA',
       });
 
       expect(mockPrisma.user.create).toHaveBeenCalledWith(
