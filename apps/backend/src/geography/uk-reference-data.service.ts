@@ -1,7 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import * as https from 'https';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostcodeService, ResolvedPostcode } from './postcode.service';
+
+const ipv4Agent = new https.Agent({ family: 4 });
 
 const ONS_LOOKUP_URL =
   'https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/' +
@@ -91,19 +94,35 @@ export class UkReferenceDataService {
     let offset = 0;
 
     while (offset < 50000) {
-      const response = await axios.get(ONS_LOOKUP_URL, {
-        params: {
-          where: '1=1',
-          outFields:
-            'WD25CD,WD25NM,LAD25CD,LAD25NM,CTYUA25NM,RGN25CD,RGN25NM,CTRY25CD,CTRY25NM',
-          returnGeometry: 'false',
-          f: 'json',
-          resultRecordCount: pageSize,
-          resultOffset: offset,
-          orderByFields: 'WD25CD ASC',
-        },
-        timeout: 30000,
-      });
+      let response;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          response = await axios.get(ONS_LOOKUP_URL, {
+            params: {
+              where: '1=1',
+              outFields:
+                'WD25CD,WD25NM,LAD25CD,LAD25NM,CTYUA25NM,RGN25CD,RGN25NM,CTRY25CD,CTRY25NM',
+              returnGeometry: 'false',
+              f: 'json',
+              resultRecordCount: pageSize,
+              resultOffset: offset,
+              orderByFields: 'WD25CD ASC',
+            },
+            timeout: 60000,
+            httpsAgent: ipv4Agent,
+          });
+          break;
+        } catch (error) {
+          lastError = error;
+          await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+        }
+      }
+      if (!response) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error(`ONS lookup failed at offset ${offset}`);
+      }
 
       const features = response.data?.features;
       if (!Array.isArray(features) || features.length === 0) break;
@@ -533,6 +552,7 @@ export class UkReferenceDataService {
               Accept: 'application/json',
             },
             timeout: 120000,
+            httpsAgent: ipv4Agent,
           });
           const elements = response.data?.elements;
           if (Array.isArray(elements)) {
