@@ -147,7 +147,7 @@ export class LocationAssignmentService {
       });
 
       return hierarchy;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
 
     this.logger.log(
       `Assigned business ${businessId} to ${hierarchy.cityName} > ${hierarchy.boroughName} > ` +
@@ -366,7 +366,7 @@ export class LocationAssignmentService {
       );
 
       return hierarchy;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
 
     this.logger.log(
       `Assigned ${profileType} ${profileId} to ${hierarchy.cityName} > ${hierarchy.boroughName} > ` +
