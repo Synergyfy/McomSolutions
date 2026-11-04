@@ -96,6 +96,8 @@ describe('buildSsoIdentity', () => {
       agentProfile: {
         id: 'agent_1',
         phone: '+44 7700 900123',
+        postcode: null,
+        city: null,
         permissions: ['view_tasks'],
         status: 'Active',
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -132,6 +134,7 @@ describe('buildSsoIdentity', () => {
       customerProfile: {
         id: 'cust_1',
         phone: '+44 7700 900999',
+        postcode: null,
         loyaltyPoints: 10,
         platformUsage: ['mall'],
         membershipStatus: 'None',
