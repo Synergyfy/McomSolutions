@@ -16,10 +16,16 @@ import { AccountManagerAssignmentService } from './account-manager-assignment.se
 import { AffiliateTaskService } from './affiliate-task.service';
 import {
   AffiliateTaskQueryDto,
+  ApproveBusinessChargeDto,
+  ApproveServiceRequestDto,
+  CloseAffiliateProjectDto,
+  CreateAffiliateProjectDto,
+  CreateAffiliateServiceRequestDto,
   CreateAffiliateTaskDto,
   NearbyAffiliatesQueryDto,
   RateAffiliateDto,
   ReportAffiliateDto,
+  ReviewBusinessTaskDto,
 } from './dto/affiliate.dto';
 
 @ApiTags('Business Affiliate Collaboration')
@@ -98,6 +104,82 @@ export class AffiliateBusinessController {
     return { success: true, data: result };
   }
 
+  // ─── Service requests (support channel) ─────────────────────────────
+  @Post('requests')
+  @ApiOperation({ summary: 'Submit a service request describing the outcome you need' })
+  async createServiceRequest(@Req() req: any, @Body() dto: CreateAffiliateServiceRequestDto) {
+    const business = await this.businessContext(req);
+    const request = await this.tasks.createServiceRequest(req.user.userId, business.id, dto);
+    return { success: true, data: request, message: 'Service request submitted' };
+  }
+
+  @Get('requests')
+  @ApiOperation({ summary: 'List your service requests' })
+  async listServiceRequests(@Req() req: any, @Query() query: AffiliateTaskQueryDto) {
+    const business = await this.businessContext(req);
+    return this.tasks.listBusinessServiceRequests(business.id, query);
+  }
+
+  @Get('requests/:id')
+  @ApiOperation({ summary: 'Get a service request with its project and tasks' })
+  async getServiceRequest(@Req() req: any, @Param('id') id: string) {
+    const business = await this.businessContext(req);
+    return { success: true, data: await this.tasks.getBusinessServiceRequest(business.id, id) };
+  }
+
+  @Post('requests/:id/approve-price')
+  @ApiOperation({ summary: 'Approve the quoted price for a service request before chargeable work begins' })
+  async approveRequestPrice(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ApproveServiceRequestDto,
+  ) {
+    const business = await this.businessContext(req);
+    return {
+      success: true,
+      data: await this.tasks.approveServiceRequestPrice(req.user.userId, business.id, id, dto),
+    };
+  }
+
+  // ─── Projects (service plans grouping related tasks) ────────────────
+  @Post('projects')
+  @ApiOperation({ summary: 'Create a project/service plan to group related tasks' })
+  async createProject(@Req() req: any, @Body() dto: CreateAffiliateProjectDto) {
+    const business = await this.businessContext(req);
+    return {
+      success: true,
+      data: await this.tasks.createProject(req.user.userId, business.id, dto),
+    };
+  }
+
+  @Get('projects')
+  @ApiOperation({ summary: 'List projects with their tasks' })
+  async listProjects(@Req() req: any, @Query() query: AffiliateTaskQueryDto) {
+    const business = await this.businessContext(req);
+    return this.tasks.listProjects(business.id, query);
+  }
+
+  @Get('projects/:id')
+  @ApiOperation({ summary: 'Get a project, its tasks, events and review history' })
+  async getProject(@Req() req: any, @Param('id') id: string) {
+    const business = await this.businessContext(req);
+    return { success: true, data: await this.tasks.getProject(business.id, id) };
+  }
+
+  @Post('projects/:id/close')
+  @ApiOperation({ summary: 'Close the loop: record outcome and any follow-up work' })
+  async closeProject(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: CloseAffiliateProjectDto,
+  ) {
+    const business = await this.businessContext(req);
+    return {
+      success: true,
+      data: await this.tasks.closeProject(req.user.userId, business.id, id, dto),
+    };
+  }
+
   @Post('tasks')
   @ApiOperation({ summary: 'Delegate a task to the account manager or a chosen nearby affiliate' })
   async createTask(@Req() req: any, @Body() dto: CreateAffiliateTaskDto) {
@@ -119,6 +201,30 @@ export class AffiliateBusinessController {
     const business = await this.businessContext(req);
     const task = await this.tasks.getBusinessTask(business.id, id);
     return { success: true, data: task };
+  }
+
+  @Post('tasks/:id/review')
+  @ApiOperation({ summary: 'Business owner approves or requests changes on a submitted outcome' })
+  async reviewTask(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ReviewBusinessTaskDto,
+  ) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.reviewTaskAsBusiness(req.user.userId, business.id, id, dto);
+    return { success: true, data: task, message: 'Business review recorded' };
+  }
+
+  @Post('tasks/:id/charge')
+  @ApiOperation({ summary: 'Approve or decline the separate charge for a task before work begins' })
+  async reviewCharge(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: ApproveBusinessChargeDto,
+  ) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.reviewBusinessCharge(req.user.userId, business.id, id, dto);
+    return { success: true, data: task, message: 'Charge decision recorded' };
   }
 
   @Post('tasks/:id/cancel')

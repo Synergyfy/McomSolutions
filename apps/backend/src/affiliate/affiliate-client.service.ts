@@ -113,11 +113,52 @@ export class AffiliateClientService {
         assignedAgentName: task.assignee
           ? [task.assignee.firstName, task.assignee.lastName].filter(Boolean).join(' ') || task.assignee.email
           : null,
+        projectId: task.projectId,
+        projectName: (task as any).project?.title ?? null,
+        category: String(task.category ?? 'EXTERNAL').toLowerCase(),
+        requiredSkills: task.requiredSkills,
+        deliverables: task.deliverables
+          ? task.deliverables
+              .split(/\r?\n|,/)
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+        materials: task.materials,
+        prerequisiteExternalTaskId: task.prerequisiteTaskId,
+        compensationModel: task.compensationModel,
+        compensationAmount: task.compensationAmount,
+        compensationCurrency: task.compensationCurrency,
+        billableToBusiness: task.billableToBusiness,
+        businessChargeAmount: task.businessChargeAmount,
+        businessChargeCurrency: task.businessChargeCurrency,
+        chargeApprovalRequired:
+          task.businessChargeStatus === 'PENDING_APPROVAL' ||
+          (task.billableToBusiness && !task.businessChargeApprovedAt),
         metadata: {
           centralTaskId: task.id,
           centralBusinessId: task.businessId,
           centralAssigneeId: task.assigneeId,
           source: task.source,
+          projectId: task.projectId,
+          projectTitle: (task as any).project?.title ?? null,
+          category: task.category,
+          requiredSkills: task.requiredSkills,
+          deliverables: task.deliverables,
+          materials: task.materials,
+          requiresBusinessApproval: task.requiresBusinessApproval,
+          prerequisiteTaskId: task.prerequisiteTaskId,
+          prerequisiteStatus: (task as any).prerequisiteTask?.status ?? null,
+          compensationModel: task.compensationModel,
+          compensationAmount: task.compensationAmount,
+          compensationCurrency: task.compensationCurrency,
+          billableToBusiness: task.billableToBusiness,
+          businessChargeAmount: task.businessChargeAmount,
+          businessChargeCurrency: task.businessChargeCurrency,
+          businessChargeStatus: task.businessChargeStatus,
+          chargeApprovalRequired:
+            task.businessChargeStatus === 'PENDING_APPROVAL' ||
+            (task.billableToBusiness && !task.businessChargeApprovedAt),
+          paymentStatus: task.paymentStatus,
         },
       } as Record<string, unknown>);
 
@@ -158,6 +199,51 @@ export class AffiliateClientService {
       const message =
         error?.response?.data?.message || error?.message || 'Unknown affiliate review sync error';
       this.logger.error(`Failed to push review for task ${task.id} to 247GBS: ${JSON.stringify(message)}`);
+      return { ok: false, error: String(message) };
+    }
+  }
+
+  async pushStatus(centralTaskId: string, status: string): Promise<AffiliatePushResult> {
+    const http = await this.http();
+    if (!http) return { ok: false, error: 'Affiliate integration not configured' };
+    try {
+      await http.client.post(`/tasks/external/${encodeURIComponent(centralTaskId)}/status`, {
+        status,
+      });
+      return { ok: true };
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || error?.message || 'Unknown affiliate status sync error';
+      this.logger.error(`Failed to push status ${status} for ${centralTaskId}: ${message}`);
+      return { ok: false, error: String(message) };
+    }
+  }
+
+  /**
+   * Credit the affiliate's 247GBS wallet when a task is approved. The affiliate
+   * backend resolves the local user by email (Central and Affiliates issue
+   * different local ids) and uses the reference for idempotency.
+   */
+  async creditAffiliateWallet(input: {
+    email: string;
+    amount: number;
+    currency: string;
+    description: string;
+    reference: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AffiliatePushResult & { reference?: string }> {
+    const http = await this.http();
+    if (!http) return { ok: false, error: 'Affiliate integration not configured' };
+    try {
+      const response = await http.client.post('/internal/affiliates/wallet/credit', input);
+      return {
+        ok: true,
+        reference: response.data?.data?.reference ?? input.reference,
+      };
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message || error?.message || 'Unknown affiliate wallet error';
+      this.logger.error(`Failed to credit affiliate wallet for ${input.email}: ${message}`);
       return { ok: false, error: String(message) };
     }
   }

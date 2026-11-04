@@ -1293,6 +1293,7 @@ export type AdminAffiliateTaskStatus =
   | 'ACCEPTED'
   | 'IN_PROGRESS'
   | 'SUBMITTED'
+  | 'PENDING_BUSINESS_APPROVAL'
   | 'REVISION_REQUESTED'
   | 'COMPLETED'
   | 'DECLINED'
@@ -1307,6 +1308,25 @@ export interface AdminAffiliateTask {
   description: string
   platforms: string[]
   status: AdminAffiliateTaskStatus
+  category?: 'INTERNAL' | 'EXTERNAL'
+  projectId?: string | null
+  project?: { id: string; title: string; status: string } | null
+  requiredSkills?: string[]
+  deliverables?: string | null
+  materials?: string | null
+  requiresBusinessApproval?: boolean
+  amReviewedAt?: string | null
+  amReviewNotes?: string | null
+  compensationModel?: string
+  compensationAmount?: number | null
+  compensationCurrency?: string
+  billableToBusiness?: boolean
+  businessChargeAmount?: number | null
+  businessChargeStatus?: string
+  paymentStatus?: string
+  paidAt?: string | null
+  followUpRequired?: boolean
+  followUpNotes?: string | null
   assigneeId: string | null
   assignee?: {
     id: string

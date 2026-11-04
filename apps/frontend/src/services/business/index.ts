@@ -251,6 +251,8 @@ export const businessApi = {
     source?: string;
     platform?: string;
     search?: string;
+    category?: string;
+    projectId?: string;
   }) => {
     const res = await apiClient.get('/business/affiliate/tasks', { params });
     return res.data;
@@ -269,13 +271,92 @@ export const businessApi = {
     assignmentId?: string;
     assigneeUserId?: string;
     dueAt?: string;
+    projectId?: string;
+    category?: 'INTERNAL' | 'EXTERNAL';
+    requiredSkills?: string[];
+    deliverables?: string;
+    materials?: string;
+    prerequisiteTaskId?: string;
+    requiresBusinessApproval?: boolean;
+    compensationModel?: 'NONE' | 'FIXED' | 'HOURLY' | 'COMMISSION' | 'MEMBERSHIP_INCLUDED';
+    compensationAmount?: number;
+    compensationCurrency?: string;
+    billableToBusiness?: boolean;
+    businessChargeAmount?: number;
+    businessChargeCurrency?: string;
   }) => {
     const res = await apiClient.post('/business/affiliate/tasks', data);
     return res.data;
   },
 
+  reviewAffiliateTask: async (
+    id: string,
+    data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string; acceptanceNotes?: string },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/review`, data);
+    return res.data;
+  },
+
+  reviewAffiliateTaskCharge: async (
+    id: string,
+    data: { decision: 'APPROVED' | 'DECLINED'; notes?: string },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/charge`, data);
+    return res.data;
+  },
+
   cancelAffiliateTask: async (id: string) => {
     const res = await apiClient.post(`/business/affiliate/tasks/${id}/cancel`);
+    return res.data;
+  },
+
+  // ─── Service requests (the business support channel) ─────────────────
+  getServiceRequests: async (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+    const res = await apiClient.get('/business/affiliate/requests', { params });
+    return res.data;
+  },
+
+  createServiceRequest: async (data: {
+    title: string;
+    description: string;
+    desiredOutcome?: string;
+    urgency?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  }) => {
+    const res = await apiClient.post('/business/affiliate/requests', data);
+    return res.data;
+  },
+
+  approveServiceRequestPrice: async (
+    id: string,
+    data: { estimatedCost?: number; currency?: string; notes?: string },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/requests/${id}/approve-price`, data);
+    return res.data;
+  },
+
+  // ─── Projects (service plans grouping related tasks) ─────────────────
+  getProjects: async (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+    const res = await apiClient.get('/business/affiliate/projects', { params });
+    return res.data;
+  },
+
+  createProject: async (data: {
+    title: string;
+    description: string;
+    objective?: string;
+    serviceRequestId?: string;
+    dueAt?: string;
+    requiresBusinessApproval?: boolean;
+  }) => {
+    const res = await apiClient.post('/business/affiliate/projects', data);
+    return res.data;
+  },
+
+  closeProject: async (
+    id: string,
+    data: { outcomeSummary: string; followUpNotes?: string; followUpRequired?: boolean },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/projects/${id}/close`, data);
     return res.data;
   },
 
@@ -361,8 +442,68 @@ export interface AffiliateTaskReview {
   round: number;
   decision: 'APPROVED' | 'CHANGES_REQUESTED';
   notes: string | null;
+  stage?: string | null;
   reviewedAt: string;
   acknowledgedAt: string | null;
+}
+
+export type AffiliateTaskCategory = 'INTERNAL' | 'EXTERNAL';
+export type AffiliateCompensationModel =
+  | 'NONE'
+  | 'FIXED'
+  | 'HOURLY'
+  | 'COMMISSION'
+  | 'MEMBERSHIP_INCLUDED';
+export type AffiliatePaymentStatus = 'NOT_APPLICABLE' | 'PENDING' | 'ELIGIBLE' | 'PAID' | 'ON_HOLD';
+export type AffiliateChargeStatus =
+  | 'NOT_APPLICABLE'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'DECLINED'
+  | 'CHARGED'
+  | 'WAIVED';
+
+export interface AffiliateServiceRequestRecord {
+  id: string;
+  businessId: string;
+  accountManagerId: string | null;
+  title: string;
+  description: string;
+  desiredOutcome: string | null;
+  urgency: string;
+  status:
+    | 'SUBMITTED'
+    | 'CLARIFICATION_REQUIRED'
+    | 'APPROVED'
+    | 'CONVERTED'
+    | 'COMPLETED'
+    | 'REJECTED';
+  clarificationNote: string | null;
+  estimatedCost: number | null;
+  currency: string;
+  priceApprovedAt: string | null;
+  project?: { id: string; title: string; status: string } | null;
+  business?: { id: string; businessName: string; email?: string };
+  accountManager?: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  createdAt: string;
+}
+
+export interface AffiliateProjectRecord {
+  id: string;
+  businessId: string;
+  title: string;
+  description: string;
+  objective: string | null;
+  status: 'ACTIVE' | 'ON_HOLD' | 'AWAITING_BUSINESS_APPROVAL' | 'COMPLETED' | 'CANCELLED';
+  dueAt: string | null;
+  closedAt: string | null;
+  outcomeSummary: string | null;
+  followUpRequired: boolean;
+  followUpNotes: string | null;
+  serviceRequest?: AffiliateServiceRequestRecord | null;
+  accountManager?: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  tasks?: AffiliateTaskRecord[];
+  createdAt: string;
 }
 
 export interface AffiliateTaskRecord {
@@ -379,10 +520,43 @@ export interface AffiliateTaskRecord {
     | 'ACCEPTED'
     | 'IN_PROGRESS'
     | 'SUBMITTED'
+    | 'PENDING_BUSINESS_APPROVAL'
     | 'REVISION_REQUESTED'
     | 'COMPLETED'
     | 'DECLINED'
     | 'CANCELLED';
+  category?: AffiliateTaskCategory;
+  projectId?: string | null;
+  project?: { id: string; title: string; status: string } | null;
+  prerequisiteTaskId?: string | null;
+  prerequisiteTask?: { id: string; title: string; status: string } | null;
+  requiredSkills?: string[];
+  deliverables?: string | null;
+  materials?: string | null;
+  requiresBusinessApproval?: boolean;
+  businessApprovedAt?: string | null;
+  businessApprovalNotes?: string | null;
+  amReviewedAt?: string | null;
+  amReviewNotes?: string | null;
+  compensationModel?: AffiliateCompensationModel;
+  compensationAmount?: number | null;
+  compensationCurrency?: string;
+  billableToBusiness?: boolean;
+  businessChargeAmount?: number | null;
+  businessChargeCurrency?: string;
+  businessChargeStatus?: AffiliateChargeStatus;
+  paymentStatus?: AffiliatePaymentStatus;
+  paidAt?: string | null;
+  settlementReference?: string | null;
+  followUpRequired?: boolean;
+  followUpNotes?: string | null;
+  events?: Array<{
+    id: string;
+    type: string;
+    message: string | null;
+    actorRole: string | null;
+    createdAt: string;
+  }>;
   assigneeId: string | null;
   assignee?: {
     id: string;

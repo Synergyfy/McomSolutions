@@ -281,8 +281,10 @@ export class AffiliateDirectoryService {
       limit?: number;
       postcode?: string;
       skill?: string;
+      availableOnly?: string;
     } = {},
   ) {
+    const availableOnly = options.availableOnly === 'true';
     const roleFilter = options.role?.toUpperCase();
     const wantedRoles = roleFilter
       ? AFFILIATE_ROLES.filter((role) => role === roleFilter)
@@ -299,19 +301,19 @@ export class AffiliateDirectoryService {
     const [agents, accountManagers, consultants, directory] = await Promise.all([
       wantedRoles.includes(Role.AGENT)
         ? this.prisma.agentProfile.findMany({
-            where: { deletedAt: null, status: 'Active', user: { deletedAt: null } },
+            where: { deletedAt: null, status: 'Active', user: { deletedAt: null }, ...(availableOnly ? { availabilityStatus: 'AVAILABLE' } : {}) },
             include: { user: { select: { id: true, email: true, firstName: true, lastName: true, role: true } } },
           })
         : Promise.resolve([]),
       wantedRoles.includes(Role.ACCOUNT_MANAGER)
         ? this.prisma.accountManagerProfile.findMany({
-            where: { deletedAt: null, status: 'Active', user: { deletedAt: null } },
+            where: { deletedAt: null, status: 'Active', user: { deletedAt: null }, ...(availableOnly ? { availabilityStatus: 'AVAILABLE' } : {}) },
             include: { user: { select: { id: true, email: true, firstName: true, lastName: true, role: true } } },
           })
         : Promise.resolve([]),
       wantedRoles.includes(Role.CONSULTANT)
         ? this.prisma.consultantProfile.findMany({
-            where: { deletedAt: null, status: 'Active', user: { deletedAt: null } },
+            where: { deletedAt: null, status: 'Active', user: { deletedAt: null }, ...(availableOnly ? { availabilityStatus: 'AVAILABLE' } : {}) },
             include: { user: { select: { id: true, email: true, firstName: true, lastName: true, role: true } } },
           })
         : Promise.resolve([]),
@@ -355,6 +357,7 @@ export class AffiliateDirectoryService {
           experienceScore: p.experienceScore,
           completedTasksCount: p.completedTasksCount,
           assignedBusinesses: 0,
+          availabilityStatus: p.availabilityStatus,
         }),
       ),
       ...accountManagers.map((p) =>
@@ -373,6 +376,7 @@ export class AffiliateDirectoryService {
           experienceScore: p.experienceScore,
           completedTasksCount: p.completedTasksCount,
           assignedBusinesses: p.assignedBusinesses,
+          availabilityStatus: p.availabilityStatus,
         }),
       ),
       ...consultants.map((p) =>
@@ -391,6 +395,7 @@ export class AffiliateDirectoryService {
           experienceScore: p.experienceScore,
           completedTasksCount: p.completedTasksCount,
           assignedBusinesses: 0,
+          availabilityStatus: p.availabilityStatus,
           specialisation: p.specialisation,
         }),
       ),

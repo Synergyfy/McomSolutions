@@ -17,7 +17,11 @@ import { AffiliateTaskService } from './affiliate-task.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import {
   AffiliateTaskQueryDto,
+  ApproveBusinessChargeDto,
+  ApproveServiceRequestDto,
   AssignAffiliateTaskDto,
+  CloseAffiliateProjectDto,
+  CreateAffiliateProjectDto,
   ReviewAffiliateReportDto,
   ReviewAffiliateTaskDto,
 } from './dto/affiliate.dto';
@@ -56,10 +60,85 @@ export class AffiliateAdminController {
   }
 
   @Post('affiliate-tasks/:id/assign')
-  @ApiOperation({ summary: 'Assign a pending task to an agent, account manager or consultant' })
+  @ApiOperation({ summary: 'Assign (or reassign a declined) task to an agent, account manager or consultant' })
   async assign(@Param('id') id: string, @Body() dto: AssignAffiliateTaskDto, @Req() req: any) {
     const task = await this.tasks.assignTask(id, dto, req.user.userId);
     return { success: true, data: task, message: 'Affiliate assigned' };
+  }
+
+  @Post('affiliate-tasks/:id/charge')
+  @ApiOperation({ summary: 'Admin override: approve or decline a task charge' })
+  async reviewCharge(
+    @Param('id') id: string,
+    @Body() dto: ApproveBusinessChargeDto,
+    @Req() req: any,
+  ) {
+    const task = await this.tasks.reviewBusinessChargeAsAdmin(req.user.userId, id, dto);
+    return { success: true, data: task, message: 'Charge decision recorded' };
+  }
+
+  @Get('affiliate-requests')
+  @ApiOperation({ summary: 'List every business service request' })
+  listRequests(@Query() query: AffiliateTaskQueryDto) {
+    return this.tasks.listAllServiceRequests(query);
+  }
+
+  @Post('affiliate-requests/:id/clarify')
+  @ApiOperation({ summary: 'Ask the business for more information' })
+  async clarifyRequest(
+    @Param('id') id: string,
+    @Body('note') note: string,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.clarifyRequestAsAdmin(req.user.userId, id, note),
+    };
+  }
+
+  @Post('affiliate-requests/:id/quote')
+  @ApiOperation({ summary: 'Set the price shown to an Access Pass / Trial business' })
+  async quoteRequest(
+    @Param('id') id: string,
+    @Body() dto: ApproveServiceRequestDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.quoteRequestAsAdmin(req.user.userId, id, dto),
+    };
+  }
+
+  @Post('affiliate-requests/:id/convert')
+  @ApiOperation({ summary: 'Convert a request into a project/service plan' })
+  async convertRequest(
+    @Param('id') id: string,
+    @Body() dto: CreateAffiliateProjectDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.convertRequestAsAdmin(req.user.userId, id, dto),
+    };
+  }
+
+  @Get('affiliate-projects')
+  @ApiOperation({ summary: 'List every project/service plan' })
+  listProjects(@Query() query: AffiliateTaskQueryDto) {
+    return this.tasks.listAllProjects(query);
+  }
+
+  @Post('affiliate-projects/:id/close')
+  @ApiOperation({ summary: 'Close a project with an outcome summary and follow-up notes' })
+  async closeProject(
+    @Param('id') id: string,
+    @Body() dto: CloseAffiliateProjectDto,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.closeProjectAsAdmin(req.user.userId, id, dto),
+    };
   }
 
   @Post('affiliate-tasks/:id/review')
