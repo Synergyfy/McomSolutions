@@ -6,7 +6,7 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -26,6 +26,7 @@ export type AdminTab =
   | 'wallet'
   | 'mcom-pay'
   | 'programme' | 'programme-progress'
+  | 'affiliate-tasks'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
   | 'sectors-categories' | 'cities';
@@ -115,6 +116,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'programme', icon: Rocket, label: 'Activity Programme' },
       { tab: 'programme-progress', icon: ClipboardList, label: 'Programme Progress' },
+      { tab: 'affiliate-tasks', icon: UserCog, label: 'Affiliate Tasks' },
     ],
   },
   {

@@ -439,6 +439,19 @@ describe('BusinessService', () => {
 
     it('should correctly map nested manual onboarding inputs', async () => {
       mockPrisma.businessProfile.findFirst.mockResolvedValue({ id: 'b1' });
+      mockLocationAssignment.resolvePostcode.mockResolvedValueOnce({
+        postcode: 'W1D 1AN',
+        outwardCode: 'W1D',
+        city: 'London',
+        borough: 'Westminster',
+        highStreet: 'Oxford Street',
+        localMall: 'London Local Mall',
+        region: 'London',
+        latitude: 51.515,
+        longitude: -0.141,
+        adminDistrict: 'Westminster',
+        adminWard: 'West End',
+      });
       mockPrisma.businessProfile.update.mockImplementation((args: any) => {
         return Promise.resolve({
           id: args.where.id,

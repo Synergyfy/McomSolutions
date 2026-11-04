@@ -47,6 +47,10 @@ import type {
   AdminCouponQuery,
   AdminCouponRedemptionQuery,
   PartnerAccessCodeQuery,
+  AdminAffiliateTask,
+  AdminAffiliateTaskQuery,
+  AdminAffiliateReport,
+  AdminAffiliateReputation,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1642,5 +1646,97 @@ export const useResendCouponEmail = () => {
   return useMutation({
     mutationFn: (id: string) => adminApi.resendCouponEmail(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'coupons'] }),
+  })
+}
+
+// ─── Affiliate collaboration (delegated tasks + reports) ─────────────────
+export const useAffiliateTasksAdmin = (params?: AdminAffiliateTaskQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-tasks', params],
+    queryFn: () => adminApi.getAffiliateTasks(params),
+    staleTime: 1000 * 15,
+  })
+}
+
+export const useAffiliateTaskAdmin = (id?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-tasks', id],
+    queryFn: () => adminApi.getAffiliateTask(id as string),
+    enabled: !!id,
+  })
+}
+
+export const useAssignAffiliateTask = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { assigneeUserId: string; note?: string } }) =>
+      adminApi.assignAffiliateTask(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] }),
+  })
+}
+
+export const useReviewAffiliateTask = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string }
+    }) => adminApi.reviewAffiliateTask(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-reports'] })
+    },
+  })
+}
+
+export const useCancelAffiliateTaskAdmin = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => adminApi.cancelAffiliateTask(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] }),
+  })
+}
+
+export const useAffiliateReports = (params?: AdminAffiliateTaskQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-reports', params],
+    queryFn: () => adminApi.getAffiliateReports(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useReviewAffiliateReport = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: { decision: 'VALID' | 'INVALID'; adminNotes?: string }
+    }) => adminApi.reviewAffiliateReport(id, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-reports'] }),
+  })
+}
+
+export const useAffiliateReputation = (userId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-reputation', userId],
+    queryFn: () => adminApi.getAffiliateReputation(userId as string),
+    enabled: !!userId,
+  })
+}
+
+export const useBackfillAccountManagers = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (limit?: number) => adminApi.backfillAccountManagers(limit),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    },
   })
 }

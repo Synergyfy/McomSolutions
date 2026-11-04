@@ -236,3 +236,123 @@ export const useCreateSupportTicket = () => {
 
 
 
+
+// ─── Account manager + delegated tasks ─────────────────────────────────
+export const useAccountManager = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['account-manager'],
+    queryFn: () => businessApi.getAccountManager(),
+    enabled: !!token,
+    staleTime: 1000 * 60,
+  });
+};
+
+export const useReassignAccountManager = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => businessApi.reassignAccountManager(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-manager'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
+export const usePlatformAccess = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['business-platform-access'],
+    queryFn: () => businessApi.getPlatformAccess(),
+    enabled: !!token,
+    staleTime: 1000 * 60,
+  });
+};
+
+export const useNearbyAffiliates = (params?: {
+  role?: string;
+  page?: number;
+  limit?: number;
+  postcode?: string;
+  skill?: string;
+}) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['nearby-affiliates', params],
+    queryFn: () => businessApi.getNearbyAffiliates(params),
+    enabled: !!token,
+    staleTime: 1000 * 60,
+  });
+};
+
+export const useAffiliateTasks = (params?: {
+  page?: number;
+  limit?: number;
+  status?: string;
+  source?: string;
+  platform?: string;
+  search?: string;
+}) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['affiliate-tasks', params],
+    queryFn: () => businessApi.getAffiliateTasks(params),
+    enabled: !!token,
+    staleTime: 1000 * 15,
+  });
+};
+
+export const useCreateAffiliateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      title: string;
+      description: string;
+      platforms?: string[];
+      taskDefinitionId?: string;
+      assignmentId?: string;
+      assigneeUserId?: string;
+      dueAt?: string;
+    }) => businessApi.createAffiliateTask(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['account-manager'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
+export const useCancelAffiliateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => businessApi.cancelAffiliateTask(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
+export const useRateAffiliate = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, data }: { userId: string; data: { rating: number; comment?: string } }) =>
+      businessApi.rateAffiliate(userId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-manager'] });
+      queryClient.invalidateQueries({ queryKey: ['nearby-affiliates'] });
+    },
+  });
+};
+
+export const useReportAffiliate = () => {
+  return useMutation({
+    mutationFn: ({
+      userId,
+      data,
+    }: {
+      userId: string;
+      data: { reason: string; description: string };
+    }) => businessApi.reportAffiliate(userId, data),
+  });
+};

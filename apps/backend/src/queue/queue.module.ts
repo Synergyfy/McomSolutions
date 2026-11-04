@@ -7,6 +7,7 @@ import {
   TASK_EVENT_QUEUE,
   TASK_REWARD_QUEUE,
   TASK_COUPON_QUEUE,
+  AFFILIATE_TASK_QUEUE,
 } from './queue.constants';
 
 @Module({
@@ -63,6 +64,9 @@ import {
       },
       {
         name: TASK_COUPON_QUEUE,
+      },
+      {
+        name: AFFILIATE_TASK_QUEUE,
       },
     ),
   ],

@@ -69,6 +69,10 @@ import type {
   CouponUserLookup,
   PartnerAccessCode,
   PartnerAccessCodeQuery,
+  AdminAffiliateTask,
+  AdminAffiliateTaskQuery,
+  AdminAffiliateReport,
+  AdminAffiliateReputation,
 } from './types'
 
 export const adminApi = {
@@ -1108,6 +1112,58 @@ export const adminApi = {
   getPartnerAccessCodes: async (params?: PartnerAccessCodeQuery) => {
     const res = await apiClient.get('/admin/partner/access-codes', { params })
     return res.data as PaginatedResponse<PartnerAccessCode>
+  },
+
+  // ─── Affiliate collaboration (delegated tasks + reports) ─────────────
+  getAffiliateTasks: async (params?: AdminAffiliateTaskQuery) => {
+    const res = await apiClient.get('/admin/affiliate-tasks', { params })
+    return res.data as PaginatedResponse<AdminAffiliateTask>
+  },
+
+  getAffiliateTask: async (id: string) => {
+    const res = await apiClient.get(`/admin/affiliate-tasks/${id}`)
+    return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
+  assignAffiliateTask: async (id: string, data: { assigneeUserId: string; note?: string }) => {
+    const res = await apiClient.post(`/admin/affiliate-tasks/${id}/assign`, data)
+    return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
+  reviewAffiliateTask: async (
+    id: string,
+    data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string },
+  ) => {
+    const res = await apiClient.post(`/admin/affiliate-tasks/${id}/review`, data)
+    return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
+  cancelAffiliateTask: async (id: string) => {
+    const res = await apiClient.post(`/admin/affiliate-tasks/${id}/cancel`)
+    return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
+  getAffiliateReports: async (params?: AdminAffiliateTaskQuery) => {
+    const res = await apiClient.get('/admin/affiliate-reports', { params })
+    return res.data as PaginatedResponse<AdminAffiliateReport>
+  },
+
+  reviewAffiliateReport: async (
+    id: string,
+    data: { decision: 'VALID' | 'INVALID'; adminNotes?: string },
+  ) => {
+    const res = await apiClient.post(`/admin/affiliate-reports/${id}/review`, data)
+    return res.data as ApiResponse<AdminAffiliateReport>
+  },
+
+  getAffiliateReputation: async (userId: string) => {
+    const res = await apiClient.get(`/admin/affiliates/${userId}/reputation`)
+    return res.data as ApiResponse<AdminAffiliateReputation>
+  },
+
+  backfillAccountManagers: async (limit?: number) => {
+    const res = await apiClient.post('/admin/account-managers/backfill', { limit })
+    return res.data as ApiResponse<{ candidates: number; assigned: number; skipped: number; failed: number }>
   },
 
 }

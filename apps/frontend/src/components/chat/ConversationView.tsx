@@ -55,7 +55,8 @@ export default function ConversationView({
   const otherParticipant =
     conversation.participants.find((p) => p.userId !== currentUserId) ||
     conversation.participants[0];
-  const isOtherAdmin = otherParticipant?.roleTitle === 'ADMIN';
+  const isOtherAdmin = otherParticipant?.roleTitle === 'ADMIN' || otherParticipant?.roleTitle === 'Administrator';
+  const isAccountManager = otherParticipant?.roleTitle === 'Account Manager';
 
   const handleBlockUser = async () => {
     if (!otherParticipant) return;
@@ -98,9 +99,16 @@ export default function ConversationView({
           </div>
 
           <div className="min-w-0 flex-1">
-            <h4 className="font-bold text-xs sm:text-sm text-gray-900 line-clamp-1">
-              {conversation.title}
-            </h4>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h4 className="font-bold text-xs sm:text-sm text-gray-900 line-clamp-1">
+                {conversation.title}
+              </h4>
+              {!isGroup && isAccountManager && (
+                <span className="shrink-0 rounded-full bg-brand-blue/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-brand-blue">
+                  Account Manager
+                </span>
+              )}
+            </div>
             <div className="text-[10px] text-gray-400 flex items-center gap-1">
               {isGroup ? (
                 <span>{conversation.participantsCount} participants</span>

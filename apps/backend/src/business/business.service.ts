@@ -1166,7 +1166,37 @@ export class BusinessService {
       throw new NotFoundException('Business profile not found');
     }
     const address = updates.location?.addressLine1 || updates.address;
-    const postcode = updates.location?.postcode || updates.postcode;
+    const rawPostcode = updates.location?.postcode ?? updates.postcode;
+    // UK-only postcode validation. Clearing the field is allowed; anything
+    // non-empty must resolve to a real UK postcode before it is persisted.
+    let postcode: string | null | undefined;
+    let resolvedPostcode: ResolvedPostcode | undefined;
+    if (typeof rawPostcode === 'string') {
+      const trimmed = rawPostcode.trim().toUpperCase();
+      if (trimmed.length > 0) {
+        if (!/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(trimmed)) {
+          throw new BadRequestException('Please enter a valid UK postcode (e.g. SW1A 1AA).');
+        }
+        try {
+          resolvedPostcode = await this.locationAssignment.resolvePostcode(trimmed);
+          postcode = resolvedPostcode.postcode;
+        } catch (err) {
+          // A malformed/nonexistent postcode must be rejected; a geocoder
+          // outage should not block saving a format-valid UK postcode.
+          if (err instanceof BadRequestException) throw err;
+          this.logger.warn(
+            `Postcode geocoding unavailable for ${trimmed}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          postcode = trimmed;
+        }
+      } else {
+        postcode = null;
+      }
+    } else {
+      postcode = rawPostcode;
+    }
     const phone = updates.businessPhone || updates.phone;
     const description = updates.shortDescription || updates.description;
     const industry = updates.sectorId || updates.industry;
@@ -1211,6 +1241,7 @@ export class BusinessService {
     if (postcode) {
       await this.assignBusinessLocation(businessId, {
         postcode,
+        resolvedPostcode,
         sectorId: updates.sectorId,
         categoryId: updates.categoryId,
         subCategoryId: updates.subCategoryId,

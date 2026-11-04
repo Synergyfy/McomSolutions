@@ -85,6 +85,17 @@ model User {
   messageRequestsReceived ChatMessageRequest[]      @relation("MessageRequestsReceived")
   blocksSent              ChatBlock[]               @relation("UserBlocksSent")
   blocksReceived          ChatBlock[]               @relation("UserBlocksReceived")
+  // ── Affiliate collaboration (account managers, delegated tasks, reputation) ──
+  managedBusinesses       BusinessProfile[]         @relation("BusinessAccountManager")
+  affiliateTasksAssigned  AffiliateTask[]           @relation("AffiliateTaskAssignee")
+  affiliateTasksCreated   AffiliateTask[]           @relation("AffiliateTaskCreator")
+  affiliateTasksAssignedBy AffiliateTask[]         @relation("AffiliateTaskAssignedByAdmin")
+  affiliateReviewsGiven   AffiliateTaskReview[]     @relation("AffiliateTaskReviewer")
+  reputationEvents        AffiliateReputationEvent[]
+  ratingsReceived         AffiliateRating[]         @relation("AffiliateRatingTarget")
+  ratingsCreated          AffiliateRating[]         @relation("AffiliateRatingCreatedBy")
+  reportsReceived         AffiliateReport[]         @relation("AffiliateReportTarget")
+  reportsReviewed         AffiliateReport[]         @relation("AffiliateReportReviewer")
 
   @@index([deletedAt])
   @@index([role])
@@ -145,6 +156,10 @@ model BusinessProfile {
   subCategoryId          String?              @map("sub_category_id")
   subCategoryRef         SubCategory?         @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
   locationAssignedAt     DateTime?            @map("location_assigned_at")
+  // ── Account manager assignment (membership subscribers only) ──
+  accountManagerId       String?              @map("account_manager_id")
+  accountManager         User?                @relation("BusinessAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  accountManagerAssignedAt DateTime?          @map("account_manager_assigned_at")
   packages               PlatformPackage[]
   transactions           BillingTransaction[]
   notifications          Notification[]
@@ -152,6 +167,9 @@ model BusinessProfile {
   couponRedemptions      CouponRedemption[]
   accessPurchases        AccessPurchase[]
   whitelabelAccess       WhitelabelAccess[]
+  affiliateTasks         AffiliateTask[]
+  affiliateRatings       AffiliateRating[]
+  affiliateReports       AffiliateReport[]
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   deletedAt              DateTime?            @map("deleted_at")
@@ -160,6 +178,7 @@ model BusinessProfile {
   @@index([membershipExpiresAt])
   @@index([localMallId])
   @@index([membershipStatus])
+  @@index([accountManagerId])
   @@index([cityId])
   @@index([boroughId])
   @@index([highStreetId])
@@ -682,6 +701,10 @@ model AgentProfile {
   localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
   locationAssignedAt DateTime?   @map("location_assigned_at")
   permissions        String[]    @map("permissions")
+  reputationScore    Int         @default(0) @map("reputation_score")
+  experienceScore    Int         @default(0) @map("experience_score")
+  completedTasksCount Int        @default(0) @map("completed_tasks_count")
+  failedTasksCount   Int         @default(0) @map("failed_tasks_count")
   status             String      @default("Active") @map("status")
   deletedAt          DateTime?   @map("deleted_at")
   createdAt          DateTime    @default(now()) @map("created_at")
@@ -712,6 +735,10 @@ model ConsultantProfile {
   localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
   locationAssignedAt DateTime?   @map("location_assigned_at")
   specialisation     String      @map("specialisation")
+  reputationScore    Int         @default(0) @map("reputation_score")
+  experienceScore    Int         @default(0) @map("experience_score")
+  completedTasksCount Int        @default(0) @map("completed_tasks_count")
+  failedTasksCount   Int         @default(0) @map("failed_tasks_count")
   status             String      @default("Active") @map("status")
   deletedAt          DateTime?   @map("deleted_at")
   createdAt          DateTime    @default(now()) @map("created_at")
@@ -742,6 +769,10 @@ model AccountManagerProfile {
   localMall          LocalMall?  @relation(fields: [localMallId], references: [id], onDelete: SetNull)
   locationAssignedAt DateTime?   @map("location_assigned_at")
   assignedBusinesses Int         @default(0) @map("assigned_businesses")
+  reputationScore    Int         @default(0) @map("reputation_score")
+  experienceScore    Int         @default(0) @map("experience_score")
+  completedTasksCount Int        @default(0) @map("completed_tasks_count")
+  failedTasksCount   Int         @default(0) @map("failed_tasks_count")
   status             String      @default("Active") @map("status")
   deletedAt          DateTime?   @map("deleted_at")
   createdAt          DateTime    @default(now()) @map("created_at")
@@ -2012,6 +2043,7 @@ model TaskDefinition {
   rewardCouponPlans              TaskRewardCouponPlan[]
   rewardCouponAccessPlans        TaskRewardCouponAccessPlan[]
   issuedCoupons                  Coupon[]
+  affiliateTasks                 AffiliateTask[]
 
   @@index([featureKey])
   @@index([isActive])
@@ -2625,4 +2657,189 @@ model PartnerAuditLog {
   @@index([issuanceId])
   @@index([createdAt])
   @@map("partner_audit_logs")
+}
+
+// ─── AFFILIATE COLLABORATION (account managers, delegated tasks, reputation) ──
+// Businesses on a paid membership are assigned an account manager by proximity
+// (postcode → city/borough/high-street/local-mall) and reputation score. Tasks
+// can then be delegated to that account manager, or — for trial/access-pass
+// businesses with no account manager — to any nearby agent/consultant/account
+// manager chosen by the business or assigned by an admin. Execution happens in
+// the 247GBS Affiliates backend (backend-to-backend); review + reputation stays
+// here in Central.
+
+enum AffiliateTaskStatus {
+  PENDING_ASSIGNMENT
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  SUBMITTED
+  REVISION_REQUESTED
+  COMPLETED
+  DECLINED
+  CANCELLED
+}
+
+enum AffiliateTaskSource {
+  PROGRAMME
+  MANUAL
+}
+
+enum AffiliateReviewDecision {
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+enum AffiliateRatingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AffiliateReportStatus {
+  PENDING
+  VALID
+  INVALID
+}
+
+model AffiliateTask {
+  id                 String               @id @default(cuid())
+  businessId         String               @map("business_id")
+  business           BusinessProfile      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  source             AffiliateTaskSource  @default(MANUAL) @map("source")
+  // Optional link to an admin-authored programme task that the business pushed.
+  taskDefinitionId   String?              @map("task_definition_id")
+  taskDefinition     TaskDefinition?      @relation(fields: [taskDefinitionId], references: [id], onDelete: SetNull)
+  // The business programme assignment this delegation was pushed from. Used to
+  // mark the task "Delegated" and prevent duplicate delegation.
+  sourceAssignmentId String?              @map("source_assignment_id")
+  title              String               @map("title")
+  description        String               @map("description") @db.Text
+  // Platform tags the affiliate may work under (e.g. "mcom_mall", "mcom_rewards").
+  platforms          String[]             @default([]) @map("platforms")
+  status             AffiliateTaskStatus  @default(PENDING_ASSIGNMENT) @map("status")
+  // Assigned affiliate (agent / account manager / consultant). Nullable while
+  // an admin needs to route a trial/access-pass request.
+  assigneeId         String?              @map("assignee_id")
+  assignee           User?                @relation("AffiliateTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  assigneeRole       Role?                @map("assignee_role")
+  assignedByAdminId  String?              @map("assigned_by_admin_id")
+  assignedByAdmin    User?                @relation("AffiliateTaskAssignedByAdmin", fields: [assignedByAdminId], references: [id], onDelete: SetNull)
+  createdByUserId    String               @map("created_by_user_id")
+  createdBy          User                 @relation("AffiliateTaskCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  dueAt              DateTime?            @map("due_at")
+  // Mirror id + sync state for the 247GBS Affiliates task record.
+  affiliateTaskId    String?              @map("affiliate_task_id")
+  lastSyncAt         DateTime?            @map("last_sync_at")
+  lastSyncError      String?              @map("last_sync_error")
+  // Structured submission from the affiliate (notes, links[], attachments[]).
+  submissionData     Json?                @map("submission_data")
+  revisionCount      Int                  @default(0) @map("revision_count")
+  completedAt        DateTime?            @map("completed_at")
+  reputationApplied  Boolean              @default(false) @map("reputation_applied")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  attachments        AffiliateTaskAttachment[]
+  reviews            AffiliateTaskReview[]
+
+  @@index([businessId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([taskDefinitionId])
+  @@index([sourceAssignmentId])
+  @@index([affiliateTaskId])
+  @@index([createdAt])
+  @@map("affiliate_tasks")
+}
+
+model AffiliateTaskAttachment {
+  id            String        @id @default(cuid())
+  taskId        String        @map("task_id")
+  task          AffiliateTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  url           String        @map("url") @db.Text
+  fileName      String?       @map("file_name")
+  mimeType      String?       @map("mime_type")
+  kind          String        @default("OTHER") @map("kind") // IMAGE | DOCUMENT | OTHER
+  uploadedById  String?       @map("uploaded_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@map("affiliate_task_attachments")
+}
+
+model AffiliateTaskReview {
+  id             String                 @id @default(cuid())
+  taskId         String                 @map("task_id")
+  task           AffiliateTask          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  round          Int                    @default(1) @map("round")
+  decision       AffiliateReviewDecision @map("decision")
+  notes          String?                @map("notes") @db.Text
+  reviewerId     String?                @map("reviewer_id")
+  reviewer       User?                  @relation("AffiliateTaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime               @default(now()) @map("reviewed_at")
+  acknowledgedAt DateTime?              @map("acknowledged_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@map("affiliate_task_reviews")
+}
+
+// Append-only reputation ledger. Current score is stored denormalised on the
+// affiliate profile and recomputed transactionally whenever an event lands.
+model AffiliateReputationEvent {
+  id              String   @id @default(cuid())
+  affiliateUserId String   @map("affiliate_user_id")
+  affiliate       User     @relation(fields: [affiliateUserId], references: [id], onDelete: Cascade)
+  delta           Int      @map("delta")
+  reason          String   @map("reason")
+  sourceType      String   @map("source_type") // TASK_COMPLETED | TASK_FAILED | RATING | REPORT
+  sourceId        String?  @map("source_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([affiliateUserId, createdAt])
+  @@map("affiliate_reputation_events")
+}
+
+model AffiliateRating {
+  id               String               @id @default(cuid())
+  businessId       String               @map("business_id")
+  business         BusinessProfile      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  affiliateUserId  String               @map("affiliate_user_id")
+  affiliate        User                 @relation("AffiliateRatingTarget", fields: [affiliateUserId], references: [id], onDelete: Cascade)
+  rating           Int                  @map("rating") // 1..5
+  comment          String?              @map("comment") @db.Text
+  status           AffiliateRatingStatus @default(APPROVED) @map("status")
+  createdByUserId  String               @map("created_by_user_id")
+  createdBy        User                 @relation("AffiliateRatingCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  reviewedBy       String?              @map("reviewed_by")
+  reviewedAt       DateTime?            @map("reviewed_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  @@unique([businessId, affiliateUserId])
+  @@index([affiliateUserId])
+  @@map("affiliate_ratings")
+}
+
+model AffiliateReport {
+  id               String                @id @default(cuid())
+  businessId       String                @map("business_id")
+  business         BusinessProfile       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  affiliateUserId  String                @map("affiliate_user_id")
+  affiliate        User                  @relation("AffiliateReportTarget", fields: [affiliateUserId], references: [id], onDelete: Cascade)
+  reason           String                @map("reason")
+  description      String                @map("description") @db.Text
+  status           AffiliateReportStatus @default(PENDING) @map("status")
+  adminNotes       String?               @map("admin_notes") @db.Text
+  reviewedBy       String?               @map("reviewed_by")
+  reviewer         User?                 @relation("AffiliateReportReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?             @map("reviewed_at")
+  reputationApplied Boolean              @default(false) @map("reputation_applied")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@index([affiliateUserId])
+  @@index([status])
+  @@map("affiliate_reports")
 }

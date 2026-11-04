@@ -5,6 +5,7 @@ import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
+import { AccountManagerAssignmentService } from '../affiliate/account-manager-assignment.service';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
   addDaysUtc,
@@ -86,6 +87,8 @@ export class PricingService {
     @Optional()
     @InjectQueue(TASK_EVENT_QUEUE)
     private readonly taskEventQueue?: Queue<TaskEventJobData>,
+    @Optional()
+    private readonly accountManagerAssignment?: AccountManagerAssignmentService,
   ) {}
 
   private tierMultiplier(tier: string): number {
@@ -584,6 +587,9 @@ export class PricingService {
       expiresAt,
     });
 
+    // Paid membership → assign a dedicated account manager (proximity + reputation).
+    void this.assignAccountManagerSafely(businessId);
+
     // Post-commit lifecycle event (never blocks the response).
     if (opts.couponRedemptionId) {
       void this.events.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
@@ -731,6 +737,19 @@ export class PricingService {
     }
 
     return tierQuotas;
+  }
+
+  /**
+   * Paid membership activation assigns a dedicated account manager by
+   * proximity (postcode hierarchy) + reputation. Never blocks activation.
+   */
+  private async assignAccountManagerSafely(businessId: string): Promise<void> {
+    if (!this.accountManagerAssignment) return;
+    try {
+      await this.accountManagerAssignment.assignForBusiness(businessId);
+    } catch (err: any) {
+      this.logger.warn(`Account manager assignment failed for business ${businessId}: ${err?.message}`);
+    }
   }
 
   /**
@@ -925,6 +944,8 @@ export class PricingService {
       price,
       expiresAt: result.expiresAt,
     });
+
+    void this.assignAccountManagerSafely(business.id);
 
     return {
       ...result.updated,

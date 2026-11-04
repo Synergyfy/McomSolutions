@@ -1285,3 +1285,116 @@ export interface CouponQuote {
     source: CouponSource
   } | null
 }
+
+// ─── Affiliate collaboration (delegated tasks + reports) ─────────────────
+export type AdminAffiliateTaskStatus =
+  | 'PENDING_ASSIGNMENT'
+  | 'ASSIGNED'
+  | 'ACCEPTED'
+  | 'IN_PROGRESS'
+  | 'SUBMITTED'
+  | 'REVISION_REQUESTED'
+  | 'COMPLETED'
+  | 'DECLINED'
+  | 'CANCELLED'
+
+export interface AdminAffiliateTask {
+  id: string
+  businessId: string
+  source: 'PROGRAMME' | 'MANUAL'
+  taskDefinitionId: string | null
+  title: string
+  description: string
+  platforms: string[]
+  status: AdminAffiliateTaskStatus
+  assigneeId: string | null
+  assignee?: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+    role: string
+  } | null
+  business?: { id: string; businessName: string; email: string; userId?: string }
+  taskDefinition?: { id: string; title: string } | null
+  dueAt: string | null
+  submissionData: Record<string, unknown> | null
+  revisionCount: number
+  completedAt: string | null
+  lastSyncError: string | null
+  attachments?: Array<{
+    id: string
+    url: string
+    fileName: string | null
+    mimeType: string | null
+    kind: string
+  }>
+  reviews?: Array<{
+    id: string
+    round: number
+    decision: 'APPROVED' | 'CHANGES_REQUESTED'
+    notes: string | null
+    reviewedAt: string
+    acknowledgedAt: string | null
+  }>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminAffiliateTaskQuery {
+  page?: number
+  limit?: number
+  status?: string
+  source?: string
+  platform?: string
+  search?: string
+  assigneeId?: string
+  unassigned?: string
+}
+
+export interface AdminAffiliateReport {
+  id: string
+  businessId: string
+  affiliateUserId: string
+  reason: string
+  description: string
+  status: 'PENDING' | 'VALID' | 'INVALID'
+  adminNotes: string | null
+  reviewedAt: string | null
+  createdAt: string
+  business?: { id: string; businessName: string; email: string }
+  affiliate?: { id: string; email: string; firstName: string | null; lastName: string | null; role: string }
+}
+
+export interface AdminAffiliateReputation {
+  userId: string
+  role: string
+  reputationScore: number
+  experienceScore: number
+  completedTasksCount: number
+  failedTasksCount: number
+  ratingAverage: number | null
+  ratingCount: number
+  events: Array<{
+    id: string
+    delta: number
+    reason: string
+    sourceType: string
+    sourceId: string | null
+    createdAt: string
+  }>
+  ratings: Array<{
+    id: string
+    rating: number
+    comment: string | null
+    createdAt: string
+    business?: { businessName: string }
+  }>
+  reports: Array<{
+    id: string
+    reason: string
+    status: string
+    createdAt: string
+    business?: { businessName: string }
+  }>
+}

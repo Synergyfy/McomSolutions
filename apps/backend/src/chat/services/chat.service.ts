@@ -41,6 +41,32 @@ export class ChatService {
     return full || user.email.split('@')[0];
   }
 
+  /**
+   * Human-readable participant tag used by the messaging UI. Account managers
+   * get an explicit "Account Manager" badge so businesses can recognise them
+   * in their inbox.
+   */
+  private formatRoleTitle(role?: string | null): string {
+    switch (role) {
+      case 'ACCOUNT_MANAGER':
+        return 'Account Manager';
+      case 'AGENT':
+        return 'Affiliate Agent';
+      case 'CONSULTANT':
+        return 'Consultant';
+      case 'ADMIN':
+        return 'Administrator';
+      case 'BUSINESS':
+        return 'Business';
+      case 'CUSTOMER':
+        return 'Customer';
+      case 'PARTNER':
+        return 'Partner';
+      default:
+        return role || 'Member';
+    }
+  }
+
   async getConversations(userId: string) {
     const participants = await this.prisma.conversationParticipant.findMany({
       where: {
@@ -126,7 +152,7 @@ export class ChatService {
             role: p.role,
             displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
             email: p.user.email,
-            roleTitle: p.user.role,
+            roleTitle: this.formatRoleTitle(p.user.role),
             isOnline: this.presenceService.isUserOnline(p.userId),
             lastReadAt: p.lastReadAt,
           })),
@@ -194,7 +220,7 @@ export class ChatService {
         role: p.role,
         displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
         email: p.user.email,
-        roleTitle: p.user.role,
+        roleTitle: this.formatRoleTitle(p.user.role),
         isOnline: this.presenceService.isUserOnline(p.userId),
         lastReadAt: p.lastReadAt,
       })),
