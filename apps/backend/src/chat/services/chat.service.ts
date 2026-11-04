@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { PresenceService } from './presence.service';
 import { PushNotificationService } from './push-notification.service';
+import { ChatOutboxService } from './chat-outbox.service';
 import {
   SendMessageDto,
   CreateGroupConversationDto,
@@ -34,6 +35,7 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly presenceService: PresenceService,
     private readonly pushService: PushNotificationService,
+    private readonly chatOutbox: ChatOutboxService,
   ) {}
 
   private formatUserName(user: { firstName?: string | null; lastName?: string | null; email: string }): string {
@@ -100,67 +102,89 @@ export class ChatService {
       },
     });
 
-    const results = await Promise.all(
-      participants.map(async (cp) => {
-        const conv = cp.conversation;
-        const otherParticipants = conv.participants.filter((p) => p.userId !== userId);
-
-        let title = conv.title;
-        let avatarUrl = conv.avatarUrl;
-        let isOnline = false;
-
-        if (conv.type === 'DIRECT') {
-          const other = otherParticipants[0]?.user;
-          if (other) {
-            title = other.businessProfile?.businessName || this.formatUserName(other);
-            avatarUrl = other.businessProfile?.logoUrl || null;
-            isOnline = this.presenceService.isUserOnline(other.id);
-          } else {
-            title = 'Direct Chat';
-          }
-        }
-
-        // Fast O(1) check: if participant has read up to or after the last message, unreadCount is 0
-        let unreadCount = 0;
-        if (!cp.lastReadAt || conv.lastMessageAt > cp.lastReadAt) {
-          unreadCount = await this.prisma.message.count({
-            where: {
-              conversationId: conv.id,
-              deletedAt: null,
-              senderId: { not: userId },
-              ...(cp.lastReadAt ? { createdAt: { gt: cp.lastReadAt } } : {}),
-            },
-          });
-        }
-
-        return {
-          id: conv.id,
-          type: conv.type,
-          title,
-          avatarUrl,
-          directKey: conv.directKey,
-          isMuted: cp.isMuted,
-          role: cp.role,
-          lastMessageAt: conv.lastMessageAt,
-          lastMessageText: conv.lastMessageText,
-          lastMessageSenderId: conv.lastMessageSenderId,
-          unreadCount,
-          isOnline,
-          participantsCount: conv.participants.length,
-          participants: conv.participants.map((p) => ({
-            userId: p.userId,
-            role: p.role,
-            displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
-            email: p.user.email,
-            roleTitle: this.formatRoleTitle(p.user.role),
-            isOnline: this.presenceService.isUserOnline(p.userId),
-            lastReadAt: p.lastReadAt,
-          })),
-        };
-      }),
+    // Presence: one batched lookup for every user across the whole inbox
+    // instead of one round-trip per conversation/participant.
+    const allUserIds = Array.from(
+      new Set(
+        participants.flatMap((cp) =>
+          cp.conversation.participants.map((participant) => participant.userId),
+        ),
+      ),
     );
+    const onlineMap =
+      allUserIds.length > 0
+        ? await this.presenceService.areUsersOnline(allUserIds)
+        : {};
 
-    return results;
+    // Unread counts: one grouped query for all conversations that actually
+    // have unread messages, instead of an N+1 `count()` per conversation.
+    // Each OR branch carries that conversation's own read cursor.
+    const unreadTargets = participants.filter(
+      (cp) => !cp.lastReadAt || cp.conversation.lastMessageAt > cp.lastReadAt,
+    );
+    const unreadMap = new Map<string, number>();
+    if (unreadTargets.length > 0) {
+      const grouped = await this.prisma.message.groupBy({
+        by: ['conversationId'],
+        where: {
+          deletedAt: null,
+          senderId: { not: userId },
+          OR: unreadTargets.map((cp) => ({
+            conversationId: cp.conversationId,
+            ...(cp.lastReadAt ? { createdAt: { gt: cp.lastReadAt } } : {}),
+          })),
+        },
+        _count: { _all: true },
+      });
+      for (const row of grouped) {
+        unreadMap.set(row.conversationId, row._count._all);
+      }
+    }
+
+    return participants.map((cp) => {
+      const conv = cp.conversation;
+      const otherParticipants = conv.participants.filter((p) => p.userId !== userId);
+
+      let title = conv.title;
+      let avatarUrl = conv.avatarUrl;
+      let isOnline = false;
+
+      if (conv.type === 'DIRECT') {
+        const other = otherParticipants[0]?.user;
+        if (other) {
+          title = other.businessProfile?.businessName || this.formatUserName(other);
+          avatarUrl = other.businessProfile?.logoUrl || null;
+          isOnline = onlineMap[other.id] ?? false;
+        } else {
+          title = 'Direct Chat';
+        }
+      }
+
+      return {
+        id: conv.id,
+        type: conv.type,
+        title,
+        avatarUrl,
+        directKey: conv.directKey,
+        isMuted: cp.isMuted,
+        role: cp.role,
+        lastMessageAt: conv.lastMessageAt,
+        lastMessageText: conv.lastMessageText,
+        lastMessageSenderId: conv.lastMessageSenderId,
+        unreadCount: unreadMap.get(conv.id) ?? 0,
+        isOnline,
+        participantsCount: conv.participants.length,
+        participants: conv.participants.map((p) => ({
+          userId: p.userId,
+          role: p.role,
+          displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
+          email: p.user.email,
+          roleTitle: this.formatRoleTitle(p.user.role),
+          isOnline: onlineMap[p.userId] ?? false,
+          lastReadAt: p.lastReadAt,
+        })),
+      };
+    });
   }
 
   async getConversation(userId: string, conversationId: string) {
@@ -205,6 +229,10 @@ export class ChatService {
       avatarUrl = other.businessProfile?.logoUrl || null;
     }
 
+    const participantOnline = await this.presenceService.areUsersOnline(
+      conv.participants.map((p) => p.userId),
+    );
+
     return {
       id: conv.id,
       type: conv.type,
@@ -221,7 +249,7 @@ export class ChatService {
         displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
         email: p.user.email,
         roleTitle: this.formatRoleTitle(p.user.role),
-        isOnline: this.presenceService.isUserOnline(p.userId),
+        isOnline: participantOnline[p.userId] ?? false,
         lastReadAt: p.lastReadAt,
       })),
     };
@@ -613,15 +641,19 @@ export class ChatService {
     }
 
     const now = new Date();
+    // Resolve the message type once: the socket bridge omits `type`, so using
+    // the raw dto for the conversation summary produced a "[Message]" preview
+    // even though the stored message was TEXT.
+    const messageType = dto.type || 'TEXT';
 
     // Durable transaction: persist message, update conversation last message, advance sender read cursor
-    const message = await this.prisma.$transaction(async (tx) => {
+    const { message, outboxId } = await this.prisma.$transaction(async (tx) => {
       const msg = await tx.message.create({
         data: {
           conversationId: dto.conversationId,
           senderId,
           idempotencyKey: dto.idempotencyKey || null,
-          type: dto.type || 'TEXT',
+          type: messageType,
           content: dto.content.trim(),
           metadata: dto.metadata || null,
           createdAt: now,
@@ -645,7 +677,7 @@ export class ChatService {
         where: { id: dto.conversationId },
         data: {
           lastMessageAt: now,
-          lastMessageText: dto.type === 'TEXT' ? dto.content.slice(0, 200) : `[${dto.type || 'Message'}]`,
+          lastMessageText: messageType === 'TEXT' ? dto.content.slice(0, 200) : `[${messageType}]`,
           lastMessageSenderId: senderId,
         },
       });
@@ -673,8 +705,10 @@ export class ChatService {
         },
       });
 
-      // Create outbox event for async push & durable notification handling
-      await tx.chatOutbox.create({
+      // Create outbox event for durable notification + push delivery. The
+      // worker retries on failure so a transient push/Redis error never drops
+      // a notification.
+      const outbox = await tx.chatOutbox.create({
         data: {
           eventType: 'NEW_MESSAGE',
           payload: {
@@ -688,76 +722,14 @@ export class ChatService {
         },
       });
 
-      return msg;
+      return { message: msg, outboxId: outbox?.id };
     });
 
-    // Schedule background push notifications for offline/unmuted recipients
-    this.dispatchBackgroundNotifications(cp.conversation, message, cp.user).catch((err) => {
-      this.logger.error(`Error in dispatchBackgroundNotifications: ${err.message}`);
-    });
+    if (outboxId) {
+      await this.chatOutbox.enqueue(outboxId);
+    }
 
     return this.formatMessageResponse(message, senderId);
-  }
-
-  private async dispatchBackgroundNotifications(
-    conversation: { id: string; type: string; title: string | null; participants: { userId: string; isMuted: boolean }[] },
-    message: { id: string; content: string; senderId: string },
-    sender: { email: string; firstName?: string | null; lastName?: string | null; businessProfile?: { businessName?: string | null } | null },
-  ) {
-    const senderName = sender.businessProfile?.businessName || this.formatUserName(sender);
-    const otherParticipants = conversation.participants.filter(
-      (p) => p.userId !== message.senderId && !p.isMuted,
-    );
-
-    for (const participant of otherParticipants) {
-      // Never notify if recipient has blocked the sender (silent blocking)
-      const isBlocked = await this.isUserBlocked(participant.userId, message.senderId);
-      if (isBlocked) {
-        continue;
-      }
-
-      // Idempotency: check if in-app notification for this message already exists
-      const existingNotif = await this.prisma.notification.findFirst({
-        where: {
-          userId: participant.userId,
-          type: 'chat_message',
-          data: {
-            path: ['messageId'],
-            equals: message.id,
-          },
-        },
-      });
-
-      if (!existingNotif) {
-        await this.prisma.notification.create({
-          data: {
-            userId: participant.userId,
-            type: 'chat_message',
-            title: conversation.type === 'GROUP' ? `New message in ${conversation.title || 'Group'}` : `Message from ${senderName}`,
-            message: `${senderName}: ${message.content.slice(0, 150)}`,
-            data: {
-              conversationId: conversation.id,
-              messageId: message.id,
-              senderId: message.senderId,
-            },
-          },
-        }).catch(() => {});
-      }
-
-      // Dispatch Web Push notification if not actively viewing this conversation in a focused tab
-      const isViewing = this.presenceService.isViewingConversation(participant.userId, conversation.id);
-      if (!isViewing) {
-        await this.pushService.sendPushToUser(participant.userId, {
-          title: conversation.type === 'GROUP' ? `${conversation.title || 'Group'}: ${senderName}` : senderName,
-          body: message.content.slice(0, 120),
-          data: {
-            conversationId: conversation.id,
-            messageId: message.id,
-            tag: `chat-msg-${message.id}`,
-          },
-        }).catch(() => {});
-      }
-    }
   }
 
   async getMessages(userId: string, conversationId: string, cursor?: string, limit = 50) {
@@ -1023,6 +995,7 @@ export class ChatService {
       orderBy: { createdAt: 'desc' },
     });
 
+    const onlineMap = await this.presenceService.areUsersOnline(users.map((u) => u.id));
     return users.map((u) => ({
       id: u.id,
       email: u.email,
@@ -1030,7 +1003,7 @@ export class ChatService {
       lastName: u.lastName,
       role: u.role,
       businessName: u.businessProfile?.businessName || null,
-      isOnline: this.presenceService.isUserOnline(u.id),
+      isOnline: onlineMap[u.id] ?? false,
     }));
   }
 
@@ -1318,7 +1291,7 @@ export class ChatService {
     }).catch(() => {});
 
     // Dispatch Web Push if not online
-    const isOnline = this.presenceService.isUserOnline(receiverId);
+    const isOnline = await this.presenceService.isUserOnline(receiverId);
     if (!isOnline) {
       await this.pushService.sendPushToUser(receiverId, {
         title: 'New Message Request',
@@ -1394,7 +1367,7 @@ export class ChatService {
           },
         }).catch(() => {});
 
-        if (!this.presenceService.isUserOnline(request.senderId)) {
+        if (!(await this.presenceService.isUserOnline(request.senderId))) {
           await this.pushService.sendPushToUser(request.senderId, {
             title: 'Message Request Accepted',
             body: `${receiverName} accepted your message request`,

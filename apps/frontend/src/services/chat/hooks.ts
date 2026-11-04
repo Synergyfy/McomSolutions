@@ -57,6 +57,27 @@ export function useChat(options: { enabled?: boolean } = {}) {
 
   const activeConversation = conversationsQuery.data?.find((c) => c.id === activeConversationId);
 
+  // Presence is scoped to watchers (never broadcast platform-wide). Subscribe
+  // to the participants we actually share conversations with.
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        (conversationsQuery.data || []).flatMap((conversation) =>
+          (conversation.participants || []).map((participant) => participant.userId),
+        ),
+      ),
+    ).filter(Boolean);
+    if (!ids.length) return;
+
+    const socket = chatConnection.getSocket();
+    const watch = () => socket?.emit('watch_presence', { userIds: ids });
+    if (socket?.connected) watch();
+    socket?.on('connect', watch);
+    return () => {
+      socket?.off('connect', watch);
+    };
+  }, [conversationsQuery.data]);
+
   // Load messages when activeConversationId changes
   useEffect(() => {
     if (!activeConversationId) {

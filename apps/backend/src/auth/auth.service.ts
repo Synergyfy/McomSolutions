@@ -450,29 +450,41 @@ export class AuthService {
     if (resendApiKey) {
       const maskedKey = `${resendApiKey.slice(0, 7)}...${resendApiKey.slice(-4)}`;
       this.logger.log(`[Resend] Sending email to ${email} (key: ${maskedKey})`);
-      try {
-        const response = await axios.post(
-          'https://api.resend.com/emails',
-          { from: fromAddress, to: [email], subject, html },
-          {
-            headers: {
-              Authorization: `Bearer ${resendApiKey}`,
-              'Content-Type': 'application/json',
+      let lastError: any;
+      // Resend occasionally exceeds the 10s budget on a cold connection.
+      // Retry transient failures once so a single slow call does not fail the
+      // whole signup with "Could not send verification email".
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const response = await axios.post(
+            'https://api.resend.com/emails',
+            { from: fromAddress, to: [email], subject, html },
+            {
+              headers: {
+                Authorization: `Bearer ${resendApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 12000,
             },
-            timeout: 10000,
-          },
-        );
-        this.logger.log(`[Resend] Email sent to ${email} (id=${response.data?.id ?? 'n/a'})`);
-        return;
-      } catch (err: any) {
-        const errorData = err.response?.data;
-        this.logger.error(
-          `[Resend] Failed to send email to ${email}: ${JSON.stringify(errorData || err.message)}`,
-        );
-        // Never leak one-time codes into production logs.
-        if (!isProduction) {
-          this.logger.warn(`[OTP Fallback] Verification code for ${email}: ${code}`);
+          );
+          this.logger.log(`[Resend] Email sent to ${email} (id=${response.data?.id ?? 'n/a'})`);
+          return;
+        } catch (err: any) {
+          lastError = err;
+          const status = err.response?.status;
+          const retryable = !status || status >= 500 || status === 429;
+          if (!retryable || attempt === 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 800));
         }
+      }
+
+      const errorData = lastError?.response?.data;
+      this.logger.error(
+        `[Resend] Failed to send email to ${email}: ${JSON.stringify(errorData || lastError?.message)}`,
+      );
+      // Never leak one-time codes into production logs.
+      if (!isProduction) {
+        this.logger.warn(`[OTP Fallback] Verification code for ${email}: ${code}`);
       }
     } else {
       this.logger.debug('[Resend] RESEND_API_KEY not set — using SMTP fallback.');

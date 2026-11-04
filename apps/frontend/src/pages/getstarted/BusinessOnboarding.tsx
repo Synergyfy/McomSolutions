@@ -6506,12 +6506,10 @@ function BusinessOnboardingInner() {
         <div className="relative flex min-h-0 flex-1 flex-col justify-center">
           <ParticleBurst color={isGoogleOnboarding ? '#ea580c' : currentQuest.color} trigger={particleTrigger} />
 
-          <AnimatePresence mode="wait">
-            <motion.div
+          <motion.div
               key={isGoogleOnboarding ? `google-${googleStep}` : currentStep}
-              initial={{ opacity: 0, x: 40, scale: 0.98 }}
+              initial={false}
               animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: -40, scale: 0.98 }}
               transition={{ duration: 0.3, ease: 'easeOut' }}
               className={`relative flex w-full flex-none flex-col overflow-visible rounded-2xl border border-gray-100/80 bg-white shadow-xl shadow-gray-200/40 ${isEmailRegistrationStep ? 'lg:grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]' : ''}`}
             >
@@ -7997,7 +7995,6 @@ function BusinessOnboardingInner() {
                 )}
               </div>
             </motion.div>
-          </AnimatePresence>
         </div>
 
         {/* ─── Navigation ──────────────────────────────── */}

@@ -65,29 +65,37 @@ export class MailService {
     const resendKey = this.resendApiKey();
 
     if (resendKey) {
-      try {
-        const response = await axios.post(
-          'https://api.resend.com/emails',
-          { from, to: [input.to], subject: input.subject, html: input.html },
-          {
-            headers: {
-              Authorization: `Bearer ${resendKey}`,
-              'Content-Type': 'application/json',
+      let lastError: any;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const response = await axios.post(
+            'https://api.resend.com/emails',
+            { from, to: [input.to], subject: input.subject, html: input.html },
+            {
+              headers: {
+                Authorization: `Bearer ${resendKey}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 12000,
             },
-            timeout: 10000,
-          },
-        );
-        this.logger.log(
-          `[Resend] Transactional email sent to ${input.to} (id=${response.data?.id ?? 'n/a'})`,
-        );
-        return;
-      } catch (err: any) {
-        this.logger.error(
-          `[Resend] Failed to send email to ${input.to}: ${JSON.stringify(
-            err.response?.data || err.message,
-          )}`,
-        );
+          );
+          this.logger.log(
+            `[Resend] Transactional email sent to ${input.to} (id=${response.data?.id ?? 'n/a'})`,
+          );
+          return;
+        } catch (err: any) {
+          lastError = err;
+          const status = err.response?.status;
+          const retryable = !status || status >= 500 || status === 429;
+          if (!retryable || attempt === 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
       }
+      this.logger.error(
+        `[Resend] Failed to send email to ${input.to}: ${JSON.stringify(
+          lastError?.response?.data || lastError?.message,
+        )}`,
+      );
     }
 
     const transporter = this.getSmtpTransporter();

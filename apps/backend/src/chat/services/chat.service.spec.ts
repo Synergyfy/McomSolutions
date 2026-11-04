@@ -3,6 +3,7 @@ import { ChatService } from './chat.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PresenceService } from './presence.service';
 import { PushNotificationService } from './push-notification.service';
+import { ChatOutboxService } from './chat-outbox.service';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('ChatService', () => {
@@ -10,6 +11,7 @@ describe('ChatService', () => {
   let prisma: any;
   let presenceService: any;
   let pushService: any;
+  let chatOutbox: any;
 
   beforeEach(async () => {
     prisma = {
@@ -34,6 +36,7 @@ describe('ChatService', () => {
         findFirst: jest.fn(),
         create: jest.fn(),
         count: jest.fn(),
+        groupBy: jest.fn(),
       },
       messageReadReceipt: {
         create: jest.fn(),
@@ -62,7 +65,7 @@ describe('ChatService', () => {
         updateMany: jest.fn(),
       },
       chatOutbox: {
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: 'outbox-1' }),
       },
       notification: {
         findFirst: jest.fn(),
@@ -72,11 +75,19 @@ describe('ChatService', () => {
     };
 
     presenceService = {
-      isUserOnline: jest.fn().mockReturnValue(true),
+      isUserOnline: jest.fn().mockResolvedValue(true),
+      areUsersOnline: jest.fn().mockImplementation(async (ids: string[]) =>
+        Object.fromEntries(ids.map((id) => [id, true])),
+      ),
+      isViewingConversation: jest.fn().mockReturnValue(false),
     };
 
     pushService = {
       sendPushToUser: jest.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+    };
+
+    chatOutbox = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +96,7 @@ describe('ChatService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: PresenceService, useValue: presenceService },
         { provide: PushNotificationService, useValue: pushService },
+        { provide: ChatOutboxService, useValue: chatOutbox },
       ],
     }).compile();
 
@@ -196,8 +208,16 @@ describe('ChatService', () => {
 
       expect(result.id).toBe('msg-new');
       expect(prisma.conversation.update).toHaveBeenCalled();
+      // The socket bridge omits `type`; the conversation preview must still be
+      // the message text rather than the "[Message]" placeholder.
+      expect(prisma.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ lastMessageText: 'Brand new message' }),
+        }),
+      );
       expect(prisma.messageReadReceipt.create).toHaveBeenCalled();
       expect(prisma.chatOutbox.create).toHaveBeenCalled();
+      expect(chatOutbox.enqueue).toHaveBeenCalledWith('outbox-1');
     });
   });
 
@@ -441,6 +461,81 @@ describe('ChatService', () => {
           data: expect.objectContaining({ rejectionCount: 0 }),
         }),
       );
+    });
+  });
+
+  describe('getConversations unread aggregation', () => {
+    it('uses one grouped query + one presence batch instead of N+1 counts', async () => {
+      const participant = (userId: string, businessName: string | null) => ({
+        userId,
+        role: userId === 'u1' ? 'ADMIN' : 'MEMBER',
+        lastReadAt: null,
+        user: {
+          id: userId,
+          email: `${userId}@example.com`,
+          firstName: userId.toUpperCase(),
+          lastName: 'User',
+          role: userId === 'u2' ? 'AGENT' : 'BUSINESS',
+          businessProfile: businessName ? { businessName, logoUrl: null } : null,
+        },
+      });
+
+      prisma.conversationParticipant.findMany.mockResolvedValue([
+        {
+          conversationId: 'c1',
+          role: 'ADMIN',
+          isMuted: false,
+          lastReadAt: new Date('2026-01-01T00:00:00Z'),
+          conversation: {
+            id: 'c1',
+            type: 'DIRECT',
+            title: null,
+            avatarUrl: null,
+            directKey: 'u1:u2',
+            lastMessageAt: new Date('2026-01-02T00:00:00Z'),
+            lastMessageText: 'hello',
+            lastMessageSenderId: 'u2',
+            participants: [participant('u1', null), participant('u2', 'Acme Ltd')],
+          },
+        },
+        {
+          conversationId: 'c2',
+          role: 'ADMIN',
+          isMuted: false,
+          lastReadAt: null,
+          conversation: {
+            id: 'c2',
+            type: 'DIRECT',
+            title: null,
+            avatarUrl: null,
+            directKey: 'u1:u3',
+            lastMessageAt: new Date('2026-01-03T00:00:00Z'),
+            lastMessageText: 'yo',
+            lastMessageSenderId: 'u3',
+            participants: [participant('u1', null), participant('u3', 'Beta Ltd')],
+          },
+        },
+      ]);
+      prisma.message.groupBy.mockResolvedValue([
+        { conversationId: 'c1', _count: { _all: 2 } },
+        { conversationId: 'c2', _count: { _all: 5 } },
+      ]);
+      presenceService.areUsersOnline.mockResolvedValue({
+        u1: true,
+        u2: false,
+        u3: true,
+      });
+
+      const result = await service.getConversations('u1');
+
+      expect(prisma.message.groupBy).toHaveBeenCalledTimes(1);
+      expect(prisma.message.count).not.toHaveBeenCalled();
+      expect(presenceService.areUsersOnline).toHaveBeenCalledTimes(1);
+
+      expect(result[0]).toMatchObject({ id: 'c1', title: 'Acme Ltd', unreadCount: 2 });
+      expect(result[0].isOnline).toBe(false);
+      expect(result[1]).toMatchObject({ id: 'c2', title: 'Beta Ltd', unreadCount: 5 });
+      expect(result[1].isOnline).toBe(true);
     });
   });
 });

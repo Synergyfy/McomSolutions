@@ -7,6 +7,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private client: Redis | null = null;
   private readonly memoryCache = new Map<string, { value: any; expiresAt: number }>();
+  // Redis Set emulation for the in-memory fallback (presence, watchers).
+  private readonly memorySets = new Map<string, { members: Set<string>; expiresAt: number }>();
+  // Redis Hash emulation for the in-memory fallback (typing indicators).
+  private readonly memoryHashes = new Map<string, { fields: Map<string, string>; expiresAt: number }>();
   private isRedisAvailable = false;
 
   constructor(private readonly configService: ConfigService) {}
@@ -133,6 +137,165 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       }
     }
     this.memoryCache.delete(key);
+    this.memorySets.delete(key);
+    this.memoryHashes.delete(key);
+  }
+
+  // ─── Sets (presence, watchers) ────────────────────────────────────────────
+
+  async sAdd(key: string, member: string, ttlSeconds = 300): Promise<void> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        await this.client.sadd(key, member);
+        await this.client.expire(key, ttlSeconds);
+        return;
+      } catch (e: any) {
+        this.logger.warn(`Redis sAdd error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const now = Date.now();
+    const existing = this.memorySets.get(key);
+    const entry =
+      existing && existing.expiresAt > now
+        ? existing
+        : { members: new Set<string>(), expiresAt: 0 };
+    entry.members.add(member);
+    entry.expiresAt = now + ttlSeconds * 1000;
+    this.memorySets.set(key, entry);
+  }
+
+  async sRem(key: string, member: string): Promise<void> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        await this.client.srem(key, member);
+        return;
+      } catch (e: any) {
+        this.logger.warn(`Redis sRem error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const entry = this.memorySets.get(key);
+    if (!entry) return;
+    entry.members.delete(member);
+    if (entry.members.size === 0) this.memorySets.delete(key);
+  }
+
+  async sMembers(key: string): Promise<string[]> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        return await this.client.smembers(key);
+      } catch (e: any) {
+        this.logger.warn(`Redis sMembers error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const entry = this.memorySets.get(key);
+    if (!entry) return [];
+    if (Date.now() > entry.expiresAt) {
+      this.memorySets.delete(key);
+      return [];
+    }
+    return Array.from(entry.members);
+  }
+
+  async sCard(key: string): Promise<number> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        return await this.client.scard(key);
+      } catch (e: any) {
+        this.logger.warn(`Redis sCard error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const entry = this.memorySets.get(key);
+    if (!entry) return 0;
+    if (Date.now() > entry.expiresAt) {
+      this.memorySets.delete(key);
+      return 0;
+    }
+    return entry.members.size;
+  }
+
+  // ─── Hashes (typing indicators) ───────────────────────────────────────────
+
+  async hSet(key: string, field: string, value: string, ttlSeconds = 300): Promise<void> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        await this.client.hset(key, field, value);
+        await this.client.expire(key, ttlSeconds);
+        return;
+      } catch (e: any) {
+        this.logger.warn(`Redis hSet error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const now = Date.now();
+    const existing = this.memoryHashes.get(key);
+    const entry =
+      existing && existing.expiresAt > now
+        ? existing
+        : { fields: new Map<string, string>(), expiresAt: 0 };
+    entry.fields.set(field, value);
+    entry.expiresAt = now + ttlSeconds * 1000;
+    this.memoryHashes.set(key, entry);
+  }
+
+  async hGetAll(key: string): Promise<Record<string, string>> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        return await this.client.hgetall(key);
+      } catch (e: any) {
+        this.logger.warn(`Redis hGetAll error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const entry = this.memoryHashes.get(key);
+    if (!entry) return {};
+    if (Date.now() > entry.expiresAt) {
+      this.memoryHashes.delete(key);
+      return {};
+    }
+    return Object.fromEntries(entry.fields);
+  }
+
+  async hDel(key: string, field: string): Promise<void> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        await this.client.hdel(key, field);
+        return;
+      } catch (e: any) {
+        this.logger.warn(`Redis hDel error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const entry = this.memoryHashes.get(key);
+    if (!entry) return;
+    entry.fields.delete(field);
+    if (entry.fields.size === 0) this.memoryHashes.delete(key);
+  }
+
+  /** Atomic counter with a rolling TTL. Used for WebSocket rate limiting. */
+  async incr(key: string, ttlSeconds = 60): Promise<number> {
+    if (this.isRedisAvailable && this.client) {
+      try {
+        const value = await this.client.incr(key);
+        if (value === 1) await this.client.expire(key, ttlSeconds);
+        return value;
+      } catch (e: any) {
+        this.logger.warn(`Redis incr error for key ${key}: ${e.message}`);
+      }
+    }
+
+    const now = Date.now();
+    const cached = this.memoryCache.get(key);
+    if (!cached || now > cached.expiresAt) {
+      this.memoryCache.set(key, { value: 1, expiresAt: now + ttlSeconds * 1000 });
+      return 1;
+    }
+    const next = Number(cached.value) + 1;
+    this.memoryCache.set(key, { value: next, expiresAt: cached.expiresAt });
+    return next;
   }
 
   /**
