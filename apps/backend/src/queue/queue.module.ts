@@ -8,6 +8,7 @@ import {
   TASK_REWARD_QUEUE,
   TASK_COUPON_QUEUE,
   AFFILIATE_TASK_QUEUE,
+  CHAT_OUTBOX_QUEUE,
 } from './queue.constants';
 
 @Module({
@@ -67,6 +68,9 @@ import {
       },
       {
         name: AFFILIATE_TASK_QUEUE,
+      },
+      {
+        name: CHAT_OUTBOX_QUEUE,
       },
     ),
   ],

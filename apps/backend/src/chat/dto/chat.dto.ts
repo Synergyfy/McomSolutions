@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
+export class ChatSessionDto {
+  @ApiProperty({
+    description:
+      'The user\'s Central Hub SSO access token. Exchanged server-to-server for scoped chat credentials.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  subject_token: string;
+}
+
 export class CreateDirectConversationDto {
   @ApiProperty({ description: 'ID of user to start conversation with' })
   @IsString()

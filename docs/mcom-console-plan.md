@@ -148,7 +148,6 @@ const defaultOrigins = [
   'http://localhost:3000',
   'https://mcommall.vercel.app',
   'https://mcomloyalty.vercel.app',
-  'https://mcom-solutions-backend.vercel.app',
   'https://centralhubsolution.com',
   'https://www.centralhubsolution.com',
   // ← these lines STAY, never removed

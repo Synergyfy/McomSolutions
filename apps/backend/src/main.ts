@@ -12,6 +12,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { SsoService } from './auth/sso.service';
 import { UploadsAuthMiddleware } from './common/middleware/uploads-auth.middleware';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { RedisIoAdapter } from './chat/chat.adapter';
+import { setChatAllowedOrigins } from './chat/chat-origins';
 
 // Static origins remain the hard fallback — never removed, only added to.
 const defaultOrigins = [
@@ -19,9 +21,13 @@ const defaultOrigins = [
   'http://localhost:3000',
   'https://mcommall.vercel.app',
   'https://mcomloyalty.vercel.app',
-  'https://mcom-solutions-backend.vercel.app',
   'https://centralhubsolution.com',
-  'https://www.centralhubsolution.com'
+  'https://www.centralhubsolution.com',
+  // 247GBS Affiliates web (Next.js) — needed for direct WebSocket handshakes.
+  'http://localhost:7089',
+  'http://127.0.0.1:7089',
+  'https://247gbsaffiliates.com',
+  'https://www.247gbsaffiliates.com'
 ];
 
 const corsOriginSet = new Set<string>();
@@ -42,6 +48,10 @@ async function refreshCorsOrigins(ssoService: SsoService) {
     corsOriginSet.clear();
     [...defaultOrigins].forEach((o) => corsOriginSet.add(o));
   }
+
+  // Keep the Socket.IO origin allowlist in lockstep with HTTP CORS so a newly
+  // registered partner frontend can open a WebSocket without a redeploy.
+  setChatAllowedOrigins(corsOriginSet);
 }
 
 async function bootstrap() {
@@ -153,6 +163,14 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
+
+  // ─── WebSockets (Socket.IO) ────────────────────────────────────────────────
+  // Redis adapter lets every instance broadcast to rooms held elsewhere.
+  // Must be registered before listen().
+  const configService = app.get(ConfigService);
+  const wsAdapter = new RedisIoAdapter(app, configService);
+  await wsAdapter.connectToRedis();
+  app.useWebSocketAdapter(wsAdapter);
 
   const port = process.env.PORT || 3010;
   await app.listen(port);

@@ -13,10 +13,14 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { ChatService } from './services/chat.service';
+import { ChatSessionService } from './services/chat-session.service';
 import { PresenceService } from './services/presence.service';
+import { resolveChatSenderName } from './chat-sender-name.util';
 import { TypingService } from './services/typing.service';
 import { SendMessageDto, MarkReadDto } from './dto/chat.dto';
+import { isChatOriginAllowed } from './chat-origins';
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -27,6 +31,8 @@ interface AuthenticatedSocket extends Socket {
       name: string;
       businessId: string | null;
     };
+    /** Conversations joined by this socket — avoids a DB check on every keystroke. */
+    conversations: Set<string>;
   };
 }
 
@@ -34,12 +40,18 @@ interface AuthenticatedSocket extends Socket {
   namespace: '/chat',
   cors: {
     origin: (origin: string, callback: (err: Error | null, allow?: boolean) => void) => {
-      callback(null, true);
+      if (isChatOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Origin not allowed by chat CORS'));
     },
     credentials: true,
   },
   pingInterval: 25000,
   pingTimeout: 20000,
+  // Chat messages are small text payloads; cap the frame to avoid memory abuse.
+  maxHttpBufferSize: 100_000,
 })
 export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ChatGateway.name);
@@ -51,7 +63,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly chatService: ChatService,
+    private readonly chatSessionService: ChatSessionService,
     private readonly presenceService: PresenceService,
     private readonly typingService: TypingService,
   ) {}
@@ -67,10 +81,19 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           return next(new Error('Unauthorized: Missing auth token'));
         }
 
+        const decoded = this.jwtService.decode(token) as any;
         const jwtSecret = this.configService.get<string>('JWT_SECRET');
-        const payload = this.jwtService.verify(token, { secret: jwtSecret });
-        const userId = payload.sub || payload.id;
 
+        let payload: any;
+        if (decoded?.aud === 'chat:ws') {
+          // Partner app token: verify audience/scope and consume its jti so it
+          // can only ever be used for one handshake.
+          payload = await this.chatSessionService.consumeSocketToken(token);
+        } else {
+          payload = this.jwtService.verify(token, { secret: jwtSecret });
+        }
+
+        const userId = payload.sub || payload.id;
         if (!userId) {
           return next(new Error('Unauthorized: Invalid token payload'));
         }
@@ -109,6 +132,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
             name: displayName,
             businessId: user.businessProfile?.id || null,
           },
+          conversations: new Set<string>(),
         };
 
         next();
@@ -133,7 +157,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       // Track multi-socket presence
       const wasOffline = await this.presenceService.addSocket(user.userId, client.id);
       if (wasOffline) {
-        this.server.emit('presence_update', {
+        // Only users watching this person's presence get the update.
+        this.server.to(`presence:${user.userId}`).emit('presence_update', {
           userId: user.userId,
           isOnline: true,
         });
@@ -157,14 +182,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const { userId, isNowOffline } = await this.presenceService.removeSocket(client.id);
     if (userId) {
       if (isNowOffline) {
-        this.server.emit('presence_update', {
+        this.server.to(`presence:${userId}`).emit('presence_update', {
           userId,
           isOnline: false,
         });
       }
 
       // Cleanup any active typing indicators
-      const affected = this.typingService.removeUserFromAll(userId);
+      const affected = await this.typingService.removeUserFromAll(userId);
       for (const [convId, typingUsers] of affected.entries()) {
         this.server.to(`conversation:${convId}`).emit('typing_update', {
           conversationId: convId,
@@ -185,11 +210,26 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       const t = client.handshake.auth.token;
       return t.startsWith('Bearer ') ? t.substring(7) : t;
     }
-    if (client.handshake.query?.token) {
-      const q = client.handshake.query.token as string;
-      return q.startsWith('Bearer ') ? q.substring(7) : q;
-    }
+    // Query-string tokens are deliberately NOT accepted: URLs leak into
+    // access logs, browser history, referrers and proxy caches.
     return null;
+  }
+
+  /**
+   * Per-user, cross-instance event budget. Returns false when the caller has
+   * exceeded `limit` events in the rolling `windowSeconds`.
+   */
+  private async allowEvent(
+    userId: string,
+    action: string,
+    limit: number,
+    windowSeconds: number,
+  ): Promise<boolean> {
+    const count = await this.redis.incr(
+      `rl:chat:${action}:${userId}`,
+      windowSeconds,
+    );
+    return count <= limit;
   }
 
   @SubscribeMessage('join_conversation')
@@ -202,6 +242,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return { success: false, error: 'Unauthorized or missing conversationId' };
     }
 
+    if (!(await this.allowEvent(userId, 'join', 30, 60))) {
+      return { success: false, error: 'Too many join attempts' };
+    }
+
     // Verify authorized membership in database
     const participant = await this.prisma.conversationParticipant.findUnique({
       where: {
@@ -210,7 +254,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           userId,
         },
       },
-      include: { conversation: true },
+      include: { conversation: { select: { deletedAt: true } } },
     });
 
     if (!participant || participant.conversation.deletedAt) {
@@ -218,10 +262,12 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     }
 
     await client.join(`conversation:${data.conversationId}`);
+    client.data.conversations?.add(data.conversationId);
+
     return {
       success: true,
       conversationId: data.conversationId,
-      typingUsers: this.typingService.getTypingUsers(data.conversationId),
+      typingUsers: await this.typingService.getTypingUsers(data.conversationId),
     };
   }
 
@@ -234,8 +280,65 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       const userId = client.data?.user?.userId;
       if (userId) {
         this.presenceService.clearConversationViewer(userId, data.conversationId);
+        client.data.conversations?.delete(data.conversationId);
       }
       await client.leave(`conversation:${data.conversationId}`);
+    }
+    return { success: true };
+  }
+
+  /**
+   * Subscribe to presence updates for specific users. Only users that share a
+   * conversation are accepted, so presence is never broadcast platform-wide.
+   */
+  @SubscribeMessage('watch_presence')
+  async handleWatchPresence(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { userIds: string[] },
+  ) {
+    const me = client.data?.user?.userId;
+    if (!me) return { success: false, error: 'Unauthorized' };
+
+    const requested = Array.from(
+      new Set((data?.userIds || []).filter((id) => typeof id === 'string' && id && id !== me)),
+    ).slice(0, 200);
+
+    if (!requested.length) return { success: false, error: 'userIds is required' };
+
+    // Build the set of users who share at least one conversation with me.
+    const shared = await this.prisma.conversationParticipant.findMany({
+      where: {
+        userId: { in: requested },
+        conversation: {
+          deletedAt: null,
+          participants: { some: { userId: me } },
+        },
+      },
+      select: { userId: true },
+      distinct: ['userId'],
+    });
+    const allowed = new Set(shared.map((row) => row.userId));
+
+    const online: Record<string, boolean> = {};
+    for (const userId of allowed) {
+      await client.join(`presence:${userId}`);
+      online[userId] = await this.presenceService.isUserOnline(userId);
+    }
+
+    return { success: true, online, ignored: requested.filter((id) => !allowed.has(id)) };
+  }
+
+  @SubscribeMessage('unwatch_presence')
+  async handleUnwatchPresence(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { userIds: string[] },
+  ) {
+    const me = client.data?.user?.userId;
+    if (!me) return { success: false, error: 'Unauthorized' };
+    for (const userId of Array.from(new Set(data?.userIds || []))) {
+      if (typeof userId === 'string' && userId && userId !== me) {
+        await client.leave(`presence:${userId}`);
+      }
     }
     return { success: true };
   }
@@ -272,13 +375,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const user = client.data?.user;
     if (!user || !data?.conversationId) return;
 
-    // Check membership
-    const isMember = await this.prisma.conversationParticipant.count({
-      where: { conversationId: data.conversationId, userId: user.userId },
-    });
-    if (!isMember) return;
+    // Membership is validated once on join — never hit the DB on a keystroke.
+    if (!client.data.conversations?.has(data.conversationId)) {
+      return { success: false, error: 'Join the conversation before typing' };
+    }
 
-    const typingUsers = this.typingService.startTyping(
+    if (!(await this.allowEvent(user.userId, 'typing', 4, 2))) {
+      return { success: true, throttled: true };
+    }
+
+    const typingUsers = await this.typingService.startTyping(
       data.conversationId,
       user.userId,
       user.name,
@@ -290,6 +396,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       conversationId: data.conversationId,
       typingUsers,
     });
+    return { success: true };
   }
 
   @SubscribeMessage('typing_stop')
@@ -300,11 +407,16 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const user = client.data?.user;
     if (!user || !data?.conversationId) return;
 
-    const typingUsers = this.typingService.stopTyping(data.conversationId, user.userId);
+    if (!client.data.conversations?.has(data.conversationId)) {
+      return { success: false, error: 'Join the conversation before typing' };
+    }
+
+    const typingUsers = await this.typingService.stopTyping(data.conversationId, user.userId);
     client.to(`conversation:${data.conversationId}`).emit('typing_update', {
       conversationId: data.conversationId,
       typingUsers,
     });
+    return { success: true };
   }
 
   async broadcastNewMessage(
@@ -322,7 +434,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     });
 
     // Clear sender's typing indicator in room
-    const typingUsers = this.typingService.stopTyping(conversationId, senderId);
+    const typingUsers = await this.typingService.stopTyping(conversationId, senderId);
     this.server.to(`conversation:${conversationId}`).emit('typing_update', {
       conversationId,
       typingUsers,
@@ -334,12 +446,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       select: { userId: true },
     });
 
-    const senderObj = message.sender;
-    const senderName =
-      senderObj?.businessProfile?.businessName ||
-      `${senderObj?.firstName || ''} ${senderObj?.lastName || ''}`.trim() ||
-      senderObj?.email?.split('@')[0] ||
-      'Someone';
+    // REST sends carry the already-formatted response (`senderName`) while the
+    // socket path passes the Prisma message (`sender`). Prefer the formatted
+    // name so cross-app messages never fall back to "Someone".
+    const senderName = resolveChatSenderName(message);
 
     for (const p of participants) {
       this.server.to(`user:${p.userId}`).emit('inbox_update', {
@@ -381,6 +491,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const user = client.data?.user;
     if (!user) {
       return { success: false, error: 'Unauthorized' };
+    }
+
+    if (!(await this.allowEvent(user.userId, 'send', 20, 10))) {
+      return { success: false, error: 'You are sending messages too quickly' };
     }
 
     try {

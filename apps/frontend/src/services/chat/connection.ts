@@ -12,6 +12,7 @@ export type ConnectionStateListener = (state: ConnectionState) => void;
 
 class ChatConnectionManager {
   private socket: Socket | null = null;
+  private socketToken: string | null = null;
   private state: ConnectionState = 'DISCONNECTED';
   private stateListeners = new Set<ConnectionStateListener>();
   private reconnectAttempts = 0;
@@ -98,14 +99,27 @@ class ChatConnectionManager {
   connect(): Socket | null {
     const token = this.getToken();
     if (!token) {
+      if (this.socket) {
+        this.socket.removeAllListeners();
+        this.socket.disconnect();
+        this.socket = null;
+      }
+      this.socketToken = null;
       this.setState('DISCONNECTED');
       return null;
     }
 
     if (this.socket && (this.socket.connected || this.state === 'CONNECTING')) {
-      return this.socket;
+      if (this.socketToken === token) return this.socket;
+      // The signed-in account changed (login / account switch). Tear down the
+      // old socket so it cannot keep delivering the previous user's events.
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+      this.setState('DISCONNECTED');
     }
 
+    this.socketToken = token;
     this.setState('CONNECTING');
     const baseUrl = this.getSocketUrl();
 
@@ -219,6 +233,7 @@ class ChatConnectionManager {
       this.socket.disconnect();
       this.socket = null;
     }
+    this.socketToken = null;
     this.setState('DISCONNECTED');
   }
 
@@ -259,7 +274,12 @@ class ChatConnectionManager {
 
   subscribe(): () => void {
     this.activeSubscribers++;
-    if (this.activeSubscribers === 1 && this.state === 'DISCONNECTED') {
+    const token = this.getToken();
+    // Reconnect when the token changed even if another component is already
+    // subscribed — otherwise a new login keeps the previous account's socket.
+    if (token && this.socketToken !== token) {
+      this.connect();
+    } else if (this.activeSubscribers === 1 && this.state === 'DISCONNECTED') {
       this.connect();
     }
 
