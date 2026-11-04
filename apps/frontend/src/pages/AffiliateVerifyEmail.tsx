@@ -166,9 +166,12 @@ export default function AffiliateVerifyEmail() {
                     } else {
                         navigate(redirectParam);
                     }
-                } else if (import.meta.env.VITE_AFFILIATE_PORTAL_URL && !import.meta.env.VITE_AFFILIATE_PORTAL_URL.includes('localhost')) {
-                    const cleanRole = (regState?.role || 'agent').toLowerCase().replace('_', '-');
-                    window.location.href = `${import.meta.env.VITE_AFFILIATE_PORTAL_URL}/dashboard/${cleanRole}`;
+                } else if (import.meta.env.VITE_AFFILIATE_PORTAL_URL) {
+                    // Hand the fresh Central session to the affiliate portal.
+                    // The portal starts SSO, Central sees the new session and
+                    // issues a code, replacing any session from a previous user.
+                    const portalUrl = String(import.meta.env.VITE_AFFILIATE_PORTAL_URL).replace(/\/$/, '');
+                    window.location.href = `${portalUrl}/login?auto=1`;
                 } else {
                     navigate('/dashboard');
                 }

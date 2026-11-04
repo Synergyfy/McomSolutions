@@ -139,6 +139,7 @@ export const ssoUserInfoSelect = {
     select: {
       id: true,
       phone: true,
+      postcode: true,
       loyaltyPoints: true,
       platformUsage: true,
       membershipStatus: true,
@@ -150,6 +151,8 @@ export const ssoUserInfoSelect = {
     select: {
       id: true,
       phone: true,
+      postcode: true,
+      city: { select: { name: true, region: true, country: true } },
       permissions: true,
       status: true,
       createdAt: true,
@@ -159,6 +162,8 @@ export const ssoUserInfoSelect = {
     select: {
       id: true,
       phone: true,
+      postcode: true,
+      city: { select: { name: true, region: true, country: true } },
       specialisation: true,
       status: true,
       createdAt: true,
@@ -168,6 +173,8 @@ export const ssoUserInfoSelect = {
     select: {
       id: true,
       phone: true,
+      postcode: true,
+      city: { select: { name: true, region: true, country: true } },
       assignedBusinesses: true,
       status: true,
       createdAt: true,

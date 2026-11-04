@@ -3,6 +3,7 @@ import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AffiliateApiKeyGuard } from './guards/affiliate-api-key.guard';
 import { AffiliateTaskService } from './affiliate-task.service';
 import { AffiliateClientService } from './affiliate-client.service';
+import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import { AffiliateTaskStatusCallbackDto } from './dto/affiliate.dto';
 
 @ApiTags('Affiliate Inbound (backend-to-backend)')
@@ -11,6 +12,7 @@ export class AffiliateInboundController {
   constructor(
     private readonly tasks: AffiliateTaskService,
     private readonly client: AffiliateClientService,
+    private readonly accountManagers: AccountManagerAssignmentService,
   ) {}
 
   @Get('health')
@@ -24,6 +26,18 @@ export class AffiliateInboundController {
       },
     };
   }
+
+  @Get('account-managers/:userId/businesses')
+  @UseGuards(AffiliateApiKeyGuard)
+  @ApiOperation({ summary: 'Businesses assigned to an account manager (backend-to-backend)' })
+  @ApiHeader({ name: 'x-api-key', required: true })
+  async accountManagerBusinesses(@Param('userId') userId: string) {
+    return {
+      success: true,
+      data: await this.accountManagers.listBusinessesForManager(userId),
+    };
+  }
+
 
   @Post('tasks/:centralTaskId/status')
   @UseGuards(AffiliateApiKeyGuard)
