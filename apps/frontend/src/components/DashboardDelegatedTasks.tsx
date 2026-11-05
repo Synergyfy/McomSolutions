@@ -297,16 +297,16 @@ export default function DashboardDelegatedTasks() {
             Push programme tasks or create your own work for your account manager and nearby affiliates.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap">
           <button
             onClick={() => setShowRequest(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-brand-blue/30 bg-white px-4 py-2.5 text-xs font-bold text-brand-blue hover:bg-brand-blue/5 transition-colors"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-brand-blue/30 bg-white px-4 py-2.5 text-xs font-bold text-brand-blue transition-colors hover:bg-brand-blue/5"
           >
             <MessageSquare className="w-4 h-4" /> New service request
           </button>
           <button
             onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-xs font-bold text-white hover:bg-brand-dark transition-colors"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-brand-dark"
           >
             <Plus className="w-4 h-4" /> Create task
           </button>
@@ -326,8 +326,275 @@ export default function DashboardDelegatedTasks() {
         </div>
       )}
 
+      <section
+        className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5"
+        aria-labelledby="delegated-tasks-heading"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2
+              id="delegated-tasks-heading"
+              className="flex items-center gap-2 text-base font-black text-gray-900"
+            >
+              <ClipboardList className="h-5 w-5 text-brand-blue" /> Delegated tasks
+            </h2>
+            <p className="mt-0.5 max-w-2xl text-xs font-medium text-gray-500">
+              Track every request you have delegated, its status, reviewer and deadline.
+            </p>
+          </div>
+          <span className="rounded-full bg-brand-blue/10 px-3 py-1 text-[11px] font-black text-brand-blue">
+            {(tasksRes?.total ?? 0)} task{(tasksRes?.total ?? 0) === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+          <div className="relative sm:col-span-2 lg:col-span-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search delegated tasks"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+            />
+          </div>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            aria-label="Filter tasks by status"
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
+          >
+            {STATUS_FILTERS.map((value) => (
+              <option key={value} value={value}>
+                {value ? STATUS_LABELS[value] : 'All statuses'}
+              </option>
+            ))}
+          </select>
+          <select
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            aria-label="Filter tasks by platform"
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
+          >
+            <option value="">All platforms</option>
+            {platforms.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {isLoading ? (
+          <div className="py-12 flex justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="py-12 text-center">
+            <ClipboardList className="w-10 h-10 text-gray-300 mx-auto" />
+            <p className="mt-2 text-sm font-bold text-gray-700">No delegated tasks yet</p>
+            <p className="text-xs text-gray-500">Create a task or push one from your programme.</p>
+          </div>
+        ) : (
+          <div className="mt-4 divide-y divide-gray-50">
+            {tasks.map((task) => {
+              const isOpen = expanded === task.id;
+              return (
+                <div key={task.id} className="py-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="break-words text-sm font-bold text-gray-900">{task.title}</p>
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide',
+                            STATUS_STYLES[task.status] ?? 'bg-gray-100 text-gray-600',
+                          )}
+                        >
+                          {STATUS_LABELS[task.status] ?? task.status}
+                        </span>
+                        {task.source === 'PROGRAMME' && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500">
+                            Programme
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-gray-500">
+                        {task.assignee
+                          ? `${task.assignee.firstName ?? ''} ${task.assignee.lastName ?? ''}`.trim() ||
+                            task.assignee.email
+                          : 'Awaiting admin assignment'}
+                        <span className="mx-1.5">·</span>
+                        Due {formatDate(task.dueAt)}
+                        {task.platforms.length > 0 && (
+                          <>
+                            <span className="mx-1.5">·</span>
+                            {task.platforms.join(', ')}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                      <button
+                        onClick={() => setExpanded(isOpen ? null : task.id)}
+                        className="inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50 sm:flex-none"
+                      >
+                        {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        Details
+                      </button>
+                      {!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status) && (
+                        <button
+                          onClick={() => cancelTask.mutate(task.id)}
+                          disabled={cancelTask.isPending}
+                          className="inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 disabled:opacity-50 sm:flex-none"
+                        >
+                          <X className="w-3.5 h-3.5" /> Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="mt-3 rounded-2xl bg-gray-50 border border-gray-100 p-3 space-y-2">
+                      <p className="text-xs text-gray-700 whitespace-pre-wrap">{task.description}</p>
+                      {task.lastSyncError && (
+                        <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3" /> Affiliate sync: {task.lastSyncError}
+                        </p>
+                      )}
+                      {task.reviews && task.reviews.length > 0 && (
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                            Review history
+                          </p>
+                          {task.reviews.map((review) => (
+                            <div key={review.id} className="rounded-xl bg-white border border-gray-100 p-2">
+                              <p className="text-[11px] font-bold text-gray-800">
+                                Round {review.round}:{' '}
+                                {review.decision === 'APPROVED' ? 'Approved' : 'Changes requested'}
+                              </p>
+                              {review.notes && <p className="text-[11px] text-gray-600">{review.notes}</p>}
+                              <p className="text-[10px] text-gray-400">
+                                {formatDate(review.reviewedAt)}
+                                {review.acknowledgedAt ? ' · seen by affiliate' : ''}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                          {(task.category || 'EXTERNAL').toLowerCase()} task
+                        </span>
+                        {task.project && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                            {task.project.title}
+                          </span>
+                        )}
+                        {task.compensationModel && task.compensationModel !== 'NONE' && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                            {task.compensationModel.replaceAll('_', ' ')}
+                            {task.compensationAmount != null ? ` · ${task.compensationCurrency || 'GBP'} ${task.compensationAmount}` : ''}
+                          </span>
+                        )}
+                        {task.paymentStatus && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                            payment {task.paymentStatus.replaceAll('_', ' ').toLowerCase()}
+                          </span>
+                        )}
+                      </div>
+                      {task.deliverables && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Agreed deliverables</p>
+                          <p className="mt-1 whitespace-pre-wrap text-[11px] text-gray-600">{task.deliverables}</p>
+                        </div>
+                      )}
+                      {task.materials && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Materials supplied</p>
+                          <p className="mt-1 whitespace-pre-wrap text-[11px] text-gray-600">{task.materials}</p>
+                        </div>
+                      )}
+                      {task.submissionData && Object.keys(task.submissionData).length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                            Submission
+                          </p>
+                          <pre className="mt-1 max-h-40 overflow-auto rounded-xl bg-white border border-gray-100 p-2 text-[10px] text-gray-600">
+                            {JSON.stringify(task.submissionData, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {task.businessChargeStatus === 'PENDING_APPROVAL' && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                          <p className="text-[11px] font-bold text-amber-900">
+                            Charge approval required: {task.businessChargeCurrency || 'GBP'} {task.businessChargeAmount ?? 0}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-amber-800">
+                            Chargeable work cannot begin until you approve. This is separate from the affiliate&apos;s earnings.
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void decideCharge(task, 'APPROVED')}
+                              disabled={reviewAffiliateTaskCharge.isPending}
+                              className="rounded-lg bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+                            >
+                              Approve charge
+                            </button>
+                            <button
+                              onClick={() => void decideCharge(task, 'DECLINED')}
+                              disabled={reviewAffiliateTaskCharge.isPending}
+                              className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[10px] font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {task.status === 'PENDING_BUSINESS_APPROVAL' && (
+                        <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
+                          <p className="text-[11px] font-bold text-violet-900">
+                            Your account manager checked the submission. Approve the outcome or request changes.
+                          </p>
+                          <textarea
+                            value={reviewNotes[task.id] || ''}
+                            onChange={(event) =>
+                              setReviewNotes((current) => ({ ...current, [task.id]: event.target.value }))
+                            }
+                            rows={2}
+                            placeholder="Acceptance notes or change instructions"
+                            className="mt-2 w-full rounded-lg border border-violet-200 px-2 py-1.5 text-[11px]"
+                          />
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void decideTask(task, 'APPROVED')}
+                              disabled={reviewAffiliateTask.isPending}
+                              className="rounded-lg bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+                            >
+                              Approve outcome
+                            </button>
+                            <button
+                              onClick={() => void decideTask(task, 'CHANGES_REQUESTED')}
+                              disabled={reviewAffiliateTask.isPending || !(reviewNotes[task.id] || '').trim()}
+                              className="rounded-lg border border-orange-300 bg-white px-2.5 py-1 text-[10px] font-bold text-orange-800 hover:bg-orange-50 disabled:opacity-50"
+                            >
+                              Request changes
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {/* Service requests — the business's support channel/ask */}
-      <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-black text-gray-900 flex items-center gap-2">
@@ -389,7 +656,7 @@ export default function DashboardDelegatedTasks() {
       </div>
 
       {/* Projects group related tasks into one service plan */}
-      <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-black text-gray-900 flex items-center gap-2">
@@ -445,7 +712,7 @@ export default function DashboardDelegatedTasks() {
         )}
       </div>
 
-      <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-black text-gray-900 flex items-center gap-2">
             <Search className="w-4 h-4 text-brand-blue" /> Find an affiliate
@@ -605,7 +872,7 @@ export default function DashboardDelegatedTasks() {
       )}
 
       {programmeTasks.length > 0 && (
-        <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-sm font-black text-gray-900 flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-brand-blue" /> Push a programme task
           </h2>
@@ -645,257 +912,9 @@ export default function DashboardDelegatedTasks() {
         </div>
       )}
 
-      <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search delegated tasks"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-          </div>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
-          >
-            {STATUS_FILTERS.map((value) => (
-              <option key={value} value={value}>
-                {value ? STATUS_LABELS[value] : 'All statuses'}
-              </option>
-            ))}
-          </select>
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
-            className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
-          >
-            <option value="">All platforms</option>
-            {platforms.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <span className="text-[11px] font-bold text-gray-400">
-            {(tasksRes?.total ?? 0)} task{(tasksRes?.total ?? 0) === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        {isLoading ? (
-          <div className="py-12 flex justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
-          </div>
-        ) : tasks.length === 0 ? (
-          <div className="py-12 text-center">
-            <ClipboardList className="w-10 h-10 text-gray-300 mx-auto" />
-            <p className="mt-2 text-sm font-bold text-gray-700">No delegated tasks yet</p>
-            <p className="text-xs text-gray-500">Create a task or push one from your programme.</p>
-          </div>
-        ) : (
-          <div className="mt-4 divide-y divide-gray-50">
-            {tasks.map((task) => {
-              const isOpen = expanded === task.id;
-              return (
-                <div key={task.id} className="py-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-bold text-gray-900 truncate">{task.title}</p>
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide',
-                            STATUS_STYLES[task.status] ?? 'bg-gray-100 text-gray-600',
-                          )}
-                        >
-                          {STATUS_LABELS[task.status] ?? task.status}
-                        </span>
-                        {task.source === 'PROGRAMME' && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500">
-                            Programme
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-gray-500">
-                        {task.assignee
-                          ? `${task.assignee.firstName ?? ''} ${task.assignee.lastName ?? ''}`.trim() ||
-                            task.assignee.email
-                          : 'Awaiting admin assignment'}
-                        <span className="mx-1.5">·</span>
-                        Due {formatDate(task.dueAt)}
-                        {task.platforms.length > 0 && (
-                          <>
-                            <span className="mx-1.5">·</span>
-                            {task.platforms.join(', ')}
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setExpanded(isOpen ? null : task.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-bold text-gray-600 hover:bg-gray-50"
-                      >
-                        {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        Details
-                      </button>
-                      {!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status) && (
-                        <button
-                          onClick={() => cancelTask.mutate(task.id)}
-                          disabled={cancelTask.isPending}
-                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          <X className="w-3.5 h-3.5" /> Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {isOpen && (
-                    <div className="mt-3 rounded-2xl bg-gray-50 border border-gray-100 p-3 space-y-2">
-                      <p className="text-xs text-gray-700 whitespace-pre-wrap">{task.description}</p>
-                      {task.lastSyncError && (
-                        <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
-                          <RefreshCw className="w-3 h-3" /> Affiliate sync: {task.lastSyncError}
-                        </p>
-                      )}
-                      {task.reviews && task.reviews.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                            Review history
-                          </p>
-                          {task.reviews.map((review) => (
-                            <div key={review.id} className="rounded-xl bg-white border border-gray-100 p-2">
-                              <p className="text-[11px] font-bold text-gray-800">
-                                Round {review.round}:{' '}
-                                {review.decision === 'APPROVED' ? 'Approved' : 'Changes requested'}
-                              </p>
-                              {review.notes && <p className="text-[11px] text-gray-600">{review.notes}</p>}
-                              <p className="text-[10px] text-gray-400">
-                                {formatDate(review.reviewedAt)}
-                                {review.acknowledgedAt ? ' · seen by affiliate' : ''}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
-                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
-                          {(task.category || 'EXTERNAL').toLowerCase()} task
-                        </span>
-                        {task.project && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
-                            {task.project.title}
-                          </span>
-                        )}
-                        {task.compensationModel && task.compensationModel !== 'NONE' && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
-                            {task.compensationModel.replaceAll('_', ' ')}
-                            {task.compensationAmount != null ? ` · ${task.compensationCurrency || 'GBP'} ${task.compensationAmount}` : ''}
-                          </span>
-                        )}
-                        {task.paymentStatus && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
-                            payment {task.paymentStatus.replaceAll('_', ' ').toLowerCase()}
-                          </span>
-                        )}
-                      </div>
-                      {task.deliverables && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Agreed deliverables</p>
-                          <p className="mt-1 whitespace-pre-wrap text-[11px] text-gray-600">{task.deliverables}</p>
-                        </div>
-                      )}
-                      {task.materials && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Materials supplied</p>
-                          <p className="mt-1 whitespace-pre-wrap text-[11px] text-gray-600">{task.materials}</p>
-                        </div>
-                      )}
-                      {task.submissionData && Object.keys(task.submissionData).length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                            Submission
-                          </p>
-                          <pre className="mt-1 max-h-40 overflow-auto rounded-xl bg-white border border-gray-100 p-2 text-[10px] text-gray-600">
-                            {JSON.stringify(task.submissionData, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-
-                      {task.businessChargeStatus === 'PENDING_APPROVAL' && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
-                          <p className="text-[11px] font-bold text-amber-900">
-                            Charge approval required: {task.businessChargeCurrency || 'GBP'} {task.businessChargeAmount ?? 0}
-                          </p>
-                          <p className="mt-0.5 text-[10px] text-amber-800">
-                            Chargeable work cannot begin until you approve. This is separate from the affiliate&apos;s earnings.
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              onClick={() => void decideCharge(task, 'APPROVED')}
-                              disabled={reviewAffiliateTaskCharge.isPending}
-                              className="rounded-lg bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
-                            >
-                              Approve charge
-                            </button>
-                            <button
-                              onClick={() => void decideCharge(task, 'DECLINED')}
-                              disabled={reviewAffiliateTaskCharge.isPending}
-                              className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[10px] font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                            >
-                              Decline
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {task.status === 'PENDING_BUSINESS_APPROVAL' && (
-                        <div className="rounded-xl border border-violet-200 bg-violet-50 p-2.5">
-                          <p className="text-[11px] font-bold text-violet-900">
-                            Your account manager checked the submission. Approve the outcome or request changes.
-                          </p>
-                          <textarea
-                            value={reviewNotes[task.id] || ''}
-                            onChange={(event) =>
-                              setReviewNotes((current) => ({ ...current, [task.id]: event.target.value }))
-                            }
-                            rows={2}
-                            placeholder="Acceptance notes or change instructions"
-                            className="mt-2 w-full rounded-lg border border-violet-200 px-2 py-1.5 text-[11px]"
-                          />
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              onClick={() => void decideTask(task, 'APPROVED')}
-                              disabled={reviewAffiliateTask.isPending}
-                              className="rounded-lg bg-emerald-700 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
-                            >
-                              Approve outcome
-                            </button>
-                            <button
-                              onClick={() => void decideTask(task, 'CHANGES_REQUESTED')}
-                              disabled={reviewAffiliateTask.isPending || !(reviewNotes[task.id] || '').trim()}
-                              className="rounded-lg border border-orange-300 bg-white px-2.5 py-1 text-[10px] font-bold text-orange-800 hover:bg-orange-50 disabled:opacity-50"
-                            >
-                              Request changes
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowCreate(false)}>
-          <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-xl space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-gray-900">Create a delegated task</h3>
               <button onClick={() => setShowCreate(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
@@ -1121,7 +1140,7 @@ export default function DashboardDelegatedTasks() {
 
       {showRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowRequest(false)}>
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-gray-900">New service request</h3>
               <button onClick={() => setShowRequest(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
@@ -1180,7 +1199,7 @@ export default function DashboardDelegatedTasks() {
 
       {closingProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setClosingProject(null)}>
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-3" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-base font-black text-gray-900">Close “{closingProject.title}”</h3>
               <button onClick={() => setClosingProject(null)} className="p-1.5 rounded-lg hover:bg-gray-100">
