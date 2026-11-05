@@ -30,6 +30,8 @@ export interface EnsureSettlementInput {
   /** Pricing/assignee overrides applied before the hold is taken. */
   compensationModel?: AffiliateCompensationModel;
   compensationAmount?: number | null;
+  /** Exact integer amount in pence; takes precedence over compensationAmount. */
+  compensationPence?: number | null;
   billableToBusiness?: boolean;
   businessChargeAmount?: number | null;
   assigneeId?: string | null;
@@ -55,6 +57,7 @@ interface SettlementQuote {
   billable: boolean;
   compensationModel: AffiliateCompensationModel;
   compensationAmount: Decimal | null;
+  compensationPence: number | null;
   compensationCredits: Decimal;
   businessChargeAmount: Decimal | null;
   businessChargeCredits: Decimal;
@@ -621,6 +624,8 @@ export class AffiliateSettlementService {
       compensationModel: input.compensationModel ?? task.compensationModel,
       compensationAmount:
         input.compensationAmount !== undefined ? input.compensationAmount : task.compensationAmount,
+      compensationPence:
+        input.compensationPence !== undefined ? input.compensationPence : task.compensationPence,
       billableToBusiness:
         input.billableToBusiness !== undefined ? input.billableToBusiness : task.billableToBusiness,
       businessChargeAmount:
@@ -662,6 +667,7 @@ export class AffiliateSettlementService {
     // service. Legacy tasks (decision = null) keep the old membership rule.
     const isFree = task.freeDelegation == null ? paidMembership : task.freeDelegation;
     const compensationAmount = this.compensationAmount(task);
+    const compensationPence = this.compensationPence(task, compensationAmount);
     const fxRate = new Decimal(await this.wallet.getGbpToMcomRate());
     const compensationCredits = compensationAmount
       ? compensationAmount.times(fxRate).toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
@@ -677,6 +683,7 @@ export class AffiliateSettlementService {
         billable: false,
         compensationModel: task.compensationModel,
         compensationAmount,
+        compensationPence,
         compensationCredits: new Decimal(0),
         businessChargeAmount: rawCharge,
         businessChargeCredits: new Decimal(0),
@@ -726,6 +733,7 @@ export class AffiliateSettlementService {
       billable,
       compensationModel: task.compensationModel,
       compensationAmount,
+      compensationPence,
       compensationCredits,
       businessChargeAmount: rawCharge,
       businessChargeCredits,
@@ -749,6 +757,14 @@ export class AffiliateSettlementService {
   private compensationAmount(
     task: Awaited<ReturnType<AffiliateSettlementService['loadTask']>>,
   ): Decimal | null {
+    // The pence value is authoritative when present, including tasks that began
+    // as MEMBERSHIP_INCLUDED and were priced by an admin at approval time.
+    if (task.compensationPence != null) {
+      const pence = Number(task.compensationPence);
+      if (Number.isFinite(pence) && pence > 0) {
+        return new Decimal(pence).dividedBy(100);
+      }
+    }
     if (
       task.compensationModel === AffiliateCompensationModel.NONE ||
       task.compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED ||
@@ -758,6 +774,18 @@ export class AffiliateSettlementService {
     }
     const amount = new Decimal(task.compensationAmount);
     return amount.greaterThan(0) ? amount : null;
+  }
+
+  private compensationPence(
+    task: Awaited<ReturnType<AffiliateSettlementService['loadTask']>>,
+    amount: Decimal | null,
+  ): number | null {
+    if (task.compensationPence != null) {
+      const pence = Number(task.compensationPence);
+      if (Number.isFinite(pence) && pence > 0) return Math.round(pence);
+    }
+    if (!amount) return null;
+    return Math.round(amount.toNumber() * 100);
   }
 
   private async upsert(
@@ -779,6 +807,7 @@ export class AffiliateSettlementService {
       businessChargeAmount: quote.businessChargeAmount,
       businessChargeCredits: quote.businessChargeCredits,
       compensationAmount: quote.compensationAmount,
+      compensationPence: quote.compensationPence,
       compensationCredits: quote.compensationCredits,
       platformFeePercent: quote.platformFeePercent,
       platformFeeCredits: quote.platformFeeCredits,

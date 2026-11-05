@@ -33,6 +33,12 @@ import type {
   AdminAffiliateTask,
 } from '../../services/admin/types';
 
+const isMembershipFunded = (task: AdminAffiliateTask) =>
+  task.freeDelegation === true ||
+  task.compensationModel === 'MEMBERSHIP_INCLUDED' ||
+  task.delegationQuotaSource === 'MEMBERSHIP' ||
+  task.delegationQuotaSource === 'ACCESS_PASS';
+
 const STATUS_LABELS: Record<string, string> = {
   PENDING_ASSIGNMENT: 'Awaiting assignment',
   ASSIGNED: 'Assigned',
@@ -154,6 +160,7 @@ export default function AffiliateTaskAdminPanel() {
   const [reviewFor, setReviewFor] = useState<AdminAffiliateTask | null>(null);
   const [reviewDecision, setReviewDecision] = useState<'APPROVED' | 'CHANGES_REQUESTED'>('APPROVED');
   const [reviewNotes, setReviewNotes] = useState('');
+  const [reviewComp, setReviewComp] = useState('');
   const [reputationFor, setReputationFor] = useState<string | null>(null);
   const [reportActionFor, setReportActionFor] = useState<AdminAffiliateReport | null>(null);
   const [reportDecision, setReportDecision] = useState<'VALID' | 'INVALID'>('VALID');
@@ -429,6 +436,9 @@ export default function AffiliateTaskAdminPanel() {
                             setReviewFor(task);
                             setReviewDecision('APPROVED');
                             setReviewNotes('');
+                            setReviewComp(
+                              task.compensationAmount != null ? String(task.compensationAmount) : '',
+                            );
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700"
                         >
@@ -706,6 +716,37 @@ export default function AffiliateTaskAdminPanel() {
               Request changes
             </button>
           </div>
+          {reviewDecision === 'APPROVED' && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+              <label className="block text-[11px] font-bold text-gray-700">
+                Affiliate compensation (GBP)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={reviewComp}
+                  onChange={(e) => setReviewComp(e.target.value)}
+                  placeholder="20.00"
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold"
+                />
+              </label>
+              <p className="mt-1.5 text-[10px] font-medium leading-4 text-blue-800">
+                Enter the amount the affiliate should receive for this task. It is stored exactly in
+                pence, then paid into their MCOM wallet and written to the ledger when you approve.
+              </p>
+              {isMembershipFunded(reviewFor) ? (
+                <p className="mt-1 text-[10px] font-semibold text-blue-900">
+                  This task is funded by the business&apos;s membership / access pass. Compensation is
+                  required before approval.
+                </p>
+              ) : null}
+              {(!reviewComp || Number(reviewComp) <= 0) && isMembershipFunded(reviewFor) ? (
+                <p className="mt-1 text-[10px] font-semibold text-red-700">
+                  Enter a compensation amount greater than zero.
+                </p>
+              ) : null}
+            </div>
+          )}
           <textarea
             value={reviewNotes}
             onChange={(e) => setReviewNotes(e.target.value)}
@@ -730,11 +771,23 @@ export default function AffiliateTaskAdminPanel() {
               onClick={async () => {
                 await reviewTask.mutateAsync({
                   id: reviewFor.id,
-                  data: { decision: reviewDecision, notes: reviewNotes || undefined },
+                  data: {
+                    decision: reviewDecision,
+                    notes: reviewNotes || undefined,
+                    ...(reviewDecision === 'APPROVED' && reviewComp
+                      ? { compensationPence: Math.round(Number(reviewComp) * 100) }
+                      : {}),
+                  },
                 });
                 setReviewFor(null);
               }}
-              disabled={reviewTask.isPending || (reviewDecision === 'CHANGES_REQUESTED' && !reviewNotes.trim())}
+              disabled={
+                reviewTask.isPending ||
+                (reviewDecision === 'CHANGES_REQUESTED' && !reviewNotes.trim()) ||
+                (reviewDecision === 'APPROVED' &&
+                  isMembershipFunded(reviewFor) &&
+                  (!reviewComp || Number(reviewComp) <= 0))
+              }
               className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
               {reviewTask.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save review

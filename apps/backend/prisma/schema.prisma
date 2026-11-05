@@ -2821,6 +2821,8 @@ model AffiliateTaskSettlement {
   businessChargeAmount   Decimal?                    @map("business_charge_amount") @db.Decimal(18, 4)
   businessChargeCredits  Decimal?                    @map("business_charge_credits") @db.Decimal(18, 4)
   compensationAmount     Decimal?                    @map("compensation_amount") @db.Decimal(18, 4)
+  // Exact integer source amount in pence (GBP minor units).
+  compensationPence      Int?                        @map("compensation_pence")
   compensationCredits    Decimal?                    @map("compensation_credits") @db.Decimal(18, 4)
   platformFeePercent     Decimal                     @default(0) @map("platform_fee_percent") @db.Decimal(7, 4)
   platformFeeCredits     Decimal                     @default(0) @map("platform_fee_credits") @db.Decimal(18, 4)
@@ -3009,6 +3011,9 @@ model AffiliateTask {
   // ── Compensation & business charge (kept deliberately separate) ──
   compensationModel              AffiliateCompensationModel @default(NONE) @map("compensation_model")
   compensationAmount             Float?                     @map("compensation_amount")
+  // Authoritative integer amount (minor units / pence) used for exact money
+  // calculations. compensationAmount remains for display/backwards compatibility.
+  compensationPence              Int?                       @map("compensation_pence")
   compensationCurrency           String                     @default("GBP") @map("compensation_currency")
   billableToBusiness             Boolean                    @default(false) @map("billable_to_business")
   businessChargeAmount           Float?                     @map("business_charge_amount")

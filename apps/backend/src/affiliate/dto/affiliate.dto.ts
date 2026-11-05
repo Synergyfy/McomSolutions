@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -119,6 +120,16 @@ export class CreateAffiliateTaskDto {
   @Type(() => Number)
   @Min(0)
   compensationAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 7500,
+    description: 'Affiliate compensation in pence; takes precedence over compensationAmount.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  compensationPence?: number;
 
   @ApiPropertyOptional({ example: 'GBP' })
   @IsOptional()
@@ -288,6 +299,27 @@ export class ReviewAffiliateTaskDto {
   @IsString()
   @MaxLength(5000)
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: 2000,
+    description:
+      'Affiliate compensation in pence (2000 = £20.00). Entered by the admin when approving membership / access-pass funded work.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  compensationPence?: number;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Affiliate compensation in GBP. Converted to pence server-side.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  compensationAmount?: number;
 }
 
 export class ReviewBusinessTaskDto extends ReviewAffiliateTaskDto {
@@ -382,6 +414,16 @@ export class AssignAffiliateTaskDto {
   @Type(() => Number)
   @Min(0)
   compensationAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 7500,
+    description: 'Affiliate compensation in pence; takes precedence over compensationAmount.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  compensationPence?: number;
 
   @ApiPropertyOptional({ example: 'GBP' })
   @IsOptional()

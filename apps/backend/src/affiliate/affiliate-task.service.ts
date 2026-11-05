@@ -240,7 +240,11 @@ export class AffiliateTaskService {
     }
 
     const paidMembership = this.isPaidActiveMembership(business);
-    const explicitCompensation = dto.compensationAmount ?? null;
+    const explicitCompensationPence =
+      dto.compensationPence ??
+      (dto.compensationAmount != null ? Math.round(Number(dto.compensationAmount) * 100) : null);
+    const explicitCompensation =
+      explicitCompensationPence != null ? explicitCompensationPence / 100 : null;
 
     // How many delegated tasks this business gets for free under its current
     // membership / access pass. Trial and no-plan businesses are always charged.
@@ -295,6 +299,8 @@ export class AffiliateTaskService {
       compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED
         ? null
         : explicitCompensation;
+    const compensationPence =
+      compensationAmount != null ? Math.round(compensationAmount * 100) : null;
 
     const paymentStatus: AffiliatePaymentStatus =
       compensationAmount != null && compensationAmount > 0
@@ -330,6 +336,7 @@ export class AffiliateTaskService {
         requiresBusinessApproval: dto.requiresBusinessApproval ?? false,
         compensationModel,
         compensationAmount,
+        compensationPence,
         compensationCurrency: dto.compensationCurrency ?? 'GBP',
         billableToBusiness,
         businessChargeAmount,
@@ -1576,9 +1583,15 @@ export class AffiliateTaskService {
 
     // Pricing can be agreed at assignment time. Keep business charges and
     // affiliate compensation separate and make the payable amount explicit
-    // before work begins.
+    // before work begins. Pence is authoritative when supplied.
+    const compensationPence =
+      dto.compensationPence !== undefined
+        ? Number(dto.compensationPence)
+        : dto.compensationAmount !== undefined
+          ? Math.round(Number(dto.compensationAmount) * 100)
+          : task.compensationPence;
     const compensationAmount =
-      dto.compensationAmount !== undefined ? Number(dto.compensationAmount) : task.compensationAmount;
+      compensationPence != null ? compensationPence / 100 : task.compensationAmount;
     const compensationModel =
       dto.compensationModel ??
       (compensationAmount != null
@@ -1652,6 +1665,7 @@ export class AffiliateTaskService {
       platformFeePercent: dto.platformFeePercent,
       compensationModel,
       compensationAmount: compensationAmount ?? null,
+      compensationPence: compensationPence ?? null,
       billableToBusiness,
       businessChargeAmount: businessChargeAmount ?? null,
       freeDelegation,
@@ -1668,6 +1682,7 @@ export class AffiliateTaskService {
         status: AffiliateTaskStatus.ASSIGNED,
         compensationModel,
         compensationAmount,
+        compensationPence: compensationPence ?? null,
         compensationCurrency: dto.compensationCurrency ?? task.compensationCurrency,
         billableToBusiness,
         businessChargeAmount,
@@ -1750,6 +1765,50 @@ export class AffiliateTaskService {
     const round = task.revisionCount + 1;
 
     if (dto.decision === AffiliateReviewDecision.APPROVED) {
+      const requestedPence =
+        dto.compensationPence ??
+        (dto.compensationAmount != null
+          ? Math.round(Number(dto.compensationAmount) * 100)
+          : null);
+      const currentPence =
+        task.compensationPence ??
+        (task.compensationAmount != null
+          ? Math.round(Number(task.compensationAmount) * 100)
+          : null);
+      const membershipFunded =
+        task.freeDelegation === true ||
+        task.compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED ||
+        task.delegationQuotaSource === 'MEMBERSHIP' ||
+        task.delegationQuotaSource === 'ACCESS_PASS';
+
+      if (requestedPence != null) {
+        if (!Number.isInteger(requestedPence) || requestedPence <= 0) {
+          throw new BadRequestException('Compensation must be a positive whole number of pence.');
+        }
+        const compensationAmount = requestedPence / 100;
+        // Re-price the settlement first so a failed quote (e.g. pay exceeds the
+        // business charge) leaves the task untouched.
+        await this.settlement.ensureForTask(taskId, {
+          compensationModel: AffiliateCompensationModel.FIXED,
+          compensationAmount,
+          compensationPence: requestedPence,
+        });
+        await this.prisma.affiliateTask.update({
+          where: { id: taskId },
+          data: {
+            compensationModel: AffiliateCompensationModel.FIXED,
+            compensationAmount,
+            compensationPence: requestedPence,
+            compensationCurrency: 'GBP',
+            paymentStatus: AffiliatePaymentStatus.PENDING,
+          },
+        });
+      } else if (membershipFunded && (currentPence == null || currentPence <= 0)) {
+        throw new BadRequestException(
+          'Enter the affiliate compensation before approving membership/access-pass funded work.',
+        );
+      }
+
       await this.prisma.affiliateTaskReview.create({
         data: {
           taskId,
