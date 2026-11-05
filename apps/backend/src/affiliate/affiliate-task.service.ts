@@ -23,6 +23,7 @@ import { AffiliateDirectoryService } from './affiliate-directory.service';
 import { AffiliateClientService } from './affiliate-client.service';
 import { AffiliateReputationService } from './affiliate-reputation.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
+import { TaskService } from '../task/task.service';
 import { normalizePlatformKey } from './affiliate-affinity.util';
 import { AFFILIATE_TASK_QUEUE, AffiliateTaskJobData } from '../queue/queue.constants';
 import {
@@ -64,6 +65,7 @@ export class AffiliateTaskService {
     private readonly accountManagers: AccountManagerAssignmentService,
     private readonly reputation: AffiliateReputationService,
     private readonly affiliateClient: AffiliateClientService,
+    private readonly programmeTasks: TaskService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
     @Optional()
@@ -1090,6 +1092,32 @@ export class AffiliateTaskService {
       type: 'TASK_COMPLETED',
       message: input.notes ?? 'Task approved and completed',
     });
+
+    // A programme task pushed to an affiliate is complete as soon as the
+    // delegated work passes the review chain. Apply the same reward/coupon and
+    // programme-progress side effects as the business-facing completion path.
+    if (task.sourceAssignmentId) {
+      try {
+        await this.programmeTasks.completeDelegatedAssignment(task.sourceAssignmentId, {
+          submissionData: task.submissionData ?? {},
+          notes: `Completed from approved delegated task "${task.title}"`,
+        });
+        await this.recordEvent(taskId, {
+          type: 'PROGRAMME_TASK_COMPLETED',
+          message: 'Source programme task marked completed',
+          metadata: { assignmentId: task.sourceAssignmentId },
+        });
+      } catch (error: any) {
+        this.logger.warn(
+          `Could not complete source programme assignment ${task.sourceAssignmentId}: ${error?.message}`,
+        );
+        await this.recordEvent(taskId, {
+          type: 'PROGRAMME_TASK_SYNC_FAILED',
+          message: `Programme task could not be completed automatically: ${error?.message ?? 'unknown error'}`,
+          metadata: { assignmentId: task.sourceAssignmentId },
+        });
+      }
+    }
 
     // Record the affiliate's payable amount in their 247GBS wallet.
     await this.recordAffiliateEarnings(taskId);
