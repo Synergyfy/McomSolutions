@@ -8,6 +8,7 @@ import { AuthService } from '../auth/auth.service';
 import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import { ResolvedPostcode } from '../geography/postcode.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -32,6 +33,7 @@ export interface CompleteOnboardingInput {
   subCategory?: string;
   source?: string;
   photos?: any[];
+  affiliateInvite?: string;
   [key: string]: unknown;
 }
 
@@ -83,6 +85,10 @@ const businessDetailSelect = {
   membershipStatus: true,
   membershipPlanName: true,
   membershipExpiresAt: true,
+  acquiredByAffiliateName: true,
+  acquiredByAffiliateRole: true,
+  acquisitionStatus: true,
+  acquisitionAttributedAt: true,
   hasPaidVerificationFee: true,
   verificationFeePaidAt: true,
   trialAccessDays: true,
@@ -166,6 +172,7 @@ export class BusinessService {
     private configService: ConfigService,
     private googleOAuth: GoogleOAuthService,
     private locationAssignment: LocationAssignmentService,
+    private businessAcquisition: BusinessAcquisitionService,
     @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
   ) { }
 
@@ -965,6 +972,13 @@ export class BusinessService {
     const email = grant ? grant.email : emailFromBody;
     const defaultMembership = await this.getDefaultMembership();
 
+    // A tracked affiliate invitation links this registration to the affiliate
+    // who introduced the business. It is resolved before any account is
+    // created so an invalid/cancelled link never half-completes a signup.
+    const affiliateInvitation = data.affiliateInvite
+      ? await this.businessAcquisition.resolveInvitationForRegistration(data.affiliateInvite)
+      : null;
+
     // A valid UK postcode is mandatory even when the business arrives through
     // the Google claim flow. Prevents location-less business records.
     const submittedPostcode = (data.postcode || '').trim();
@@ -1047,6 +1061,18 @@ export class BusinessService {
           updatedUser.businessProfile.businessName,
           updatedUser.businessProfile.category,
         );
+        if (affiliateInvitation) {
+          await this.applyInvitationIfUnattributed(affiliateInvitation.id, {
+            businessId: updatedUser.businessProfile.id,
+            userId: updatedUser.id,
+            email,
+            alreadyAttributed: Boolean(
+              updatedUser.businessProfile.acquiredByAffiliateId ||
+                updatedUser.businessProfile.acquiredByAffiliateExternalId,
+            ),
+          });
+          await this.promoteAcquisitionOnboarding(updatedUser.businessProfile.id);
+        }
       }
       const loginRes = await this.authService.login(updatedUser);
       return {
@@ -1074,7 +1100,8 @@ export class BusinessService {
         role: Role.BUSINESS,
         firstName: data.firstName || '',
         lastName: data.lastName || '',
-        registrationSource: data.source || 'direct',
+        registrationSource: affiliateInvitation ? '247gbs-affiliate' : data.source || 'direct',
+        referredById: affiliateInvitation?.affiliateUserId ?? undefined,
         businessProfile: {
           create: {
             businessName: data.businessName,
@@ -1124,6 +1151,15 @@ export class BusinessService {
         newUser.businessProfile.businessName,
         newUser.businessProfile.category,
       );
+      if (affiliateInvitation) {
+        await this.applyInvitationIfUnattributed(affiliateInvitation.id, {
+          businessId: newUser.businessProfile.id,
+          userId: newUser.id,
+          email,
+          alreadyAttributed: false,
+        });
+        await this.promoteAcquisitionOnboarding(newUser.businessProfile.id);
+      }
       await this.prisma.notification.createMany({
         data: [
           {
@@ -1269,7 +1305,60 @@ export class BusinessService {
       }
     }
 
+    // A profile edit can be the step that completes onboarding for a business
+    // an affiliate introduced. Promotion is idempotent.
+    void this.promoteAcquisitionOnboarding(businessId);
+
     return updated;
+  }
+
+  /**
+   * Apply an invitation only when the business has no existing acquisition
+   * source. A later affiliate must never overwrite an earlier introduction.
+   */
+  private async applyInvitationIfUnattributed(
+    invitationId: string,
+    input: {
+      businessId: string;
+      userId: string;
+      email: string;
+      alreadyAttributed: boolean;
+    },
+  ) {
+    if (input.alreadyAttributed) {
+      this.logger.warn(
+        `Ignoring affiliate invitation ${invitationId}: business ${input.businessId} already has an acquisition source.`,
+      );
+      return;
+    }
+    try {
+      await this.businessAcquisition.applyInvitationToBusiness(invitationId, {
+        businessId: input.businessId,
+        userId: input.userId,
+        email: input.email,
+      });
+    } catch (error) {
+      // The account itself has been created; never fail a successful signup
+      // because attribution could not be written. Central retains enough
+      // information to reconcile (invitation token + business email).
+      this.logger.error(
+        `Could not apply affiliate invitation ${invitationId} to business ${input.businessId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private async promoteAcquisitionOnboarding(businessId: string) {
+    try {
+      await this.businessAcquisition.markOnboardingCompleted(businessId);
+    } catch (error) {
+      this.logger.warn(
+        `Could not promote acquisition onboarding for business ${businessId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**

@@ -134,6 +134,18 @@ export class AffiliateDirectoryService {
     return business;
   }
 
+  /** Resolve a business profile by id (admin acting on behalf of a business). */
+  async getBusinessById(businessId: string) {
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      include: {
+        user: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!business) throw new NotFoundException('Business profile not found');
+    return business;
+  }
+
   /** Platforms the business can currently tag work under. */
   async getPlatformAccess(businessId: string): Promise<{
     platforms: PlatformAccessItem[];

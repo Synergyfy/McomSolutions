@@ -7,6 +7,7 @@ import { MailService } from '../common/mail/mail.service';
 import { ChatService } from '../chat/services/chat.service';
 import { AffiliateDirectoryService } from './affiliate-directory.service';
 import { AffiliateReputationService } from './affiliate-reputation.service';
+import { BusinessAcquisitionService } from './business-acquisition.service';
 import { AffinityCandidate, rankByAffinity } from './affiliate-affinity.util';
 
 export interface AssignedAccountManager {
@@ -37,6 +38,7 @@ export class AccountManagerAssignmentService {
     private readonly mail: MailService,
     private readonly chat: ChatService,
     private readonly config: ConfigService,
+    private readonly acquisition: BusinessAcquisitionService,
   ) {}
 
   private frontendUrl(): string {
@@ -135,6 +137,25 @@ export class AccountManagerAssignmentService {
       }
     });
 
+    // Preserve the management relationship trail: replacing a manager closes
+    // the previous record instead of erasing it. History must never block the
+    // operational assignment itself.
+    if (previousManagerId !== chosen.userId) {
+      try {
+        await this.acquisition.recordAccountManagerChange({
+          businessId,
+          previousManagerUserId: previousManagerId,
+          managerUserId: chosen.userId,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Could not record account manager history for ${businessId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     // Open the direct chat thread so messaging works immediately, and notify
     // both parties. Neither step may fail the assignment transaction.
     let conversationId: string | null = null;
@@ -204,6 +225,13 @@ export class AccountManagerAssignmentService {
         membershipPlanName: true,
         membershipExpiresAt: true,
         accountManagerAssignedAt: true,
+        acquiredByAffiliateId: true,
+        acquiredByAffiliateExternalId: true,
+        acquiredByAffiliateName: true,
+        acquiredByAffiliateRole: true,
+        acquisitionStatus: true,
+        acquisitionSource: true,
+        acquisitionAttributedAt: true,
         createdAt: true,
         city: { select: { name: true, region: true, country: true } },
         localMall: { select: { id: true, name: true } },
