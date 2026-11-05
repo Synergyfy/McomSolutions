@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { RedisService } from '../../redis/redis.service';
 
 export interface TypingUser {
   userId: string;
@@ -6,49 +7,98 @@ export interface TypingUser {
   expiresAt: number;
 }
 
+const TYPING_TTL_SECONDS = 15;
+
+/**
+ * Typing indicators.
+ *
+ * Local maps are the writer's index (used to clean up on disconnect); the
+ * actual state is mirrored into a Redis hash so every instance sees the same
+ * indicator. Entries carry their own `expiresAt` and are pruned on read.
+ *
+ * `RedisService` is optional so the service can be unit-tested standalone.
+ */
 @Injectable()
 export class TypingService {
-  // conversationId -> (userId -> TypingUser)
+  // conversationId -> (userId -> TypingUser) — this process only
   private readonly conversationTyping = new Map<string, Map<string, TypingUser>>();
 
-  startTyping(conversationId: string, userId: string, userName: string, ttlSeconds = 5): TypingUser[] {
+  constructor(@Optional() private readonly redis?: RedisService) {}
+
+  private key(conversationId: string): string {
+    return `typing:${conversationId}`;
+  }
+
+  async startTyping(
+    conversationId: string,
+    userId: string,
+    userName: string,
+    ttlSeconds = 5,
+  ): Promise<TypingUser[]> {
     let map = this.conversationTyping.get(conversationId);
     if (!map) {
       map = new Map();
       this.conversationTyping.set(conversationId, map);
     }
-
     map.set(userId, {
       userId,
       userName,
       expiresAt: Date.now() + ttlSeconds * 1000,
     });
 
-    return this.cleanAndGetTyping(conversationId);
+    if (this.redis) {
+      await this.redis.hSet(
+        this.key(conversationId),
+        userId,
+        JSON.stringify({ userId, userName, expiresAt: Date.now() + ttlSeconds * 1000 }),
+        TYPING_TTL_SECONDS,
+      );
+    }
+
+    return this.getTypingUsers(conversationId);
   }
 
-  stopTyping(conversationId: string, userId: string): TypingUser[] {
+  async stopTyping(conversationId: string, userId: string): Promise<TypingUser[]> {
     const map = this.conversationTyping.get(conversationId);
     if (map) {
       map.delete(userId);
-      if (map.size === 0) {
-        this.conversationTyping.delete(conversationId);
-      }
+      if (map.size === 0) this.conversationTyping.delete(conversationId);
     }
+    if (this.redis) await this.redis.hDel(this.key(conversationId), userId);
+    return this.getTypingUsers(conversationId);
+  }
+
+  async getTypingUsers(conversationId: string): Promise<TypingUser[]> {
+    if (this.redis) {
+      const raw = await this.redis.hGetAll(this.key(conversationId));
+      const now = Date.now();
+      const active: TypingUser[] = [];
+      for (const [userId, value] of Object.entries(raw)) {
+        try {
+          const parsed = JSON.parse(value) as TypingUser;
+          if (parsed.expiresAt > now) {
+            active.push(parsed);
+          } else {
+            await this.redis.hDel(this.key(conversationId), userId);
+          }
+        } catch {
+          await this.redis.hDel(this.key(conversationId), userId);
+        }
+      }
+      return active;
+    }
+
     return this.cleanAndGetTyping(conversationId);
   }
 
-  getTypingUsers(conversationId: string): TypingUser[] {
-    return this.cleanAndGetTyping(conversationId);
-  }
-
-  removeUserFromAll(userId: string): Map<string, TypingUser[]> {
+  async removeUserFromAll(userId: string): Promise<Map<string, TypingUser[]>> {
     const affected = new Map<string, TypingUser[]>();
     for (const [conversationId, map] of this.conversationTyping.entries()) {
-      if (map.has(userId)) {
-        map.delete(userId);
-        affected.set(conversationId, this.cleanAndGetTyping(conversationId));
-      }
+      if (!map.has(userId)) continue;
+      map.delete(userId);
+      if (this.redis) await this.redis.hDel(this.key(conversationId), userId);
+      if (map.size === 0) this.conversationTyping.delete(conversationId);
+      affected.set(conversationId, await this.getTypingUsers(conversationId));
     }
     return affected;
   }

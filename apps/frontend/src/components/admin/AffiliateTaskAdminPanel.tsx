@@ -33,6 +33,7 @@ const STATUS_LABELS: Record<string, string> = {
   ACCEPTED: 'Accepted',
   IN_PROGRESS: 'In progress',
   SUBMITTED: 'Submitted — needs review',
+  PENDING_BUSINESS_APPROVAL: 'Awaiting business approval',
   REVISION_REQUESTED: 'Changes requested',
   COMPLETED: 'Completed',
   DECLINED: 'Declined',
@@ -45,6 +46,7 @@ const STATUS_STYLES: Record<string, string> = {
   ACCEPTED: 'bg-sky-100 text-sky-800',
   IN_PROGRESS: 'bg-indigo-100 text-indigo-800',
   SUBMITTED: 'bg-violet-100 text-violet-800',
+  PENDING_BUSINESS_APPROVAL: 'bg-amber-100 text-amber-800',
   REVISION_REQUESTED: 'bg-orange-100 text-orange-800',
   COMPLETED: 'bg-emerald-100 text-emerald-800',
   DECLINED: 'bg-red-100 text-red-700',
@@ -105,6 +107,10 @@ export default function AffiliateTaskAdminPanel() {
 
   const [assignFor, setAssignFor] = useState<AdminAffiliateTask | null>(null);
   const [assignee, setAssignee] = useState('');
+  const [assignComp, setAssignComp] = useState('');
+  const [assignCharge, setAssignCharge] = useState('');
+  const [assignBillable, setAssignBillable] = useState(false);
+  const [assignApproval, setAssignApproval] = useState(true);
   const [reviewFor, setReviewFor] = useState<AdminAffiliateTask | null>(null);
   const [reviewDecision, setReviewDecision] = useState<'APPROVED' | 'CHANGES_REQUESTED'>('APPROVED');
   const [reviewNotes, setReviewNotes] = useState('');
@@ -251,10 +257,30 @@ export default function AffiliateTaskAdminPanel() {
                         )}
                       </p>
                       <p className="mt-1 text-xs text-gray-600 line-clamp-2">{task.description}</p>
-                      {task.platforms.length > 0 && (
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          {task.platforms.join(' · ')}
-                        </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                          {(task.category || 'EXTERNAL').toLowerCase()}
+                        </span>
+                        {task.project && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">{task.project.title}</span>
+                        )}
+                        {task.platforms.map((platform) => (
+                          <span key={platform} className="rounded-full bg-gray-100 px-2 py-0.5 uppercase text-gray-500">{platform}</span>
+                        ))}
+                        {task.compensationAmount != null && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                            {task.compensationCurrency || 'GBP'} {task.compensationAmount}
+                          </span>
+                        )}
+                        {task.businessChargeStatus === 'PENDING_APPROVAL' && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">charge pending</span>
+                        )}
+                        {task.paymentStatus && task.paymentStatus !== 'NOT_APPLICABLE' && (
+                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">payment {task.paymentStatus.toLowerCase()}</span>
+                        )}
+                      </div>
+                      {task.deliverables && (
+                        <p className="mt-1 text-[11px] text-gray-500"><span className="font-bold text-gray-700">Deliverables:</span> {task.deliverables}</p>
                       )}
                       {task.lastSyncError && (
                         <p className="mt-1 text-[11px] font-semibold text-amber-700">
@@ -264,18 +290,26 @@ export default function AffiliateTaskAdminPanel() {
                     </div>
 
                     <div className="flex flex-wrap gap-2 shrink-0">
-                      {task.status === 'PENDING_ASSIGNMENT' && (
+                      {['PENDING_ASSIGNMENT', 'DECLINED'].includes(task.status) && (
                         <button
                           onClick={() => {
                             setAssignFor(task);
                             setAssignee('');
+                            setAssignComp(
+                              task.compensationAmount != null ? String(task.compensationAmount) : '',
+                            );
+                            setAssignCharge(
+                              task.businessChargeAmount != null ? String(task.businessChargeAmount) : '',
+                            );
+                            setAssignBillable(Boolean(task.billableToBusiness));
+                            setAssignApproval(task.requiresBusinessApproval ?? true);
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-bold text-white hover:bg-brand-dark"
                         >
-                          <UserPlus className="w-3.5 h-3.5" /> Assign
+                          <UserPlus className="w-3.5 h-3.5" /> {task.status === 'DECLINED' ? 'Reassign' : 'Assign'}
                         </button>
                       )}
-                      {task.status === 'SUBMITTED' && (
+                      {['SUBMITTED', 'PENDING_BUSINESS_APPROVAL'].includes(task.status) && (
                         <button
                           onClick={() => {
                             setReviewFor(task);
@@ -421,6 +455,48 @@ export default function AffiliateTaskAdminPanel() {
               </option>
             ))}
           </select>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="text-[11px] font-bold text-gray-700">
+              Affiliate compensation (GBP)
+              <input
+                type="number"
+                min={0}
+                value={assignComp}
+                onChange={(e) => setAssignComp(e.target.value)}
+                placeholder="75"
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
+              />
+            </label>
+            <label className="text-[11px] font-bold text-gray-700">
+              Business charge (GBP)
+              <input
+                type="number"
+                min={0}
+                value={assignCharge}
+                onChange={(e) => setAssignCharge(e.target.value)}
+                placeholder="120"
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-4 text-[11px] font-semibold text-gray-700">
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={assignBillable}
+                onChange={(e) => setAssignBillable(e.target.checked)}
+              />
+              Charge the business
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={assignApproval}
+                onChange={(e) => setAssignApproval(e.target.checked)}
+              />
+              Business approves the outcome
+            </label>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setAssignFor(null)} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600">
               Cancel
@@ -428,7 +504,16 @@ export default function AffiliateTaskAdminPanel() {
             <button
               onClick={async () => {
                 if (!assignee) return;
-                await assignTask.mutateAsync({ id: assignFor.id, data: { assigneeUserId: assignee } });
+                await assignTask.mutateAsync({
+                  id: assignFor.id,
+                  data: {
+                    assigneeUserId: assignee,
+                    compensationAmount: assignComp ? Number(assignComp) : undefined,
+                    billableToBusiness: assignBillable,
+                    businessChargeAmount: assignCharge ? Number(assignCharge) : undefined,
+                    requiresBusinessApproval: assignApproval,
+                  },
+                });
                 setAssignFor(null);
               }}
               disabled={!assignee || assignTask.isPending}

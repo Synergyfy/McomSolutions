@@ -4,8 +4,14 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
+  AffiliateChargeStatus,
+  AffiliateCompensationModel,
+  AffiliatePaymentStatus,
+  AffiliateProjectStatus,
   AffiliateReportStatus,
   AffiliateReviewDecision,
+  AffiliateServiceRequestStatus,
+  AffiliateTaskCategory,
   AffiliateTaskSource,
   AffiliateTaskStatus,
   Prisma,
@@ -21,14 +27,27 @@ import { normalizePlatformKey } from './affiliate-affinity.util';
 import { AFFILIATE_TASK_QUEUE, AffiliateTaskJobData } from '../queue/queue.constants';
 import {
   AffiliateTaskQueryDto,
+  ApproveBusinessChargeDto,
+  ApproveServiceRequestDto,
   AssignAffiliateTaskDto,
+  CloseAffiliateProjectDto,
+  CreateAffiliateProjectDto,
+  CreateAffiliateServiceRequestDto,
   CreateAffiliateTaskDto,
   RateAffiliateDto,
   ReportAffiliateDto,
   ReviewAffiliateReportDto,
   ReviewAffiliateTaskDto,
+  ReviewBusinessTaskDto,
 } from './dto/affiliate.dto';
 
+const CLOSED_STATUSES: AffiliateTaskStatus[] = [
+  AffiliateTaskStatus.COMPLETED,
+  AffiliateTaskStatus.CANCELLED,
+];
+
+// Declined tasks are intentionally reassignable: the spec says a declined
+// assignment "returns for reassignment".
 const TERMINAL_STATUSES: AffiliateTaskStatus[] = [
   AffiliateTaskStatus.COMPLETED,
   AffiliateTaskStatus.CANCELLED,
@@ -194,6 +213,71 @@ export class AffiliateTaskService {
       ? new Date(dto.dueAt)
       : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+    // A project must belong to the same business before tasks can be grouped.
+    if (dto.projectId) {
+      const project = await this.prisma.affiliateProject.findFirst({
+        where: { id: dto.projectId, businessId: business.id },
+        select: { id: true, accountManagerId: true },
+      });
+      if (!project) throw new NotFoundException('Project not found for this business');
+    }
+
+    // Dependencies may only point at another task for the same business.
+    if (dto.prerequisiteTaskId) {
+      const prerequisite = await this.prisma.affiliateTask.findFirst({
+        where: { id: dto.prerequisiteTaskId, businessId: business.id },
+        select: { id: true, status: true },
+      });
+      if (!prerequisite) {
+        throw new BadRequestException('Prerequisite task must belong to the same business');
+      }
+    }
+
+    const paidMembership = this.isPaidActiveMembership(business);
+    const assigneeIsManager = assignee?.role === Role.ACCOUNT_MANAGER;
+    const explicitCompensation = dto.compensationAmount ?? null;
+
+    // Compensation model defaults follow the payment rules:
+    // - paid CHS membership → Account Manager coordination is included.
+    // - Access Pass / Trial → delegated Account Manager work is chargeable.
+    // - Agents / Consultants → paid per the agreed task rate when supplied.
+    let compensationModel: AffiliateCompensationModel =
+      dto.compensationModel ??
+      (assigneeIsManager && paidMembership
+        ? AffiliateCompensationModel.MEMBERSHIP_INCLUDED
+        : explicitCompensation != null
+          ? AffiliateCompensationModel.FIXED
+          : AffiliateCompensationModel.NONE);
+
+    // Never let a paid-membership Account Manager task create a business charge
+    // purely for coordination.
+    // Paid CHS memberships cover Account Manager coordination. Access Pass /
+    // Trial businesses pay for delegated work, so a quoted compensation amount
+    // becomes a separate charge that must be approved before work begins.
+    const billableToBusiness =
+      dto.billableToBusiness ?? (!paidMembership && explicitCompensation != null);
+
+    const businessChargeAmount =
+      dto.businessChargeAmount ?? (billableToBusiness ? explicitCompensation ?? 0 : null);
+    const businessChargeStatus: AffiliateChargeStatus = billableToBusiness
+      ? AffiliateChargeStatus.PENDING_APPROVAL
+      : AffiliateChargeStatus.NOT_APPLICABLE;
+
+    if (compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED) {
+      compensationModel = AffiliateCompensationModel.MEMBERSHIP_INCLUDED;
+    }
+
+    const compensationAmount =
+      compensationModel === AffiliateCompensationModel.NONE ||
+      compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED
+        ? null
+        : explicitCompensation;
+
+    const paymentStatus: AffiliatePaymentStatus =
+      compensationAmount != null && compensationAmount > 0
+        ? AffiliatePaymentStatus.PENDING
+        : AffiliatePaymentStatus.NOT_APPLICABLE;
+
     const task = await this.prisma.affiliateTask.create({
       data: {
         businessId: business.id,
@@ -201,9 +285,28 @@ export class AffiliateTaskService {
         source: taskDefinitionId ? AffiliateTaskSource.PROGRAMME : AffiliateTaskSource.MANUAL,
         taskDefinitionId,
         sourceAssignmentId: assignmentTaskId,
+        projectId: dto.projectId ?? null,
+        category:
+          dto.category ??
+          (validatedPlatforms.length > 0 && !dto.requiredSkills?.length
+            ? AffiliateTaskCategory.INTERNAL
+            : AffiliateTaskCategory.EXTERNAL),
         title: dto.title.trim(),
         description: dto.description.trim(),
         platforms: validatedPlatforms,
+        requiredSkills: dto.requiredSkills ?? [],
+        deliverables: dto.deliverables?.trim() || null,
+        materials: dto.materials?.trim() || null,
+        prerequisiteTaskId: dto.prerequisiteTaskId ?? null,
+        requiresBusinessApproval: dto.requiresBusinessApproval ?? false,
+        compensationModel,
+        compensationAmount,
+        compensationCurrency: dto.compensationCurrency ?? 'GBP',
+        billableToBusiness,
+        businessChargeAmount,
+        businessChargeCurrency: dto.businessChargeCurrency ?? 'GBP',
+        businessChargeStatus,
+        paymentStatus,
         status: assignee ? AffiliateTaskStatus.ASSIGNED : AffiliateTaskStatus.PENDING_ASSIGNMENT,
         assigneeId: assignee?.id ?? null,
         assigneeRole: assignee?.role ?? null,
@@ -216,12 +319,1120 @@ export class AffiliateTaskService {
       },
     });
 
+    await this.recordEvent(task.id, {
+      actorUserId: userId,
+      actorRole: 'BUSINESS',
+      type: 'TASK_CREATED',
+      message: `Task created (${task.category.toLowerCase()})`,
+      metadata: {
+        projectId: dto.projectId ?? null,
+        compensationModel,
+        compensationAmount,
+        billableToBusiness,
+        businessChargeAmount,
+      },
+    });
+
+    if (billableToBusiness) {
+      await this.notifyBusinessOfChargeApproval(task.id);
+    }
+
     // Respond immediately — affiliate sync, emails and notifications run on the
     // queue so a slow/unreachable affiliate API never blocks the business.
-    await this.enqueueAffiliateJob('delegate-task', task.id);
+    // Dependent tasks wait until their prerequisite is complete.
+    if (!dto.prerequisiteTaskId) {
+      await this.enqueueAffiliateJob('delegate-task', task.id);
+    } else {
+      await this.delegateIfPrerequisiteComplete(task.id);
+    }
 
     // Keep the push-from-programme link explicit in the response envelope.
     return { ...(await this.getTaskForBusiness(business.id, task.id)), pushedFromAssignment: assignmentTaskId };
+  }
+
+  // ─────────────────────── Service requests & projects ────────────────────
+
+  /** Business submits a request describing the outcome it wants. */
+  async createServiceRequest(
+    userId: string,
+    businessId: string | null,
+    dto: CreateAffiliateServiceRequestDto,
+  ) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    if (!business.accountManagerId && this.isPaidActiveMembership(business)) {
+      try {
+        const assigned = await this.accountManagers.assignForBusiness(business.id, {
+          notify: false,
+        });
+        if (assigned) business.accountManagerId = assigned.userId;
+      } catch (error: any) {
+        this.logger.warn(`Auto-assign for service request failed: ${error?.message}`);
+      }
+    }
+
+    const request = await this.prisma.affiliateServiceRequest.create({
+      data: {
+        businessId: business.id,
+        requestedByUserId: userId,
+        accountManagerId: business.accountManagerId,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        desiredOutcome: dto.desiredOutcome?.trim() || null,
+        urgency: dto.urgency ?? 'NORMAL',
+      },
+    });
+
+    if (business.accountManagerId) {
+      await this.notifyManagerOfRequest(request.id, business.accountManagerId);
+    } else {
+      await this.notifyAdminsForServiceRequest(request.id);
+    }
+    return request;
+  }
+
+  async listBusinessServiceRequests(businessId: string, query: AffiliateTaskQueryDto) {
+    const where: Prisma.AffiliateServiceRequestWhereInput = { businessId };
+    if (query.status) where.status = query.status as AffiliateServiceRequestStatus;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    return this.paginateRequests(where, query);
+  }
+
+  async getBusinessServiceRequest(businessId: string, id: string) {
+    const request = await this.prisma.affiliateServiceRequest.findFirst({
+      where: { id, businessId },
+      include: {
+        project: { include: { tasks: { orderBy: { createdAt: 'desc' } } } },
+        accountManager: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!request) throw new NotFoundException('Service request not found');
+    return request;
+  }
+
+  /** Business accepts the quoted/estimated price before chargeable work starts. */
+  async approveServiceRequestPrice(
+    userId: string,
+    businessId: string | null,
+    requestId: string,
+    dto: ApproveServiceRequestDto,
+  ) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    const request = await this.prisma.affiliateServiceRequest.findFirst({
+      where: { id: requestId, businessId: business.id },
+    });
+    if (!request) throw new NotFoundException('Service request not found');
+    if (
+      request.status === AffiliateServiceRequestStatus.COMPLETED ||
+      request.status === AffiliateServiceRequestStatus.REJECTED
+    ) {
+      throw new BadRequestException('This request is already closed');
+    }
+
+    return this.prisma.affiliateServiceRequest.update({
+      where: { id: request.id },
+      data: {
+        estimatedCost: dto.estimatedCost ?? request.estimatedCost,
+        currency: dto.currency ?? request.currency,
+        priceApprovedAt: new Date(),
+        priceApprovedByUserId: userId,
+        status:
+          request.status === AffiliateServiceRequestStatus.SUBMITTED
+            ? AffiliateServiceRequestStatus.APPROVED
+            : request.status,
+        approvedAt: request.approvedAt ?? new Date(),
+      },
+    });
+  }
+
+  /**
+   * Account Manager records the price for chargeable (Access Pass / Trial)
+   * work. The business must then approve it before tasks can start.
+   */
+  async quoteServiceRequest(
+    actorUserId: string,
+    requestId: string,
+    dto: ApproveServiceRequestDto,
+    opts: { asAdmin?: boolean } = {},
+  ) {
+    const request = await this.prisma.affiliateServiceRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('Service request not found');
+    if (!opts.asAdmin) this.assertManager(request.accountManagerId, actorUserId);
+    if (dto.estimatedCost == null) {
+      throw new BadRequestException('estimatedCost is required');
+    }
+
+    const updated = await this.prisma.affiliateServiceRequest.update({
+      where: { id: requestId },
+      data: {
+        estimatedCost: dto.estimatedCost,
+        currency: dto.currency ?? request.currency,
+        status:
+          request.status === AffiliateServiceRequestStatus.CLARIFICATION_REQUIRED
+            ? AffiliateServiceRequestStatus.SUBMITTED
+            : request.status,
+      },
+    });
+    await this.notificationForBusiness(request.businessId, request.requestedByUserId, {
+      title: 'Quote ready for your approval',
+      message: `"${request.title}": ${updated.currency} ${updated.estimatedCost}. Approve the quote before chargeable work begins.`,
+      data: { requestId, type: 'service_quote' },
+    });
+    return updated;
+  }
+
+  /** Account Manager asks the business for missing information. */
+  async clarifyServiceRequest(
+    actorUserId: string,
+    requestId: string,
+    note: string,
+    opts: { asAdmin?: boolean } = {},
+  ) {
+    const request = await this.prisma.affiliateServiceRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('Service request not found');
+    if (!opts.asAdmin) this.assertManager(request.accountManagerId, actorUserId);
+
+    const updated = await this.prisma.affiliateServiceRequest.update({
+      where: { id: requestId },
+      data: {
+        status: AffiliateServiceRequestStatus.CLARIFICATION_REQUIRED,
+        clarificationNote: note,
+      },
+    });
+    await this.notificationForBusiness(request.businessId, request.requestedByUserId, {
+      title: 'More information needed',
+      message: note,
+      data: { requestId, type: 'service_request' },
+    });
+    return updated;
+  }
+
+  /** Convert a clarified request into a project (service plan). */
+  async convertServiceRequestToProject(
+    actorUserId: string,
+    requestId: string,
+    dto: CreateAffiliateProjectDto,
+    opts: { asAdmin?: boolean } = {},
+  ) {
+    const request = await this.prisma.affiliateServiceRequest.findUnique({
+      where: { id: requestId },
+      include: { project: true },
+    });
+    if (!request) throw new NotFoundException('Service request not found');
+    if (!opts.asAdmin) this.assertManager(request.accountManagerId, actorUserId);
+    if (request.project) throw new ConflictException('This request already has a project');
+
+    const project = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.affiliateProject.create({
+        data: {
+          businessId: request.businessId,
+          serviceRequestId: request.id,
+          accountManagerId: request.accountManagerId,
+          createdByUserId: actorUserId,
+          title: dto.title.trim(),
+          description: dto.description.trim(),
+          objective: dto.objective?.trim() || request.desiredOutcome || null,
+          dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
+          requiresBusinessApproval: dto.requiresBusinessApproval ?? false,
+        },
+      });
+      await tx.affiliateServiceRequest.update({
+        where: { id: request.id },
+        data: { status: AffiliateServiceRequestStatus.CONVERTED, approvedAt: new Date() },
+      });
+      return created;
+    });
+
+    await this.notificationForBusiness(request.businessId, request.requestedByUserId, {
+      title: 'Your service plan is ready',
+      message: `"${project.title}" has been created from your request. Tasks will be added as work is scoped.`,
+      data: { projectId: project.id, requestId: request.id, type: 'service_project' },
+    });
+    return project;
+  }
+
+  async listProjects(businessId: string, query: AffiliateTaskQueryDto) {
+    const where: Prisma.AffiliateProjectWhereInput = { businessId };
+    if (query.status) where.status = query.status as AffiliateProjectStatus;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const [items, total] = await Promise.all([
+      this.prisma.affiliateProject.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          serviceRequest: true,
+          accountManager: { select: { id: true, email: true, firstName: true, lastName: true } },
+          tasks: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.affiliateProject.count({ where }),
+    ]);
+    return { success: true, data: items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async getProject(businessId: string, id: string) {
+    const project = await this.prisma.affiliateProject.findFirst({
+      where: { id, businessId },
+      include: {
+        serviceRequest: true,
+        accountManager: { select: { id: true, email: true, firstName: true, lastName: true } },
+        tasks: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
+            reviews: { orderBy: { createdAt: 'desc' } },
+            events: { orderBy: { createdAt: 'desc' }, take: 30 },
+          },
+        },
+      },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    return project;
+  }
+
+  async createProject(userId: string, businessId: string | null, dto: CreateAffiliateProjectDto) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    let serviceRequestId = dto.serviceRequestId ?? null;
+    if (serviceRequestId) {
+      const request = await this.prisma.affiliateServiceRequest.findFirst({
+        where: { id: serviceRequestId, businessId: business.id },
+      });
+      if (!request) throw new NotFoundException('Service request not found');
+    }
+    return this.prisma.affiliateProject.create({
+      data: {
+        businessId: business.id,
+        serviceRequestId,
+        accountManagerId: business.accountManagerId,
+        createdByUserId: userId,
+        title: dto.title.trim(),
+        description: dto.description.trim(),
+        objective: dto.objective?.trim() || null,
+        dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
+        requiresBusinessApproval: dto.requiresBusinessApproval ?? false,
+      },
+    });
+  }
+
+  /** Account Manager / business closes the loop on a project. */
+  async closeProject(
+    actorUserId: string,
+    businessId: string,
+    projectId: string,
+    dto: CloseAffiliateProjectDto,
+    opts: { asAdmin?: boolean } = {},
+  ) {
+    const project = await this.prisma.affiliateProject.findFirst({
+      where: { id: projectId, businessId },
+      include: { tasks: { select: { id: true, status: true } } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (!opts.asAdmin) {
+      const business = await this.prisma.businessProfile.findUnique({ where: { id: businessId } });
+      if (business?.accountManagerId !== actorUserId) {
+        // The business owner may also close their own project.
+        const profile = await this.prisma.businessProfile.findUnique({
+          where: { id: businessId },
+          select: { userId: true },
+        });
+        if (profile?.userId !== actorUserId) {
+          throw new ForbiddenException('Only the account manager or business owner can close this project');
+        }
+      }
+    }
+
+    const openTasks = project.tasks.filter(
+      (task) =>
+        task.status !== AffiliateTaskStatus.COMPLETED &&
+        task.status !== AffiliateTaskStatus.CANCELLED,
+    );
+    const updated = await this.prisma.affiliateProject.update({
+      where: { id: project.id },
+      data: {
+        status: AffiliateProjectStatus.COMPLETED,
+        closedAt: new Date(),
+        outcomeSummary: dto.outcomeSummary,
+        followUpRequired: dto.followUpRequired ?? false,
+        followUpNotes: dto.followUpNotes ?? null,
+      },
+    });
+
+    if (project.serviceRequestId) {
+      await this.prisma.affiliateServiceRequest.update({
+        where: { id: project.serviceRequestId },
+        data: {
+          status: AffiliateServiceRequestStatus.COMPLETED,
+          closedAt: new Date(),
+          followUpNotes: dto.followUpNotes ?? null,
+        },
+      });
+    }
+
+    return { project: updated, openTasks: openTasks.length };
+  }
+
+  // ─────────────────────── Admin overview ─────────────────────────────────
+
+  async listAllServiceRequests(query: AffiliateTaskQueryDto) {
+    const where: Prisma.AffiliateServiceRequestWhereInput = {};
+    if (query.status) where.status = query.status as AffiliateServiceRequestStatus;
+    if (query.businessId) where.businessId = query.businessId;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+        { business: { businessName: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+    return this.paginateRequests(where, query);
+  }
+
+  async listAllProjects(query: AffiliateTaskQueryDto) {
+    const where: Prisma.AffiliateProjectWhereInput = {};
+    if (query.status) where.status = query.status as AffiliateProjectStatus;
+    if (query.businessId) where.businessId = query.businessId;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+        { business: { businessName: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const [items, total] = await Promise.all([
+      this.prisma.affiliateProject.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          business: { select: { id: true, businessName: true } },
+          accountManager: { select: { id: true, email: true, firstName: true, lastName: true } },
+          serviceRequest: true,
+          tasks: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+      this.prisma.affiliateProject.count({ where }),
+    ]);
+    return { success: true, data: items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async convertRequestAsAdmin(
+    adminId: string,
+    requestId: string,
+    dto: CreateAffiliateProjectDto,
+  ) {
+    return this.convertServiceRequestToProject(adminId, requestId, dto, { asAdmin: true });
+  }
+
+  async clarifyRequestAsAdmin(adminId: string, requestId: string, note: string) {
+    return this.clarifyServiceRequest(adminId, requestId, note, { asAdmin: true });
+  }
+
+  async quoteRequestAsAdmin(
+    adminId: string,
+    requestId: string,
+    dto: ApproveServiceRequestDto,
+  ) {
+    return this.quoteServiceRequest(adminId, requestId, dto, { asAdmin: true });
+  }
+
+  async closeProjectAsAdmin(adminId: string, projectId: string, dto: CloseAffiliateProjectDto) {
+    const project = await this.prisma.affiliateProject.findUnique({
+      where: { id: projectId },
+      select: { businessId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    return this.closeProject(adminId, project.businessId, projectId, dto, { asAdmin: true });
+  }
+
+  // ─────────────────────── Review & approval workflow ─────────────────────
+
+  /** Account Manager checks the submission before forwarding to the business. */
+  async reviewTaskAsAccountManager(taskId: string, dto: ReviewAffiliateTaskDto, managerId: string) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: { business: { select: { id: true, accountManagerId: true, userId: true } } },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (task.business.accountManagerId !== managerId) {
+      throw new ForbiddenException('You are not the account manager for this business');
+    }
+    if (task.status !== AffiliateTaskStatus.SUBMITTED) {
+      throw new BadRequestException('Only submitted tasks can be reviewed');
+    }
+
+    const round = task.revisionCount + 1;
+    if (dto.decision === AffiliateReviewDecision.CHANGES_REQUESTED) {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const next = await tx.affiliateTask.update({
+          where: { id: taskId },
+          data: {
+            status: AffiliateTaskStatus.REVISION_REQUESTED,
+            revisionCount: { increment: 1 },
+            amReviewedAt: new Date(),
+            amReviewedByUserId: managerId,
+            amReviewNotes: dto.notes ?? null,
+          },
+        });
+        await tx.affiliateTaskReview.create({
+          data: {
+            taskId,
+            round,
+            decision: dto.decision,
+            notes: dto.notes ?? null,
+            reviewerId: managerId,
+            stage: 'ACCOUNT_MANAGER',
+          },
+        });
+        return next;
+      });
+      await this.recordEvent(taskId, {
+        actorUserId: managerId,
+        actorRole: 'ACCOUNT_MANAGER',
+        type: 'AM_CHANGES_REQUESTED',
+        message: dto.notes ?? 'Account Manager requested changes',
+      });
+      await this.enqueueAffiliateJob('push-review', taskId);
+      return this.getTaskForAdmin(taskId);
+    }
+
+    const approved = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.affiliateTask.update({
+        where: { id: taskId },
+        data: {
+          status: task.requiresBusinessApproval
+            ? AffiliateTaskStatus.PENDING_BUSINESS_APPROVAL
+            : AffiliateTaskStatus.COMPLETED,
+          amReviewedAt: new Date(),
+          amReviewedByUserId: managerId,
+          amReviewNotes: dto.notes ?? null,
+          completedAt: task.requiresBusinessApproval ? null : new Date(),
+        },
+      });
+      await tx.affiliateTaskReview.create({
+        data: {
+          taskId,
+          round,
+          decision: AffiliateReviewDecision.APPROVED,
+          notes: dto.notes ?? null,
+          reviewerId: managerId,
+          stage: 'ACCOUNT_MANAGER',
+        },
+      });
+      return next;
+    });
+
+    await this.recordEvent(taskId, {
+      actorUserId: managerId,
+      actorRole: 'ACCOUNT_MANAGER',
+      type: 'AM_APPROVED',
+      message: dto.notes ?? 'Account Manager approved the submission',
+      metadata: { requiresBusinessApproval: task.requiresBusinessApproval },
+    });
+
+    if (task.requiresBusinessApproval) {
+      await this.notificationForBusiness(task.business.id, task.business.userId, {
+        title: 'Your approval is needed',
+        message: `"${task.title}" has been checked by your account manager and is ready for your approval.`,
+        data: { taskId, type: 'task_approval' },
+      });
+      await this.syncStatusToAffiliate(approved);
+      return this.getTaskForAdmin(taskId);
+    }
+
+    await this.finaliseTaskApproval(taskId, {
+      actorUserId: managerId,
+      actorRole: 'ACCOUNT_MANAGER',
+      notes: dto.notes,
+    });
+    return this.getTaskForAdmin(taskId);
+  }
+
+  /** The business owner accepts the delivered outcome. */
+  async reviewTaskAsBusiness(
+    userId: string,
+    businessId: string | null,
+    taskId: string,
+    dto: ReviewBusinessTaskDto,
+  ) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    const task = await this.prisma.affiliateTask.findFirst({
+      where: { id: taskId, businessId: business.id },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+
+    const canReview =
+      task.status === AffiliateTaskStatus.PENDING_BUSINESS_APPROVAL ||
+      (task.status === AffiliateTaskStatus.SUBMITTED && !business.accountManagerId);
+    if (!canReview) {
+      throw new BadRequestException('This task is not awaiting business approval');
+    }
+
+    const round = task.revisionCount + 1;
+    if (dto.decision === AffiliateReviewDecision.CHANGES_REQUESTED) {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const next = await tx.affiliateTask.update({
+          where: { id: taskId },
+          data: {
+            status: AffiliateTaskStatus.REVISION_REQUESTED,
+            revisionCount: { increment: 1 },
+            businessApprovalNotes: dto.notes ?? dto.acceptanceNotes ?? null,
+          },
+        });
+        await tx.affiliateTaskReview.create({
+          data: {
+            taskId,
+            round,
+            decision: dto.decision,
+            notes: dto.notes ?? null,
+            reviewerId: userId,
+            stage: 'BUSINESS',
+          },
+        });
+        return next;
+      });
+      await this.recordEvent(taskId, {
+        actorUserId: userId,
+        actorRole: 'BUSINESS',
+        type: 'BUSINESS_CHANGES_REQUESTED',
+        message: dto.notes ?? 'Business requested changes',
+      });
+      await this.enqueueAffiliateJob('push-review', taskId);
+      return this.getTaskForAdmin(taskId);
+    }
+
+    await this.prisma.affiliateTask.update({
+      where: { id: taskId },
+      data: {
+        businessApprovedAt: new Date(),
+        businessApprovedByUserId: userId,
+        businessApprovalNotes: dto.notes ?? dto.acceptanceNotes ?? null,
+      },
+    });
+    await this.recordEvent(taskId, {
+      actorUserId: userId,
+      actorRole: 'BUSINESS',
+      type: 'BUSINESS_APPROVED',
+      message: dto.notes ?? 'Business approved the delivered outcome',
+    });
+    await this.finaliseTaskApproval(taskId, {
+      actorUserId: userId,
+      actorRole: 'BUSINESS',
+      notes: dto.notes ?? dto.acceptanceNotes,
+    });
+    return this.getTaskForAdmin(taskId);
+  }
+
+  /** Business accepts or declines the separate charge for a task. */
+  async reviewBusinessCharge(
+    userId: string,
+    businessId: string | null,
+    taskId: string,
+    dto: ApproveBusinessChargeDto,
+  ) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    const task = await this.prisma.affiliateTask.findFirst({
+      where: { id: taskId, businessId: business.id },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (!task.billableToBusiness || task.businessChargeAmount == null) {
+      throw new BadRequestException('This task has no business charge to approve');
+    }
+    if (task.businessChargeStatus !== AffiliateChargeStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('This charge has already been decided');
+    }
+
+    if (dto.decision === 'DECLINED') {
+      const cancelled = await this.prisma.affiliateTask.update({
+        where: { id: taskId },
+        data: {
+          businessChargeStatus: AffiliateChargeStatus.DECLINED,
+          status: AffiliateTaskStatus.CANCELLED,
+          businessApprovalNotes: dto.notes ?? 'Business declined the charge',
+        },
+      });
+      await this.recordEvent(taskId, {
+        actorUserId: userId,
+        actorRole: 'BUSINESS',
+        type: 'CHARGE_DECLINED',
+        message: dto.notes ?? 'Business declined the charge; task cancelled',
+      });
+      await this.syncStatusToAffiliate(cancelled);
+      return this.getTaskForAdmin(taskId);
+    }
+
+    const updated = await this.prisma.affiliateTask.update({
+      where: { id: taskId },
+      data: {
+        businessChargeStatus: AffiliateChargeStatus.APPROVED,
+        businessChargeApprovedAt: new Date(),
+        businessChargeApprovedByUserId: userId,
+      },
+    });
+    await this.recordEvent(taskId, {
+      actorUserId: userId,
+      actorRole: 'BUSINESS',
+      type: 'CHARGE_APPROVED',
+      message: dto.notes ?? 'Business approved the charge',
+      metadata: { amount: task.businessChargeAmount, currency: task.businessChargeCurrency },
+    });
+    // Re-sync so the affiliate can now accept the work.
+    await this.enqueueAffiliateJob('delegate-task', taskId);
+    return this.getTaskForAdmin(taskId);
+  }
+
+  async reviewBusinessChargeAsAdmin(
+    adminId: string,
+    taskId: string,
+    dto: ApproveBusinessChargeDto,
+  ) {
+    const task = await this.prisma.affiliateTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
+    if (!task.billableToBusiness || task.businessChargeAmount == null) {
+      throw new BadRequestException('This task has no business charge to approve');
+    }
+
+    if (dto.decision === 'DECLINED') {
+      const cancelled = await this.prisma.affiliateTask.update({
+        where: { id: taskId },
+        data: {
+          businessChargeStatus: AffiliateChargeStatus.DECLINED,
+          status: AffiliateTaskStatus.CANCELLED,
+        },
+      });
+      await this.recordEvent(taskId, {
+        actorUserId: adminId,
+        actorRole: 'ADMIN',
+        type: 'CHARGE_DECLINED',
+        message: dto.notes ?? 'Administrator declined the charge; task cancelled',
+      });
+      await this.syncStatusToAffiliate(cancelled);
+      return this.getTaskForAdmin(taskId);
+    }
+
+    const updated = await this.prisma.affiliateTask.update({
+      where: { id: taskId },
+      data: {
+        businessChargeStatus: AffiliateChargeStatus.APPROVED,
+        businessChargeApprovedAt: new Date(),
+        businessChargeApprovedByUserId: adminId,
+      },
+    });
+    await this.recordEvent(taskId, {
+      actorUserId: adminId,
+      actorRole: 'ADMIN',
+      type: 'CHARGE_APPROVED',
+      message: dto.notes ?? 'Administrator approved the charge',
+    });
+    await this.enqueueAffiliateJob('delegate-task', taskId);
+    return this.getTaskForAdmin(updated.id);
+  }
+
+  /** Shared terminal approval: reputation, payment and dependent tasks. */
+  private async finaliseTaskApproval(
+    taskId: string,
+    input: { actorUserId: string; actorRole: string; notes?: string | null },
+  ): Promise<void> {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: {
+        business: { select: { id: true, businessName: true, userId: true, email: true } },
+        assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!task) return;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.affiliateTask.update({
+        where: { id: taskId },
+        data: {
+          status: AffiliateTaskStatus.COMPLETED,
+          completedAt: new Date(),
+          reputationApplied: true,
+          businessChargeStatus:
+            task.billableToBusiness && task.businessChargeAmount != null
+              ? AffiliateChargeStatus.CHARGED
+              : task.businessChargeStatus,
+        },
+      });
+      if (task.assigneeId && !task.reputationApplied) {
+        await this.reputation.recordTaskCompleted(task.assigneeId, taskId, tx);
+      }
+    });
+
+    await this.recordEvent(taskId, {
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      type: 'TASK_COMPLETED',
+      message: input.notes ?? 'Task approved and completed',
+    });
+
+    // Record the affiliate's payable amount in their 247GBS wallet.
+    await this.recordAffiliateEarnings(taskId);
+
+    // Internal implementation tasks waiting on this one can now start.
+    await this.delegateDependentTasks(taskId);
+
+    await this.enqueueAffiliateJob('push-review', taskId);
+  }
+
+  private async recordAffiliateEarnings(taskId: string): Promise<void> {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: {
+        business: { select: { businessName: true } },
+        assignee: { select: { email: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!task || task.paymentStatus === AffiliatePaymentStatus.PAID) return;
+    const amount = Number(task.compensationAmount ?? 0);
+    if (!task.assignee?.email || !Number.isFinite(amount) || amount <= 0) {
+      if (task.compensationAmount != null) {
+        await this.prisma.affiliateTask.update({
+          where: { id: taskId },
+          data: { paymentStatus: AffiliatePaymentStatus.ELIGIBLE },
+        });
+      }
+      return;
+    }
+
+    const result = await this.affiliateClient.creditAffiliateWallet({
+      email: task.assignee.email,
+      amount,
+      currency: task.compensationCurrency,
+      description: `Task payment: ${task.title}`,
+      reference: `affiliate-task:${task.id}`,
+      metadata: {
+        centralTaskId: task.id,
+        businessName: task.business?.businessName ?? null,
+      },
+    });
+
+    if (result.ok) {
+      await this.prisma.affiliateTask.update({
+        where: { id: taskId },
+        data: {
+          paymentStatus: AffiliatePaymentStatus.PAID,
+          paidAt: new Date(),
+          earningsRecordedAt: new Date(),
+          settlementReference: result.reference ?? `affiliate-task:${task.id}`,
+        },
+      });
+      await this.recordEvent(taskId, {
+        type: 'PAYMENT_RECORDED',
+        message: `Affiliate payment of ${amount} ${task.compensationCurrency} recorded`,
+        metadata: { amount, currency: task.compensationCurrency, reference: result.reference },
+      });
+    } else {
+      await this.prisma.affiliateTask.update({
+        where: { id: taskId },
+        data: { paymentStatus: AffiliatePaymentStatus.ELIGIBLE },
+      });
+      await this.recordEvent(taskId, {
+        type: 'PAYMENT_PENDING',
+        message: `Payment could not be recorded automatically: ${result.error ?? 'affiliate unavailable'}`,
+        metadata: { amount, currency: task.compensationCurrency },
+      });
+    }
+
+    if (task.billableToBusiness && task.businessChargeAmount != null) {
+      await this.recordEvent(taskId, {
+        type: 'BUSINESS_CHARGED',
+        message: `Business charge of ${task.businessChargeAmount} ${task.businessChargeCurrency} recorded`,
+        metadata: {
+          amount: task.businessChargeAmount,
+          currency: task.businessChargeCurrency,
+        },
+      });
+    }
+  }
+
+  private async delegateIfPrerequisiteComplete(taskId: string): Promise<void> {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: { prerequisiteTask: { select: { status: true, title: true } } },
+    });
+    if (!task) return;
+    if (task.prerequisiteTask && task.prerequisiteTask.status !== AffiliateTaskStatus.COMPLETED) {
+      await this.recordEvent(taskId, {
+        type: 'WAITING_FOR_PREREQUISITE',
+        message: `Waiting for "${task.prerequisiteTask.title}" to be completed before delegation`,
+      });
+      return;
+    }
+    await this.enqueueAffiliateJob('delegate-task', taskId);
+  }
+
+  private async delegateDependentTasks(prerequisiteTaskId: string): Promise<void> {
+    const dependents = await this.prisma.affiliateTask.findMany({
+      where: {
+        prerequisiteTaskId,
+        status: {
+          in: [
+            AffiliateTaskStatus.PENDING_ASSIGNMENT,
+            AffiliateTaskStatus.ASSIGNED,
+            AffiliateTaskStatus.ACCEPTED,
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    for (const dependent of dependents) {
+      await this.enqueueAffiliateJob('delegate-task', dependent.id);
+    }
+  }
+
+  private async syncStatusToAffiliate(task: {
+    id: string;
+    status: AffiliateTaskStatus;
+  }): Promise<void> {
+    try {
+      await this.affiliateClient.pushStatus(task.id, task.status);
+    } catch (error: any) {
+      this.logger.warn(`Status sync failed for task ${task.id}: ${error?.message}`);
+    }
+  }
+
+  private assertManager(actualManagerId: string | null, actorUserId: string) {
+    if (!actualManagerId || actualManagerId !== actorUserId) {
+      throw new ForbiddenException('You are not the account manager for this request');
+    }
+  }
+
+  private async recordEvent(
+    taskId: string,
+    event: {
+      actorUserId?: string;
+      actorRole?: string;
+      type: string;
+      message?: string;
+      metadata?: Prisma.InputJsonValue;
+    },
+  ) {
+    try {
+      await this.prisma.affiliateTaskEvent.create({
+        data: {
+          taskId,
+          actorUserId: event.actorUserId ?? null,
+          actorRole: event.actorRole ?? null,
+          type: event.type,
+          message: event.message ?? null,
+          metadata: event.metadata,
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`Could not record task event ${event.type}: ${error?.message}`);
+    }
+  }
+
+  private async notificationForBusiness(
+    businessId: string,
+    userId: string,
+    input: { title: string; message: string; data?: Prisma.InputJsonValue },
+  ) {
+    await this.prisma.notification
+      .create({
+        data: {
+          businessId,
+          userId,
+          type: 'affiliate_task',
+          title: input.title,
+          message: input.message,
+          data: input.data,
+        },
+      })
+      .catch((error) => this.logger.warn(`Business notification failed: ${error?.message}`));
+  }
+
+  private async notifyBusinessOfChargeApproval(taskId: string) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: { business: { select: { id: true, userId: true } } },
+    });
+    if (!task) return;
+    await this.notificationForBusiness(task.business.id, task.business.userId, {
+      title: 'Approval needed for chargeable work',
+      message: `"${task.title}" has a charge of ${task.businessChargeAmount} ${task.businessChargeCurrency}. Approve it before the affiliate starts.`,
+      data: { taskId, type: 'charge_approval' },
+    });
+  }
+
+  private async notifyManagerOfRequest(requestId: string, managerId: string) {
+    const request = await this.prisma.affiliateServiceRequest.findUnique({
+      where: { id: requestId },
+      include: { business: { select: { businessName: true } } },
+    });
+    if (!request) return;
+    await this.prisma.notification
+      .create({
+        data: {
+          userId: managerId,
+          type: 'affiliate_task',
+          title: 'New service request',
+          message: `${request.business.businessName}: ${request.title}`,
+          data: { requestId },
+        },
+      })
+      .catch((error) => this.logger.warn(`Manager notification failed: ${error?.message}`));
+  }
+
+  private async notifyAdminsForServiceRequest(requestId: string) {
+    const request = await this.prisma.affiliateServiceRequest.findUnique({
+      where: { id: requestId },
+      include: { business: { select: { businessName: true } } },
+    });
+    if (!request) return;
+    const admins = await this.prisma.user.findMany({
+      where: { role: Role.ADMIN, deletedAt: null },
+      select: { id: true },
+    });
+    await Promise.allSettled(
+      admins.map((admin) =>
+        this.prisma.notification.create({
+          data: {
+            userId: admin.id,
+            type: 'affiliate_task',
+            title: 'Service request awaiting an account manager',
+            message: `${request.business.businessName}: ${request.title}`,
+            data: { requestId },
+          },
+        }),
+      ),
+    );
+  }
+
+  private async paginateRequests(
+    where: Prisma.AffiliateServiceRequestWhereInput,
+    query: AffiliateTaskQueryDto,
+  ) {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const [items, total] = await Promise.all([
+      this.prisma.affiliateServiceRequest.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          business: { select: { id: true, businessName: true, email: true } },
+          accountManager: { select: { id: true, email: true, firstName: true, lastName: true } },
+          project: { select: { id: true, title: true, status: true } },
+        },
+      }),
+      this.prisma.affiliateServiceRequest.count({ where }),
+    ]);
+    return { success: true, data: items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  // ─────────────────────── Account Manager view ───────────────────────────
+
+  async listTasksForManager(managerId: string, query: AffiliateTaskQueryDto) {
+    const businesses = await this.prisma.businessProfile.findMany({
+      where: { accountManagerId: managerId, deletedAt: null },
+      select: { id: true },
+    });
+    const businessIds = businesses.map((business) => business.id);
+    if (!businessIds.length) {
+      return { success: true, data: [], total: 0, page: 1, limit: 20, totalPages: 0 };
+    }
+    const where: Prisma.AffiliateTaskWhereInput = { businessId: { in: businessIds } };
+    if (query.status) where.status = query.status;
+    if (query.projectId) where.projectId = query.projectId;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+        { business: { businessName: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+    return this.paginate(where, query);
+  }
+
+  async getTaskForManager(managerId: string, taskId: string) {
+    const task = await this.loadTask(taskId);
+    if (!task || task.business.accountManagerId !== managerId) {
+      throw new NotFoundException('Task not found for your businesses');
+    }
+    return task;
+  }
+
+  async listRequestsForManager(managerId: string, query: AffiliateTaskQueryDto) {
+    const where: Prisma.AffiliateServiceRequestWhereInput = { accountManagerId: managerId };
+    if (query.status) where.status = query.status as AffiliateServiceRequestStatus;
+    if (query.search) {
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    return this.paginateRequests(where, query);
+  }
+
+  async listProjectsForManager(managerId: string, query: AffiliateTaskQueryDto) {
+    const businesses = await this.prisma.businessProfile.findMany({
+      where: { accountManagerId: managerId, deletedAt: null },
+      select: { id: true },
+    });
+    const businessIds = businesses.map((business) => business.id);
+    const where: Prisma.AffiliateProjectWhereInput = {
+      accountManagerId: managerId,
+      ...(businessIds.length ? { businessId: { in: businessIds } } : {}),
+    };
+    if (query.status) where.status = query.status as AffiliateProjectStatus;
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+    const [items, total] = await Promise.all([
+      this.prisma.affiliateProject.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          business: { select: { id: true, businessName: true } },
+          serviceRequest: true,
+          tasks: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+      this.prisma.affiliateProject.count({ where }),
+    ]);
+    return { success: true, data: items, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async closeProjectForManager(
+    managerId: string,
+    projectId: string,
+    dto: CloseAffiliateProjectDto,
+  ) {
+    const project = await this.prisma.affiliateProject.findFirst({
+      where: { id: projectId, accountManagerId: managerId },
+      select: { businessId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found for your businesses');
+    return this.closeProject(managerId, project.businessId, projectId, dto);
   }
 
   async listBusinessTasks(businessId: string, query: AffiliateTaskQueryDto) {
@@ -235,6 +1446,8 @@ export class AffiliateTaskService {
     if (query.status) where.status = query.status;
     if (query.source) where.source = query.source;
     if (query.platform) where.platforms = { has: query.platform };
+    if (query.category) where.category = query.category;
+    if (query.projectId) where.projectId = query.projectId;
     if (query.search) {
       where.OR = [
         { title: { contains: query.search, mode: 'insensitive' } },
@@ -266,6 +1479,12 @@ export class AffiliateTaskService {
         'Task cancelled by business',
       );
     }
+    await this.recordEvent(id, {
+      actorRole: 'BUSINESS',
+      type: 'TASK_CANCELLED',
+      message: 'Task cancelled by business',
+    });
+    await this.syncStatusToAffiliate(updated);
     return updated;
   }
 
@@ -276,6 +1495,8 @@ export class AffiliateTaskService {
     if (query.status) where.status = query.status;
     if (query.source) where.source = query.source;
     if (query.platform) where.platforms = { has: query.platform };
+    if (query.category) where.category = query.category;
+    if (query.projectId) where.projectId = query.projectId;
     if (query.assigneeId) where.assigneeId = query.assigneeId;
     if (query.unassigned === 'true') where.assigneeId = null;
     if (query.search) {
@@ -294,36 +1515,121 @@ export class AffiliateTaskService {
     return task;
   }
 
-  async assignTask(taskId: string, dto: AssignAffiliateTaskDto, adminId: string) {
-    const task = await this.prisma.affiliateTask.findUnique({ where: { id: taskId } });
+  async assignTask(
+    taskId: string,
+    dto: AssignAffiliateTaskDto,
+    actorId: string,
+    opts: { asAccountManager?: boolean } = {},
+  ) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: { business: { select: { accountManagerId: true } } },
+    });
     if (!task) throw new NotFoundException('Task not found');
-    if (TERMINAL_STATUSES.includes(task.status)) {
+    if (CLOSED_STATUSES.includes(task.status)) {
       throw new BadRequestException('Task is already closed');
     }
+    if (opts.asAccountManager && task.business.accountManagerId !== actorId) {
+      throw new ForbiddenException('You are not the account manager for this business');
+    }
     const assignee = await this.directory.assertAffiliateUser(dto.assigneeUserId);
+
+    // Pricing can be agreed at assignment time. Keep business charges and
+    // affiliate compensation separate and make the payable amount explicit
+    // before work begins.
+    const compensationAmount =
+      dto.compensationAmount !== undefined ? Number(dto.compensationAmount) : task.compensationAmount;
+    const compensationModel =
+      dto.compensationModel ??
+      (compensationAmount != null
+        ? AffiliateCompensationModel.FIXED
+        : task.compensationModel);
+    const billableToBusiness =
+      dto.billableToBusiness ?? task.billableToBusiness;
+    const businessChargeAmount =
+      dto.businessChargeAmount !== undefined
+        ? Number(dto.businessChargeAmount)
+        : billableToBusiness && compensationAmount != null
+          ? task.businessChargeAmount ?? compensationAmount
+          : task.businessChargeAmount;
+    const businessChargeStatus =
+      billableToBusiness && businessChargeAmount != null
+        ? task.businessChargeApprovedAt
+          ? AffiliateChargeStatus.APPROVED
+          : AffiliateChargeStatus.PENDING_APPROVAL
+        : task.businessChargeStatus;
+    const paymentStatus =
+      compensationAmount != null && compensationAmount > 0
+        ? task.paymentStatus === AffiliatePaymentStatus.PAID
+          ? AffiliatePaymentStatus.PAID
+          : AffiliatePaymentStatus.PENDING
+        : AffiliatePaymentStatus.NOT_APPLICABLE;
 
     const updated = await this.prisma.affiliateTask.update({
       where: { id: taskId },
       data: {
         assigneeId: assignee.id,
         assigneeRole: assignee.role,
-        assignedByAdminId: adminId,
+        assignedByAdminId: opts.asAccountManager ? null : actorId,
         status: AffiliateTaskStatus.ASSIGNED,
+        compensationModel,
+        compensationAmount,
+        compensationCurrency: dto.compensationCurrency ?? task.compensationCurrency,
+        billableToBusiness,
+        businessChargeAmount,
+        businessChargeStatus,
+        paymentStatus,
+        ...(dto.requiresBusinessApproval !== undefined
+          ? { requiresBusinessApproval: dto.requiresBusinessApproval }
+          : {}),
+        // A declined assignment returns to the pool for reassignment with a
+        // clean review state.
+        ...(task.status === AffiliateTaskStatus.DECLINED
+          ? {
+              acceptedAt: null,
+              submittedAt: null,
+              amReviewedAt: null,
+              amReviewedByUserId: null,
+              amReviewNotes: null,
+              businessApprovedAt: null,
+              businessApprovedByUserId: null,
+            }
+          : {}),
       },
     });
 
-    await this.enqueueAffiliateJob('delegate-task', taskId);
+    await this.recordEvent(taskId, {
+      actorUserId: actorId,
+      actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'ADMIN',
+      type: task.status === AffiliateTaskStatus.DECLINED ? 'TASK_REASSIGNED' : 'TASK_ASSIGNED',
+      message: `Assigned to ${assignee.email}`,
+      metadata: { assigneeId: assignee.id, previousStatus: task.status },
+    });
+
+    if (
+      billableToBusiness &&
+      businessChargeStatus === AffiliateChargeStatus.PENDING_APPROVAL
+    ) {
+      await this.notifyBusinessOfChargeApproval(taskId);
+    }
+
+    await this.delegateIfPrerequisiteComplete(taskId);
     return this.getTaskForAdmin(updated.id);
   }
 
   /**
-   * Manual admin review. APPROVED closes the task and applies positive
-   * reputation; CHANGES_REQUESTED sends it back for another round.
+   * Admin override review. Approves from either admin-queue state (SUBMITTED)
+   * or after the Account Manager forwarded it (PENDING_BUSINESS_APPROVAL).
+   * APPROVED closes the task and applies positive reputation and payment;
+   * CHANGES_REQUESTED sends it back for another round.
    */
   async reviewTask(taskId: string, dto: ReviewAffiliateTaskDto, adminId: string) {
     const task = await this.prisma.affiliateTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('Task not found');
-    if (task.status !== AffiliateTaskStatus.SUBMITTED) {
+    if (
+      task.status !== AffiliateTaskStatus.SUBMITTED &&
+      task.status !== AffiliateTaskStatus.PENDING_BUSINESS_APPROVAL
+    ) {
       throw new BadRequestException('Only submitted tasks can be reviewed');
     }
     if (!task.assigneeId) {
@@ -333,28 +1639,21 @@ export class AffiliateTaskService {
     const round = task.revisionCount + 1;
 
     if (dto.decision === AffiliateReviewDecision.APPROVED) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.affiliateTask.update({
-          where: { id: taskId },
-          data: {
-            status: AffiliateTaskStatus.COMPLETED,
-            completedAt: new Date(),
-            reputationApplied: true,
-          },
-        });
-        await tx.affiliateTaskReview.create({
-          data: {
-            taskId,
-            round,
-            decision: dto.decision,
-            notes: dto.notes ?? null,
-            reviewerId: adminId,
-          },
-        });
-        await this.reputation.recordTaskCompleted(task.assigneeId!, taskId, tx);
+      await this.prisma.affiliateTaskReview.create({
+        data: {
+          taskId,
+          round,
+          decision: dto.decision,
+          notes: dto.notes ?? null,
+          reviewerId: adminId,
+          stage: 'ADMIN',
+        },
       });
-
-      await this.enqueueAffiliateJob('push-review', taskId);
+      await this.finaliseTaskApproval(taskId, {
+        actorUserId: adminId,
+        actorRole: 'ADMIN',
+        notes: dto.notes,
+      });
       return this.getTaskForAdmin(taskId);
     }
 
@@ -373,13 +1672,20 @@ export class AffiliateTaskService {
           decision: dto.decision,
           notes: dto.notes ?? null,
           reviewerId: adminId,
+          stage: 'ADMIN',
         },
       });
       return next;
     });
 
+    await this.recordEvent(taskId, {
+      actorUserId: adminId,
+      actorRole: 'ADMIN',
+      type: 'ADMIN_CHANGES_REQUESTED',
+      message: dto.notes ?? 'Administrator requested changes',
+    });
     await this.enqueueAffiliateJob('push-review', taskId);
-    return this.getTaskForAdmin(taskId);
+    return this.getTaskForAdmin(updated.id);
   }
 
   async cancelTaskAdmin(taskId: string, _adminId: string, penalise = true) {
@@ -395,11 +1701,13 @@ export class AffiliateTaskService {
     if (penalise && task.assigneeId) {
       await this.reputation.recordTaskFailed(task.assigneeId, task.id, 'Task cancelled by admin');
     }
-    await this.affiliateClient.pushReview(updated, {
-      decision: 'CHANGES_REQUESTED',
-      notes: 'Task cancelled by administrator',
-      round: task.revisionCount + 1,
+    await this.recordEvent(taskId, {
+      actorUserId: _adminId,
+      actorRole: 'ADMIN',
+      type: 'TASK_CANCELLED',
+      message: 'Task cancelled by administrator',
     });
+    await this.syncStatusToAffiliate(updated);
     return updated;
   }
 
@@ -461,8 +1769,8 @@ export class AffiliateTaskService {
     if (!task) throw new NotFoundException('Task not found');
 
     if (payload.reviewAcknowledged) {
-      // Affiliate has seen the admin's requested changes and is working again.
-      return this.prisma.affiliateTask.update({
+      // Affiliate has seen the requested changes and is working again.
+      const acknowledged = await this.prisma.affiliateTask.update({
         where: { id: centralTaskId },
         data: {
           status: AffiliateTaskStatus.IN_PROGRESS,
@@ -475,6 +1783,12 @@ export class AffiliateTaskService {
           },
         },
       });
+      await this.recordEvent(centralTaskId, {
+        actorRole: 'AFFILIATE',
+        type: 'REVIEW_ACKNOWLEDGED',
+        message: 'Affiliate acknowledged the review notes and started revision',
+      });
+      return acknowledged;
     }
 
     const mapped = this.mapAffiliateStatus(payload.status);
@@ -483,12 +1797,22 @@ export class AffiliateTaskService {
       lastSyncError: null,
     };
     if (mapped) data.status = mapped;
+    if (mapped === AffiliateTaskStatus.ACCEPTED) data.acceptedAt = new Date();
     if (payload.affiliateTaskId) data.affiliateTaskId = payload.affiliateTaskId;
     if (payload.submissionData !== undefined) {
       data.submissionData = (payload.submissionData ?? Prisma.JsonNull) as Prisma.InputJsonValue;
     }
 
     const updated = await this.prisma.affiliateTask.update({ where: { id: centralTaskId }, data });
+
+    await this.recordEvent(centralTaskId, {
+      actorRole: 'AFFILIATE',
+      type: `AFFILIATE_${(mapped ?? 'UPDATED').toString()}`,
+      message: `Affiliate reported status: ${payload.status ?? 'updated'}`,
+      metadata: payload.submissionData
+        ? { hasSubmission: true }
+        : undefined,
+    });
 
     // Promote structured attachment metadata into first-class rows so admins
     // can see uploaded photos / documents in the review panel.
@@ -530,8 +1854,10 @@ export class AffiliateTaskService {
       case 'submitted':
       case 'completed':
       case 'approved':
-        // Affiliate submission always stops here until admin confirms.
+        // Affiliate submission always stops here until the review chain confirms.
         return AffiliateTaskStatus.SUBMITTED;
+      case 'pending_business_approval':
+        return AffiliateTaskStatus.PENDING_BUSINESS_APPROVAL;
       case 'revision_requested':
         return AffiliateTaskStatus.REVISION_REQUESTED;
       case 'cancelled':
@@ -701,8 +2027,10 @@ export class AffiliateTaskService {
           business: { select: { id: true, businessName: true, email: true, userId: true } },
           assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
           taskDefinition: { select: { id: true, title: true } },
+          project: { select: { id: true, title: true, status: true } },
+          prerequisiteTask: { select: { id: true, title: true, status: true } },
           reviews: { orderBy: { createdAt: 'desc' }, take: 3 },
-          _count: { select: { attachments: true } },
+          _count: { select: { attachments: true, events: true } },
         },
       }),
       this.prisma.affiliateTask.count({ where }),
@@ -717,8 +2045,11 @@ export class AffiliateTaskService {
         business: { select: { id: true, businessName: true, email: true } },
         assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
         taskDefinition: { select: { id: true, title: true } },
+        project: { select: { id: true, title: true, status: true } },
+        prerequisiteTask: { select: { id: true, title: true, status: true } },
         attachments: true,
         reviews: { orderBy: { createdAt: 'desc' } },
+        events: { orderBy: { createdAt: 'desc' }, take: 50 },
       },
     });
     if (!task) throw new NotFoundException('Task not found');
@@ -729,10 +2060,13 @@ export class AffiliateTaskService {
     return this.prisma.affiliateTask.findUnique({
       where: { id },
       include: {
-        business: { select: { id: true, businessName: true, email: true, userId: true } },
+        business: { select: { id: true, businessName: true, email: true, userId: true, accountManagerId: true } },
         assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
         taskDefinition: { select: { id: true, title: true } },
+        project: { select: { id: true, title: true, status: true } },
+        prerequisiteTask: { select: { id: true, title: true, status: true } },
         attachments: true,
+        events: { orderBy: { createdAt: 'desc' }, take: 100 },
         reviews: {
           orderBy: { createdAt: 'desc' },
           include: { reviewer: { select: { id: true, email: true, firstName: true, lastName: true } } },
@@ -747,6 +2081,8 @@ export class AffiliateTaskService {
       include: {
         business: { select: { businessName: true, email: true } },
         assignee: { select: { email: true, firstName: true, lastName: true } },
+        project: { select: { id: true, title: true } },
+        prerequisiteTask: { select: { id: true, title: true, status: true } },
       },
     });
     if (!task || !task.assignee) return { ok: false, error: 'Task has no assignee' };
@@ -768,9 +2104,28 @@ export class AffiliateTaskService {
   async processDelegationJob(taskId: string): Promise<void> {
     const task = await this.prisma.affiliateTask.findUnique({
       where: { id: taskId },
-      select: { id: true, assigneeId: true },
+      select: {
+        id: true,
+        assigneeId: true,
+        status: true,
+        prerequisiteTaskId: true,
+        prerequisiteTask: { select: { status: true, title: true } },
+      },
     });
     if (!task) return;
+    if (CLOSED_STATUSES.includes(task.status)) return;
+    if (
+      task.prerequisiteTaskId &&
+      task.prerequisiteTask &&
+      task.prerequisiteTask.status !== AffiliateTaskStatus.COMPLETED
+    ) {
+      await this.recordEvent(taskId, {
+        type: 'WAITING_FOR_PREREQUISITE',
+        message: `Waiting for "${task.prerequisiteTask.title}" before delegation`,
+      });
+      await this.notifyBusinessOfDelegation(taskId, { awaitingAssignment: true });
+      return;
+    }
 
     if (!task.assigneeId) {
       await this.notifyAdminsForAssignment(taskId);

@@ -1125,7 +1125,19 @@ export const adminApi = {
     return res.data as ApiResponse<AdminAffiliateTask>
   },
 
-  assignAffiliateTask: async (id: string, data: { assigneeUserId: string; note?: string }) => {
+  assignAffiliateTask: async (
+    id: string,
+    data: {
+      assigneeUserId: string
+      note?: string
+      compensationModel?: string
+      compensationAmount?: number
+      compensationCurrency?: string
+      billableToBusiness?: boolean
+      businessChargeAmount?: number
+      requiresBusinessApproval?: boolean
+    },
+  ) => {
     const res = await apiClient.post(`/admin/affiliate-tasks/${id}/assign`, data)
     return res.data as ApiResponse<AdminAffiliateTask>
   },

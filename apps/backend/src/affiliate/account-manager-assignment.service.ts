@@ -172,6 +172,55 @@ export class AccountManagerAssignmentService {
     return this.getAssignedAccountManager(businessId);
   }
 
+  /**
+   * Businesses currently assigned to an account manager. Used by the
+   * 247GBS affiliate portal dashboard (backend-to-backend).
+   */
+  async listBusinessesForManager(managerUserId: string) {
+    const manager = await this.prisma.user.findFirst({
+      where: { id: managerUserId, deletedAt: null },
+      select: { id: true, role: true, email: true, firstName: true, lastName: true },
+    });
+    if (!manager || manager.role !== Role.ACCOUNT_MANAGER) {
+      throw new NotFoundException('Account manager not found');
+    }
+
+    const businesses = await this.prisma.businessProfile.findMany({
+      where: { accountManagerId: manager.id, deletedAt: null },
+      orderBy: { accountManagerAssignedAt: 'desc' },
+      select: {
+        id: true,
+        businessName: true,
+        businessType: true,
+        email: true,
+        phone: true,
+        postcode: true,
+        address: true,
+        industry: true,
+        category: true,
+        subCategory: true,
+        membershipLevel: true,
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipExpiresAt: true,
+        accountManagerAssignedAt: true,
+        createdAt: true,
+        city: { select: { name: true, region: true, country: true } },
+        localMall: { select: { id: true, name: true } },
+      },
+    });
+
+    return {
+      manager: {
+        userId: manager.id,
+        email: manager.email,
+        name: [manager.firstName, manager.lastName].filter(Boolean).join(' ') || manager.email,
+      },
+      businesses,
+      total: businesses.length,
+    };
+  }
+
   async getAssignedAccountManager(businessId: string): Promise<AssignedAccountManager | null> {
     const business = await this.prisma.businessProfile.findFirst({
       where: { id: businessId, deletedAt: null },

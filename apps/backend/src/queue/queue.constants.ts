@@ -7,6 +7,12 @@ export const TASK_COUPON_QUEUE = 'task-coupon';
 
 export const AFFILIATE_TASK_QUEUE = 'affiliate-task';
 
+export const CHAT_OUTBOX_QUEUE = 'chat-outbox';
+
+export interface ChatOutboxJobData {
+  outboxId: string;
+}
+
 export type AffiliateTaskJobName = 'delegate-task' | 'push-review';
 
 export interface AffiliateTaskJobData {

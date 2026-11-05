@@ -1669,8 +1669,22 @@ export const useAffiliateTaskAdmin = (id?: string) => {
 export const useAssignAffiliateTask = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { assigneeUserId: string; note?: string } }) =>
-      adminApi.assignAffiliateTask(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: {
+        assigneeUserId: string
+        note?: string
+        compensationModel?: string
+        compensationAmount?: number
+        compensationCurrency?: string
+        billableToBusiness?: boolean
+        businessChargeAmount?: number
+        requiresBusinessApproval?: boolean
+      }
+    }) => adminApi.assignAffiliateTask(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] }),
   })
 }

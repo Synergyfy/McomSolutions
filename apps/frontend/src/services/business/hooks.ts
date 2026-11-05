@@ -292,6 +292,8 @@ export const useAffiliateTasks = (params?: {
   source?: string;
   platform?: string;
   search?: string;
+  category?: string;
+  projectId?: string;
 }) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
   return useQuery({
@@ -305,19 +307,124 @@ export const useAffiliateTasks = (params?: {
 export const useCreateAffiliateTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
-      title: string;
-      description: string;
-      platforms?: string[];
-      taskDefinitionId?: string;
-      assignmentId?: string;
-      assigneeUserId?: string;
-      dueAt?: string;
-    }) => businessApi.createAffiliateTask(data),
+    mutationFn: (data: Parameters<typeof businessApi.createAffiliateTask>[0]) =>
+      businessApi.createAffiliateTask(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['account-manager'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+    },
+  });
+};
+
+export const useReviewAffiliateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string; acceptanceNotes?: string };
+    }) => businessApi.reviewAffiliateTask(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+    },
+  });
+};
+
+export const useReviewAffiliateTaskCharge = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { decision: 'APPROVED' | 'DECLINED'; notes?: string };
+    }) => businessApi.reviewAffiliateTaskCharge(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+    },
+  });
+};
+
+// ─── Service requests ─────────────────────────────────────────────────
+export const useServiceRequests = (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['service-requests', params],
+    queryFn: () => businessApi.getServiceRequests(params),
+    enabled: !!token,
+    staleTime: 1000 * 15,
+  });
+};
+
+export const useCreateServiceRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Parameters<typeof businessApi.createServiceRequest>[0]) =>
+      businessApi.createServiceRequest(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] });
+    },
+  });
+};
+
+export const useApproveServiceRequestPrice = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { estimatedCost?: number; currency?: string; notes?: string };
+    }) => businessApi.approveServiceRequestPrice(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] });
+    },
+  });
+};
+
+// ─── Projects ─────────────────────────────────────────────────────────
+export const useAffiliateProjects = (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['affiliate-projects', params],
+    queryFn: () => businessApi.getProjects(params),
+    enabled: !!token,
+    staleTime: 1000 * 15,
+  });
+};
+
+export const useCreateAffiliateProject = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Parameters<typeof businessApi.createProject>[0]) =>
+      businessApi.createProject(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] });
+    },
+  });
+};
+
+export const useCloseAffiliateProject = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { outcomeSummary: string; followUpNotes?: string; followUpRequired?: boolean };
+    }) => businessApi.closeProject(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] });
     },
   });
 };

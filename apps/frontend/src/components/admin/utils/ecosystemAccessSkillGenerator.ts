@@ -757,6 +757,85 @@ async function revalidate(req, res, next) {
 
 ---
 
+## 9b. Real-time messaging (optional)
+
+Central Hub is the single source of truth for conversations and messages. A
+registered app can give its users real-time chat with Central users (businesses,
+agents, account managers, consultants) without storing messages locally.
+
+### 1. Mint a scoped chat session (server-to-server)
+
+\`\`\`http
+POST /api/v1/chat/session
+Authorization: Basic base64(client_id:client_secret)
+Content-Type: application/json
+
+{ "subject_token": "<the user's Central SSO access token>" }
+\`\`\`
+
+Response:
+
+\`\`\`json
+{
+  "accessToken": "…",
+  "expiresIn": 900,
+  "socketToken": "…",
+  "socketExpiresIn": 90,
+  "userId": "…"
+}
+\`\`\`
+
+- \`accessToken\` is **server-side only**. Use it for the REST calls below.
+- \`socketToken\` is short-lived and **single-use**. It is the only token you may
+  hand to the browser.
+- The endpoint requires an active SSO session for that user on your \`client_id\`.
+
+### 2. Connect the browser
+
+\`\`\`ts
+import { io } from 'socket.io-client';
+
+const socket = io('https://<central-host>/chat', {
+  auth: { token: socketToken },   // fetch a fresh token on every (re)connect
+  transports: ['websocket'],
+});
+\`\`\`
+
+Do **not** put the token in the URL. Do **not** store it in localStorage.
+
+### 3. Events
+
+Client → server: \`join_conversation\`, \`leave_conversation\`, \`send_message\`,
+\`mark_read\`, \`typing_start\`, \`typing_stop\`, \`viewing_conversation\`,
+\`watch_presence\`, \`unwatch_presence\`.
+
+Server → client: \`connected\`, \`new_message\`, \`inbox_update\`,
+\`chat_notification\`, \`messages_read\`, \`typing_update\`, \`presence_update\`.
+
+\`send_message\` acknowledges \`{ success, message, clientTempId }\`. Reuse
+\`idempotencyKey\` across retries so a reconnect never duplicates a message.
+
+### 4. REST fallback (server-side \`accessToken\`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | \`/api/v1/chat/conversations\` | List conversations + unread counts |
+| GET | \`/api/v1/chat/conversations/:id/messages\` | Cursor-paginated history |
+| POST | \`/api/v1/chat/conversations/:id/messages\` | Send if the socket is down |
+| POST | \`/api/v1/chat/conversations/:id/read\` | Mark read |
+| POST | \`/api/v1/chat/conversations/direct\` | Start a 1:1 conversation |
+| GET | \`/api/v1/chat/users?q=\` | Directory search |
+
+### 5. Messaging security rules
+
+1. Only \`socketToken\` reaches the browser; \`accessToken\` never leaves your server.
+2. Fetch a fresh socket token on every (re)connect — they are single-use.
+3. Central re-checks conversation membership on join and on every send.
+4. Respect blocking and message-request decisions returned by Central.
+5. Never log tokens or full message bodies.
+
+---
+
 ## 10. Rules the AI agent must follow
 
 1. **Verify server-side only.** Never let the browser decide \`hasAccess\`.
@@ -789,5 +868,6 @@ async function revalidate(req, res, next) {
 - [ ] Revalidate via \`GET /api/v1/auth/sso/entitlement\` before sensitive actions.
 - [ ] Redirect denied users to \`access.upgradeUrl\`.
 - [ ] (Optional) Register a webhook URL and re-introspect on lifecycle events.
+- [ ] (Optional) For real-time messaging, call \`POST /api/v1/chat/session\` server-side and connect the browser with the short-lived \`socketToken\`.
 `;
 }

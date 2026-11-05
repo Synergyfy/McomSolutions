@@ -38,6 +38,8 @@ export interface SsoIdentity {
   phone: string | null;
   address: string | null;
   postcode: string | null;
+  city: string | null;
+  region: string | null;
   country: string | null;
 
   // ── Business convenience fields (null for non-business roles) ──────────────
@@ -92,6 +94,27 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
     clean(customer?.phone) ??
     null;
 
+  // Address details live on whichever role profile owns them. Businesses keep
+  // the richest address, while affiliates store at least a postcode plus the
+  // resolved city hierarchy from the same UK postcode lookup used at signup.
+  const postcode =
+    clean(business?.postcode) ??
+    clean(agent?.postcode) ??
+    clean(consultant?.postcode) ??
+    clean(accountManager?.postcode) ??
+    clean(customer?.postcode) ??
+    null;
+
+  const location = agent?.city ?? consultant?.city ?? accountManager?.city ?? null;
+
+  const country =
+    clean(business?.country) ??
+    clean(location?.country) ??
+    (postcode ? 'United Kingdom' : null);
+
+  const city = clean(location?.name);
+  const region = clean(location?.region);
+
   const profileType = user.role;
 
   return {
@@ -111,8 +134,10 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
 
     phone,
     address: business?.address ?? null,
-    postcode: business?.postcode ?? null,
-    country: business?.country ?? null,
+    postcode,
+    city,
+    region,
+    country,
 
     businessId: business?.id ?? null,
     businessName: business

@@ -15,7 +15,9 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  AffiliateCompensationModel,
   AffiliateReviewDecision,
+  AffiliateTaskCategory,
   AffiliateTaskSource,
   AffiliateTaskStatus,
 } from '@prisma/client';
@@ -65,6 +67,222 @@ export class CreateAffiliateTaskDto {
   @IsOptional()
   @IsDateString()
   dueAt?: string;
+
+  @ApiPropertyOptional({ description: 'Project this task belongs to (groups related tasks).' })
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @ApiPropertyOptional({ enum: AffiliateTaskCategory, description: 'Internal platform task or external professional task.' })
+  @IsOptional()
+  @IsEnum(AffiliateTaskCategory)
+  category?: AffiliateTaskCategory;
+
+  @ApiPropertyOptional({ type: [String], example: ['Design', 'Branding'] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  requiredSkills?: string[];
+
+  @ApiPropertyOptional({ example: 'Two 1080x1080 banners, PNG + source file.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  deliverables?: string;
+
+  @ApiPropertyOptional({ example: 'Logo, brand colours and product photos in the shared drive.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  materials?: string;
+
+  @ApiPropertyOptional({ description: 'Another task that must be approved before this one can start.' })
+  @IsOptional()
+  @IsString()
+  prerequisiteTaskId?: string;
+
+  @ApiPropertyOptional({ description: 'The business owner must approve the submitted outcome.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  requiresBusinessApproval?: boolean;
+
+  @ApiPropertyOptional({ enum: AffiliateCompensationModel, description: 'How the assigned affiliate is compensated.' })
+  @IsOptional()
+  @IsEnum(AffiliateCompensationModel)
+  compensationModel?: AffiliateCompensationModel;
+
+  @ApiPropertyOptional({ example: 75 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  compensationAmount?: number;
+
+  @ApiPropertyOptional({ example: 'GBP' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  compensationCurrency?: string;
+
+  @ApiPropertyOptional({ description: 'Charge the business separately for this task.' })
+  @IsOptional()
+  @Type(() => Boolean)
+  billableToBusiness?: boolean;
+
+  @ApiPropertyOptional({ example: 120 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  businessChargeAmount?: number;
+
+  @ApiPropertyOptional({ example: 'GBP' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  businessChargeCurrency?: string;
+}
+
+export class CreateAffiliateServiceRequestDto {
+  @ApiProperty({ example: 'Promote my new product collection' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(3)
+  @MaxLength(180)
+  title: string;
+
+  @ApiProperty({ example: 'We launch next month and need the collection live on MCOM Mall with a banner.' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(5)
+  @MaxLength(5000)
+  description: string;
+
+  @ApiPropertyOptional({ example: 'Customers can find and buy the new collection from launch day.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3000)
+  desiredOutcome?: string;
+
+  @ApiPropertyOptional({ enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'] })
+  @IsOptional()
+  @IsEnum(['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const)
+  urgency?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+}
+
+export class ClarifyServiceRequestDto {
+  @ApiProperty({ example: 'Please confirm the product count and whether you supply photography.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(3000)
+  note: string;
+}
+
+export class ApproveServiceRequestDto {
+  @ApiPropertyOptional({ example: 150, description: 'Quoted/estimated cost shown to the business.' })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  estimatedCost?: number;
+
+  @ApiPropertyOptional({ example: 'GBP' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  currency?: string;
+
+  @ApiPropertyOptional({ example: 'Includes design and publication.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+export class CreateAffiliateProjectDto {
+  @ApiProperty({ example: 'New Product Collection Launch' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(3)
+  @MaxLength(180)
+  title: string;
+
+  @ApiProperty({ example: 'Design, upload and publish the spring collection.' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(5)
+  @MaxLength(5000)
+  description: string;
+
+  @ApiPropertyOptional({ example: 'The collection is live and visible on MCOM Mall.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(3000)
+  objective?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  serviceRequestId?: string;
+
+  @ApiPropertyOptional({ example: '2026-12-15T17:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  dueAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  requiresBusinessApproval?: boolean;
+}
+
+export class CloseAffiliateProjectDto {
+  @ApiProperty({ example: 'Collection launched on 12 December; business confirmed sales started.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  outcomeSummary: string;
+
+  @ApiPropertyOptional({ example: 'Follow up in January about the second batch of photos.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  followUpNotes?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  followUpRequired?: boolean;
+}
+
+export class ApproveBusinessChargeDto {
+  @ApiProperty({ enum: ['APPROVED', 'DECLINED'] })
+  @IsEnum(['APPROVED', 'DECLINED'] as const)
+  decision: 'APPROVED' | 'DECLINED';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
+}
+
+export class ReviewAffiliateTaskDto {
+  @ApiProperty({ enum: AffiliateReviewDecision })
+  @IsEnum(AffiliateReviewDecision)
+  decision: AffiliateReviewDecision;
+
+  @ApiPropertyOptional({ example: 'Great work — just re-upload the delivery-zone screenshot.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  notes?: string;
+}
+
+export class ReviewBusinessTaskDto extends ReviewAffiliateTaskDto {
+  @ApiPropertyOptional({ description: 'Business acceptance notes.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  acceptanceNotes?: string;
 }
 
 export class AffiliateTaskQueryDto {
@@ -112,6 +330,21 @@ export class AffiliateTaskQueryDto {
   @IsOptional()
   @IsString()
   unassigned?: string;
+
+  @ApiPropertyOptional({ description: 'Admin/account manager: filter by business id.' })
+  @IsOptional()
+  @IsString()
+  businessId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter tasks by project.' })
+  @IsOptional()
+  @IsString()
+  projectId?: string;
+
+  @ApiPropertyOptional({ enum: AffiliateTaskCategory })
+  @IsOptional()
+  @IsEnum(AffiliateTaskCategory)
+  category?: AffiliateTaskCategory;
 }
 
 export class AssignAffiliateTaskDto {
@@ -125,18 +358,39 @@ export class AssignAffiliateTaskDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
-}
 
-export class ReviewAffiliateTaskDto {
-  @ApiProperty({ enum: AffiliateReviewDecision })
-  @IsEnum(AffiliateReviewDecision)
-  decision: AffiliateReviewDecision;
+  @ApiPropertyOptional({ enum: AffiliateCompensationModel })
+  @IsOptional()
+  @IsEnum(AffiliateCompensationModel)
+  compensationModel?: AffiliateCompensationModel;
 
-  @ApiPropertyOptional({ example: 'Great work — just re-upload the delivery-zone screenshot.' })
+  @ApiPropertyOptional({ example: 75 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  compensationAmount?: number;
+
+  @ApiPropertyOptional({ example: 'GBP' })
   @IsOptional()
   @IsString()
-  @MaxLength(5000)
-  notes?: string;
+  @MaxLength(3)
+  compensationCurrency?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  billableToBusiness?: boolean;
+
+  @ApiPropertyOptional({ example: 120 })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  businessChargeAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  requiresBusinessApproval?: boolean;
 }
 
 export class RateAffiliateDto {
@@ -213,6 +467,11 @@ export class NearbyAffiliatesQueryDto {
   @Min(1)
   @Max(50)
   limit?: number = 20;
+
+  @ApiPropertyOptional({ description: 'Only return affiliates currently marked available.' })
+  @IsOptional()
+  @IsString()
+  availableOnly?: string;
 }
 
 export class AffiliateTaskStatusCallbackDto {
