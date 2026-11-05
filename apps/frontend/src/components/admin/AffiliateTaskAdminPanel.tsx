@@ -82,6 +82,10 @@ export default function AffiliateTaskAdminPanel() {
 
   const tasksRes = useAffiliateTasksAdmin(query);
   const tasks: AdminAffiliateTask[] = tasksRes.data?.data ?? [];
+  // Separate lightweight query so the review shortcut reflects the whole
+  // submission queue, not just the current filter/search.
+  const submittedQueue = useAffiliateTasksAdmin({ status: 'SUBMITTED', limit: 1 });
+  const submittedCount = submittedQueue.data?.total ?? 0;
   const reportsRes = useAffiliateReports({ limit: 50 });
   const reports: AdminAffiliateReport[] = reportsRes.data?.data ?? [];
 
@@ -169,6 +173,29 @@ export default function AffiliateTaskAdminPanel() {
           Assign missing managers
         </button>
       </div>
+
+      {submittedCount > 0 && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-black text-violet-900">
+              {submittedCount} task{submittedCount === 1 ? '' : 's'} awaiting admin review
+            </p>
+            <p className="text-xs font-medium text-violet-800">
+              Affiliate submissions appear here after the Account Manager check. Approving marks the task
+              complete, applies reputation and records payment where applicable.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setTab('tasks');
+              setStatus('SUBMITTED');
+            }}
+            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 text-xs font-bold text-white hover:bg-violet-800"
+          >
+            <CheckCircle2 className="h-4 w-4" /> Open review queue
+          </button>
+        </div>
+      )}
 
       {backfillMessage && (
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800 flex items-start justify-between gap-3">
