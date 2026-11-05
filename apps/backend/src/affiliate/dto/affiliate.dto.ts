@@ -166,6 +166,15 @@ export class CreateAffiliateTaskDto {
   platformFeePercent?: number;
 }
 
+export class AdminCreateAffiliateTaskDto extends CreateAffiliateTaskDto {
+  @ApiProperty({
+    description: 'Business profile id the task is being created on behalf of (admin only).',
+  })
+  @IsString()
+  @IsNotEmpty()
+  businessId: string;
+}
+
 export class CreateAffiliateServiceRequestDto {
   @ApiProperty({ example: 'Promote my new product collection' })
   @IsString()

@@ -166,6 +166,23 @@ model BusinessProfile {
   accountManagerId         String?                   @map("account_manager_id")
   accountManager           User?                     @relation("BusinessAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
   accountManagerAssignedAt DateTime?                 @map("account_manager_assigned_at")
+  // ── Business acquisition & attribution (247GBS Affiliates) ──
+  // These fields are intentionally separate from accountManagerId: the
+  // affiliate who introduced a business and the manager who runs the
+  // relationship are distinct roles and may be different people.
+  acquiredByAffiliateId         String?                          @map("acquired_by_affiliate_id")
+  acquiredByAffiliateExternalId String?                          @map("acquired_by_affiliate_external_id")
+  acquiredByAffiliateName       String?                          @map("acquired_by_affiliate_name")
+  acquiredByAffiliateRole       String?                          @map("acquired_by_affiliate_role")
+  onboardedByAffiliateId        String?                          @map("onboarded_by_affiliate_id")
+  acquisitionSource             String?                          @default("direct") @map("acquisition_source")
+  acquisitionInvitationId       String?                          @map("acquisition_invitation_id")
+  acquisitionStatus             AffiliateBusinessAcquisitionStatus? @map("acquisition_status")
+  acquisitionAttributedAt       DateTime?                        @map("acquisition_attributed_at")
+  acquisitionVerifiedAt         DateTime?                        @map("acquisition_verified_at")
+  acquisitionVerifiedByUserId   String?                          @map("acquisition_verified_by_user_id")
+  relationshipHistory           BusinessRelationshipHistory[]
+  affiliateInvitations          AffiliateBusinessInvitation[]
   packages                 PlatformPackage[]
   transactions             BillingTransaction[]
   notifications            Notification[]
@@ -187,6 +204,9 @@ model BusinessProfile {
   @@index([localMallId])
   @@index([membershipStatus])
   @@index([accountManagerId])
+  @@index([acquiredByAffiliateId])
+  @@index([acquiredByAffiliateExternalId])
+  @@index([acquisitionStatus])
   @@index([cityId])
   @@index([boroughId])
   @@index([highStreetId])
@@ -3152,4 +3172,127 @@ model AffiliateReport {
   @@index([affiliateUserId])
   @@index([status])
   @@map("affiliate_reports")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Business acquisition & attribution (247GBS Affiliates)
+//
+// A business can have three independent relationships with the affiliate
+// network at the same time: who introduced it (acquisition), who manages the
+// relationship (account manager), and who performs specialist work (tasks).
+// These models keep the acquisition trail separate from management and work.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum AffiliateBusinessAcquisitionStatus {
+  PROSPECT
+  INVITED
+  REGISTERED
+  ONBOARDING_COMPLETED
+  VERIFIED
+  REJECTED
+  CANCELLED
+}
+
+enum BusinessRelationshipType {
+  ACQUISITION
+  ONBOARDING_ASSISTANCE
+  ACCOUNT_MANAGEMENT
+  CONSULTANT_ASSIGNMENT
+  TASK_ASSIGNMENT
+  ATTRIBUTION_CHANGE
+}
+
+/// A tracked invitation created by an affiliate for a specific business
+/// prospect. The token is the only thing the business needs to register and
+/// still be permanently attributed to the affiliate who introduced them.
+model AffiliateBusinessInvitation {
+  id                 String                            @id @default(uuid())
+  token              String                            @unique
+  affiliateUserId    String?                           @map("affiliate_user_id")
+  affiliateExternalId String?                          @map("affiliate_external_id")
+  affiliateName      String                            @map("affiliate_name")
+  affiliateEmail     String                            @map("affiliate_email")
+  affiliateRole      String                            @map("affiliate_role")
+  prospectExternalId String?                           @map("prospect_external_id")
+  businessName       String                            @map("business_name")
+  contactName        String?                           @map("contact_name")
+  businessPhone      String?                           @map("business_phone")
+  businessEmail      String?                           @map("business_email")
+  postcode           String?
+  address            String?
+  category           String?
+  notes              String?                           @db.Text
+  status             AffiliateBusinessAcquisitionStatus @default(INVITED)
+  businessId         String?                           @map("business_id")
+  business           BusinessProfile?                   @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  registeredUserId   String?                           @map("registered_user_id")
+  registeredAt       DateTime?                         @map("registered_at")
+  onboardingCompletedAt DateTime?                      @map("onboarding_completed_at")
+  verifiedAt         DateTime?                         @map("verified_at")
+  verifiedByUserId   String?                           @map("verified_by_user_id")
+  cancelledAt        DateTime?                         @map("cancelled_at")
+  metadata           Json?
+  createdAt          DateTime                          @default(now()) @map("created_at")
+  updatedAt          DateTime                          @updatedAt @map("updated_at")
+
+  @@index([affiliateUserId])
+  @@index([affiliateExternalId])
+  @@index([prospectExternalId])
+  @@index([status])
+  @@index([businessId])
+  @@map("affiliate_business_invitations")
+}
+
+/// A post-registration claim by an affiliate who helped a business register
+/// without using the tracked invitation (e.g. in person). Claims require
+/// verification before they can change the permanent acquisition record.
+model AffiliateBusinessClaim {
+  id                  String   @id @default(uuid())
+  businessId          String?  @map("business_id")
+  businessEmail       String?  @map("business_email")
+  businessName        String?  @map("business_name")
+  affiliateUserId     String?  @map("affiliate_user_id")
+  affiliateExternalId String?  @map("affiliate_external_id")
+  affiliateName       String   @map("affiliate_name")
+  affiliateEmail      String   @map("affiliate_email")
+  affiliateRole       String   @map("affiliate_role")
+  prospectExternalId  String?  @map("prospect_external_id")
+  evidence            String?  @db.Text
+  status              String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedByUserId    String?  @map("reviewed_by_user_id")
+  reviewedAt          DateTime? @map("reviewed_at")
+  reviewNotes         String?  @map("review_notes") @db.Text
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([businessId])
+  @@index([affiliateUserId])
+  @@index([affiliateExternalId])
+  @@map("affiliate_business_claims")
+}
+
+/// Append-only relationship trail. Changing an account manager or a task
+/// assignee never overwrites history — it closes the previous record and
+/// opens a new one.
+model BusinessRelationshipHistory {
+  id                  String                   @id @default(uuid())
+  businessId          String                   @map("business_id")
+  business            BusinessProfile          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  relationshipType    BusinessRelationshipType @map("relationship_type")
+  affiliateUserId     String?                  @map("affiliate_user_id")
+  affiliateExternalId String?                  @map("affiliate_external_id")
+  actorUserId         String?                  @map("actor_user_id")
+  previousValue       String?                  @map("previous_value")
+  newValue            String?                  @map("new_value")
+  metadata            Json?
+  startedAt           DateTime                 @default(now()) @map("started_at")
+  endedAt             DateTime?                @map("ended_at")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+
+  @@index([businessId, relationshipType])
+  @@index([affiliateUserId])
+  @@index([affiliateExternalId])
+  @@map("business_relationship_history")
 }
