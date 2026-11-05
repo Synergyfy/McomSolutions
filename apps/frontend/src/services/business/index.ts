@@ -233,6 +233,11 @@ export const businessApi = {
     return res.data;
   },
 
+  getTaskQuota: async () => {
+    const res = await apiClient.get('/business/affiliate/task-quota');
+    return res.data;
+  },
+
   getNearbyAffiliates: async (params?: {
     role?: string;
     page?: number;
@@ -506,6 +511,19 @@ export interface AffiliateProjectRecord {
   createdAt: string;
 }
 
+export interface AffiliateDelegationQuota {
+  source: 'MEMBERSHIP' | 'ACCESS_PASS' | 'NONE';
+  planId: string | null;
+  planName: string | null;
+  freeLimit: number;
+  unlimited: boolean;
+  used: number;
+  remaining: number | null;
+  isFree: boolean;
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
 export interface AffiliateTaskRecord {
   id: string;
   businessId: string;
@@ -548,6 +566,20 @@ export interface AffiliateTaskRecord {
   paymentStatus?: AffiliatePaymentStatus;
   paidAt?: string | null;
   settlementReference?: string | null;
+  freeDelegation?: boolean | null;
+  delegationQuotaSource?: string | null;
+  delegationQuotaLimit?: number | null;
+  delegationQuotaUsed?: number | null;
+  delegationQuotaUnlimited?: boolean | null;
+  delegationQuotaPeriodStart?: string | null;
+  settlement?: {
+    status: string;
+    businessChargeCredits?: string | number | null;
+    affiliatePayoutCredits?: string | number | null;
+    platformFeeCredits?: string | number | null;
+    holdExpiresAt?: string | null;
+    failureReason?: string | null;
+  } | null;
   followUpRequired?: boolean;
   followUpNotes?: string | null;
   events?: Array<{

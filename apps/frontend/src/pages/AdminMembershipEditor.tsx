@@ -152,6 +152,9 @@ export default function AdminMembershipEditor() {
   const [includedApps, setIncludedApps] = useState<IncludedAppPlan[]>([]);
   const [selectedBundlePlatform, setSelectedBundlePlatform] = useState('');
   const [selectedBundlePlanId, setSelectedBundlePlanId] = useState('');
+  // Free delegated affiliate tasks included in the plan.
+  const [freeDelegatedTasks, setFreeDelegatedTasks] = useState(0);
+  const [unlimitedFreeDelegatedTasks, setUnlimitedFreeDelegatedTasks] = useState(true);
 
   // ── Bundles data ──
   const { data: platformsRes } = useSupportedPlatforms();
@@ -225,6 +228,8 @@ export default function AdminMembershipEditor() {
       setPreservedEntitlements(src.tierEntitlements as TierEntitlementResource[]);
     }
     setIncludedApps(src.includedApps || []);
+    setFreeDelegatedTasks(Number((src as any).freeDelegatedTasks ?? 0));
+    setUnlimitedFreeDelegatedTasks(Boolean((src as any).unlimitedFreeDelegatedTasks));
   }, [isNew, planId, plansLoading, editingPlan]);
 
   const unknownPlan = !isNew && !plansLoading && planId && !editingPlan;
@@ -320,6 +325,8 @@ export default function AdminMembershipEditor() {
       platformAccess,
       permissions: ['Basic Dashboard', 'Standard Dashboard'],
       usageLimits: {},
+      freeDelegatedTasks: unlimitedFreeDelegatedTasks ? 0 : Math.max(0, Math.round(freeDelegatedTasks || 0)),
+      unlimitedFreeDelegatedTasks,
       includedApps,
       tierPrices: { ...tierPrices },
       tierFeatures: { ...tierFeatures },
@@ -569,6 +576,49 @@ export default function AdminMembershipEditor() {
                   />
                 </section>
               ))}
+
+              <section className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 sm:p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-extrabold text-gray-900">Free delegated tasks</h3>
+                  <p className="mt-1 text-xs text-gray-600">
+                    How many affiliate-delegated tasks are included in this membership before the
+                    business starts paying per task.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <label htmlFor="free-delegated-tasks" className={labelClass}>
+                      Included free tasks
+                    </label>
+                    <input
+                      id="free-delegated-tasks"
+                      type="number"
+                      min={0}
+                      step={1}
+                      disabled={unlimitedFreeDelegatedTasks}
+                      value={unlimitedFreeDelegatedTasks ? '' : freeDelegatedTasks}
+                      onChange={(e) => setFreeDelegatedTasks(Math.max(0, Number(e.target.value) || 0))}
+                      placeholder="0"
+                      className={cn(inputClass, 'text-xl font-black', unlimitedFreeDelegatedTasks && 'opacity-50')}
+                    />
+                  </div>
+                  <label className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={unlimitedFreeDelegatedTasks}
+                      onChange={(e) => setUnlimitedFreeDelegatedTasks(e.target.checked)}
+                    />
+                    Unlimited free tasks
+                  </label>
+                </div>
+                <p className="text-[11px] font-medium text-gray-500">
+                  {unlimitedFreeDelegatedTasks
+                    ? 'This membership never charges the business wallet for delegated tasks.'
+                    : freeDelegatedTasks > 0
+                      ? `The first ${freeDelegatedTasks} delegated task${freeDelegatedTasks === 1 ? '' : 's'} are free; further tasks are charged at the price set when the admin assigns them.`
+                      : 'Every delegated task is chargeable.'}
+                </p>
+              </section>
             </>
           )}
 

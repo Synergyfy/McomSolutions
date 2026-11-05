@@ -193,6 +193,8 @@ export interface MembershipPlan {
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
@@ -226,6 +228,8 @@ export interface AccessPlan {
   durationDays: number
   platformAccess: string[]
   features: string[]
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   whoItIsFor?: string | null
   badge?: string | null
   color?: string | null
@@ -559,6 +563,8 @@ export interface CreatePlanInput {
   platformAccess: string[]
   usageLimits: Record<string, number>
   permissions: string[]
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
@@ -593,6 +599,8 @@ export interface CreateAccessPlanInput {
   badge?: string
   color?: string
   features?: string[]
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   includedApps: AccessIncludedAppPlan[]
 }
 
@@ -1325,6 +1333,12 @@ export interface AdminAffiliateTask {
   businessChargeStatus?: string
   paymentStatus?: string
   paidAt?: string | null
+  freeDelegation?: boolean | null
+  delegationQuotaSource?: string | null
+  delegationQuotaLimit?: number | null
+  delegationQuotaUsed?: number | null
+  delegationQuotaUnlimited?: boolean | null
+  delegationQuotaPeriodStart?: string | null
   followUpRequired?: boolean
   followUpNotes?: string | null
   assigneeId: string | null
@@ -1337,6 +1351,7 @@ export interface AdminAffiliateTask {
   } | null
   business?: { id: string; businessName: string; email: string; userId?: string }
   taskDefinition?: { id: string; title: string } | null
+  settlement?: AdminAffiliateSettlement | null
   dueAt: string | null
   submissionData: Record<string, unknown> | null
   revisionCount: number
@@ -1370,6 +1385,91 @@ export interface AdminAffiliateTaskQuery {
   search?: string
   assigneeId?: string
   unassigned?: string
+}
+
+export type AdminAffiliateSettlementStatus =
+  | 'NOT_REQUIRED'
+  | 'PENDING_HOLD'
+  | 'HELD'
+  | 'SETTLING'
+  | 'SETTLED'
+  | 'RELEASED'
+  | 'FAILED'
+
+export type AdminAffiliateSettlementFunding = 'BUSINESS_WALLET' | 'PLATFORM'
+
+export interface AdminAffiliateSettlement {
+  id: string
+  taskId: string
+  businessId: string
+  businessUserId: string
+  affiliateUserId: string | null
+  affiliateEmail: string | null
+  currency: string
+  fxBase: string
+  fxQuote: string
+  fxRate: string | number
+  businessChargeAmount: string | number | null
+  businessChargeCredits: string | number | null
+  compensationAmount: string | number | null
+  compensationCredits: string | number | null
+  platformFeePercent: string | number
+  platformFeeCredits: string | number
+  platformMarginCredits: string | number
+  affiliatePayoutCredits: string | number
+  fundingSource: AdminAffiliateSettlementFunding
+  status: AdminAffiliateSettlementStatus
+  holdId: string | null
+  holdExpiresAt: string | null
+  businessTransactionId: string | null
+  affiliateTransactionId: string | null
+  settlementReference: string | null
+  failureReason: string | null
+  heldAt: string | null
+  settledAt: string | null
+  releasedAt: string | null
+  createdAt: string
+  updatedAt: string
+  task?: {
+    id: string
+    title: string
+    status: string
+    business?: { id: string; businessName: string; email: string }
+    assignee?: {
+      id: string
+      email: string
+      firstName: string | null
+      lastName: string | null
+      role: string
+    } | null
+  }
+}
+
+export interface AdminAffiliateSettlementQuery {
+  page?: number
+  limit?: number
+  status?: AdminAffiliateSettlementStatus | ''
+  fundingSource?: AdminAffiliateSettlementFunding | ''
+  businessId?: string
+  affiliateUserId?: string
+  search?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+export interface AffiliateSettlementSummary {
+  held: number
+  heldCount: number
+  settledGross: number
+  settledPayouts: number
+  platformFees: number
+  platformMargin: number
+  platformRetention: number
+  settledCount: number
+  releasedCount: number
+  failedCount: number
+  notRequiredCount: number
+  currency: string
 }
 
 export interface AdminAffiliateReport {

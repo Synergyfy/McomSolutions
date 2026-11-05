@@ -17,6 +17,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   AffiliateCompensationModel,
   AffiliateReviewDecision,
+  AffiliateSettlementFunding,
+  AffiliateSettlementStatus,
   AffiliateTaskCategory,
   AffiliateTaskSource,
   AffiliateTaskStatus,
@@ -140,6 +142,17 @@ export class CreateAffiliateTaskDto {
   @IsString()
   @MaxLength(3)
   businessChargeCurrency?: string;
+
+  @ApiPropertyOptional({
+    example: 10,
+    description:
+      'Platform fee percentage deducted from the business charge. Clamped to the spread so the affiliate payout is never reduced. Defaults to the programme setting.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  @Max(100)
+  platformFeePercent?: number;
 }
 
 export class CreateAffiliateServiceRequestDto {
@@ -391,6 +404,17 @@ export class AssignAffiliateTaskDto {
   @IsOptional()
   @Type(() => Boolean)
   requiresBusinessApproval?: boolean;
+
+  @ApiPropertyOptional({
+    example: 10,
+    description:
+      'Optional platform fee percentage for this assignment. The fee is taken from the charge spread; the affiliate payout is never reduced.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  @Max(100)
+  platformFeePercent?: number;
 }
 
 export class RateAffiliateDto {
@@ -492,4 +516,57 @@ export class AffiliateTaskStatusCallbackDto {
   @ApiPropertyOptional()
   @IsOptional()
   reviewAcknowledged?: boolean;
+}
+
+export class AffiliateSettlementQueryDto {
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+
+  @ApiPropertyOptional({ enum: AffiliateSettlementStatus })
+  @IsOptional()
+  @IsEnum(AffiliateSettlementStatus)
+  status?: AffiliateSettlementStatus;
+
+  @ApiPropertyOptional({ enum: AffiliateSettlementFunding })
+  @IsOptional()
+  @IsEnum(AffiliateSettlementFunding)
+  fundingSource?: AffiliateSettlementFunding;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  businessId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  affiliateUserId?: string;
+
+  @ApiPropertyOptional({ description: 'Task title, affiliate email or settlement reference' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  @ApiPropertyOptional({ example: '2026-11-01' })
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-11-30' })
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
 }

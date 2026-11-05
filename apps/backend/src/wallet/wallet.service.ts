@@ -262,7 +262,18 @@ export class WalletService {
 
   async placeHold(
     partner: PartnerContext,
-    dto: { userId: string; amount: number; reference: string; description?: string },
+    dto: {
+      userId: string;
+      amount: number;
+      reference: string;
+      description?: string;
+      /**
+       * Optional override for the hold lifetime. Affiliate task escrow uses a
+       * long TTL (aligned to the task deadline) so the reservation cannot be
+       * swept by the 5-minute expiry cron mid-delivery.
+       */
+      ttlHours?: number;
+    },
   ): Promise<{ holdId: string; reserved: number; expiresAt: string }> {
     const amount = toDecimal(dto.amount);
     this.assertSingleTxnLimit(amount);
@@ -283,7 +294,8 @@ export class WalletService {
           });
         }
 
-        const ttlHours = this.config.get<number>('WALLET_HOLD_DEFAULT_TTL_HOURS') ?? 24;
+        const ttlHours =
+          dto.ttlHours ?? (this.config.get<number>('WALLET_HOLD_DEFAULT_TTL_HOURS') ?? 24);
         const expiresAt = new Date(Date.now() + ttlHours * 3600_000);
 
         const hold = await tx.walletHold.create({

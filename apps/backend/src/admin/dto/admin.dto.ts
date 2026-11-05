@@ -378,6 +378,24 @@ export class CreateAccessPlanDto {
   @ArrayMaxSize(200)
   features?: string[];
 
+  @ApiPropertyOptional({
+    example: 3,
+    description:
+      'Free delegated affiliate tasks included in this access pass. Ignored when unlimitedFreeDelegatedTasks is true.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeDelegatedTasks?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Give the business unlimited free delegated tasks under this access pass.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedFreeDelegatedTasks?: boolean;
+
   @ApiPropertyOptional({ type: [AccessIncludedAppPlanDto] })
   @IsOptional()
   @IsArray()
@@ -436,6 +454,23 @@ export class UpdateAccessPlanDto {
   @IsString({ each: true })
   @ArrayMaxSize(200)
   features?: string[];
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: 'Free delegated affiliate tasks included in this access pass.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeDelegatedTasks?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Give the business unlimited free delegated tasks under this access pass.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedFreeDelegatedTasks?: boolean;
 
   @ApiPropertyOptional({ type: [AccessIncludedAppPlanDto] })
   @IsOptional()
@@ -499,6 +534,24 @@ export class CreateMembershipPlanDto {
   @IsArray()
   @IsString({ each: true })
   permissions: string[];
+
+  @ApiPropertyOptional({
+    example: 5,
+    description:
+      'Free delegated affiliate tasks included in this membership. Ignored when unlimitedFreeDelegatedTasks is true.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeDelegatedTasks?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Give the business unlimited free delegated tasks under this membership.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedFreeDelegatedTasks?: boolean;
 
   @ApiPropertyOptional({ type: [IncludedAppPlanDto], example: [{ platform: 'MCOM Mall', planId: 'tier-1', planName: 'Standard' }] })
   @IsOptional()
@@ -1570,6 +1623,23 @@ export class UpdateMembershipPlanDto {
   @IsArray()
   @IsString({ each: true })
   permissions?: string[];
+
+  @ApiPropertyOptional({
+    example: 5,
+    description: 'Free delegated affiliate tasks included in this membership.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeDelegatedTasks?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Give the business unlimited free delegated tasks under this membership.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedFreeDelegatedTasks?: boolean;
 
   @ApiPropertyOptional({ example: [{ platform: 'MCOM Mall', planId: 'tier-1', planName: 'Standard' }] })
   @IsOptional()

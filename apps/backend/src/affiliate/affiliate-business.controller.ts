@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AffiliateDirectoryService } from './affiliate-directory.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import { AffiliateTaskService } from './affiliate-task.service';
+import { AffiliateTaskQuotaService } from './affiliate-task-quota.service';
 import {
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
@@ -37,6 +38,7 @@ export class AffiliateBusinessController {
     private readonly directory: AffiliateDirectoryService,
     private readonly assignment: AccountManagerAssignmentService,
     private readonly tasks: AffiliateTaskService,
+    private readonly quota: AffiliateTaskQuotaService,
   ) {}
 
   private async businessContext(req: any) {
@@ -102,6 +104,15 @@ export class AffiliateBusinessController {
     const business = await this.businessContext(req);
     const result = await this.directory.getPlatformAccess(business.id);
     return { success: true, data: result };
+  }
+
+  @Get('task-quota')
+  @ApiOperation({
+    summary: 'Free delegated-task allowance for the current membership or access pass',
+  })
+  async taskQuota(@Req() req: any) {
+    const business = await this.businessContext(req);
+    return { success: true, data: await this.quota.resolve(business.id) };
   }
 
   // ─── Service requests (support channel) ─────────────────────────────

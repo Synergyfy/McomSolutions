@@ -142,6 +142,10 @@ export const useMyTasks = () => {
     queryFn: () => businessApi.getMyTasks(),
     enabled: !!token,
     staleTime: 1000 * 30, // 30 seconds
+    // Delegated programme tasks are completed by the affiliate/admin review
+    // chain. Poll so the business dashboard reflects that completion promptly.
+    refetchInterval: 1000 * 10,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -269,6 +273,16 @@ export const usePlatformAccess = () => {
   });
 };
 
+export const useDelegationQuota = () => {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  return useQuery({
+    queryKey: ['business-delegation-quota'],
+    queryFn: () => businessApi.getTaskQuota(),
+    enabled: !!token,
+    staleTime: 1000 * 15,
+  });
+};
+
 export const useNearbyAffiliates = (params?: {
   role?: string;
   page?: number;
@@ -314,6 +328,7 @@ export const useCreateAffiliateTask = () => {
       queryClient.invalidateQueries({ queryKey: ['account-manager'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['business-delegation-quota'] });
     },
   });
 };
@@ -436,6 +451,7 @@ export const useCancelAffiliateTask = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['business-delegation-quota'] });
     },
   });
 };

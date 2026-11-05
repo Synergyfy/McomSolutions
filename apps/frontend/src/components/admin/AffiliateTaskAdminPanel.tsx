@@ -9,15 +9,18 @@ import {
   Search,
   Trophy,
   UserPlus,
+  Wallet,
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import AffiliateSettlementLedger from './AffiliateSettlementLedger';
 import {
   useAdminAccountManagers,
   useAdminAgents,
   useAdminConsultants,
   useAffiliateReports,
   useAffiliateReputation,
+  useAffiliateSettlementSummary,
   useAffiliateTasksAdmin,
   useAssignAffiliateTask,
   useBackfillAccountManagers,
@@ -25,7 +28,10 @@ import {
   useReviewAffiliateReport,
   useReviewAffiliateTask,
 } from '../../services/admin/hooks';
-import type { AdminAffiliateReport, AdminAffiliateTask } from '../../services/admin/types';
+import type {
+  AdminAffiliateReport,
+  AdminAffiliateTask,
+} from '../../services/admin/types';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING_ASSIGNMENT: 'Awaiting assignment',
@@ -59,13 +65,38 @@ const REPORT_STYLES: Record<string, string> = {
   INVALID: 'bg-gray-100 text-gray-600',
 };
 
+const SETTLEMENT_STATUS_LABELS: Record<string, string> = {
+  NOT_REQUIRED: 'No money',
+  PENDING_HOLD: 'Hold pending',
+  HELD: 'Escrowed',
+  SETTLING: 'Settling',
+  SETTLED: 'Settled',
+  RELEASED: 'Released',
+  FAILED: 'Needs attention',
+};
+
+const SETTLEMENT_STATUS_STYLES: Record<string, string> = {
+  NOT_REQUIRED: 'bg-gray-100 text-gray-600',
+  PENDING_HOLD: 'bg-amber-100 text-amber-800',
+  HELD: 'bg-sky-100 text-sky-800',
+  SETTLING: 'bg-indigo-100 text-indigo-800',
+  SETTLED: 'bg-emerald-100 text-emerald-800',
+  RELEASED: 'bg-gray-100 text-gray-600',
+  FAILED: 'bg-red-100 text-red-700',
+};
+
+const num = (value: string | number | null | undefined) => Number(value ?? 0) || 0;
+
+const formatCredits = (value: string | number | null | undefined) =>
+  num(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
 function nameOf(person?: { firstName?: string | null; lastName?: string | null; email?: string } | null) {
   if (!person) return '—';
   return [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email || '—';
 }
 
 export default function AffiliateTaskAdminPanel() {
-  const [tab, setTab] = useState<'tasks' | 'reports'>('tasks');
+  const [tab, setTab] = useState<'tasks' | 'settlements' | 'reports'>('tasks');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [unassigned, setUnassigned] = useState(false);
@@ -82,8 +113,15 @@ export default function AffiliateTaskAdminPanel() {
 
   const tasksRes = useAffiliateTasksAdmin(query);
   const tasks: AdminAffiliateTask[] = tasksRes.data?.data ?? [];
+  // Separate lightweight query so the review shortcut reflects the whole
+  // submission queue, not just the current filter/search.
+  const submittedQueue = useAffiliateTasksAdmin({ status: 'SUBMITTED', limit: 1 });
+  const submittedCount = submittedQueue.data?.total ?? 0;
   const reportsRes = useAffiliateReports({ limit: 50 });
   const reports: AdminAffiliateReport[] = reportsRes.data?.data ?? [];
+
+  const summaryRes = useAffiliateSettlementSummary();
+  const summary = summaryRes.data?.data;
 
   const agents = useAdminAgents({ limit: 100 }).data?.data ?? [];
   const consultants = useAdminConsultants({ limit: 100 }).data?.data ?? [];
@@ -109,8 +147,10 @@ export default function AffiliateTaskAdminPanel() {
   const [assignee, setAssignee] = useState('');
   const [assignComp, setAssignComp] = useState('');
   const [assignCharge, setAssignCharge] = useState('');
+  const [assignFee, setAssignFee] = useState('');
   const [assignBillable, setAssignBillable] = useState(false);
   const [assignApproval, setAssignApproval] = useState(true);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [reviewFor, setReviewFor] = useState<AdminAffiliateTask | null>(null);
   const [reviewDecision, setReviewDecision] = useState<'APPROVED' | 'CHANGES_REQUESTED'>('APPROVED');
   const [reviewNotes, setReviewNotes] = useState('');
@@ -132,6 +172,20 @@ export default function AffiliateTaskAdminPanel() {
           )}
         >
           <ClipboardList className="w-4 h-4" /> Delegated tasks
+        </button>
+        <button
+          onClick={() => setTab('settlements')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
+            tab === 'settlements' ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-600',
+          )}
+        >
+          <Wallet className="w-4 h-4" /> Settlement ledger
+          {summary && summary.failedCount > 0 && (
+            <span className="rounded-full bg-red-500 text-white px-1.5 text-[10px] font-black">
+              {summary.failedCount}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setTab('reports')}
@@ -169,6 +223,29 @@ export default function AffiliateTaskAdminPanel() {
           Assign missing managers
         </button>
       </div>
+
+      {submittedCount > 0 && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-black text-violet-900">
+              {submittedCount} task{submittedCount === 1 ? '' : 's'} awaiting admin review
+            </p>
+            <p className="text-xs font-medium text-violet-800">
+              Affiliate submissions appear here after the Account Manager check. Approving marks the task
+              complete, applies reputation and records payment where applicable.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setTab('tasks');
+              setStatus('SUBMITTED');
+            }}
+            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 text-xs font-bold text-white hover:bg-violet-800"
+          >
+            <CheckCircle2 className="h-4 w-4" /> Open review queue
+          </button>
+        </div>
+      )}
 
       {backfillMessage && (
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800 flex items-start justify-between gap-3">
@@ -278,6 +355,37 @@ export default function AffiliateTaskAdminPanel() {
                         {task.paymentStatus && task.paymentStatus !== 'NOT_APPLICABLE' && (
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">payment {task.paymentStatus.toLowerCase()}</span>
                         )}
+                        {task.freeDelegation === true && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">
+                            free quota
+                            {task.delegationQuotaUnlimited
+                              ? ' · unlimited'
+                              : task.delegationQuotaLimit != null
+                                ? ` · ${task.delegationQuotaUsed ?? 0}/${task.delegationQuotaLimit} used`
+                                : ''}
+                          </span>
+                        )}
+                        {task.freeDelegation === false &&
+                          task.delegationQuotaSource &&
+                          task.delegationQuotaSource !== 'NONE' && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                              over free limit · chargeable
+                            </span>
+                          )}
+                        {task.settlement && task.settlement.status !== 'NOT_REQUIRED' && (
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5',
+                              task.settlement.status === 'SETTLED'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : task.settlement.status === 'FAILED'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-sky-100 text-sky-800',
+                            )}
+                          >
+                            escrow {task.settlement.status.toLowerCase()}
+                          </span>
+                        )}
                       </div>
                       {task.deliverables && (
                         <p className="mt-1 text-[11px] text-gray-500"><span className="font-bold text-gray-700">Deliverables:</span> {task.deliverables}</p>
@@ -303,6 +411,12 @@ export default function AffiliateTaskAdminPanel() {
                             );
                             setAssignBillable(Boolean(task.billableToBusiness));
                             setAssignApproval(task.requiresBusinessApproval ?? true);
+                            setAssignFee(
+                              task.settlement?.platformFeePercent != null
+                                ? String(task.settlement.platformFeePercent)
+                                : '',
+                            );
+                            setAssignError(null);
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-bold text-white hover:bg-brand-dark"
                         >
@@ -390,6 +504,8 @@ export default function AffiliateTaskAdminPanel() {
             </div>
           )}
         </div>
+      ) : tab === 'settlements' ? (
+        <AffiliateSettlementLedger />
       ) : (
         <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
           {reportsRes.isLoading ? (
@@ -473,12 +589,35 @@ export default function AffiliateTaskAdminPanel() {
                 type="number"
                 min={0}
                 value={assignCharge}
-                onChange={(e) => setAssignCharge(e.target.value)}
+                onChange={(e) => {
+                  setAssignCharge(e.target.value);
+                  if (Number(e.target.value) > 0) setAssignBillable(true);
+                }}
                 placeholder="120"
                 className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
               />
             </label>
           </div>
+          <label className="block text-[11px] font-bold text-gray-700">
+            Platform fee (% of business charge)
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={assignFee}
+              onChange={(e) => setAssignFee(e.target.value)}
+              placeholder="10"
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
+            />
+            <span className="mt-1 block text-[10px] font-medium text-gray-400">
+              Capped at the gap between the business charge and the affiliate payout, so the affiliate is
+              always paid in full.
+            </span>
+          </label>
+          <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-800">
+            The business&apos;s free delegated-task allowance is checked on assignment. If it is exhausted,
+            this task is chargeable and a business charge is required.
+          </p>
           <div className="flex flex-wrap gap-4 text-[11px] font-semibold text-gray-700">
             <label className="inline-flex items-center gap-2">
               <input
@@ -497,6 +636,11 @@ export default function AffiliateTaskAdminPanel() {
               Business approves the outcome
             </label>
           </div>
+          {assignError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800">
+              {assignError}
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setAssignFor(null)} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600">
               Cancel
@@ -504,17 +648,27 @@ export default function AffiliateTaskAdminPanel() {
             <button
               onClick={async () => {
                 if (!assignee) return;
-                await assignTask.mutateAsync({
-                  id: assignFor.id,
-                  data: {
-                    assigneeUserId: assignee,
-                    compensationAmount: assignComp ? Number(assignComp) : undefined,
-                    billableToBusiness: assignBillable,
-                    businessChargeAmount: assignCharge ? Number(assignCharge) : undefined,
-                    requiresBusinessApproval: assignApproval,
-                  },
-                });
-                setAssignFor(null);
+                setAssignError(null);
+                try {
+                  await assignTask.mutateAsync({
+                    id: assignFor.id,
+                    data: {
+                      assigneeUserId: assignee,
+                      compensationAmount: assignComp ? Number(assignComp) : undefined,
+                      billableToBusiness: assignBillable,
+                      businessChargeAmount: assignCharge ? Number(assignCharge) : undefined,
+                      requiresBusinessApproval: assignApproval,
+                      platformFeePercent: assignFee ? Number(assignFee) : undefined,
+                    },
+                  });
+                  setAssignFor(null);
+                } catch (error: any) {
+                  setAssignError(
+                    error?.response?.data?.message ||
+                      error?.message ||
+                      'Could not assign the task. Check the business wallet balance.',
+                  );
+                }
               }}
               disabled={!assignee || assignTask.isPending}
               className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
