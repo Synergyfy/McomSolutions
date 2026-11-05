@@ -142,6 +142,10 @@ export const useMyTasks = () => {
     queryFn: () => businessApi.getMyTasks(),
     enabled: !!token,
     staleTime: 1000 * 30, // 30 seconds
+    // Delegated programme tasks are completed by the affiliate/admin review
+    // chain. Poll so the business dashboard reflects that completion promptly.
+    refetchInterval: 1000 * 10,
+    refetchOnWindowFocus: true,
   });
 };
 

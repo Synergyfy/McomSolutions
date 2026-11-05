@@ -1729,6 +1729,90 @@ export class TaskService {
     }
   }
 
+  /**
+   * Complete a programme assignment because its delegated affiliate task was
+   * approved. Unlike the business-facing completeMyTask endpoint this does not
+   * enforce the original deadline (the work was delegated in time and has now
+   * passed the full review chain), but it applies the same reward, coupon and
+   * programme-sync side effects.
+   */
+  async completeDelegatedAssignment(
+    assignmentId: string,
+    input: { submissionData?: unknown; notes?: string } = {},
+  ) {
+    const assignment = await this.prisma.userTaskAssignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        task: true,
+        user: { include: { businessProfile: true } },
+      },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Programme task assignment not found');
+    }
+    if (assignment.status === TaskAssignmentStatus.COMPLETED) {
+      return { success: true, message: 'Programme task already completed', data: assignment };
+    }
+
+    const now = new Date();
+    const completionData: Record<string, unknown> = {
+      status: TaskAssignmentStatus.COMPLETED,
+      completedAt: assignment.completedAt ?? now,
+    };
+    if (input.submissionData !== undefined) {
+      completionData.submissionData = input.submissionData;
+    }
+
+    let updated;
+    try {
+      updated = await this.prisma.userTaskAssignment.update({
+        where: { id: assignmentId },
+        data: completionData as never,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `completeDelegatedAssignment: submissionData column unavailable, completing without proof: ${(err as Error).message}`,
+      );
+      updated = await this.prisma.userTaskAssignment.update({
+        where: { id: assignmentId },
+        data: { status: TaskAssignmentStatus.COMPLETED, completedAt: assignment.completedAt ?? now },
+      });
+    }
+
+    if (assignment.rewardPoints > 0 && !assignment.rewardGranted && this.rewardQueue) {
+      await this.rewardQueue.add(
+        'grant-task-reward',
+        {
+          assignmentId: assignment.id,
+          userId: assignment.userId,
+          rewardPoints: assignment.rewardPoints,
+          taskTitle: assignment.task.title,
+        },
+        {
+          jobId: `task-reward-${assignment.id}`,
+          attempts: 5,
+          backoff: { type: 'exponential', delay: 2000 },
+        },
+      );
+    }
+
+    const businessId = assignment.user?.businessProfile?.id;
+    if (businessId) {
+      await this.syncToBusinessProgramme(
+        businessId,
+        assignment.task.featureKey || assignment.taskId,
+      );
+    }
+
+    await this.enqueueTaskCouponReward(assignment.id, assignment.task);
+
+    return {
+      success: true,
+      message: input.notes || 'Programme task completed from approved delegated work.',
+      data: updated,
+    };
+  }
+
   // ─── User-Facing: Complete & Claim Reward ────────────
   async completeMyTask(
     assignmentId: string,
