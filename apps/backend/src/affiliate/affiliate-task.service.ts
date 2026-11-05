@@ -14,6 +14,7 @@ import {
   AffiliateTaskCategory,
   AffiliateTaskSource,
   AffiliateTaskStatus,
+  BusinessRelationshipType,
   Prisma,
   Role,
 } from '@prisma/client';
@@ -25,10 +26,12 @@ import { AffiliateReputationService } from './affiliate-reputation.service';
 import { AffiliateSettlementService } from './affiliate-settlement.service';
 import { AffiliateTaskQuotaService } from './affiliate-task-quota.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
+import { BusinessAcquisitionService } from './business-acquisition.service';
 import { TaskService } from '../task/task.service';
 import { normalizePlatformKey } from './affiliate-affinity.util';
 import { AFFILIATE_TASK_QUEUE, AffiliateTaskJobData } from '../queue/queue.constants';
 import {
+  AdminCreateAffiliateTaskDto,
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
   ApproveServiceRequestDto,
@@ -72,6 +75,7 @@ export class AffiliateTaskService {
     private readonly programmeTasks: TaskService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly acquisition: BusinessAcquisitionService,
     @Optional()
     @InjectQueue(AFFILIATE_TASK_QUEUE)
     private readonly affiliateQueue?: Queue<AffiliateTaskJobData>,
@@ -135,7 +139,26 @@ export class AffiliateTaskService {
 
   async createBusinessTask(userId: string, businessId: string | null, dto: CreateAffiliateTaskDto) {
     const business = await this.directory.getBusiness(userId, businessId);
+    return this.createTaskForBusiness(business, userId, dto, 'BUSINESS');
+  }
 
+  /**
+   * Admin-created delegation on behalf of a business. Mirrors the business
+   * flow (quota checks, escrow reservation, affiliate sync) but resolves the
+   * business by id and records the admin as the actor.
+   */
+  async createTaskAsAdmin(adminId: string, dto: AdminCreateAffiliateTaskDto) {
+    const business = await this.directory.getBusinessById(dto.businessId);
+    const task = await this.createTaskForBusiness(business, adminId, dto, 'ADMIN');
+    return this.getTaskForAdmin(task.id);
+  }
+
+  private async createTaskForBusiness(
+    business: Awaited<ReturnType<AffiliateDirectoryService['getBusiness']>>,
+    userId: string,
+    dto: CreateAffiliateTaskDto,
+    actorRole: 'BUSINESS' | 'ADMIN',
+  ) {
     // Paid memberships get an account manager assigned before delegation, so
     // the task goes straight to them instead of waiting for admin routing.
     // (Trial / access-pass businesses are intentionally excluded.)
@@ -365,7 +388,7 @@ export class AffiliateTaskService {
 
     await this.recordEvent(task.id, {
       actorUserId: userId,
-      actorRole: 'BUSINESS',
+      actorRole,
       type: 'TASK_CREATED',
       message: `Task created (${task.category.toLowerCase()})`,
       metadata: {
@@ -395,7 +418,7 @@ export class AffiliateTaskService {
         });
         await this.recordEvent(task.id, {
           actorUserId: userId,
-          actorRole: 'BUSINESS',
+          actorRole,
           type: 'TASK_ESCROW_FAILED',
           message: 'Task cancelled because the business charge could not be reserved',
         });
@@ -1716,6 +1739,30 @@ export class AffiliateTaskService {
           : {}),
       },
     });
+
+    // Record the specialist/task relationship separately from acquisition and
+    // account management so history survives reassignment. A history failure
+    // must not block the assignment itself.
+    try {
+      await this.acquisition.recordAssignment({
+        businessId: task.businessId,
+        relationshipType: BusinessRelationshipType.TASK_ASSIGNMENT,
+        affiliateUserId: assignee.id,
+        actorUserId: actorId,
+        newValue: taskId,
+        metadata: {
+          assigneeRole: assignee.role,
+          taskTitle: task.title,
+          reassigned: task.status === AffiliateTaskStatus.DECLINED,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record task assignment history for ${taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
     await this.recordEvent(taskId, {
       actorUserId: actorId,

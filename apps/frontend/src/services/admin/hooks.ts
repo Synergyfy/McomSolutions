@@ -1667,6 +1667,34 @@ export const useAffiliateTaskAdmin = (id?: string) => {
   })
 }
 
+export const useCreateAffiliateTask = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: {
+      businessId: string
+      title: string
+      description: string
+      assigneeUserId?: string
+      dueAt?: string
+      category?: 'INTERNAL' | 'EXTERNAL'
+      platforms?: string[]
+      requiredSkills?: string[]
+      deliverables?: string
+      materials?: string
+      compensationModel?: string
+      compensationAmount?: number
+      billableToBusiness?: boolean
+      businessChargeAmount?: number
+      requiresBusinessApproval?: boolean
+      platformFeePercent?: number
+    }) => adminApi.createAffiliateTask(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+    },
+  })
+}
+
 export const useAssignAffiliateTask = () => {
   const queryClient = useQueryClient()
   return useMutation({

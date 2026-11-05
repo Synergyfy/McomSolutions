@@ -10,6 +10,14 @@
 export const REFERRAL_STORAGE_KEY = 'mcom_referral_code';
 export const REFERRAL_QUERY_KEYS = ['ref', 'referral', 'referralCode'] as const;
 
+/**
+ * Tracked 247GBS Affiliates business invitation. Unlike a generic ?ref= code
+ * it targets one business prospect and is persisted across every onboarding
+ * step so attribution survives OTP, reloads and payment redirects.
+ */
+export const AFFILIATE_INVITE_STORAGE_KEY = 'mcom_affiliate_business_invite';
+export const AFFILIATE_INVITE_QUERY_KEYS = ['affiliateInvite', 'affiliate_invite', 'invite'] as const;
+
 const CODE_PATTERN = /^[A-Za-z0-9]{6,12}$/;
 
 export function normalizeReferralCode(code: string | null | undefined): string | null {
@@ -81,4 +89,64 @@ export function buildReferralLink(code: string | null | undefined): string | nul
   if (!code) return null;
   if (typeof window === 'undefined') return `/register?ref=${code}`;
   return `${window.location.origin}/register?ref=${code}`;
+}
+
+// ── Tracked affiliate business invitations ────────────────────────────────
+
+export function getAffiliateInviteFromSearchParams(
+  searchParams: URLSearchParams,
+): string | null {
+  for (const key of AFFILIATE_INVITE_QUERY_KEYS) {
+    const value = searchParams.get(key)?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+export function persistAffiliateInvite(token: string | null | undefined): void {
+  try {
+    if (typeof window === 'undefined') return;
+    const value = token?.trim();
+    if (value) {
+      localStorage.setItem(AFFILIATE_INVITE_STORAGE_KEY, value);
+    }
+  } catch {
+    // Storage unavailable — attribution is best-effort on the client; the
+    // backend still validates the token when it is present in the URL.
+  }
+}
+
+export function persistAffiliateInviteFromSearchParams(
+  searchParams: URLSearchParams,
+): string | null {
+  const token = getAffiliateInviteFromSearchParams(searchParams);
+  persistAffiliateInvite(token);
+  return token;
+}
+
+export function getStoredAffiliateInvite(): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(AFFILIATE_INVITE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearStoredAffiliateInvite(): void {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.removeItem(AFFILIATE_INVITE_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** Merge the stored invitation into a registration payload. */
+export function withAffiliateInvite<T extends Record<string, any>>(
+  payload: T,
+): T & { affiliateInvite?: string } {
+  if (payload.affiliateInvite) return payload;
+  const stored = getStoredAffiliateInvite();
+  return stored ? { ...payload, affiliateInvite: stored } : payload;
 }

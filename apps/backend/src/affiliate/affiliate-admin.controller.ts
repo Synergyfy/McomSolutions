@@ -17,6 +17,7 @@ import { AffiliateTaskService } from './affiliate-task.service';
 import { AffiliateSettlementService } from './affiliate-settlement.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import {
+  AdminCreateAffiliateTaskDto,
   AffiliateSettlementQueryDto,
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
@@ -54,6 +55,15 @@ export class AffiliateAdminController {
   @ApiOperation({ summary: 'List every delegated affiliate task (submissions, pending assignment, reviews)' })
   list(@Query() query: AffiliateTaskQueryDto) {
     return this.tasks.listAllTasks(query);
+  }
+
+  @Post('affiliate-tasks')
+  @ApiOperation({
+    summary: 'Create a delegated task on behalf of a business and optionally assign it to an affiliate',
+  })
+  async create(@Body() dto: AdminCreateAffiliateTaskDto, @Req() req: any) {
+    const task = await this.tasks.createTaskAsAdmin(req.user.userId, dto);
+    return { success: true, data: task, message: 'Task created' };
   }
 
   @Get('affiliate-tasks/:id')

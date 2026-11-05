@@ -24,6 +24,7 @@ import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import {
   OTP_COOLDOWN_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -48,6 +49,7 @@ export class AuthService {
     private config: ConfigService,
     private redis: RedisService,
     private locationAssignment: LocationAssignmentService,
+    private businessAcquisition: BusinessAcquisitionService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -820,13 +822,21 @@ export class AuthService {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
+    // A tracked affiliate invitation outranks a generic ?ref= code: it is
+    // created for this specific business and carries the acquisition record.
+    const affiliateInvitation = data.affiliateInvite
+      ? await this.businessAcquisition.resolveInvitationForRegistration(data.affiliateInvite)
+      : null;
+
     // Create user, business profile, and wallet atomically.
     // Phase 5: a trashed row may still hold the email (hidden by the
     // soft-delete extension) — translate the unique violation to a 409.
     let newUser;
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
-      const referredById = await this.resolveReferrerId(tx, data.referredByCode);
+      const referredById =
+        affiliateInvitation?.affiliateUserId ??
+        (await this.resolveReferrerId(tx, data.referredByCode));
       const referralCode = await this.generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
@@ -893,6 +903,25 @@ export class AuthService {
             error instanceof Error ? error.message : String(error)
           }`,
         );
+      }
+
+      if (affiliateInvitation) {
+        try {
+          await this.businessAcquisition.applyInvitationToBusiness(affiliateInvitation.id, {
+            businessId: newUser.businessProfile.id,
+            userId: newUser.id,
+            email,
+          });
+          await this.businessAcquisition.markOnboardingCompleted(newUser.businessProfile.id);
+        } catch (error) {
+          // Registration succeeded; attribution is reconciled later rather
+          // than returning a misleading failure to the new business.
+          this.logger.error(
+            `Could not apply affiliate invitation ${affiliateInvitation.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
     }
 
