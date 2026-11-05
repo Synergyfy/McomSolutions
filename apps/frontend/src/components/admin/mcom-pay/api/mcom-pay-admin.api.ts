@@ -24,6 +24,56 @@ export interface AppCharge {
   source?: 'app' | 'central';
 }
 
+export type WalletActivityType = 'CREDIT' | 'DEBIT';
+
+export type WalletActivityCategory =
+  | 'TOP_UP'
+  | 'REWARD'
+  | 'REFUND'
+  | 'ADMIN_CREDIT'
+  | 'TRANSFER_IN'
+  | 'SUBSCRIPTION'
+  | 'PURCHASE'
+  | 'SERVICE_FEE'
+  | 'ADMIN_DEBIT'
+  | 'TRANSFER_OUT'
+  | 'HOLD_CAPTURE';
+
+export interface WalletActivity {
+  id: string;
+  type: WalletActivityType;
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  currency: string;
+  category: WalletActivityCategory;
+  reference?: string | null;
+  description?: string | null;
+  status: string;
+  platformClientId?: string | null;
+  platformName?: string | null;
+  platformSlug?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  user?: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    role?: string | null;
+  } | null;
+}
+
+export interface WalletActivityFilters {
+  search?: string;
+  category?: WalletActivityCategory | '';
+  type?: WalletActivityType | '';
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  limit?: number;
+}
+
 export interface AppLedgerEntry {
   id: string;
   account: string;
@@ -72,4 +122,9 @@ export const mcomPayAdminApi = {
 
   getLedger: (id: string) =>
     apiClient.get<AppLedgerEntry[]>(`/admin/app-payments/charges/${id}/ledger`).then((r) => r.data),
+
+  listWalletActivity: (params: WalletActivityFilters) =>
+    apiClient
+      .get<Paginated<WalletActivity>>('/admin/app-payments/wallet-activity', { params })
+      .then((r) => r.data),
 };

@@ -15,6 +15,7 @@ import { cn } from '../../../lib/utils';
 import { useAdminAuth } from '../../../context/AdminAuthContext';
 import { useConsoleApps } from '../console/hooks/useConsoleApps';
 import { useAdminAppCharges, useAdminAppCharge, useAdminAppChargeLedger } from './hooks/useMcomPayAdmin';
+import { WalletActivityPanel } from './WalletActivityPanel';
 import type { AppCharge, AppChargeFilters, AppChargeMethod, AppChargeStatus } from './api/mcom-pay-admin.api';
 
 const inputCls =
@@ -81,6 +82,7 @@ const buildParams = (filters: AppChargeFilters): AppChargeFilters => {
 
 export function McomPayPanel() {
   const { admin } = useAdminAuth();
+  const [view, setView] = useState<'charges' | 'wallet'>('charges');
   const [filters, setFilters] = useState<AppChargeFilters>({ page: 1, limit: 20 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -141,6 +143,36 @@ export function McomPayPanel() {
         </div>
       </div>
 
+      {/* View switcher */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setView('charges')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
+            view === 'charges'
+              ? 'bg-brand-blue text-white'
+              : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          <CreditCard className="w-4 h-4" /> Charge ledger
+        </button>
+        <button
+          onClick={() => setView('wallet')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
+            view === 'wallet'
+              ? 'bg-brand-blue text-white'
+              : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          <Wallet className="w-4 h-4" /> Wallet activity
+        </button>
+      </div>
+
+      {view === 'wallet' ? (
+        <WalletActivityPanel />
+      ) : (
+        <>
       {/* Filters */}
       <div className="bg-white rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
@@ -320,6 +352,8 @@ export function McomPayPanel() {
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {selectedId && <ChargeDetailModal chargeId={selectedId} onClose={() => setSelectedId(null)} />}

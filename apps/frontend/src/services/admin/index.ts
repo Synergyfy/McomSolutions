@@ -1148,7 +1148,12 @@ export const adminApi = {
 
   reviewAffiliateTask: async (
     id: string,
-    data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string },
+    data: {
+      decision: 'APPROVED' | 'CHANGES_REQUESTED'
+      notes?: string
+      compensationPence?: number
+      compensationAmount?: number
+    },
   ) => {
     const res = await apiClient.post(`/admin/affiliate-tasks/${id}/review`, data)
     return res.data as ApiResponse<AdminAffiliateTask>

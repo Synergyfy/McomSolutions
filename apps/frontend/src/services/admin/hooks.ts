@@ -1702,7 +1702,12 @@ export const useReviewAffiliateTask = () => {
       data,
     }: {
       id: string
-      data: { decision: 'APPROVED' | 'CHANGES_REQUESTED'; notes?: string }
+      data: {
+        decision: 'APPROVED' | 'CHANGES_REQUESTED'
+        notes?: string
+        compensationPence?: number
+        compensationAmount?: number
+      }
     }) => adminApi.reviewAffiliateTask(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })

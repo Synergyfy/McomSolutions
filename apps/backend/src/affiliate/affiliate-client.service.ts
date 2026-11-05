@@ -193,6 +193,8 @@ export class AffiliateClientService {
         notes: input.notes ?? null,
         round: input.round,
         status: input.decision === 'APPROVED' ? 'approved' : 'revision_requested',
+        compensationAmount: task.compensationAmount,
+        compensationPence: task.compensationPence,
       });
       return { ok: true, affiliateTaskId: task.affiliateTaskId };
     } catch (error: any) {

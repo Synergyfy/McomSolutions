@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConsoleAdminGuard } from '../console/guards/console-admin.guard';
 import { AppPaymentsService } from './app-payments.service';
 import { AdminFilterChargesDto } from './dto/admin-filter-charges.dto';
+import { AdminFilterWalletActivityDto } from './dto/admin-filter-wallet-activity.dto';
 import { PaginatedChargesDto, RefundListDto } from './dto/responses.dto';
 
 @ApiTags('MCOM Pay (Admin)')
@@ -20,6 +21,17 @@ export class AppPaymentsAdminController {
   @ApiOkResponse({ type: PaginatedChargesDto })
   async list(@Query() filters: AdminFilterChargesDto) {
     return this.service.listAllCharges(filters);
+  }
+
+  @Get('wallet-activity')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Wallet ledger activity (top-ups, affiliate payouts, transfers)',
+    description:
+      'Money movements recorded in the MCOM wallet ledger that are not AppCharge rows.',
+  })
+  async walletActivity(@Query() filters: AdminFilterWalletActivityDto) {
+    return this.service.listWalletActivity(filters);
   }
 
   @Get('charges/:id')

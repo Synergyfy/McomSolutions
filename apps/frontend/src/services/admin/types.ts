@@ -1327,6 +1327,7 @@ export interface AdminAffiliateTask {
   amReviewNotes?: string | null
   compensationModel?: string
   compensationAmount?: number | null
+  compensationPence?: number | null
   compensationCurrency?: string
   billableToBusiness?: boolean
   businessChargeAmount?: number | null
@@ -1412,6 +1413,7 @@ export interface AdminAffiliateSettlement {
   businessChargeAmount: string | number | null
   businessChargeCredits: string | number | null
   compensationAmount: string | number | null
+  compensationPence: number | null
   compensationCredits: string | number | null
   platformFeePercent: string | number
   platformFeeCredits: string | number

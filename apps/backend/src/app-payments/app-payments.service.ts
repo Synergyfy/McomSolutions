@@ -33,6 +33,7 @@ import { CreateChargeDto } from './dto/create-charge.dto';
 import { ConfirmChargeDto } from './dto/confirm-charge.dto';
 import { RefundChargeDto } from './dto/refund-charge.dto';
 import { FilterChargesDto } from './dto/filter-charges.dto';
+import { AdminFilterWalletActivityDto } from './dto/admin-filter-wallet-activity.dto';
 import { AppChargeDto, AppRefundDto, RefundChargeResponseDto } from './dto/responses.dto';
 
 export interface CreateChargeResult {
@@ -1165,6 +1166,100 @@ export class AppPaymentsService {
     if (txn) return this.toCentralChargeDto(txn);
 
     throw new NotFoundException('Charge not found.');
+  }
+
+  /**
+   * Admin view of the wallet ledger. MCOM Pay only lists AppCharge rows, so
+   * wallet top-ups and affiliate task payouts (WalletTransaction rows) were
+   * invisible in the admin ledger. This endpoint exposes them alongside the
+   * charge ledger without mixing the two accounting models.
+   */
+  async listWalletActivity(filters: AdminFilterWalletActivityDto) {
+    const page = Math.max(1, Number(filters.page ?? 1));
+    const limit = Math.min(100, Math.max(1, Number(filters.limit ?? 20)));
+    const search = filters.search?.trim();
+
+    const where: Prisma.WalletTransactionWhereInput = {
+      ...(filters.category ? { category: filters.category } : {}),
+      ...(filters.type ? { type: filters.type } : {}),
+      ...((filters.dateFrom || filters.dateTo) && {
+        createdAt: {
+          ...(filters.dateFrom && { gte: new Date(filters.dateFrom) }),
+          ...(filters.dateTo && { lte: new Date(`${filters.dateTo}T23:59:59.999Z`) }),
+        },
+      }),
+      ...(search && {
+        OR: [
+          { reference: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { wallet: { user: { email: { contains: search, mode: 'insensitive' } } } },
+          { wallet: { user: { firstName: { contains: search, mode: 'insensitive' } } } },
+          { wallet: { user: { lastName: { contains: search, mode: 'insensitive' } } } },
+        ],
+      }),
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.walletTransaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          wallet: {
+            select: {
+              id: true,
+              userId: true,
+              currency: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  role: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.walletTransaction.count({ where }),
+    ]);
+
+    return {
+      success: true as const,
+      data: rows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        amount: row.amount.toNumber(),
+        balanceBefore: row.balanceBefore.toNumber(),
+        balanceAfter: row.balanceAfter.toNumber(),
+        currency: row.currency,
+        category: row.category,
+        reference: row.reference,
+        description: row.description,
+        status: row.status,
+        platformClientId: row.platformClientId,
+        platformName: row.platformName,
+        platformSlug: row.platformSlug,
+        metadata: row.metadata,
+        createdAt: row.createdAt.toISOString(),
+        user: row.wallet.user
+          ? {
+              id: row.wallet.user.id,
+              email: row.wallet.user.email,
+              firstName: row.wallet.user.firstName,
+              lastName: row.wallet.user.lastName,
+              role: row.wallet.user.role,
+            }
+          : null,
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   /** Shared app-charge filter builder for partner + admin listings. */
