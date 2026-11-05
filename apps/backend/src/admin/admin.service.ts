@@ -1518,6 +1518,12 @@ export class AdminService implements OnModuleInit {
           platformAccess,
           usageLimits: dto.usageLimits || {},
           permissions: dto.permissions || [],
+          freeDelegatedTasks: dto.freeDelegatedTasks ?? 0,
+          // Backwards-compatible: omitting both fields keeps the previous
+          // "membership includes delegated tasks" behaviour.
+          unlimitedFreeDelegatedTasks:
+            dto.unlimitedFreeDelegatedTasks ??
+            (dto.freeDelegatedTasks === undefined),
           includedApps: (dto.includedApps as unknown as Prisma.InputJsonValue) || [],
           tierPrices: dto.tierPrices || undefined,
           tierFeatures: dto.tierFeatures || undefined,
@@ -1751,6 +1757,8 @@ export class AdminService implements OnModuleInit {
           durationDays,
           platformAccess,
           features: (dto.features ?? []).map((f) => f.trim()).filter(Boolean),
+          freeDelegatedTasks: dto.freeDelegatedTasks ?? 0,
+          unlimitedFreeDelegatedTasks: dto.unlimitedFreeDelegatedTasks ?? false,
           whoItIsFor: dto.whoItIsFor?.trim() || undefined,
           badge: dto.badge?.trim() || undefined,
           color: dto.color?.trim() || undefined,
@@ -1802,6 +1810,12 @@ export class AdminService implements OnModuleInit {
           ...(updates.color !== undefined ? { color: updates.color.trim() || null } : {}),
           ...(updates.features !== undefined
             ? { features: updates.features.map((f) => f.trim()).filter(Boolean) }
+            : {}),
+          ...(updates.freeDelegatedTasks !== undefined
+            ? { freeDelegatedTasks: updates.freeDelegatedTasks }
+            : {}),
+          ...(updates.unlimitedFreeDelegatedTasks !== undefined
+            ? { unlimitedFreeDelegatedTasks: updates.unlimitedFreeDelegatedTasks }
             : {}),
           ...(updates.archived !== undefined ? { archived: updates.archived } : {}),
           ...(bundleData ? { platformAccess: bundleData.platformAccess } : {}),

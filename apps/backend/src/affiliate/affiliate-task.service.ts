@@ -22,6 +22,8 @@ import { MailService } from '../common/mail/mail.service';
 import { AffiliateDirectoryService } from './affiliate-directory.service';
 import { AffiliateClientService } from './affiliate-client.service';
 import { AffiliateReputationService } from './affiliate-reputation.service';
+import { AffiliateSettlementService } from './affiliate-settlement.service';
+import { AffiliateTaskQuotaService } from './affiliate-task-quota.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import { TaskService } from '../task/task.service';
 import { normalizePlatformKey } from './affiliate-affinity.util';
@@ -65,6 +67,8 @@ export class AffiliateTaskService {
     private readonly accountManagers: AccountManagerAssignmentService,
     private readonly reputation: AffiliateReputationService,
     private readonly affiliateClient: AffiliateClientService,
+    private readonly settlement: AffiliateSettlementService,
+    private readonly quota: AffiliateTaskQuotaService,
     private readonly programmeTasks: TaskService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
@@ -236,31 +240,48 @@ export class AffiliateTaskService {
     }
 
     const paidMembership = this.isPaidActiveMembership(business);
-    const assigneeIsManager = assignee?.role === Role.ACCOUNT_MANAGER;
     const explicitCompensation = dto.compensationAmount ?? null;
 
+    // How many delegated tasks this business gets for free under its current
+    // membership / access pass. Trial and no-plan businesses are always charged.
+    const allowance = await this.quota.resolve(business.id);
+    const quotaEnforced = allowance.source !== 'NONE';
+    const withinFreeAllowance = !quotaEnforced || allowance.isFree;
+
+    // An over-limit task with no price yet stays unassigned so an admin can
+    // price it. Never auto-assign free work past the allowance.
+    let effectiveAssignee = assignee;
+    if (quotaEnforced && !allowance.isFree && effectiveAssignee) {
+      const hasPrice =
+        Number(dto.businessChargeAmount ?? 0) > 0 ||
+        Number(explicitCompensation ?? 0) > 0;
+      if (!hasPrice) effectiveAssignee = null;
+    }
+
+    const assigneeIsManager = effectiveAssignee?.role === Role.ACCOUNT_MANAGER;
+
     // Compensation model defaults follow the payment rules:
-    // - paid CHS membership → Account Manager coordination is included.
+    // - paid CHS membership within the free allowance → AM coordination included.
+    // - beyond the allowance → the task is chargeable, so pay the affiliate.
     // - Access Pass / Trial → delegated Account Manager work is chargeable.
     // - Agents / Consultants → paid per the agreed task rate when supplied.
     let compensationModel: AffiliateCompensationModel =
       dto.compensationModel ??
-      (assigneeIsManager && paidMembership
+      (assigneeIsManager && paidMembership && withinFreeAllowance
         ? AffiliateCompensationModel.MEMBERSHIP_INCLUDED
         : explicitCompensation != null
           ? AffiliateCompensationModel.FIXED
           : AffiliateCompensationModel.NONE);
 
-    // Never let a paid-membership Account Manager task create a business charge
-    // purely for coordination.
-    // Paid CHS memberships cover Account Manager coordination. Access Pass /
-    // Trial businesses pay for delegated work, so a quoted compensation amount
-    // becomes a separate charge that must be approved before work begins.
-    const billableToBusiness =
-      dto.billableToBusiness ?? (!paidMembership && explicitCompensation != null);
+    const billableToBusiness = quotaEnforced
+      ? Boolean(effectiveAssignee) && !allowance.isFree
+      : dto.billableToBusiness ?? (!paidMembership && explicitCompensation != null);
 
-    const businessChargeAmount =
-      dto.businessChargeAmount ?? (billableToBusiness ? explicitCompensation ?? 0 : null);
+    const businessChargeAmount = quotaEnforced
+      ? billableToBusiness
+        ? dto.businessChargeAmount ?? explicitCompensation ?? 0
+        : null
+      : dto.businessChargeAmount ?? (billableToBusiness ? explicitCompensation ?? 0 : null);
     const businessChargeStatus: AffiliateChargeStatus = billableToBusiness
       ? AffiliateChargeStatus.PENDING_APPROVAL
       : AffiliateChargeStatus.NOT_APPLICABLE;
@@ -279,6 +300,12 @@ export class AffiliateTaskService {
       compensationAmount != null && compensationAmount > 0
         ? AffiliatePaymentStatus.PENDING
         : AffiliatePaymentStatus.NOT_APPLICABLE;
+
+    const freeDelegation = effectiveAssignee
+      ? quotaEnforced
+        ? allowance.isFree
+        : false
+      : null;
 
     const task = await this.prisma.affiliateTask.create({
       data: {
@@ -309,9 +336,17 @@ export class AffiliateTaskService {
         businessChargeCurrency: dto.businessChargeCurrency ?? 'GBP',
         businessChargeStatus,
         paymentStatus,
-        status: assignee ? AffiliateTaskStatus.ASSIGNED : AffiliateTaskStatus.PENDING_ASSIGNMENT,
-        assigneeId: assignee?.id ?? null,
-        assigneeRole: assignee?.role ?? null,
+        freeDelegation,
+        delegationQuotaSource: allowance.source,
+        delegationQuotaLimit: allowance.unlimited ? null : allowance.freeLimit,
+        delegationQuotaUsed: allowance.used,
+        delegationQuotaUnlimited: allowance.unlimited,
+        delegationQuotaPeriodStart: allowance.periodStart,
+        status: effectiveAssignee
+          ? AffiliateTaskStatus.ASSIGNED
+          : AffiliateTaskStatus.PENDING_ASSIGNMENT,
+        assigneeId: effectiveAssignee?.id ?? null,
+        assigneeRole: effectiveAssignee?.role ?? null,
         dueAt,
       },
       include: {
@@ -332,8 +367,34 @@ export class AffiliateTaskService {
         compensationAmount,
         billableToBusiness,
         businessChargeAmount,
+        freeDelegation,
+        delegationQuotaSource: allowance.source,
+        delegationQuotaUsed: allowance.used,
+        delegationQuotaLimit: allowance.unlimited ? null : allowance.freeLimit,
       },
     });
+
+    // Reserve the business charge (trial / access-pass) or note the
+    // platform-funded payout before the affiliate can see the work.
+    if (task.assigneeId && (billableToBusiness || (compensationAmount ?? 0) > 0)) {
+      try {
+        await this.settlement.ensureForTask(task.id, {
+          platformFeePercent: dto.platformFeePercent,
+        });
+      } catch (error) {
+        await this.prisma.affiliateTask.update({
+          where: { id: task.id },
+          data: { status: AffiliateTaskStatus.CANCELLED },
+        });
+        await this.recordEvent(task.id, {
+          actorUserId: userId,
+          actorRole: 'BUSINESS',
+          type: 'TASK_ESCROW_FAILED',
+          message: 'Task cancelled because the business charge could not be reserved',
+        });
+        throw error;
+      }
+    }
 
     if (billableToBusiness) {
       await this.notifyBusinessOfChargeApproval(task.id);
@@ -977,6 +1038,7 @@ export class AffiliateTaskService {
           businessApprovalNotes: dto.notes ?? 'Business declined the charge',
         },
       });
+      await this.settlement.releaseTaskHold(taskId, 'Business declined the task charge');
       await this.recordEvent(taskId, {
         actorUserId: userId,
         actorRole: 'BUSINESS',
@@ -1026,6 +1088,7 @@ export class AffiliateTaskService {
           status: AffiliateTaskStatus.CANCELLED,
         },
       });
+      await this.settlement.releaseTaskHold(taskId, 'Administrator declined the task charge');
       await this.recordEvent(taskId, {
         actorUserId: adminId,
         actorRole: 'ADMIN',
@@ -1119,84 +1182,23 @@ export class AffiliateTaskService {
       }
     }
 
-    // Record the affiliate's payable amount in their 247GBS wallet.
-    await this.recordAffiliateEarnings(taskId);
+    // Capture the business escrow and pay the affiliate into their central
+    // MCOM wallet. A failure here never rolls back the approval; the settlement
+    // row is marked FAILED and retried by the reconciliation cron.
+    try {
+      await this.settlement.settleTask(taskId);
+    } catch (error: any) {
+      this.logger.error(`Settlement failed for approved task ${taskId}: ${error?.message}`);
+      await this.recordEvent(taskId, {
+        type: 'PAYMENT_FAILED',
+        message: `Payment could not be settled automatically: ${error?.message ?? 'unknown error'}`,
+      });
+    }
 
     // Internal implementation tasks waiting on this one can now start.
     await this.delegateDependentTasks(taskId);
 
     await this.enqueueAffiliateJob('push-review', taskId);
-  }
-
-  private async recordAffiliateEarnings(taskId: string): Promise<void> {
-    const task = await this.prisma.affiliateTask.findUnique({
-      where: { id: taskId },
-      include: {
-        business: { select: { businessName: true } },
-        assignee: { select: { email: true, firstName: true, lastName: true } },
-      },
-    });
-    if (!task || task.paymentStatus === AffiliatePaymentStatus.PAID) return;
-    const amount = Number(task.compensationAmount ?? 0);
-    if (!task.assignee?.email || !Number.isFinite(amount) || amount <= 0) {
-      if (task.compensationAmount != null) {
-        await this.prisma.affiliateTask.update({
-          where: { id: taskId },
-          data: { paymentStatus: AffiliatePaymentStatus.ELIGIBLE },
-        });
-      }
-      return;
-    }
-
-    const result = await this.affiliateClient.creditAffiliateWallet({
-      email: task.assignee.email,
-      amount,
-      currency: task.compensationCurrency,
-      description: `Task payment: ${task.title}`,
-      reference: `affiliate-task:${task.id}`,
-      metadata: {
-        centralTaskId: task.id,
-        businessName: task.business?.businessName ?? null,
-      },
-    });
-
-    if (result.ok) {
-      await this.prisma.affiliateTask.update({
-        where: { id: taskId },
-        data: {
-          paymentStatus: AffiliatePaymentStatus.PAID,
-          paidAt: new Date(),
-          earningsRecordedAt: new Date(),
-          settlementReference: result.reference ?? `affiliate-task:${task.id}`,
-        },
-      });
-      await this.recordEvent(taskId, {
-        type: 'PAYMENT_RECORDED',
-        message: `Affiliate payment of ${amount} ${task.compensationCurrency} recorded`,
-        metadata: { amount, currency: task.compensationCurrency, reference: result.reference },
-      });
-    } else {
-      await this.prisma.affiliateTask.update({
-        where: { id: taskId },
-        data: { paymentStatus: AffiliatePaymentStatus.ELIGIBLE },
-      });
-      await this.recordEvent(taskId, {
-        type: 'PAYMENT_PENDING',
-        message: `Payment could not be recorded automatically: ${result.error ?? 'affiliate unavailable'}`,
-        metadata: { amount, currency: task.compensationCurrency },
-      });
-    }
-
-    if (task.billableToBusiness && task.businessChargeAmount != null) {
-      await this.recordEvent(taskId, {
-        type: 'BUSINESS_CHARGED',
-        message: `Business charge of ${task.businessChargeAmount} ${task.businessChargeCurrency} recorded`,
-        metadata: {
-          amount: task.businessChargeAmount,
-          currency: task.businessChargeCurrency,
-        },
-      });
-    }
   }
 
   private async delegateIfPrerequisiteComplete(taskId: string): Promise<void> {
@@ -1500,6 +1502,7 @@ export class AffiliateTaskService {
       where: { id },
       data: { status: AffiliateTaskStatus.CANCELLED },
     });
+    await this.settlement.releaseTaskHold(id, 'Task cancelled by business');
     if (task.assigneeId && task.status !== AffiliateTaskStatus.PENDING_ASSIGNMENT) {
       await this.reputation.recordTaskFailed(
         task.assigneeId,
@@ -1551,7 +1554,16 @@ export class AffiliateTaskService {
   ) {
     const task = await this.prisma.affiliateTask.findUnique({
       where: { id: taskId },
-      include: { business: { select: { accountManagerId: true } } },
+      include: {
+        business: {
+          select: {
+            accountManagerId: true,
+            membershipStatus: true,
+            membershipPlanName: true,
+            membershipExpiresAt: true,
+          },
+        },
+      },
     });
     if (!task) throw new NotFoundException('Task not found');
     if (CLOSED_STATUSES.includes(task.status)) {
@@ -1572,26 +1584,80 @@ export class AffiliateTaskService {
       (compensationAmount != null
         ? AffiliateCompensationModel.FIXED
         : task.compensationModel);
-    const billableToBusiness =
-      dto.billableToBusiness ?? task.billableToBusiness;
-    const businessChargeAmount =
-      dto.businessChargeAmount !== undefined
-        ? Number(dto.businessChargeAmount)
-        : billableToBusiness && compensationAmount != null
-          ? task.businessChargeAmount ?? compensationAmount
-          : task.businessChargeAmount;
-    const businessChargeStatus =
-      billableToBusiness && businessChargeAmount != null
-        ? task.businessChargeApprovedAt
-          ? AffiliateChargeStatus.APPROVED
-          : AffiliateChargeStatus.PENDING_APPROVAL
-        : task.businessChargeStatus;
+
+    // Preserve the original free/charged decision when reassigning. Only a task
+    // that has never been evaluated consumes a fresh quota decision.
+    let allowance: Awaited<ReturnType<AffiliateTaskQuotaService['resolve']>> | null = null;
+    let freeDelegation = task.freeDelegation;
+    if (freeDelegation == null) {
+      allowance = await this.quota.resolve(task.businessId, { excludeTaskId: taskId });
+      freeDelegation = allowance.source === 'NONE' ? false : allowance.isFree;
+    }
+
+    const quotaSource = allowance?.source ?? task.delegationQuotaSource;
+    const quotaEnforced = quotaSource != null && quotaSource !== 'NONE';
+    const requestedCharge =
+      dto.businessChargeAmount !== undefined ? Number(dto.businessChargeAmount) : undefined;
+
+    let billableToBusiness: boolean;
+    let businessChargeAmount: number | null;
+    let businessChargeStatus: AffiliateChargeStatus;
+
+    if (quotaEnforced && freeDelegation) {
+      // Within the plan allowance: the platform covers the affiliate payout and
+      // the business wallet is not touched.
+      billableToBusiness = false;
+      businessChargeAmount = null;
+      businessChargeStatus = AffiliateChargeStatus.NOT_APPLICABLE;
+    } else if (quotaEnforced && !freeDelegation) {
+      // Allowance exhausted: the task is chargeable. Refuse to assign without a
+      // price rather than silently giving away paid work.
+      const charge = requestedCharge ?? task.businessChargeAmount ?? compensationAmount ?? 0;
+      if (!(charge > 0)) {
+        throw new BadRequestException(
+          'This business has used its free delegated tasks. Set a business charge before assigning.',
+        );
+      }
+      billableToBusiness = true;
+      businessChargeAmount = charge;
+      businessChargeStatus = task.businessChargeApprovedAt
+        ? AffiliateChargeStatus.APPROVED
+        : AffiliateChargeStatus.PENDING_APPROVAL;
+    } else {
+      // Trial / no plan: keep the existing explicit billable rules.
+      billableToBusiness = dto.billableToBusiness ?? task.billableToBusiness;
+      businessChargeAmount =
+        requestedCharge !== undefined
+          ? requestedCharge
+          : task.businessChargeAmount ??
+            (billableToBusiness ? compensationAmount : null);
+      businessChargeStatus =
+        billableToBusiness && businessChargeAmount != null
+          ? task.businessChargeApprovedAt
+            ? AffiliateChargeStatus.APPROVED
+            : AffiliateChargeStatus.PENDING_APPROVAL
+          : task.businessChargeStatus;
+    }
+
     const paymentStatus =
       compensationAmount != null && compensationAmount > 0
         ? task.paymentStatus === AffiliatePaymentStatus.PAID
           ? AffiliatePaymentStatus.PAID
           : AffiliatePaymentStatus.PENDING
         : AffiliatePaymentStatus.NOT_APPLICABLE;
+
+    // Reserve money *before* the task changes hands. If the business wallet
+    // cannot cover the charge this throws and the assignment never happens.
+    await this.settlement.ensureForTask(taskId, {
+      platformFeePercent: dto.platformFeePercent,
+      compensationModel,
+      compensationAmount: compensationAmount ?? null,
+      billableToBusiness,
+      businessChargeAmount: businessChargeAmount ?? null,
+      freeDelegation,
+      assigneeId: assignee.id,
+      assigneeEmail: assignee.email,
+    });
 
     const updated = await this.prisma.affiliateTask.update({
       where: { id: taskId },
@@ -1607,6 +1673,16 @@ export class AffiliateTaskService {
         businessChargeAmount,
         businessChargeStatus,
         paymentStatus,
+        freeDelegation,
+        ...(allowance
+          ? {
+              delegationQuotaSource: allowance.source,
+              delegationQuotaLimit: allowance.unlimited ? null : allowance.freeLimit,
+              delegationQuotaUsed: allowance.used,
+              delegationQuotaUnlimited: allowance.unlimited,
+              delegationQuotaPeriodStart: allowance.periodStart,
+            }
+          : {}),
         ...(dto.requiresBusinessApproval !== undefined
           ? { requiresBusinessApproval: dto.requiresBusinessApproval }
           : {}),
@@ -1631,7 +1707,14 @@ export class AffiliateTaskService {
       actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'ADMIN',
       type: task.status === AffiliateTaskStatus.DECLINED ? 'TASK_REASSIGNED' : 'TASK_ASSIGNED',
       message: `Assigned to ${assignee.email}`,
-      metadata: { assigneeId: assignee.id, previousStatus: task.status },
+      metadata: {
+        assigneeId: assignee.id,
+        previousStatus: task.status,
+        freeDelegation,
+        delegationQuotaSource: quotaSource,
+        billableToBusiness,
+        businessChargeAmount,
+      },
     });
 
     if (
@@ -1726,6 +1809,7 @@ export class AffiliateTaskService {
       where: { id: taskId },
       data: { status: AffiliateTaskStatus.CANCELLED },
     });
+    await this.settlement.releaseTaskHold(taskId, 'Task cancelled by administrator');
     if (penalise && task.assigneeId) {
       await this.reputation.recordTaskFailed(task.assigneeId, task.id, 'Task cancelled by admin');
     }
@@ -1775,6 +1859,14 @@ export class AffiliateTaskService {
           task.id,
           'Task deadline passed without submission',
         );
+      }
+      try {
+        await this.settlement.releaseTaskHold(
+          task.id,
+          'Task deadline passed; escrow released for re-assignment',
+        );
+      } catch (error: any) {
+        this.logger.warn(`Could not release escrow for overdue task ${task.id}: ${error?.message}`);
       }
     }
     if (overdue.length) {
@@ -1832,6 +1924,10 @@ export class AffiliateTaskService {
     }
 
     const updated = await this.prisma.affiliateTask.update({ where: { id: centralTaskId }, data });
+
+    if (mapped === AffiliateTaskStatus.CANCELLED) {
+      await this.settlement.releaseTaskHold(centralTaskId, 'Task cancelled from the affiliate workspace');
+    }
 
     await this.recordEvent(centralTaskId, {
       actorRole: 'AFFILIATE',
@@ -2058,6 +2154,7 @@ export class AffiliateTaskService {
           project: { select: { id: true, title: true, status: true } },
           prerequisiteTask: { select: { id: true, title: true, status: true } },
           reviews: { orderBy: { createdAt: 'desc' }, take: 3 },
+          settlement: true,
           _count: { select: { attachments: true, events: true } },
         },
       }),
@@ -2078,6 +2175,7 @@ export class AffiliateTaskService {
         attachments: true,
         reviews: { orderBy: { createdAt: 'desc' } },
         events: { orderBy: { createdAt: 'desc' }, take: 50 },
+        settlement: true,
       },
     });
     if (!task) throw new NotFoundException('Task not found');
@@ -2099,6 +2197,7 @@ export class AffiliateTaskService {
           orderBy: { createdAt: 'desc' },
           include: { reviewer: { select: { id: true, email: true, firstName: true, lastName: true } } },
         },
+        settlement: true,
       },
     });
   }

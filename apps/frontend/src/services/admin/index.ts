@@ -73,6 +73,9 @@ import type {
   AdminAffiliateTaskQuery,
   AdminAffiliateReport,
   AdminAffiliateReputation,
+  AdminAffiliateSettlement,
+  AdminAffiliateSettlementQuery,
+  AffiliateSettlementSummary,
 } from './types'
 
 export const adminApi = {
@@ -1136,6 +1139,7 @@ export const adminApi = {
       billableToBusiness?: boolean
       businessChargeAmount?: number
       requiresBusinessApproval?: boolean
+      platformFeePercent?: number
     },
   ) => {
     const res = await apiClient.post(`/admin/affiliate-tasks/${id}/assign`, data)
@@ -1153,6 +1157,26 @@ export const adminApi = {
   cancelAffiliateTask: async (id: string) => {
     const res = await apiClient.post(`/admin/affiliate-tasks/${id}/cancel`)
     return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
+  getAffiliateSettlements: async (params?: AdminAffiliateSettlementQuery) => {
+    const res = await apiClient.get('/admin/affiliate-settlements', { params })
+    return res.data as PaginatedResponse<AdminAffiliateSettlement>
+  },
+
+  getAffiliateSettlementSummary: async () => {
+    const res = await apiClient.get('/admin/affiliate-settlements/summary')
+    return res.data as ApiResponse<AffiliateSettlementSummary>
+  },
+
+  retryAffiliateSettlement: async (taskId: string) => {
+    const res = await apiClient.post(`/admin/affiliate-settlements/${taskId}/retry`)
+    return res.data as ApiResponse<AdminAffiliateSettlement>
+  },
+
+  releaseAffiliateSettlement: async (taskId: string, reason?: string) => {
+    const res = await apiClient.post(`/admin/affiliate-settlements/${taskId}/release`, { reason })
+    return res.data as ApiResponse<AdminAffiliateSettlement>
   },
 
   getAffiliateReports: async (params?: AdminAffiliateTaskQuery) => {

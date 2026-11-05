@@ -815,6 +815,11 @@ model MembershipPlan {
   platformAccess String[]  @map("platform_access")
   usageLimits    Json      @map("usage_limits")
   permissions    String[]  @map("permissions")
+  // Free delegated tasks included in this plan. `unlimitedFreeDelegatedTasks`
+  // wins over `freeDelegatedTasks`; once the free allowance is used up, the
+  // business wallet is charged for further delegations.
+  freeDelegatedTasks          Int     @default(0) @map("free_delegated_tasks")
+  unlimitedFreeDelegatedTasks Boolean @default(false) @map("unlimited_free_delegated_tasks")
   archived       Boolean   @default(false) @map("archived")
   deletedAt      DateTime? @map("deleted_at")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -967,6 +972,10 @@ model AccessPlan {
   durationDays   Int       @map("duration_days")
   platformAccess String[]  @default([]) @map("platform_access")
   features       String[]  @default([])
+  // Free delegated tasks included in this access pass. Null/0 + not unlimited
+  // means every delegated task is chargeable.
+  freeDelegatedTasks          Int     @default(0) @map("free_delegated_tasks")
+  unlimitedFreeDelegatedTasks Boolean @default(false) @map("unlimited_free_delegated_tasks")
   whoItIsFor     String?   @map("who_it_is_for")
   badge          String?
   color          String?
@@ -2764,6 +2773,89 @@ enum AffiliateReportStatus {
   INVALID
 }
 
+// Escrow lifecycle for a delegated task's money:
+//   NOT_REQUIRED → nothing to hold or pay
+//   PENDING_HOLD → assignment priced, hold not yet confirmed
+//   HELD         → business funds are reserved (or platform-backed payout)
+//   SETTLING     → hold captured / payout in progress
+//   SETTLED      → business debited, affiliate credited, platform fee booked
+//   RELEASED     → hold returned to the business (cancel / decline)
+//   FAILED       → needs admin attention; never silently dropped
+enum AffiliateSettlementStatus {
+  NOT_REQUIRED
+  PENDING_HOLD
+  HELD
+  SETTLING
+  SETTLED
+  RELEASED
+  FAILED
+}
+
+// Who funds the affiliate payout. Active paid memberships never have their
+// wallet charged again, so the platform absorbs the cost.
+enum AffiliateSettlementFunding {
+  BUSINESS_WALLET
+  PLATFORM
+}
+
+// Immutable-ish audit row for one task's money movement. The wallet ledger
+// (WalletTransaction) remains the source of truth for balances; this row
+// links the business debit, the affiliate credit and the platform fee together
+// so every penny can be reconciled.
+model AffiliateTaskSettlement {
+  id                     String                      @id @default(cuid())
+  taskId                 String                      @unique @map("task_id")
+  task                   AffiliateTask               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  businessId             String                      @map("business_id")
+  businessUserId         String                      @map("business_user_id")
+  affiliateUserId        String?                     @map("affiliate_user_id")
+  affiliateEmail         String?                     @map("affiliate_email")
+
+  // Source prices are in the task currency (normally GBP); credits are what
+  // actually moves in the MCOM wallet.
+  currency               String                      @default("GBP") @map("currency")
+  fxBase                 String                      @default("GBP") @map("fx_base")
+  fxQuote                String                      @default("MCOM") @map("fx_quote")
+  fxRate                 Decimal                     @default(1) @map("fx_rate") @db.Decimal(18, 6)
+
+  businessChargeAmount   Decimal?                    @map("business_charge_amount") @db.Decimal(18, 4)
+  businessChargeCredits  Decimal?                    @map("business_charge_credits") @db.Decimal(18, 4)
+  compensationAmount     Decimal?                    @map("compensation_amount") @db.Decimal(18, 4)
+  compensationCredits    Decimal?                    @map("compensation_credits") @db.Decimal(18, 4)
+  platformFeePercent     Decimal                     @default(0) @map("platform_fee_percent") @db.Decimal(7, 4)
+  platformFeeCredits     Decimal                     @default(0) @map("platform_fee_credits") @db.Decimal(18, 4)
+  // The charge-minus-payout spread that stays with the platform on top of the
+  // explicit percentage fee. Together they make gross = payout + fee + margin.
+  platformMarginCredits  Decimal                     @default(0) @map("platform_margin_credits") @db.Decimal(18, 4)
+  affiliatePayoutCredits Decimal                     @default(0) @map("affiliate_payout_credits") @db.Decimal(18, 4)
+
+  fundingSource          AffiliateSettlementFunding  @default(BUSINESS_WALLET) @map("funding_source")
+  status                 AffiliateSettlementStatus   @default(NOT_REQUIRED) @map("status")
+
+  holdId                 String?                     @unique @map("hold_id")
+  holdExpiresAt          DateTime?                   @map("hold_expires_at")
+  businessTransactionId  String?                     @map("business_transaction_id")
+  affiliateTransactionId String?                     @map("affiliate_transaction_id")
+  settlementReference    String?                     @unique @map("settlement_reference")
+  failureReason          String?                     @map("failure_reason")
+  metadata               Json?                       @map("metadata")
+
+  heldAt                 DateTime?                   @map("held_at")
+  settledAt              DateTime?                   @map("settled_at")
+  releasedAt             DateTime?                   @map("released_at")
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+
+  @@index([businessId])
+  @@index([businessUserId])
+  @@index([affiliateUserId])
+  @@index([status])
+  @@index([fundingSource])
+  @@index([createdAt])
+  @@index([settledAt])
+  @@map("affiliate_task_settlements")
+}
+
 // A project groups related tasks that deliver one business outcome
 // (e.g. "New Product Collection Launch"). It is the Account Manager's service
 // plan and the unit the business closes out / follows up on.
@@ -2928,6 +3020,14 @@ model AffiliateTask {
   paidAt                         DateTime?                  @map("paid_at")
   settlementReference            String?                    @map("settlement_reference")
   earningsRecordedAt             DateTime?                  @map("earnings_recorded_at")
+  // ── Free delegation quota (membership / access-pass allowance) ──
+  // null = not evaluated yet; false = quota exhausted, this task is chargeable.
+  freeDelegation                 Boolean?                   @map("free_delegation")
+  delegationQuotaSource          String?                    @map("delegation_quota_source") // MEMBERSHIP | ACCESS_PASS | NONE
+  delegationQuotaLimit           Int?                       @map("delegation_quota_limit")
+  delegationQuotaUsed            Int?                       @map("delegation_quota_used")
+  delegationQuotaUnlimited       Boolean?                   @map("delegation_quota_unlimited")
+  delegationQuotaPeriodStart     DateTime?                  @map("delegation_quota_period_start")
   // ── Loop closure ──
   followUpRequired               Boolean                    @default(false) @map("follow_up_required")
   followUpNotes                  String?                    @map("follow_up_notes") @db.Text
@@ -2939,8 +3039,10 @@ model AffiliateTask {
   attachments AffiliateTaskAttachment[]
   reviews     AffiliateTaskReview[]
   events      AffiliateTaskEvent[]
+  settlement  AffiliateTaskSettlement?
 
   @@index([businessId])
+  @@index([businessId, createdAt])
   @@index([projectId])
   @@index([assigneeId])
   @@index([status])

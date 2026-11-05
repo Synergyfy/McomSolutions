@@ -51,6 +51,7 @@ import type {
   AdminAffiliateTaskQuery,
   AdminAffiliateReport,
   AdminAffiliateReputation,
+  AdminAffiliateSettlementQuery,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -1683,9 +1684,13 @@ export const useAssignAffiliateTask = () => {
         billableToBusiness?: boolean
         businessChargeAmount?: number
         requiresBusinessApproval?: boolean
+        platformFeePercent?: number
       }
     }) => adminApi.assignAffiliateTask(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+    },
   })
 }
 
@@ -1710,7 +1715,49 @@ export const useCancelAffiliateTaskAdmin = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => adminApi.cancelAffiliateTask(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+    },
+  })
+}
+
+export const useAffiliateSettlements = (params?: AdminAffiliateSettlementQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-settlements', params],
+    queryFn: () => adminApi.getAffiliateSettlements(params),
+    staleTime: 1000 * 15,
+  })
+}
+
+export const useAffiliateSettlementSummary = () => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-settlements', 'summary'],
+    queryFn: () => adminApi.getAffiliateSettlementSummary(),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useRetryAffiliateSettlement = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskId: string) => adminApi.retryAffiliateSettlement(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+    },
+  })
+}
+
+export const useReleaseAffiliateSettlement = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ taskId, reason }: { taskId: string; reason?: string }) =>
+      adminApi.releaseAffiliateSettlement(taskId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+    },
   })
 }
 

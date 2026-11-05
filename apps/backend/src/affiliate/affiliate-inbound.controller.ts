@@ -4,6 +4,8 @@ import { AffiliateApiKeyGuard } from './guards/affiliate-api-key.guard';
 import { AffiliateTaskService } from './affiliate-task.service';
 import { AffiliateClientService } from './affiliate-client.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
+import { WalletService } from '../wallet/wallet.service';
+import { WalletLedgerService } from '../wallet/wallet-ledger.service';
 import {
   AffiliateTaskQueryDto,
   ApproveServiceRequestDto,
@@ -21,6 +23,8 @@ export class AffiliateInboundController {
     private readonly tasks: AffiliateTaskService,
     private readonly client: AffiliateClientService,
     private readonly accountManagers: AccountManagerAssignmentService,
+    private readonly wallet: WalletService,
+    private readonly ledger: WalletLedgerService,
   ) {}
 
   @Get('health')
@@ -31,6 +35,46 @@ export class AffiliateInboundController {
       data: {
         bridge: 'up',
         affiliateReachable: await this.client.ping(),
+      },
+    };
+  }
+
+  /**
+   * Affiliate MCOM wallet (read-only) for the 247GBS earnings screen.
+   * Central remains the single source of truth for money; 247GBS only renders
+   * this data. Keyed by the Central user id, which 247GBS stores as `mcomUserId`.
+   */
+  @Get('wallets/:userId')
+  @UseGuards(AffiliateApiKeyGuard)
+  @ApiOperation({ summary: 'Affiliate MCOM wallet balance, holds and transactions (backend-to-backend)' })
+  @ApiHeader({ name: 'x-api-key', required: true })
+  async affiliateWallet(
+    @Param('userId') userId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const wallet = await this.wallet.getWalletForUser(userId);
+    const [transactions, holds] = await Promise.all([
+      this.ledger.getTransactions(wallet.id, {
+        page: Math.max(1, Number(page) || 1),
+        limit: Math.min(50, Math.max(1, Number(limit) || 20)),
+      }),
+      this.ledger.getActiveHolds(wallet.id),
+    ]);
+    return {
+      success: true,
+      data: {
+        wallet,
+        holds: holds.map((hold) => ({
+          id: hold.id,
+          amount: hold.amount.toNumber(),
+          reference: hold.reference,
+          description: hold.description,
+          status: hold.status,
+          expiresAt: hold.expiresAt.toISOString(),
+          createdAt: hold.createdAt.toISOString(),
+        })),
+        transactions,
       },
     };
   }

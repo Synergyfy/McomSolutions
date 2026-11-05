@@ -136,6 +136,11 @@ export default function PlanManagementPanel() {
                         <p className="text-xs font-semibold text-brand-blue mt-0.5">{plan.whoItIsFor}</p>
                       )}
                       <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>
+                      <p className="mt-1 text-[11px] font-bold text-emerald-700">
+                        {plan.unlimitedFreeDelegatedTasks
+                          ? 'Unlimited free delegated tasks'
+                          : `${plan.freeDelegatedTasks ?? 0} free delegated task${(plan.freeDelegatedTasks ?? 0) === 1 ? '' : 's'}`}
+                      </p>
                     </div>
                     <div className="flex gap-1.5">
                       <button

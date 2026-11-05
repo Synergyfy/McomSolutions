@@ -26,6 +26,7 @@ import {
   useCloseAffiliateProject,
   useCreateAffiliateTask,
   useCreateServiceRequest,
+  useDelegationQuota,
   useMyTasks,
   useNearbyAffiliates,
   usePlatformAccess,
@@ -34,6 +35,7 @@ import {
   useServiceRequests,
 } from '../services/business/hooks';
 import type {
+  AffiliateDelegationQuota,
   AffiliateProjectRecord,
   AffiliateServiceRequestRecord,
   AffiliateTaskRecord,
@@ -101,6 +103,8 @@ export default function DashboardDelegatedTasks() {
   const tasks: AffiliateTaskRecord[] = tasksRes?.data ?? [];
   const { data: accessRes } = usePlatformAccess();
   const platforms = accessRes?.data?.platforms ?? [];
+  const { data: quotaRes } = useDelegationQuota();
+  const quota = quotaRes?.data as AffiliateDelegationQuota | undefined;
   const { data: managerRes } = useAccountManager();
   const manager = managerRes?.data ?? null;
   const { data: myTasksRes } = useMyTasks();
@@ -313,6 +317,23 @@ export default function DashboardDelegatedTasks() {
         </div>
       </div>
 
+      {quota && quota.source !== 'NONE' && (
+        <div
+          className={cn(
+            'rounded-2xl border px-4 py-3 text-xs font-semibold',
+            quota.unlimited || (quota.remaining ?? 0) > 0
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-800',
+          )}
+        >
+          {quota.unlimited
+            ? `Unlimited free delegated tasks are included with ${quota.planName ?? 'your plan'}.`
+            : (quota.remaining ?? 0) > 0
+              ? `${quota.remaining} of ${quota.freeLimit} free delegated tasks left on ${quota.planName ?? 'your plan'}.`
+              : `Your ${quota.freeLimit} free delegated task${quota.freeLimit === 1 ? '' : 's'} on ${quota.planName ?? 'your plan'} are used up. Further delegations are charged.`}
+        </div>
+      )}
+
       {requestFeedback && (
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800 flex items-start justify-between gap-3">
           <span>{requestFeedback}</span>
@@ -501,6 +522,23 @@ export default function DashboardDelegatedTasks() {
                             payment {task.paymentStatus.replaceAll('_', ' ').toLowerCase()}
                           </span>
                         )}
+                        {task.freeDelegation === true && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">
+                            free task
+                            {task.delegationQuotaUnlimited
+                              ? ' · unlimited'
+                              : task.delegationQuotaLimit != null
+                                ? ` · ${task.delegationQuotaUsed ?? 0}/${task.delegationQuotaLimit} used`
+                                : ''}
+                          </span>
+                        )}
+                        {task.freeDelegation === false &&
+                          task.delegationQuotaSource &&
+                          task.delegationQuotaSource !== 'NONE' && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                              beyond free allowance · charged
+                            </span>
+                          )}
                       </div>
                       {task.deliverables && (
                         <div>
@@ -549,6 +587,35 @@ export default function DashboardDelegatedTasks() {
                               Decline
                             </button>
                           </div>
+                        </div>
+                      )}
+
+                      {task.settlement && task.settlement.status !== 'NOT_REQUIRED' && (
+                        <div
+                          className={cn(
+                            'rounded-xl border p-2.5 text-[11px]',
+                            task.settlement.status === 'SETTLED'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                              : task.settlement.status === 'FAILED'
+                                ? 'border-red-200 bg-red-50 text-red-900'
+                                : 'border-sky-200 bg-sky-50 text-sky-900',
+                          )}
+                        >
+                          <p className="font-bold">
+                            {task.settlement.status === 'SETTLED'
+                              ? 'Charge settled'
+                              : task.settlement.status === 'HELD'
+                                ? `Funds reserved: ${Number(task.settlement.businessChargeCredits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} MCOM`
+                                : `Payment status: ${task.settlement.status.replaceAll('_', ' ').toLowerCase()}`}
+                          </p>
+                          <p className="mt-0.5 text-[10px] opacity-80">
+                            {task.settlement.status === 'SETTLED'
+                              ? 'The business charge was captured and the affiliate was paid into their MCOM wallet.'
+                              : task.settlement.status === 'HELD'
+                                ? 'Reserved from your MCOM wallet while the work is in progress. It is released automatically if the task is cancelled or the charge is declined.'
+                                : task.settlement.failureReason ||
+                                  'We could not reserve the charge. Top up your MCOM wallet and contact support.'}
+                          </p>
                         </div>
                       )}
 

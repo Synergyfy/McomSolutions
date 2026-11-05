@@ -103,6 +103,8 @@ export default function AdminAccessEditor() {
   const [features, setFeatures] = useState<string[]>([]);
   const [newFeatureText, setNewFeatureText] = useState('');
   const [includedApps, setIncludedApps] = useState<AccessIncludedAppPlan[]>([]);
+  const [freeDelegatedTasks, setFreeDelegatedTasks] = useState(0);
+  const [unlimitedFreeDelegatedTasks, setUnlimitedFreeDelegatedTasks] = useState(false);
 
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState('');
@@ -149,6 +151,8 @@ export default function AdminAccessEditor() {
         limits: (bundle.limits as Record<string, any> | null) ?? undefined,
       })),
     );
+    setFreeDelegatedTasks(Number((src as any).freeDelegatedTasks ?? 0));
+    setUnlimitedFreeDelegatedTasks(Boolean((src as any).unlimitedFreeDelegatedTasks));
   }, [isNew, planId, plansLoading, editingPlan]);
 
   const unknownPlan = !isNew && !plansLoading && planId && !editingPlan;
@@ -225,6 +229,8 @@ export default function AdminAccessEditor() {
       badge: badge.trim() || undefined,
       color: colorPreset,
       features: features.map((f) => f.trim()).filter(Boolean),
+      freeDelegatedTasks: unlimitedFreeDelegatedTasks ? 0 : Math.max(0, Math.round(freeDelegatedTasks || 0)),
+      unlimitedFreeDelegatedTasks,
       includedApps: includedApps.map((app) => ({
         platform: app.platform,
         planId: app.planId,
@@ -487,6 +493,47 @@ export default function AdminAccessEditor() {
                   {showErrors && <FieldError message={priceError} />}
                 </div>
               </div>
+              <section className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-extrabold text-gray-900">Free delegated tasks</h3>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Included affiliate delegations before this pass starts charging per task.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="flex-1">
+                    <label htmlFor="access-free-delegated-tasks" className={labelClass}>
+                      Included free tasks
+                    </label>
+                    <input
+                      id="access-free-delegated-tasks"
+                      type="number"
+                      min={0}
+                      step={1}
+                      disabled={unlimitedFreeDelegatedTasks}
+                      value={unlimitedFreeDelegatedTasks ? '' : freeDelegatedTasks}
+                      onChange={(e) => setFreeDelegatedTasks(Math.max(0, Number(e.target.value) || 0))}
+                      placeholder="0"
+                      className={cn(inputClass, 'text-xl font-black', unlimitedFreeDelegatedTasks && 'opacity-50')}
+                    />
+                  </div>
+                  <label className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={unlimitedFreeDelegatedTasks}
+                      onChange={(e) => setUnlimitedFreeDelegatedTasks(e.target.checked)}
+                    />
+                    Unlimited free tasks
+                  </label>
+                </div>
+                <p className="text-[11px] font-medium text-gray-500">
+                  {unlimitedFreeDelegatedTasks
+                    ? 'This access pass never charges the business wallet for delegated tasks.'
+                    : freeDelegatedTasks > 0
+                      ? `The first ${freeDelegatedTasks} delegated task${freeDelegatedTasks === 1 ? '' : 's'} are free; further tasks are charged.`
+                      : 'Every delegated task is chargeable.'}
+                </p>
+              </section>
               <div className="rounded-2xl bg-emerald-50/70 border border-emerald-100 p-4 text-sm text-emerald-800 flex items-start gap-2">
                 <Calendar className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>

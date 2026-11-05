@@ -14,8 +14,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AffiliateTaskService } from './affiliate-task.service';
+import { AffiliateSettlementService } from './affiliate-settlement.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import {
+  AffiliateSettlementQueryDto,
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
   ApproveServiceRequestDto,
@@ -34,6 +36,7 @@ import {
 export class AffiliateAdminController {
   constructor(
     private readonly tasks: AffiliateTaskService,
+    private readonly settlement: AffiliateSettlementService,
     private readonly accountManagers: AccountManagerAssignmentService,
   ) {}
 
@@ -75,6 +78,47 @@ export class AffiliateAdminController {
   ) {
     const task = await this.tasks.reviewBusinessChargeAsAdmin(req.user.userId, id, dto);
     return { success: true, data: task, message: 'Charge decision recorded' };
+  }
+
+  @Get('affiliate-settlements')
+  @ApiOperation({ summary: 'Escrow + payout ledger for delegated task money (admin)' })
+  listSettlements(@Query() query: AffiliateSettlementQueryDto) {
+    return this.settlement.listSettlements(query);
+  }
+
+  @Get('affiliate-settlements/summary')
+  @ApiOperation({ summary: 'Headline escrow, payout and platform-fee totals' })
+  getSettlementSummary() {
+    return this.settlement.getSummary();
+  }
+
+  @Get('affiliate-tasks/:id/settlement')
+  @ApiOperation({ summary: 'Escrow + payout record for one delegated task' })
+  async getTaskSettlement(@Param('id') id: string) {
+    return { success: true, data: await this.settlement.getForTask(id) };
+  }
+
+  @Post('affiliate-settlements/:taskId/retry')
+  @ApiOperation({ summary: 'Retry a failed or partially settled task payout (idempotent)' })
+  async retrySettlement(@Param('taskId') taskId: string) {
+    return {
+      success: true,
+      data: await this.settlement.settleTask(taskId),
+      message: 'Settlement retried',
+    };
+  }
+
+  @Post('affiliate-settlements/:taskId/release')
+  @ApiOperation({ summary: 'Release a task escrow back to the business wallet' })
+  async releaseSettlement(@Param('taskId') taskId: string, @Body('reason') reason?: string) {
+    return {
+      success: true,
+      data: await this.settlement.releaseTaskHold(
+        taskId,
+        reason || 'Released by administrator',
+      ),
+      message: 'Escrow released',
+    };
   }
 
   @Get('affiliate-requests')
