@@ -1,11 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import { mcomPayAdminApi, type AppChargeFilters } from '../api/mcom-pay-admin.api';
+import {
+  mcomPayAdminApi,
+  type AppChargeFilters,
+  type WalletActivityFilters,
+} from '../api/mcom-pay-admin.api';
 
 export const mcomPayKeys = {
   all: ['mcom-pay-admin'] as const,
   charges: (params: AppChargeFilters) => ['mcom-pay-admin', 'charges', params] as const,
   charge: (id: string) => ['mcom-pay-admin', 'charge', id] as const,
   ledger: (id: string) => ['mcom-pay-admin', 'ledger', id] as const,
+  walletActivity: (params: WalletActivityFilters) =>
+    ['mcom-pay-admin', 'wallet-activity', params] as const,
 };
 
 export const useAdminAppCharges = (params: AppChargeFilters) =>
@@ -27,4 +33,11 @@ export const useAdminAppChargeLedger = (id: string) =>
     queryKey: mcomPayKeys.ledger(id),
     queryFn: () => mcomPayAdminApi.getLedger(id),
     enabled: !!id,
+  });
+
+export const useAdminWalletActivity = (params: WalletActivityFilters) =>
+  useQuery({
+    queryKey: mcomPayKeys.walletActivity(params),
+    queryFn: () => mcomPayAdminApi.listWalletActivity(params),
+    placeholderData: (prev: any) => prev,
   });
