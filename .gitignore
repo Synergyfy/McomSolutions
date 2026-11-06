@@ -18,6 +18,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Environment files
+.env*
 !.env.example
 
 # IDE / System
@@ -30,4 +31,3 @@ yarn-error.log*
 
 .gitignore
 branch_structure.json
-config.bat

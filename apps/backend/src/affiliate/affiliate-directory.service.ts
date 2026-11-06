@@ -47,6 +47,29 @@ export class AffiliateDirectoryService {
     return this.normalizePostcode(postcode).replace(/\s+/g, '');
   }
 
+  /**
+   * Semantic platform key used for access resolution. Mirrors the mapping on
+   * the All Products directory so aliases such as "MCOM Rewards",
+   * "247gbs-rewards" and "Loyalty" all resolve to the same entitlement.
+   */
+  private accessPlatformKey(value?: string | null): string {
+    const compact = String(value ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    if (!compact) return '';
+    if (compact.includes('mall')) return 'mall';
+    if (compact.includes('reward')) return 'rewards';
+    if (compact.includes('loyalty')) return 'loyalty';
+    if (compact.includes('spin')) return 'spin';
+    if (compact.includes('vcard') || compact.includes('visitingcard')) return 'vcard';
+    if (compact.includes('audit')) return 'audit';
+    if (compact.includes('expo')) return 'expo';
+    if (compact.includes('affiliate')) return '247gbs_affiliate';
+    if (compact.includes('partner')) return 'partner';
+    if (compact.includes('link')) return 'links';
+    return compact;
+  }
+
   private async geocode(postcode?: string | null): Promise<{ lat: number; lng: number } | null> {
     const normalized = this.normalizePostcode(postcode);
     if (!normalized) return null;
@@ -155,27 +178,50 @@ export class AffiliateDirectoryService {
       where: { id: businessId, deletedAt: null },
       select: {
         id: true,
+        membershipLevel: true,
         membershipPlanName: true,
         membershipStatus: true,
         membershipExpiresAt: true,
         trialAccessExpiresAt: true,
+        hasPaidVerificationFee: true,
+        createdAt: true,
       },
     });
     if (!business) throw new NotFoundException('Business profile not found');
 
     const now = new Date();
-    const [packages, plan, clients, accessPurchase] = await Promise.all([
+    const planName =
+      business.membershipPlanName ||
+      (business.membershipLevel &&
+      business.membershipLevel.toLowerCase() !== 'bronze'
+        ? business.membershipLevel
+        : null);
+    const membershipExpired =
+      business.membershipExpiresAt != null && business.membershipExpiresAt <= now;
+    const membershipActive =
+      Boolean(planName) &&
+      ['active', 'trial', 'past_due'].includes(
+        String(business.membershipStatus ?? '').toLowerCase(),
+      ) &&
+      !membershipExpired;
+
+    const [packages, plan, clients, accessPurchases, settings] = await Promise.all([
       this.prisma.platformPackage.findMany({
         where: {
           businessId,
           status: 'active',
           OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         },
-        select: { platform: true, planType: true },
+        select: { platform: true },
       }),
-      business.membershipPlanName
+      planName
         ? this.prisma.membershipPlan.findFirst({
-            where: { name: business.membershipPlanName },
+            where: {
+              OR: [
+                { name: { equals: planName, mode: 'insensitive' } },
+                { id: planName },
+              ],
+            },
             select: { includedApps: true, platformAccess: true },
           })
         : Promise.resolve(null),
@@ -183,66 +229,134 @@ export class AffiliateDirectoryService {
         where: { isActive: true },
         select: { clientId: true, name: true, platformSlug: true },
       }),
-      this.prisma.accessPurchase.findFirst({
-        where: { businessId, status: 'ACTIVE', expiresAt: { gt: now } },
-        select: { id: true },
+      this.prisma.accessPurchase.findMany({
+        where: {
+          businessId,
+          status: 'ACTIVE',
+          expiresAt: { gt: now },
+        },
+        select: {
+          accessPlan: {
+            select: {
+              platformAccess: true,
+              appBundles: { select: { platform: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.programmeSetting.findMany({
+        where: {
+          key: { in: ['trial_access_days', 'verification_required'] },
+        },
+        select: { key: true, value: true, updatedAt: true },
       }),
     ]);
 
-    const rawNames = new Set<string>();
-    for (const pkg of packages) if (pkg.platform) rawNames.add(pkg.platform);
+    const membershipKeys = new Set<string>();
+    const directKeys = new Set<string>();
+    const addKey = (set: Set<string>, value: unknown) => {
+      const key = this.accessPlatformKey(value as string | null | undefined);
+      if (key) set.add(key);
+    };
+
     if (plan) {
       if (Array.isArray(plan.platformAccess)) {
-        for (const p of plan.platformAccess) rawNames.add(String(p));
+        plan.platformAccess.forEach((platform) => addKey(membershipKeys, platform));
       }
       if (Array.isArray(plan.includedApps)) {
-        for (const app of plan.includedApps as any[]) {
-          const name = app?.platform || app?.platformName || app?.name;
-          if (name) rawNames.add(String(name));
-        }
+        (plan.includedApps as any[]).forEach((app) =>
+          addKey(membershipKeys, app?.platform ?? app?.platformName ?? app?.name),
+        );
       }
     }
 
-    const isTrial =
-      business.membershipStatus === 'trial' ||
-      (business.trialAccessExpiresAt != null && business.trialAccessExpiresAt > now);
-    const hasAccessPass = !!accessPurchase;
-    const hasMembership = rawNames.size > 0;
+    packages.forEach((pkg) => addKey(directKeys, pkg.platform));
+    accessPurchases.forEach((purchase) => {
+      purchase.accessPlan.platformAccess.forEach((platform) =>
+        addKey(directKeys, platform),
+      );
+      purchase.accessPlan.appBundles.forEach((bundle) =>
+        addKey(directKeys, bundle.platform),
+      );
+    });
 
-    let accessType: 'MEMBERSHIP' | 'TRIAL' | 'ACCESS_PASS' | 'NONE' = 'NONE';
-    if (hasMembership) accessType = 'MEMBERSHIP';
-    else if (hasAccessPass) accessType = 'ACCESS_PASS';
-    else if (isTrial) accessType = 'TRIAL';
+    const settingsMap = new Map(settings.map((setting) => [setting.key, setting]));
+    const trialDaysSetting = settingsMap.get('trial_access_days');
+    const verificationSetting = settingsMap.get('verification_required');
+    const trialAccessDays = trialDaysSetting
+      ? parseInt(trialDaysSetting.value, 10) || 14
+      : 14;
+    const verificationRequired = verificationSetting
+      ? verificationSetting.value === 'true'
+      : true;
+    const verificationOptionalSince =
+      !verificationRequired && verificationSetting?.updatedAt
+        ? verificationSetting.updatedAt
+        : null;
+    const trialStartedAt = Math.max(
+      business.createdAt.getTime(),
+      verificationOptionalSince?.getTime() ?? 0,
+    );
+    const freeTrialExpiresAt = !verificationRequired
+      ? new Date(trialStartedAt + trialAccessDays * 24 * 60 * 60 * 1000)
+      : null;
+    const trialExpiresAt = business.trialAccessExpiresAt ?? freeTrialExpiresAt;
+    const trialActive =
+      !membershipActive &&
+      (Boolean(business.hasPaidVerificationFee) || !verificationRequired) &&
+      trialExpiresAt != null &&
+      trialExpiresAt > now;
+    const isTrial = business.membershipStatus === 'trial' || trialActive;
 
-    // Trial and access-pass businesses may not have package rows; present the
-    // full catalogue so they can still tag (and route via an admin).
-    if (!hasMembership && (isTrial || hasAccessPass)) {
-      for (const client of clients) rawNames.add(client.platformSlug || client.name);
-    }
+    const clientKeys = (client: (typeof clients)[number]) =>
+      [client.platformSlug, client.name, client.clientId]
+        .map((value) => this.accessPlatformKey(value))
+        .filter(Boolean);
+    const isMcomClient = (client: (typeof clients)[number]) => {
+      const text = [
+        client.clientId,
+        client.platformSlug ?? '',
+        client.name,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return !/(gbs|audit|affiliate)/.test(text);
+    };
+
+    // Membership plans without configured bundles fall back to the MCOM
+    // catalogue, exactly like the All Products directory.
+    const accessibleKeys = new Set([...membershipKeys, ...directKeys]);
+    const includeClient = (client: (typeof clients)[number]) => {
+      if (clientKeys(client).some((key) => accessibleKeys.has(key))) return true;
+      if (membershipActive && membershipKeys.size === 0 && isMcomClient(client)) {
+        return true;
+      }
+      return trialActive && isMcomClient(client);
+    };
 
     const platforms: PlatformAccessItem[] = [];
     const seen = new Set<string>();
-    const clientByKey = new Map<string, (typeof clients)[number]>();
     for (const client of clients) {
-      if (client.platformSlug) clientByKey.set(normalizePlatformKey(client.platformSlug), client);
-      clientByKey.set(normalizePlatformKey(client.clientId), client);
-      clientByKey.set(normalizePlatformKey(client.name), client);
-    }
-
-    for (const raw of rawNames) {
-      const match = clientByKey.get(normalizePlatformKey(raw));
-      const key = match?.platformSlug || normalizePlatformKey(raw);
+      if (!includeClient(client)) continue;
+      const key = client.platformSlug || normalizePlatformKey(client.name);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       platforms.push({
         key,
-        name: match?.name || raw,
-        platformSlug: match?.platformSlug ?? null,
-        clientId: match?.clientId ?? null,
+        name: client.name,
+        platformSlug: client.platformSlug ?? null,
+        clientId: client.clientId,
       });
     }
 
     platforms.sort((a, b) => a.name.localeCompare(b.name));
+
+    let accessType: 'MEMBERSHIP' | 'TRIAL' | 'ACCESS_PASS' | 'NONE' = 'NONE';
+    if (membershipActive) accessType = 'MEMBERSHIP';
+    else if (accessPurchases.length > 0) accessType = 'ACCESS_PASS';
+    else if (isTrial) accessType = 'TRIAL';
+    else if (accessibleKeys.size > 0) accessType = 'MEMBERSHIP';
+
     return { platforms, accessType };
   }
 
@@ -293,6 +407,7 @@ export class AffiliateDirectoryService {
       limit?: number;
       postcode?: string;
       skill?: string;
+      radiusMiles?: number;
       availableOnly?: string;
     } = {},
   ) {
@@ -433,15 +548,30 @@ export class AffiliateDirectoryService {
       );
     }
 
-    const ranked = rankByAffinity(business, pool);
-    const total = ranked.length;
-    const slice = ranked.slice((page - 1) * limit, page * limit);
+    let ranked = rankByAffinity(business, pool);
 
     // Distance is estimated from the business's own postcode (the user's
     // location). If the postcode cannot be geocoded we fall back to the
     // hierarchy-distance estimate so the UI always shows *something* useful.
     const originPostcode = business.postcode || options.postcode || null;
     const originGeo = await this.geocode(originPostcode);
+
+    // Optional radius search. When a radius is requested, candidates we cannot
+    // place on the map are excluded rather than silently included.
+    if (options.radiusMiles && originGeo) {
+      const origin = originGeo;
+      const radiusKm = options.radiusMiles / 0.621371;
+      const distances = await Promise.all(
+        ranked.map(({ candidate }) => this.geocode(candidate.postcode)),
+      );
+      ranked = ranked.filter((_, index) => {
+        const target = distances[index];
+        return target ? this.haversineKm(origin, target) <= radiusKm : false;
+      });
+    }
+
+    const total = ranked.length;
+    const slice = ranked.slice((page - 1) * limit, page * limit);
     const targetGeos = await Promise.all(
       slice.map(({ candidate }) => this.geocode(candidate.postcode)),
     );
@@ -507,6 +637,7 @@ export class AffiliateDirectoryService {
       filters: {
         skill: options.skill ?? null,
         postcode: options.postcode ?? null,
+        radiusMiles: options.radiusMiles ?? null,
       },
       distanceFrom: originPostcode,
     };

@@ -528,6 +528,17 @@ export class NearbyAffiliatesQueryDto {
   @MaxLength(60)
   skill?: string;
 
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Only return affiliates within this many miles of the business postcode.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  radiusMiles?: number;
+
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Type(() => Number)
