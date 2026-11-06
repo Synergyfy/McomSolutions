@@ -6,6 +6,7 @@ import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { ConfigService } from '@nestjs/config';
 import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 
 // Force external lookups (Nominatim, postcodes.io) to fail so the service
 // exercise its error paths deterministically without network access.
@@ -85,6 +86,12 @@ describe('BusinessService', () => {
     assignBusiness: jest.fn().mockResolvedValue(null),
   };
 
+  const mockBusinessAcquisition = {
+    resolveInvitationForRegistration: jest.fn().mockResolvedValue(null),
+    applyInvitationToBusiness: jest.fn().mockResolvedValue(null),
+    markOnboardingCompleted: jest.fn().mockResolvedValue(null),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -94,6 +101,7 @@ describe('BusinessService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GoogleOAuthService, useValue: mockGoogleOAuth },
         { provide: LocationAssignmentService, useValue: mockLocationAssignment },
+        { provide: BusinessAcquisitionService, useValue: mockBusinessAcquisition },
       ],
     }).compile();
 

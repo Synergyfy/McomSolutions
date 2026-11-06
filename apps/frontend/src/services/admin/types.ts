@@ -1521,3 +1521,514 @@ export interface AdminAffiliateReputation {
     business?: { businessName: string }
   }>
 }
+
+// ─── Admin full user profile (drill-down) ─────────────────────────────────────
+
+export interface AdminUserAccount {
+  id: string
+  email: string
+  role: string
+  firstName: string | null
+  lastName: string | null
+  name: string
+  fullName: string | null
+  jobTitle: string | null
+  adminRole: string | null
+  registrationSource: string | null
+  referralCode: string | null
+  referredBy: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+  } | null
+  twoFactorEnabled: boolean
+  emailNotifications: boolean
+  smsNotifications: boolean
+  tokenVersion: number
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+}
+
+/** Location node returned by Prisma for profiles. */
+export interface AdminLocationNode {
+  id: string
+  name?: string | null
+  [key: string]: unknown
+}
+
+export interface AdminBusinessProfileDetail {
+  id: string
+  userId: string
+  businessName: string
+  businessType: string
+  country: string
+  phone: string
+  email: string
+  isOnGoogle: boolean
+  googlePlaceId: string | null
+  address: string | null
+  postcode: string | null
+  industry: string | null
+  category: string | null
+  subCategory: string | null
+  description: string | null
+  website: string | null
+  logoUrl: string | null
+  openingHours: string | null
+  socialMedia: string | null
+  membershipLevel: string
+  membershipTier: string
+  membershipStatus: string
+  membershipPlanName: string | null
+  membershipExpiresAt: string | null
+  membershipRecurringId: string | null
+  stripeCustomerId: string | null
+  paypalPayerId: string | null
+  hasPaidVerificationFee: boolean
+  verificationFeePaidAt: string | null
+  trialAccessDays: number
+  trialAccessExpiresAt: string | null
+  apiKey: string | null
+  localMallName: string | null
+  localMallId: string | null
+  proximityTier: string | null
+  cityId: string | null
+  city: AdminLocationNode | null
+  boroughId: string | null
+  borough: AdminLocationNode | null
+  highStreetId: string | null
+  highStreet: AdminLocationNode | null
+  localMall: AdminLocationNode | null
+  sectorId: string | null
+  sector: AdminLocationNode | null
+  categoryId: string | null
+  categoryRef: AdminLocationNode | null
+  subCategoryId: string | null
+  subCategoryRef: AdminLocationNode | null
+  locationAssignedAt: string | null
+  accountManagerId: string | null
+  accountManagerAssignedAt: string | null
+  accountManager: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+    role: string
+  } | null
+  acquiredByAffiliateId: string | null
+  acquiredByAffiliateExternalId: string | null
+  acquiredByAffiliateName: string | null
+  acquiredByAffiliateRole: string | null
+  onboardedByAffiliateId: string | null
+  acquisitionSource: string | null
+  acquisitionStatus: string | null
+  acquisitionAttributedAt: string | null
+  acquisitionVerifiedAt: string | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  [key: string]: unknown
+}
+
+export interface AdminCustomerProfileDetail {
+  id: string
+  userId: string
+  phone: string | null
+  postcode: string | null
+  loyaltyPoints: number
+  platformUsage: string[]
+  membershipStatus: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  [key: string]: unknown
+}
+
+export interface AdminAgentProfileDetail {
+  id: string
+  userId: string
+  phone: string | null
+  postcode: string | null
+  permissions: string[]
+  availabilityStatus: string
+  availableFrom: string | null
+  reputationScore: number
+  experienceScore: number
+  completedTasksCount: number
+  failedTasksCount: number
+  status: string
+  city: AdminLocationNode | null
+  borough: AdminLocationNode | null
+  highStreet: AdminLocationNode | null
+  localMall: AdminLocationNode | null
+  locationAssignedAt: string | null
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  [key: string]: unknown
+}
+
+export interface AdminConsultantProfileDetail extends AdminAgentProfileDetail {
+  specialisation: string
+}
+
+export interface AdminAccountManagerProfileDetail extends AdminAgentProfileDetail {
+  assignedBusinesses: number
+}
+
+export interface AdminPlanReference {
+  id: string
+  name?: string
+  [key: string]: unknown
+}
+
+export interface AdminSubscriptionRecord {
+  id: string
+  businessId?: string
+  businessName?: string
+  type?: string
+  itemName?: string
+  status: string
+  startDate?: string
+  endDate?: string
+  amount?: number
+  billingCycle?: string
+  scope?: string
+  planName?: string
+  membershipPlanName?: string | null
+  membershipTier?: string | null
+  level?: string | null
+  platform?: string | null
+  provider?: string
+  autoRenew?: boolean
+  cancelAtPeriodEnd?: boolean
+  currentPeriodStart?: string | null
+  currentPeriodEnd?: string | null
+  nextChargeAt?: string | null
+  createdAt?: string
+  [key: string]: unknown
+}
+
+export interface AdminPlatformPackageRecord {
+  id: string
+  platform: string
+  packageName: string
+  status: string
+  limits: unknown
+  externalPlanId: string | null
+  planName: string | null
+  planType: string | null
+  expiresAt: string | null
+  provider: string | null
+  autoRenew: boolean
+  nextChargeAt: string | null
+  amount: number | null
+  currency: string
+  billingCycle: string | null
+  createdAt: string
+  updatedAt: string
+  [key: string]: unknown
+}
+
+export interface AdminAccessPurchaseRecord {
+  id: string
+  accessPlanId: string
+  accessPlanName: string
+  durationDays: number
+  amount: number
+  currency: string
+  status: string
+  provider: string | null
+  startsAt: string
+  expiresAt: string
+  createdAt: string
+  [key: string]: unknown
+}
+
+export interface AdminWhitelabelGrant {
+  id: string
+  businessId: string
+  clientId: string
+  grantedBy: string | null
+  createdAt: string
+  client?: {
+    clientId: string
+    name: string
+    platformSlug: string | null
+    appUrl: string | null
+  } | null
+}
+
+export interface AdminBillingTransactionRecord {
+  id: string
+  businessId: string
+  amount: number
+  description: string
+  status: string
+  platformPackageId: string | null
+  provider: string | null
+  providerPaymentId: string | null
+  metadata: unknown
+  createdAt: string
+  [key: string]: unknown
+}
+
+export interface AdminCouponRedemptionRecord {
+  id: string
+  couponCode: string
+  planName: string | null
+  productType: string
+  accessPlanName: string | null
+  originalAmount: number
+  discountAmount: number
+  finalAmount: number
+  status: string
+  redeemedAt: string | null
+  createdAt: string
+  coupon?: { id: string; code: string; description: string | null } | null
+  [key: string]: unknown
+}
+
+export interface AdminWalletTransactionRecord {
+  id: string
+  type: string
+  amount: string | number
+  balanceBefore: string | number
+  balanceAfter: string | number
+  currency: string
+  platformName: string | null
+  platformSlug: string | null
+  category: string
+  reference: string | null
+  description: string | null
+  status: string
+  createdAt: string
+  [key: string]: unknown
+}
+
+export interface AdminWalletRecord {
+  id: string
+  userId: string
+  balance: string | number
+  currency: string
+  status: string
+  dailyDebitLimit: string | number | null
+  monthlyDebitLimit: string | number | null
+  maxBalance: string | number | null
+  lastTransactionAt: string | null
+  createdAt: string
+  updatedAt: string
+  transactions: AdminWalletTransactionRecord[]
+  topUpRequests: Array<{
+    id: string
+    amount: string | number
+    status: string
+    createdAt: string
+    [key: string]: unknown
+  }>
+}
+
+export interface AdminProgrammeTaskStatusRecord {
+  id: string
+  missionId: string
+  status: 'not_started' | 'in_progress' | 'completed' | string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminBusinessProgrammeRecord {
+  id: string
+  businessId: string | null
+  businessName: string
+  sector: string
+  currentDay: number
+  status: string
+  agentId: string | null
+  agentName: string
+  accountManagerId: string | null
+  accountManagerName: string
+  consultantId: string | null
+  consultantName: string
+  completedMissions: string[]
+  startedAt: string
+  extendedBy: number
+  phaseId: string | null
+  phase: { id: string; name: string; dayStart: number; dayEnd: number; description: string; color: string } | null
+  taskStatuses: AdminProgrammeTaskStatusRecord[]
+  createdAt: string
+  updatedAt: string
+  [key: string]: unknown
+}
+
+export interface AdminTaskAssignmentRecord {
+  id: string
+  taskId: string
+  userId: string
+  userType: string
+  status: string
+  effectiveStatus: string
+  assignedAt: string
+  deadlineAt: string
+  daysRemaining: number
+  completedAt: string | null
+  rewardGranted: boolean
+  rewardPoints: number
+  submissionData: unknown
+  task: {
+    id: string
+    title: string
+    description: string
+    featureKey: string | null
+    targetAudience: string
+    accessScope: string
+    taskSource: string
+    submissionType: string
+    platform: string
+    externalAppName: string | null
+    actionUrl: string | null
+    actionLabel: string | null
+    deadlineDays: number
+    rewardPoints: number
+    rewardCouponEnabled: boolean
+    isActive: boolean
+    createdAt: string
+  }
+  rewardCoupon: {
+    id: string
+    code: string
+    discountType: string
+    discountValue: number
+    expiresAt: string | null
+  } | null
+}
+
+export interface AdminAffiliateTaskRecord {
+  id: string
+  businessId: string
+  business?: { id: string; businessName: string }
+  title: string
+  description: string
+  category: string
+  status: string
+  assigneeId: string | null
+  assigneeRole: string | null
+  assignee?: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+  } | null
+  dueAt: string | null
+  compensationModel: string
+  compensationAmount: number | null
+  compensationPence: number | null
+  billableToBusiness: boolean
+  businessChargeAmount: number | null
+  paymentStatus: string
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+  settlement: unknown
+  [key: string]: unknown
+}
+
+export interface AdminFullUserProfile {
+  account: AdminUserAccount
+  businessProfile: AdminBusinessProfileDetail | null
+  customerProfile: AdminCustomerProfileDetail | null
+  agentProfile: AdminAgentProfileDetail | null
+  consultantProfile: AdminConsultantProfileDetail | null
+  accountManagerProfile: AdminAccountManagerProfileDetail | null
+  membership: {
+    level: string | null
+    tier: string | null
+    status: string | null
+    planName: string | null
+    expiresAt: string | null
+    trialAccessDays: number | null
+    trialAccessExpiresAt: string | null
+    hasPaidVerificationFee: boolean | null
+    verificationFeePaidAt: string | null
+    ecosystemSubscriptions: AdminSubscriptionRecord[]
+    recurringSubscriptions: Array<AdminSubscriptionRecord & { charges?: Array<Record<string, unknown>> }>
+    installmentSubscriptions: Array<Record<string, unknown>>
+    platformPackages: AdminPlatformPackageRecord[]
+    accessPurchases: AdminAccessPurchaseRecord[]
+    whitelabelGrants: AdminWhitelabelGrant[]
+  }
+  financials: {
+    totalRevenue: number
+    transactions: AdminBillingTransactionRecord[]
+    couponRedemptions: AdminCouponRedemptionRecord[]
+    wallet: AdminWalletRecord | null
+  }
+  programme: {
+    programmes: AdminBusinessProgrammeRecord[]
+    taskAssignments: AdminTaskAssignmentRecord[]
+    taskSummary: {
+      total: number
+      completed: number
+      expired: number
+      inProgress: number
+      pending: number
+      outstanding: number
+      progress: number
+    }
+  }
+  affiliate: {
+    tasks: AdminAffiliateTaskRecord[]
+    reputationEvents: Array<{
+      id: string
+      delta: number
+      reason: string
+      sourceType: string
+      sourceId: string | null
+      createdAt: string
+    }>
+    ratingsReceived: Array<{
+      id: string
+      rating: number
+      comment: string | null
+      status: string
+      createdAt: string
+      business?: { id: string; businessName: string } | null
+    }>
+    reports: Array<{
+      id: string
+      reason: string
+      description: string
+      status: string
+      adminNotes: string | null
+      createdAt: string
+      business?: { id: string; businessName: string } | null
+    }>
+    reputationScore: number
+  }
+  support: {
+    tickets: Array<{
+      id: string
+      subject: string
+      message: string
+      fromName: string
+      fromType: string
+      status: string
+      priority: string
+      assignedTo: string | null
+      createdAt: string
+      updatedAt: string
+    }>
+    notifications: Array<{
+      id: string
+      type: string
+      title: string
+      message: string
+      read: boolean
+      data: unknown
+      createdAt: string
+    }>
+  }
+  meta: { generatedAt: string }
+}

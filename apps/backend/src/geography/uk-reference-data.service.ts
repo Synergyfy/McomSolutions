@@ -270,7 +270,7 @@ export class UkReferenceDataService {
 
     // ── Boroughs (LADs) ──────────────────────────────────────
     const existingBoroughs = await this.prisma.borough.findMany({
-      select: { id: true, name: true, gssCode: true },
+      select: { id: true, name: true, gssCode: true, cityId: true },
     });
     const boroughByGss = new Map(
       existingBoroughs
@@ -299,7 +299,9 @@ export class UkReferenceDataService {
       if (existing) {
         await this.prisma.borough.update({
           where: { id: existing.id },
-          data: { gssCode: ladCode, cityId },
+          // Do not undo a settlement-city link created by postcode signups.
+          // Only fill a missing city.
+          data: { gssCode: ladCode, ...(existing.cityId ? {} : { cityId }) },
         });
         boroughByGss.set(ladCode, existing);
         boroughByName.set(lad.name.toLowerCase(), existing);
@@ -330,7 +332,7 @@ export class UkReferenceDataService {
       });
       summary.boroughsCreated = created.count;
       const refreshed = await this.prisma.borough.findMany({
-        select: { id: true, name: true, gssCode: true },
+        select: { id: true, name: true, gssCode: true, cityId: true },
       });
       for (const borough of refreshed) {
         if (borough.gssCode) boroughByGss.set(borough.gssCode, borough);

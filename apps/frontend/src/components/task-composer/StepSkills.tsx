@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Lightbulb, Plus, Wand2, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import StepIntro from './StepIntro';
+import FieldTooltip from '../common/FieldTooltip';
 import { SKILL_SUGGESTIONS } from './taskComposerUtils';
 
 interface StepSkillsProps {
@@ -9,9 +10,16 @@ interface StepSkillsProps {
   onToggle: (skill: string) => void;
   onAdd: (skill: string) => void;
   onRemove: (skill: string) => void;
+  eyebrow?: string;
 }
 
-export default function StepSkills({ skills, onToggle, onAdd, onRemove }: StepSkillsProps) {
+export default function StepSkills({
+  skills,
+  onToggle,
+  onAdd,
+  onRemove,
+  eyebrow = 'Quest 4 of 5',
+}: StepSkillsProps) {
   const [draft, setDraft] = useState('');
   const [justAdded, setJustAdded] = useState<string | null>(null);
 
@@ -35,15 +43,16 @@ export default function StepSkills({ skills, onToggle, onAdd, onRemove }: StepSk
     <div>
       <StepIntro
         icon={Wand2}
-        eyebrow="Quest 4 of 5"
+        eyebrow={eyebrow}
         title="What skills does this need?"
         description="Add the skills that matter for this outcome. We use them to rank people by real fit, not just who is nearby."
         tip="Two or three focused skills beat a long wish list. Affiliates can still apply if they are a strong overall match."
       />
 
       <div className="rounded-2xl border border-gray-100 bg-white p-3.5 sm:p-4">
-        <p className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+        <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
           Popular skills
+          <FieldTooltip text="Tap the skills this task needs. We use them to rank affiliates by real fit, not just distance." />
         </p>
         <div className="mt-2.5 flex flex-wrap gap-2">
           {SKILL_SUGGESTIONS.map((skill) => {
@@ -71,8 +80,9 @@ export default function StepSkills({ skills, onToggle, onAdd, onRemove }: StepSk
 
       <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3.5 sm:p-4">
         <label className="block">
-          <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+          <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
             Add your own
+            <FieldTooltip text="Cannot see a skill? Type it in the box and press Enter to add it to this task." />
           </span>
           <div className="mt-1.5 flex gap-2">
             <input

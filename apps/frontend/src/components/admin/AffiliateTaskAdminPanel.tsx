@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -18,7 +19,6 @@ import AffiliateSettlementLedger from './AffiliateSettlementLedger';
 import {
   useAdminAccountManagers,
   useAdminAgents,
-  useAdminBusinesses,
   useAdminConsultants,
   useAffiliateReports,
   useAffiliateReputation,
@@ -27,7 +27,6 @@ import {
   useAssignAffiliateTask,
   useBackfillAccountManagers,
   useCancelAffiliateTaskAdmin,
-  useCreateAffiliateTask,
   useReviewAffiliateReport,
   useReviewAffiliateTask,
 } from '../../services/admin/hooks';
@@ -105,6 +104,18 @@ function nameOf(person?: { firstName?: string | null; lastName?: string | null; 
 }
 
 export default function AffiliateTaskAdminPanel() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const createdNotice = (location.state ?? null) as
+    | {
+        taskCreated?: boolean;
+        taskTitle?: string;
+        businessName?: string;
+        assigneeName?: string | null;
+      }
+    | null;
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+
   const [tab, setTab] = useState<'tasks' | 'settlements' | 'reports'>('tasks');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -145,62 +156,12 @@ export default function AffiliateTaskAdminPanel() {
     [managers, agents, consultants],
   );
 
-  // Agents first for the "create on behalf of a business" flow.
-  const createAssignees = useMemo(
-    () => [
-      ...agents.map((a: any) => ({ userId: a.userId, name: a.name, email: a.email, role: 'AGENT' })),
-      ...managers.map((m: any) => ({ userId: m.userId, name: m.name, email: m.email, role: 'ACCOUNT_MANAGER' })),
-      ...consultants.map((c: any) => ({ userId: c.userId, name: c.name, email: c.email, role: 'CONSULTANT' })),
-    ],
-    [managers, agents, consultants],
-  );
-
   const assignTask = useAssignAffiliateTask();
   const reviewTask = useReviewAffiliateTask();
   const cancelTask = useCancelAffiliateTaskAdmin();
   const reviewReport = useReviewAffiliateReport();
   const backfillManagers = useBackfillAccountManagers();
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
-
-  // ─── Create task on behalf of a business ────────────────────────────
-  const createTask = useCreateAffiliateTask();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newBusinessId, setNewBusinessId] = useState('');
-  const [newBusinessSearch, setNewBusinessSearch] = useState('');
-  const [newTitle, setNewTitle] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [newAssignee, setNewAssignee] = useState('');
-  const [newDueAt, setNewDueAt] = useState('');
-  const [newDeliverables, setNewDeliverables] = useState('');
-  const [newComp, setNewComp] = useState('');
-  const [newCharge, setNewCharge] = useState('');
-  const [newFee, setNewFee] = useState('');
-  const [newBillable, setNewBillable] = useState(false);
-  const [newApproval, setNewApproval] = useState(true);
-  const [newError, setNewError] = useState<string | null>(null);
-
-  const businessesRes = useAdminBusinesses({
-    limit: 100,
-    search: newBusinessSearch.trim() || undefined,
-  });
-  const businesses = businessesRes.data?.data ?? [];
-  const selectedBusiness = businesses.find((business) => business.id === newBusinessId);
-
-  const resetCreateForm = () => {
-    setNewBusinessId('');
-    setNewBusinessSearch('');
-    setNewTitle('');
-    setNewDescription('');
-    setNewAssignee('');
-    setNewDueAt('');
-    setNewDeliverables('');
-    setNewComp('');
-    setNewCharge('');
-    setNewFee('');
-    setNewBillable(false);
-    setNewApproval(true);
-    setNewError(null);
-  };
 
   const [assignFor, setAssignFor] = useState<AdminAffiliateTask | null>(null);
   const [assignee, setAssignee] = useState('');
@@ -223,6 +184,32 @@ export default function AffiliateTaskAdminPanel() {
 
   return (
     <div className="space-y-5">
+      {createdNotice?.taskCreated && !noticeDismissed && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div>
+              <p className="text-sm font-black text-emerald-900">
+                Task created{createdNotice.taskTitle ? `: ${createdNotice.taskTitle}` : ''}
+              </p>
+              <p className="mt-0.5 text-xs font-medium text-emerald-800">
+                {createdNotice.businessName ? `For ${createdNotice.businessName}. ` : ''}
+                {createdNotice.assigneeName
+                  ? `Assigned to ${createdNotice.assigneeName}.`
+                  : 'Left unassigned for auto-routing.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setNoticeDismissed(true)}
+            className="shrink-0 rounded-lg p-1 text-emerald-700 hover:bg-emerald-100"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setTab('tasks')}
@@ -262,10 +249,7 @@ export default function AffiliateTaskAdminPanel() {
           )}
         </button>
         <button
-          onClick={() => {
-            resetCreateForm();
-            setCreateOpen(true);
-          }}
+          onClick={() => navigate('/admin/affiliate-tasks/new')}
           className="ml-auto inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark"
         >
           <Plus className="w-4 h-4" /> New task
@@ -631,217 +615,6 @@ export default function AffiliateTaskAdminPanel() {
             </div>
           )}
         </div>
-      )}
-
-      {/* Create task modal (on behalf of a business) */}
-      {createOpen && (
-        <Modal title="Create a task for a business" onClose={() => setCreateOpen(false)}>
-          <div className="space-y-1">
-            <label className="text-[11px] font-bold text-gray-700">Business</label>
-            <input
-              value={newBusinessSearch}
-              onChange={(e) => {
-                setNewBusinessSearch(e.target.value);
-                setNewBusinessId('');
-              }}
-              placeholder="Search businesses by name or email"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-            <select
-              value={newBusinessId}
-              onChange={(e) => setNewBusinessId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm font-semibold"
-            >
-              <option value="">
-                {businessesRes.isFetching ? 'Loading businesses…' : 'Select a business'}
-              </option>
-              {businesses.map((business) => (
-                <option key={business.id} value={business.id}>
-                  {business.name} — {business.email}
-                </option>
-              ))}
-            </select>
-            {selectedBusiness && (
-              <p className="text-[10px] font-medium text-gray-500">
-                {selectedBusiness.membership} · {selectedBusiness.status} · {(selectedBusiness.platformAccess ?? []).join(', ') || 'No platforms'}
-              </p>
-            )}
-          </div>
-
-          <label className="block text-[11px] font-bold text-gray-700">
-            Task title
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Set up my MCOM Mall storefront"
-              maxLength={180}
-              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-            />
-          </label>
-
-          <label className="block text-[11px] font-bold text-gray-700">
-            Description
-            <textarea
-              value={newDescription}
-              onChange={(e) => setNewDescription(e.target.value)}
-              rows={3}
-              placeholder="Explain the work and the outcome expected."
-              maxLength={5000}
-              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-          </label>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="text-[11px] font-bold text-gray-700">
-              Assign to affiliate
-              <select
-                value={newAssignee}
-                onChange={(e) => setNewAssignee(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-              >
-                <option value="">Leave unassigned</option>
-                {createAssignees.map((item: any) => (
-                  <option key={item.userId} value={item.userId}>
-                    {item.name} — {item.role.replace('_', ' ').toLowerCase()}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-[11px] font-bold text-gray-700">
-              Deadline
-              <input
-                type="date"
-                value={newDueAt}
-                onChange={(e) => setNewDueAt(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-              />
-            </label>
-          </div>
-
-          <label className="block text-[11px] font-bold text-gray-700">
-            Deliverables
-            <textarea
-              value={newDeliverables}
-              onChange={(e) => setNewDeliverables(e.target.value)}
-              rows={2}
-              placeholder="Two 1080x1080 banners, PNG + source file."
-              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-          </label>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="text-[11px] font-bold text-gray-700">
-              Affiliate compensation (GBP)
-              <input
-                type="number"
-                min={0}
-                value={newComp}
-                onChange={(e) => setNewComp(e.target.value)}
-                placeholder="75"
-                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-              />
-            </label>
-            <label className="text-[11px] font-bold text-gray-700">
-              Business charge (GBP)
-              <input
-                type="number"
-                min={0}
-                value={newCharge}
-                onChange={(e) => {
-                  setNewCharge(e.target.value);
-                  if (Number(e.target.value) > 0) setNewBillable(true);
-                }}
-                placeholder="120"
-                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-              />
-            </label>
-          </div>
-
-          <label className="block text-[11px] font-bold text-gray-700">
-            Platform fee (% of business charge)
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={newFee}
-              onChange={(e) => setNewFee(e.target.value)}
-              placeholder="10"
-              className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-            />
-          </label>
-
-          <p className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-medium text-blue-800">
-            The business&apos;s free delegated-task allowance is checked on creation. If it is exhausted,
-            this task is chargeable and a business charge is required before it can be assigned.
-          </p>
-
-          <div className="flex flex-wrap gap-4 text-[11px] font-semibold text-gray-700">
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={newBillable} onChange={(e) => setNewBillable(e.target.checked)} />
-              Charge the business
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={newApproval} onChange={(e) => setNewApproval(e.target.checked)} />
-              Business approves the outcome
-            </label>
-          </div>
-
-          {newError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800">
-              {newError}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setCreateOpen(false)}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={async () => {
-                if (!newBusinessId || newTitle.trim().length < 3 || newDescription.trim().length < 5) {
-                  setNewError('Select a business and add a title (3+ chars) and description (5+ chars).');
-                  return;
-                }
-                setNewError(null);
-                try {
-                  await createTask.mutateAsync({
-                    businessId: newBusinessId,
-                    title: newTitle.trim(),
-                    description: newDescription.trim(),
-                    assigneeUserId: newAssignee || undefined,
-                    dueAt: newDueAt ? new Date(`${newDueAt}T17:00:00`).toISOString() : undefined,
-                    deliverables: newDeliverables.trim() || undefined,
-                    compensationAmount: newComp ? Number(newComp) : undefined,
-                    billableToBusiness: newBillable,
-                    businessChargeAmount: newCharge ? Number(newCharge) : undefined,
-                    requiresBusinessApproval: newApproval,
-                    platformFeePercent: newFee ? Number(newFee) : undefined,
-                  });
-                  setCreateOpen(false);
-                  resetCreateForm();
-                } catch (error: any) {
-                  setNewError(
-                    error?.response?.data?.message ||
-                      error?.message ||
-                      'Could not create the task. Check the business wallet balance.',
-                  );
-                }
-              }}
-              disabled={
-                createTask.isPending ||
-                !newBusinessId ||
-                newTitle.trim().length < 3 ||
-                newDescription.trim().length < 5
-              }
-              className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-            >
-              {createTask.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Create task
-            </button>
-          </div>
-        </Modal>
       )}
 
       {/* Assign modal */}

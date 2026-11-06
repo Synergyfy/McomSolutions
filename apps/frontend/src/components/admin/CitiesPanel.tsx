@@ -122,8 +122,13 @@ export default function CitiesPanel() {
     try {
       const response = await backfill.mutateAsync({});
       const summary = response.data;
+      const customers = summary.customers;
       setBackfillMessage(
-        `Backfill complete: ${summary.assigned} assigned, ${summary.failed} failed, ${summary.skipped} skipped.`,
+        `Backfill complete: ${summary.assigned} businesses and ${
+          customers?.assigned ?? 0
+        } customers assigned, ${summary.failed + (customers?.failed ?? 0)} failed, ${
+          summary.skipped + (customers?.skipped ?? 0)
+        } skipped.`,
       );
     } catch (err: any) {
       setBackfillMessage(

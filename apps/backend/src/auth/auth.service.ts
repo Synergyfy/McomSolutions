@@ -24,6 +24,7 @@ import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import type { ResolvedPostcode } from '../geography/postcode.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import {
   OTP_COOLDOWN_SECONDS,
@@ -939,11 +940,15 @@ export class AuthService {
     }
 
     // Customer postcode is optional, but when supplied it must be a valid UK
-    // postcode. No location hierarchy assignment is performed for customers.
+    // postcode. Customers are assigned to the same City → Borough → High
+    // Street → Local Mall hierarchy as businesses and affiliates.
     let customerPostcode: string | null = null;
+    let resolvedCustomerPostcode: ResolvedPostcode | null = null;
     if (data.postcode && String(data.postcode).trim()) {
-      const resolved = await this.locationAssignment.resolvePostcode(String(data.postcode));
-      customerPostcode = resolved.postcode;
+      resolvedCustomerPostcode = await this.locationAssignment.resolvePostcode(
+        String(data.postcode),
+      );
+      customerPostcode = resolvedCustomerPostcode.postcode;
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -971,11 +976,30 @@ export class AuthService {
             create: customerPostcode ? { postcode: customerPostcode } : {},
           },
         },
+        include: { customerProfile: true },
       });
       return user;
       });
     } catch (e) {
       rethrowAsConflictOnUniqueViolation(e);
+    }
+
+    if (resolvedCustomerPostcode && newUser.customerProfile?.id) {
+      try {
+        await this.locationAssignment.assignCustomer(
+          newUser.customerProfile.id,
+          resolvedCustomerPostcode.postcode,
+          resolvedCustomerPostcode,
+        );
+      } catch (error) {
+        // Registration itself already committed. Log the assignment failure
+        // instead of returning a misleading 500 to the new customer.
+        this.logger.error(
+          `Customer ${newUser.customerProfile.id} could not be auto-assigned to a location: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     return this.login(newUser);

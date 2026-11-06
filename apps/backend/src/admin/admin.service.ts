@@ -100,8 +100,198 @@ export interface AssignedUserRow {
   } | null;
 }
 
+/**
+ * Recursively converts snake_case keys returned by raw SQL JSON into the
+ * camelCase shape the frontend already consumes from Prisma models.
+ */
+function camelizeKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => camelizeKeys(item)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      output[key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase())] = camelizeKeys(nested);
+    }
+    return output as T;
+  }
+  return value;
+}
+
+function sortByDateDesc<T extends Record<string, unknown>>(
+  rows: T[],
+  field: 'createdAt' | 'assignedAt' | 'startedAt' = 'createdAt',
+): T[] {
+  return [...rows].sort((a, b) => {
+    const aTime = a[field] ? new Date(String(a[field])).getTime() : 0;
+    const bTime = b[field] ? new Date(String(b[field])).getTime() : 0;
+    return bTime - aTime;
+  });
+}
+
+/**
+ * The admin user drill-down needs data from ~20 tables. Against the deployed
+ * Supabase pooler each Prisma query costs a full network round-trip (~200ms),
+ * so the previous 15-17 query fan-out took 6-9 seconds even though the actual
+ * SQL runs in under a millisecond (tables hold < 200 rows).
+ *
+ * This single statement returns every section as JSON rows (`section`,
+ * `payload`) so the whole page is one round-trip. Keys are camelized in code.
+ * Soft-delete filters mirror the Prisma client extensions.
+ */
+const ADMIN_FULL_PROFILE_SQL = `
+WITH me AS (
+  SELECT id FROM "User" WHERE id = $1 AND deleted_at IS NULL
+), b AS (
+  SELECT * FROM "BusinessProfile" WHERE "userId" = $1 AND deleted_at IS NULL
+)
+SELECT 'account'::text AS section, to_jsonb(u) - 'password' AS payload
+  FROM "User" u JOIN me ON me.id = u.id
+UNION ALL
+SELECT 'referredBy', to_jsonb(r) - 'password'
+  FROM "User" r WHERE r.id = (SELECT referred_by_id FROM "User" WHERE id = $1)
+UNION ALL
+SELECT 'businessProfile', to_jsonb(b) || jsonb_build_object(
+  'accountManager', (SELECT to_jsonb(am) - 'password' FROM "User" am WHERE am.id = b.account_manager_id),
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = b.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = b.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = b.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = b."localMallId"),
+  'sector', (SELECT to_jsonb(x) FROM sectors x WHERE x.id = b.sector_id),
+  'categoryRef', (SELECT to_jsonb(x) FROM categories x WHERE x.id = b.category_id),
+  'subCategoryRef', (SELECT to_jsonb(x) FROM sub_categories x WHERE x.id = b.sub_category_id)
+) FROM b
+UNION ALL
+SELECT 'customerProfile', to_jsonb(c) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = c.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = c.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = c.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = c.local_mall_id)
+) FROM customer_profiles c WHERE c.user_id = $1 AND c.deleted_at IS NULL
+UNION ALL
+SELECT 'agentProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM agent_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'consultantProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM consultant_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'accountManagerProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM account_manager_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'platformPackages', to_jsonb(p) FROM "PlatformPackage" p WHERE p."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'accessPurchases', to_jsonb(p) FROM access_purchases p WHERE p.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'whitelabelGrants', to_jsonb(w) || jsonb_build_object(
+  'client', (SELECT to_jsonb(sc) FROM sso_clients sc WHERE sc.client_id = w.client_id)
+) FROM whitelabel_accesses w WHERE w.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'ecosystemSubscriptions', to_jsonb(s) FROM ecosystem_subscriptions s WHERE s.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'recurringSubscriptions', to_jsonb(r) || jsonb_build_object(
+  'charges', (SELECT coalesce(jsonb_agg(to_jsonb(rc)), '[]'::jsonb) FROM recurring_charges rc WHERE rc.subscription_id = r.id)
+) FROM recurring_subscriptions r WHERE r.user_id = $1 OR r.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'installmentSubscriptions', to_jsonb(i) || jsonb_build_object(
+  'paymentOption', (SELECT to_jsonb(po) FROM membership_payment_options po WHERE po.id = i.payment_option_id)
+) FROM membership_installment_subscriptions i WHERE i.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'taskAssignments', to_jsonb(a) || jsonb_build_object(
+  'task', (SELECT to_jsonb(t) FROM task_definitions t WHERE t.id = a.task_id),
+  'rewardCoupon', (SELECT to_jsonb(c) FROM coupons c WHERE c.task_assignment_id = a.id LIMIT 1)
+) FROM user_task_assignments a WHERE a.user_id = $1
+UNION ALL
+SELECT 'billingTransactions', to_jsonb(t) FROM "BillingTransaction" t WHERE t."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'couponRedemptions', to_jsonb(cr) || jsonb_build_object(
+  'coupon', (SELECT to_jsonb(c) FROM coupons c WHERE c.id = cr.coupon_id)
+) FROM coupon_redemptions cr WHERE cr.user_id = $1 OR cr.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'notifications', to_jsonb(n) FROM "Notification" n WHERE n.user_id = $1 OR n."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'supportTickets', to_jsonb(t) FROM support_tickets t WHERE t.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'programmes', to_jsonb(p) || jsonb_build_object(
+  'phase', (SELECT to_jsonb(ph) FROM programme_phases ph WHERE ph.id = p.phase_id),
+  'taskStatuses', (SELECT coalesce(jsonb_agg(to_jsonb(ts)), '[]'::jsonb) FROM programme_task_statuses ts WHERE ts.business_programme_id = p.id)
+) FROM business_programmes p
+WHERE (p.business_id = (SELECT id FROM b) OR p.agent_id = $1 OR p.consultant_id = $1 OR p.account_manager_id = $1)
+  AND p.deleted_at IS NULL
+UNION ALL
+SELECT 'affiliateTasks', to_jsonb(t) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = t.business_id),
+  'assignee', (SELECT to_jsonb(x) - 'password' FROM "User" x WHERE x.id = t.assignee_id),
+  'settlement', (SELECT to_jsonb(s) FROM affiliate_task_settlements s WHERE s.task_id = t.id LIMIT 1)
+) FROM affiliate_tasks t
+WHERE t.assignee_id = $1 OR t.created_by_user_id = $1 OR t.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'reputationEvents', to_jsonb(e) FROM affiliate_reputation_events e WHERE e.affiliate_user_id = $1
+UNION ALL
+SELECT 'ratingsReceived', to_jsonb(r) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = r.business_id)
+) FROM affiliate_ratings r WHERE r.affiliate_user_id = $1
+UNION ALL
+SELECT 'affiliateReports', to_jsonb(r) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = r.business_id)
+) FROM affiliate_reports r WHERE r.affiliate_user_id = $1 OR r.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'wallet', to_jsonb(w) FROM wallets w WHERE w.user_id = $1
+UNION ALL
+SELECT 'walletTransactions', to_jsonb(t) FROM wallet_transactions t WHERE t.wallet_id = (SELECT id FROM wallets WHERE user_id = $1)
+UNION ALL
+SELECT 'walletTopUpRequests', to_jsonb(t) FROM wallet_top_up_requests t WHERE t.wallet_id = (SELECT id FROM wallets WHERE user_id = $1)
+`;
+
 @Injectable()
 export class AdminService implements OnModuleInit {
+
+
+  /**
+   * Short-lived in-memory cache for the admin user drill-down. The page is
+   * read-only and admins often revisit the same user while triaging; a 60s TTL
+   * removes the repeated round-trip without showing meaningfully stale data.
+   * Entries are capped so a long-lived process cannot grow unbounded.
+   */
+  private readonly fullProfileCache = new Map<string, { expiresAt: number; value: any }>();
+  private static readonly FULL_PROFILE_CACHE_TTL_MS = 60_000;
+  private static readonly FULL_PROFILE_CACHE_MAX_ENTRIES = 100;
+
+  private readFullProfileCache(userId: string): any | null {
+    const entry = this.fullProfileCache.get(userId);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.fullProfileCache.delete(userId);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private writeFullProfileCache(userId: string, value: any) {
+    if (this.fullProfileCache.size >= AdminService.FULL_PROFILE_CACHE_MAX_ENTRIES) {
+      const oldest = this.fullProfileCache.keys().next().value;
+      if (oldest) this.fullProfileCache.delete(oldest);
+    }
+    this.fullProfileCache.set(userId, {
+      expiresAt: Date.now() + AdminService.FULL_PROFILE_CACHE_TTL_MS,
+      value,
+    });
+  }
+
+  private invalidateFullProfileCache(userId?: string) {
+    if (userId) this.fullProfileCache.delete(userId);
+    else this.fullProfileCache.clear();
+  }
+
 
   async onModuleInit() {
     // No boot-time seeding: memberships-only model, tiers live as
@@ -242,6 +432,7 @@ export class AdminService implements OnModuleInit {
     // the cached dashboard stats here keeps GET /admin/stats fresh without
     // touching every write method. Reads never call this.
     this.invalidateStatsCache();
+    this.invalidateFullProfileCache();
     return tx.auditLog.create({
       data: {
         action,
@@ -1304,6 +1495,191 @@ export class AdminService implements OnModuleInit {
     });
 
     return { success: true };
+  }
+
+  // ─── Full user profile (admin drill-down) ──────────────
+  /**
+   * Aggregates everything an admin needs about a single user: the account
+   * itself, the role-specific profile, memberships, subscriptions, payments,
+   * programme/task journey, affiliate activity, support tickets and wallet.
+   * Read-only. Never returns the password hash.
+   *
+   * QUERY STRATEGY:
+   * - The user and ALL five role profiles were previously fetched with one
+   *   giant `include`, which made Prisma issue a separate query per relation
+   *   and took ~6s. All sections now come back from one SQL statement.
+   * - Single statement = one round-trip to the Supabase pooler.
+   * - Results are cached for 60s; every audited admin write clears the cache.
+   */
+  async getUserFullProfile(userId: string) {
+    const cached = this.readFullProfileCache(userId);
+    if (cached) return cached;
+
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ section: string; payload: any }>>(
+      ADMIN_FULL_PROFILE_SQL,
+      userId,
+    );
+
+    const grouped: Record<string, any[]> = {};
+    for (const row of rows) {
+      const key = row.section;
+      (grouped[key] ||= []).push(camelizeKeys(row.payload));
+    }
+
+    const account = grouped.account?.[0];
+    if (!account) throw new NotFoundException('User not found');
+
+    const businessProfile = grouped.businessProfile?.[0] ?? null;
+    const customerProfile = grouped.customerProfile?.[0] ?? null;
+    const agentProfile = grouped.agentProfile?.[0] ?? null;
+    const consultantProfile = grouped.consultantProfile?.[0] ?? null;
+    const accountManagerProfile = grouped.accountManagerProfile?.[0] ?? null;
+    const referredBy = grouped.referredBy?.[0] ?? null;
+
+    const ecosystemSubscriptions = sortByDateDesc(grouped.ecosystemSubscriptions ?? []);
+    const recurringSubscriptions = sortByDateDesc(grouped.recurringSubscriptions ?? []).map(
+      (subscription: any) => ({
+        ...subscription,
+        charges: sortByDateDesc(subscription.charges ?? []),
+      }),
+    );
+    const installmentSubscriptions = sortByDateDesc(grouped.installmentSubscriptions ?? []);
+    const platformPackages = sortByDateDesc(grouped.platformPackages ?? []);
+    const accessPurchases = sortByDateDesc(grouped.accessPurchases ?? []);
+    const whitelabelGrants = sortByDateDesc(grouped.whitelabelGrants ?? []);
+    const billingTransactions = sortByDateDesc(grouped.billingTransactions ?? []);
+    const couponRedemptions = sortByDateDesc(grouped.couponRedemptions ?? []);
+    const taskAssignments = sortByDateDesc(grouped.taskAssignments ?? [], 'assignedAt');
+    const notifications = sortByDateDesc(grouped.notifications ?? []);
+    const supportTickets = sortByDateDesc(grouped.supportTickets ?? []);
+    const programmes = sortByDateDesc(grouped.programmes ?? []);
+    const affiliateTasks = sortByDateDesc(grouped.affiliateTasks ?? []);
+    const reputationEvents = sortByDateDesc(grouped.reputationEvents ?? []);
+    const ratingsReceived = sortByDateDesc(grouped.ratingsReceived ?? []);
+    const affiliateReports = sortByDateDesc(grouped.affiliateReports ?? []);
+
+    const walletRow = grouped.wallet?.[0] ?? null;
+    const wallet = walletRow
+      ? {
+          ...walletRow,
+          transactions: sortByDateDesc(grouped.walletTransactions ?? []),
+          topUpRequests: sortByDateDesc(grouped.walletTopUpRequests ?? []),
+        }
+      : null;
+
+    const now = new Date();
+
+    const totalRevenue = billingTransactions.reduce(
+      (sum: number, txn: any) => (txn.status === 'paid' ? sum + Number(txn.amount ?? 0) : sum),
+      0,
+    );
+
+    const assignments = taskAssignments.map((a: any) => {
+      const isOpen = a.status === 'PENDING' || a.status === 'IN_PROGRESS';
+      const effectiveStatus = isOpen && new Date(a.deadlineAt) < now ? 'EXPIRED' : a.status;
+      const daysRemaining = Math.max(
+        0,
+        Math.ceil((new Date(a.deadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+      );
+      return { ...a, effectiveStatus, daysRemaining };
+    });
+
+    const taskSummary = assignments.reduce(
+      (acc: Record<string, number>, t: any) => {
+        acc.total += 1;
+        if (t.effectiveStatus === 'COMPLETED') acc.completed += 1;
+        else if (t.effectiveStatus === 'EXPIRED') acc.expired += 1;
+        else if (t.effectiveStatus === 'IN_PROGRESS') acc.inProgress += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { total: 0, completed: 0, expired: 0, inProgress: 0, pending: 0 },
+    );
+
+    const { referredById: _referredById, ...accountFields } = account;
+    const displayName =
+      businessProfile?.businessName ||
+      [account.firstName, account.lastName].filter(Boolean).join(' ') ||
+      account.email.split('@')[0];
+
+    const result = {
+      success: true,
+      data: {
+        account: {
+          ...accountFields,
+          name: displayName,
+          fullName: [account.firstName, account.lastName].filter(Boolean).join(' ') || null,
+          referredBy,
+        },
+        businessProfile: businessProfile
+          ? {
+              ...businessProfile,
+              apiKey: businessProfile.apiKey
+                ? `${businessProfile.apiKey.slice(0, 6)}••••${businessProfile.apiKey.slice(-4)}`
+                : null,
+            }
+          : null,
+        customerProfile,
+        agentProfile,
+        consultantProfile,
+        accountManagerProfile,
+        membership: {
+          level: businessProfile?.membershipLevel ?? null,
+          tier: businessProfile?.membershipTier ?? null,
+          status: businessProfile?.membershipStatus ?? customerProfile?.membershipStatus ?? null,
+          planName: businessProfile?.membershipPlanName ?? null,
+          expiresAt: businessProfile?.membershipExpiresAt ?? null,
+          trialAccessDays: businessProfile?.trialAccessDays ?? null,
+          trialAccessExpiresAt: businessProfile?.trialAccessExpiresAt ?? null,
+          hasPaidVerificationFee: businessProfile?.hasPaidVerificationFee ?? null,
+          verificationFeePaidAt: businessProfile?.verificationFeePaidAt ?? null,
+          ecosystemSubscriptions,
+          recurringSubscriptions,
+          installmentSubscriptions,
+          platformPackages,
+          accessPurchases,
+          whitelabelGrants,
+        },
+        financials: {
+          totalRevenue,
+          transactions: billingTransactions,
+          couponRedemptions,
+          wallet,
+        },
+        programme: {
+          programmes,
+          taskAssignments: assignments,
+          taskSummary: {
+            ...taskSummary,
+            outstanding: taskSummary.pending + taskSummary.inProgress,
+            progress:
+              taskSummary.total > 0
+                ? Math.round((taskSummary.completed / taskSummary.total) * 100)
+                : 0,
+          },
+        },
+        affiliate: {
+          tasks: affiliateTasks,
+          reputationEvents,
+          ratingsReceived,
+          reports: affiliateReports,
+          reputationScore: reputationEvents.reduce(
+            (sum: number, e: { delta: number }) => sum + e.delta,
+            0,
+          ),
+        },
+        support: {
+          tickets: supportTickets,
+          notifications,
+        },
+        meta: {
+          generatedAt: now.toISOString(),
+        },
+      },
+    };
+
+    this.writeFullProfileCache(userId, result);
+    return result;
   }
 
   // ─── Membership Plans CRUD ─────────────────────────────
@@ -2936,13 +3312,17 @@ export class AdminService implements OnModuleInit {
       limit: dto.limit,
       dryRun: dto.dryRun,
     });
+    const customers = await this.locationAssignment.backfillCustomers({
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    });
 
     const aggregation =
-      summary.dryRun || summary.assigned === 0
+      summary.dryRun || (summary.assigned === 0 && customers.assigned === 0)
         ? null
         : await this.locationAggregation.aggregateAll();
 
-    return { success: true, data: { ...summary, aggregation } };
+    return { success: true, data: { ...summary, customers, aggregation } };
   }
 
   /**

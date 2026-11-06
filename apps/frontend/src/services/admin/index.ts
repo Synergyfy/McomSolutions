@@ -76,6 +76,7 @@ import type {
   AdminAffiliateSettlement,
   AdminAffiliateSettlementQuery,
   AffiliateSettlementSummary,
+  AdminFullUserProfile,
 } from './types'
 
 export const adminApi = {
@@ -209,6 +210,12 @@ export const adminApi = {
   deleteAccountManager: async (id: string) => {
     const res = await apiClient.delete(`/admin/users/account-managers/${id}`)
     return res.data
+  },
+
+  // ─── Full User Profile (drill-down) ──────────────────
+  getUserFullProfile: async (userId: string) => {
+    const res = await apiClient.get(`/admin/users/${userId}/profile`)
+    return res.data as ApiResponse<AdminFullUserProfile>
   },
 
   // ─── Membership Plans ────────────────────────────────
@@ -453,6 +460,16 @@ export const adminApi = {
         skipped: number
         failed: number
         errors: Array<{ businessId: string; postcode: string; message: string }>
+        customers: {
+          dryRun: boolean
+          scanned: number
+          eligible: number
+          processed: number
+          assigned: number
+          skipped: number
+          failed: number
+          errors: Array<{ customerId: string; postcode: string; message: string }>
+        }
         aggregation: Record<string, number> | null
       }
     }

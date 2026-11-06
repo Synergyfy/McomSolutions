@@ -134,7 +134,11 @@ describe('buildSsoIdentity', () => {
       customerProfile: {
         id: 'cust_1',
         phone: '+44 7700 900999',
-        postcode: null,
+        postcode: 'SE15 3TR',
+        city: { name: 'London', region: 'London', country: 'England' },
+        borough: { name: 'Southwark' },
+        highStreet: { name: 'Nunhead Lane' },
+        localMall: { name: 'Peckham LocalMall' },
         loyaltyPoints: 10,
         platformUsage: ['mall'],
         membershipStatus: 'None',
@@ -149,6 +153,7 @@ describe('buildSsoIdentity', () => {
     expect(identity.name).toBe('user');
     expect(identity.phone).toBe('+44 7700 900999');
     expect(identity.profileType).toBe('CUSTOMER');
+    expect(identity.city).toBe('London');
     expect(identity.customerProfile?.loyaltyPoints).toBe(10);
   });
 });
