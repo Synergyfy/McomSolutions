@@ -733,11 +733,17 @@ export class LocationAssignmentService {
         where: { postcodes: { has: resolved.outwardCode } },
       });
       localMall =
-        [...candidates].sort(
-          (a, b) =>
+        [...candidates].sort((a, b) => {
+          const scoreDiff =
             this.localMallMatchScore(b, boroughName) -
-            this.localMallMatchScore(a, boroughName),
-        )[0] ?? null;
+            this.localMallMatchScore(a, boroughName);
+          if (scoreDiff !== 0) return scoreDiff;
+          // Deterministic tie-breaker: oldest OSM mall wins, then name.
+          const createdDiff =
+            (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0);
+          if (createdDiff !== 0) return createdDiff;
+          return a.name.localeCompare(b.name);
+        })[0] ?? null;
     }
     if (!localMall) {
       localMall = await tx.localMall.findFirst({
