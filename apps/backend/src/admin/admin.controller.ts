@@ -266,6 +266,13 @@ export class AdminController {
     await this.adminService.deleteAccountManager(id, this.getAdminName(req));
   }
 
+  // ─── Full User Profile (admin drill-down) ────────────────
+  @Get('users/:userId/profile')
+  @ApiOperation({ summary: 'Get the complete profile for a single user (account, profile, subscriptions, programme, payments)' })
+  async getUserFullProfile(@Param('userId') userId: string) {
+    return this.adminService.getUserFullProfile(userId);
+  }
+
   // ─── Membership Plans ──────────────────────────────────
   @Get('plans')
   @ApiOperation({ summary: 'List membership plans' })

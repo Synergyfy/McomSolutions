@@ -1306,6 +1306,326 @@ export class AdminService implements OnModuleInit {
     return { success: true };
   }
 
+  // ─── Full user profile (admin drill-down) ──────────────
+  /**
+   * Aggregates everything an admin needs about a single user: the account
+   * itself, the role-specific profile, memberships, subscriptions, payments,
+   * programme/task journey, affiliate activity, support tickets and wallet.
+   * Read-only. Never returns the password hash.
+   */
+  async getUserFullProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        referredBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+        businessProfile: {
+          include: {
+            accountManager: {
+              select: { id: true, email: true, firstName: true, lastName: true, role: true },
+            },
+            city: true,
+            borough: true,
+            highStreet: true,
+            localMall: true,
+            sector: true,
+            categoryRef: true,
+            subCategoryRef: true,
+            packages: { orderBy: { createdAt: 'desc' } },
+            accessPurchases: { orderBy: { createdAt: 'desc' } },
+            whitelabelAccess: {
+              include: {
+                client: { select: { clientId: true, name: true, platformSlug: true, appUrl: true } },
+              },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        },
+        customerProfile: true,
+        agentProfile: {
+          include: { city: true, borough: true, highStreet: true, localMall: true },
+        },
+        consultantProfile: {
+          include: { city: true, borough: true, highStreet: true, localMall: true },
+        },
+        accountManagerProfile: {
+          include: { city: true, borough: true, highStreet: true, localMall: true },
+        },
+        wallet: {
+          include: {
+            transactions: { orderBy: { createdAt: 'desc' }, take: 100 },
+            topUpRequests: { orderBy: { createdAt: 'desc' }, take: 25 },
+          },
+        },
+      },
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    const business = user.businessProfile;
+    const businessId = business?.id;
+    const now = new Date();
+
+    const [
+      ecosystemSubscriptions,
+      recurringSubscriptions,
+      installmentSubscriptions,
+      programmes,
+      taskAssignments,
+      businessTransactions,
+      couponRedemptions,
+      affiliateTasks,
+      reputationEvents,
+      ratingsReceived,
+      affiliateReports,
+      supportTickets,
+      notifications,
+    ] = await Promise.all([
+      businessId
+        ? this.prisma.ecosystemSubscription.findMany({
+            where: { businessId },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.recurringSubscription.findMany({
+        where: {
+          OR: [{ userId }, ...(businessId ? [{ businessId }] : [])],
+        },
+        include: { charges: { orderBy: { createdAt: 'desc' }, take: 50 } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      businessId
+        ? this.prisma.membershipInstallmentSubscription.findMany({
+            where: { businessId },
+            include: { paymentOption: true },
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      this.prisma.businessProgramme.findMany({
+        where: {
+          OR: [
+            ...(businessId ? [{ businessId }] : []),
+            { agentId: userId },
+            { consultantId: userId },
+            { accountManagerId: userId },
+          ],
+        },
+        include: { phase: true, taskStatuses: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.userTaskAssignment.findMany({
+        where: { userId },
+        include: {
+          task: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              featureKey: true,
+              targetAudience: true,
+              accessScope: true,
+              taskSource: true,
+              submissionType: true,
+              platform: true,
+              externalAppName: true,
+              actionUrl: true,
+              actionLabel: true,
+              deadlineDays: true,
+              rewardPoints: true,
+              rewardCouponEnabled: true,
+              isActive: true,
+              createdAt: true,
+            },
+          },
+          rewardCoupon: {
+            select: { id: true, code: true, discountType: true, discountValue: true, expiresAt: true },
+          },
+        },
+        orderBy: { assignedAt: 'desc' },
+      }),
+      businessId
+        ? this.prisma.billingTransaction.findMany({
+            where: { businessId },
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+          })
+        : Promise.resolve([]),
+      this.prisma.couponRedemption.findMany({
+        where: {
+          OR: [{ userId }, ...(businessId ? [{ businessId }] : [])],
+        },
+        include: {
+          coupon: { select: { id: true, code: true, description: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.affiliateTask.findMany({
+        where: {
+          OR: [
+            { assigneeId: userId },
+            { createdByUserId: userId },
+            ...(businessId ? [{ businessId }] : []),
+          ],
+        },
+        include: {
+          business: { select: { id: true, businessName: true } },
+          assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
+          settlement: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      this.prisma.affiliateReputationEvent.findMany({
+        where: { affiliateUserId: userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      this.prisma.affiliateRating.findMany({
+        where: { affiliateUserId: userId },
+        include: { business: { select: { id: true, businessName: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      this.prisma.affiliateReport.findMany({
+        where: {
+          OR: [{ affiliateUserId: userId }, ...(businessId ? [{ businessId }] : [])],
+        },
+        include: { business: { select: { id: true, businessName: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      businessId
+        ? this.prisma.supportTicket.findMany({
+            where: { businessId },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+          })
+        : Promise.resolve([]),
+      this.prisma.notification.findMany({
+        where: {
+          OR: [{ userId }, ...(businessId ? [{ businessId }] : [])],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+    ]);
+
+    const totalRevenue = businessTransactions.reduce(
+      (sum, txn) => (txn.status === 'paid' ? sum + Number(txn.amount ?? 0) : sum),
+      0,
+    );
+
+    const assignments = taskAssignments.map((a) => {
+      const isOpen =
+        a.status === 'PENDING' || a.status === 'IN_PROGRESS';
+      const effectiveStatus = isOpen && a.deadlineAt < now ? 'EXPIRED' : a.status;
+      const daysRemaining = Math.max(
+        0,
+        Math.ceil((new Date(a.deadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+      );
+      return { ...a, effectiveStatus, daysRemaining };
+    });
+
+    const taskSummary = assignments.reduce(
+      (acc, t) => {
+        acc.total += 1;
+        if (t.effectiveStatus === 'COMPLETED') acc.completed += 1;
+        else if (t.effectiveStatus === 'EXPIRED') acc.expired += 1;
+        else if (t.effectiveStatus === 'IN_PROGRESS') acc.inProgress += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { total: 0, completed: 0, expired: 0, inProgress: 0, pending: 0 },
+    );
+
+    // Never expose the password hash.
+    const { password: _password, businessProfile, customerProfile, agentProfile, consultantProfile, accountManagerProfile, referredBy, wallet, ...account } = user;
+
+    const displayName =
+      businessProfile?.businessName ||
+      [user.firstName, user.lastName].filter(Boolean).join(' ') ||
+      user.email.split('@')[0];
+
+    return {
+      success: true,
+      data: {
+        account: {
+          ...account,
+          name: displayName,
+          fullName: [user.firstName, user.lastName].filter(Boolean).join(' ') || null,
+          referredBy: referredBy ?? null,
+        },
+        businessProfile: businessProfile
+          ? {
+              ...businessProfile,
+              apiKey: businessProfile.apiKey
+                ? `${businessProfile.apiKey.slice(0, 6)}••••${businessProfile.apiKey.slice(-4)}`
+                : null,
+            }
+          : null,
+        customerProfile: customerProfile ?? null,
+        agentProfile: agentProfile ?? null,
+        consultantProfile: consultantProfile ?? null,
+        accountManagerProfile: accountManagerProfile ?? null,
+        membership: {
+          level: businessProfile?.membershipLevel ?? null,
+          tier: businessProfile?.membershipTier ?? null,
+          status: businessProfile?.membershipStatus ?? customerProfile?.membershipStatus ?? null,
+          planName: businessProfile?.membershipPlanName ?? null,
+          expiresAt: businessProfile?.membershipExpiresAt ?? null,
+          trialAccessDays: businessProfile?.trialAccessDays ?? null,
+          trialAccessExpiresAt: businessProfile?.trialAccessExpiresAt ?? null,
+          hasPaidVerificationFee: businessProfile?.hasPaidVerificationFee ?? null,
+          verificationFeePaidAt: businessProfile?.verificationFeePaidAt ?? null,
+          ecosystemSubscriptions,
+          recurringSubscriptions,
+          installmentSubscriptions,
+          platformPackages: businessProfile?.packages ?? [],
+          accessPurchases: businessProfile?.accessPurchases ?? [],
+          whitelabelGrants: businessProfile?.whitelabelAccess ?? [],
+        },
+        financials: {
+          totalRevenue,
+          transactions: businessTransactions,
+          couponRedemptions,
+          wallet: wallet
+            ? {
+                ...wallet,
+                transactions: wallet.transactions,
+                topUpRequests: wallet.topUpRequests,
+              }
+            : null,
+        },
+        programme: {
+          programmes,
+          taskAssignments: assignments,
+          taskSummary: {
+            ...taskSummary,
+            outstanding: taskSummary.pending + taskSummary.inProgress,
+            progress:
+              taskSummary.total > 0
+                ? Math.round((taskSummary.completed / taskSummary.total) * 100)
+                : 0,
+          },
+        },
+        affiliate: {
+          tasks: affiliateTasks,
+          reputationEvents,
+          ratingsReceived,
+          reports: affiliateReports,
+          reputationScore: reputationEvents.reduce((sum, e) => sum + e.delta, 0),
+        },
+        support: {
+          tickets: supportTickets,
+          notifications,
+        },
+        meta: {
+          generatedAt: now.toISOString(),
+        },
+      },
+    };
+  }
+
   // ─── Membership Plans CRUD ─────────────────────────────
   async getPlans() {
     const items = await this.prisma.membershipPlan.findMany({

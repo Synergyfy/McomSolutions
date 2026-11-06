@@ -52,6 +52,8 @@ import type {
   AdminAffiliateReport,
   AdminAffiliateReputation,
   AdminAffiliateSettlementQuery,
+  AdminFullUserProfile,
+  ApiResponse,
 } from './types'
 
 // ─── Admin Auth ────────────────────────────────────────
@@ -102,6 +104,17 @@ export const useDeleteBusiness = () => {
   return useMutation({
     mutationFn: (id: string) => adminApi.deleteBusiness(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'businesses'] }),
+  })
+}
+
+// ─── Full User Profile (drill-down) ───────────────────
+export const useAdminUserFullProfile = (userId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'userProfile', userId],
+    queryFn: async (): Promise<ApiResponse<AdminFullUserProfile>> =>
+      adminApi.getUserFullProfile(userId as string),
+    enabled: !!userId,
+    staleTime: 1000 * 30,
   })
 }
 
