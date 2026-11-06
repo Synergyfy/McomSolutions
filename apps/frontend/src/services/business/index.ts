@@ -244,6 +244,8 @@ export const businessApi = {
     limit?: number;
     postcode?: string;
     skill?: string;
+    radiusMiles?: number;
+    availableOnly?: string;
   }) => {
     const res = await apiClient.get('/business/affiliate/affiliates', { params });
     return res.data;
@@ -307,6 +309,11 @@ export const businessApi = {
     data: { decision: 'APPROVED' | 'DECLINED'; notes?: string },
   ) => {
     const res = await apiClient.post(`/business/affiliate/tasks/${id}/charge`, data);
+    return res.data;
+  },
+
+  lockAffiliateTaskFunds: async (id: string) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/lock-funds`);
     return res.data;
   },
 

@@ -238,6 +238,20 @@ export class AffiliateBusinessController {
     return { success: true, data: task, message: 'Charge decision recorded' };
   }
 
+  @Post('tasks/:id/lock-funds')
+  @ApiOperation({
+    summary: 'Lock the business wallet funds for an assigned task after funding the wallet',
+  })
+  async lockTaskFunds(@Req() req: any, @Param('id') id: string) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.lockBusinessTaskFunds(req.user.userId, business.id, id);
+    return {
+      success: true,
+      data: task,
+      message: 'Funds locked. The affiliate can now start the task.',
+    };
+  }
+
   @Post('tasks/:id/cancel')
   @ApiOperation({ summary: 'Cancel a delegated task' })
   async cancelTask(@Req() req: any, @Param('id') id: string) {

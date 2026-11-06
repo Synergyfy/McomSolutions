@@ -46,6 +46,7 @@ export class AffiliateTaskQuotaService {
       where: { id: businessId, deletedAt: null },
       select: {
         id: true,
+        membershipLevel: true,
         membershipStatus: true,
         membershipPlanName: true,
         membershipExpiresAt: true,
@@ -57,14 +58,24 @@ export class AffiliateTaskQuotaService {
       return this.none();
     }
 
+    // Older business rows only carry the membership level (e.g. "Gold") and
+    // not the plan name. Treat that level as the plan identifier so their
+    // delegated-task allowance still resolves.
+    const planName =
+      business.membershipPlanName ||
+      (business.membershipLevel &&
+      business.membershipLevel.toLowerCase() !== 'bronze'
+        ? business.membershipLevel
+        : null);
+
     const membershipActive =
       business.membershipStatus === 'active' &&
-      !!business.membershipPlanName &&
+      !!planName &&
       (!business.membershipExpiresAt || business.membershipExpiresAt > now);
 
     if (membershipActive) {
       const plan = await this.prisma.membershipPlan.findFirst({
-        where: { name: business.membershipPlanName!, deletedAt: null },
+        where: { name: planName!, deletedAt: null },
         select: {
           id: true,
           name: true,
@@ -82,7 +93,7 @@ export class AffiliateTaskQuotaService {
       return this.build(
         'MEMBERSHIP',
         plan?.id ?? null,
-        plan?.name ?? business.membershipPlanName,
+        plan?.name ?? planName,
         plan?.freeDelegatedTasks ?? 0,
         // A paid membership whose plan row no longer exists keeps the legacy
         // "included" behaviour instead of silently charging the business.

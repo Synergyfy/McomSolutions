@@ -289,6 +289,8 @@ export const useNearbyAffiliates = (params?: {
   limit?: number;
   postcode?: string;
   skill?: string;
+  radiusMiles?: number;
+  availableOnly?: string;
 }) => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
   return useQuery({
@@ -328,6 +330,19 @@ export const useCreateAffiliateTask = () => {
       queryClient.invalidateQueries({ queryKey: ['account-manager'] });
       queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['affiliate-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['business-delegation-quota'] });
+    },
+  });
+};
+
+export const useLockAffiliateTaskFunds = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => businessApi.lockAffiliateTaskFunds(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['account-manager'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
       queryClient.invalidateQueries({ queryKey: ['business-delegation-quota'] });
     },
   });

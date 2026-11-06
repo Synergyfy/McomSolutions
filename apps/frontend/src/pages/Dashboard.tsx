@@ -16,6 +16,7 @@ import DashboardCoupons from '../components/DashboardCoupons';
 import DashboardMessages from '../components/DashboardMessages';
 import DashboardAccountManager from '../components/DashboardAccountManager';
 import DashboardDelegatedTasks from '../components/DashboardDelegatedTasks';
+import TaskComposer from '../components/task-composer/TaskComposer';
 
 import DashboardOverview from '../components/DashboardOverview';
 import DashboardAllProducts from '../components/DashboardAllProducts';
@@ -47,6 +48,7 @@ export default function Dashboard() {
   const location = useLocation();
   const pathTab = location.pathname.replace(/^\/dashboard\/?/, '').split('/')[0] || 'overview';
   const activeTab = (DASHBOARD_TABS as readonly string[]).includes(pathTab) ? pathTab : 'overview';
+  const isTaskComposer = location.pathname === '/dashboard/tasks/new';
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
@@ -437,34 +439,40 @@ export default function Dashboard() {
 
 
         <div className="p-2.5 sm:p-5 lg:p-8 min-w-0 max-w-full">
-          {activeTab === 'overview' && (
-            showFirstWelcome ? (
-              <FirstDashboardWelcome
-                onDismiss={() => {
-                  setShowFirstWelcome(false);
-                  localStorage.removeItem('firstDashboardLogin');
-                }}
-              />
-            ) : (
-              <DashboardOverview onNavigate={handleNav} />
-            )
-          )}
-          {activeTab === 'all-products' && <DashboardAllProducts />}
-          {activeTab === 'access' && <DashboardAccess />}
-          {activeTab === 'access-passes' && <DashboardAccessPasses />}
-          {activeTab === 'notifications' && <DashboardNotifications />}
-          {activeTab === 'messages' && <DashboardMessages />}
-          {activeTab === 'account-manager' && <DashboardAccountManager />}
-          {activeTab === 'tasks' && <DashboardDelegatedTasks />}
-          {activeTab === 'memberships' && <DashboardMemberships />}
-          {activeTab === 'coupons' && <DashboardCoupons />}
+          {isTaskComposer ? (
+            <TaskComposer />
+          ) : (
+            <>
+              {activeTab === 'overview' && (
+                showFirstWelcome ? (
+                  <FirstDashboardWelcome
+                    onDismiss={() => {
+                      setShowFirstWelcome(false);
+                      localStorage.removeItem('firstDashboardLogin');
+                    }}
+                  />
+                ) : (
+                  <DashboardOverview onNavigate={handleNav} />
+                )
+              )}
+              {activeTab === 'all-products' && <DashboardAllProducts />}
+              {activeTab === 'access' && <DashboardAccess />}
+              {activeTab === 'access-passes' && <DashboardAccessPasses />}
+              {activeTab === 'notifications' && <DashboardNotifications />}
+              {activeTab === 'messages' && <DashboardMessages />}
+              {activeTab === 'account-manager' && <DashboardAccountManager />}
+              {activeTab === 'tasks' && <DashboardDelegatedTasks />}
+              {activeTab === 'memberships' && <DashboardMemberships />}
+              {activeTab === 'coupons' && <DashboardCoupons />}
 
-          {activeTab === 'billing' && <DashboardBilling />}
-          {activeTab === 'wallet' && <DashboardWallet />}
-          {activeTab === 'business-profile' && <DashboardBusinessProfile />}
-          {activeTab === 'referrals' && <DashboardReferrals />}
-          {activeTab === 'support' && <DashboardSupport />}
-          {activeTab === 'settings' && <DashboardSettings />}
+              {activeTab === 'billing' && <DashboardBilling />}
+              {activeTab === 'wallet' && <DashboardWallet />}
+              {activeTab === 'business-profile' && <DashboardBusinessProfile />}
+              {activeTab === 'referrals' && <DashboardReferrals />}
+              {activeTab === 'support' && <DashboardSupport />}
+              {activeTab === 'settings' && <DashboardSettings />}
+            </>
+          )}
         </div>
       </main>
 

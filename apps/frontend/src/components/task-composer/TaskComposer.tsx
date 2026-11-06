@@ -1,0 +1,528 @@
+import { useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { motion } from 'motion/react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BriefcaseBusiness,
+  Check,
+  FileText,
+  LayoutGrid,
+  Loader2,
+  Rocket,
+  Sparkles,
+  Users,
+  Wand2,
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+import {
+  useCreateAffiliateTask,
+  usePlatformAccess,
+  useUploadBusinessFile,
+} from '../../services/business/hooks';
+import StepAssign from './StepAssign';
+import StepBrief from './StepBrief';
+import StepPlatforms from './StepPlatforms';
+import StepSkills from './StepSkills';
+import StepTaskType from './StepTaskType';
+import {
+  buildMaterialsText,
+  isHttpUrl,
+  type CompensationModel,
+  type TaskCategory,
+  type UploadedMaterial,
+} from './taskComposerUtils';
+
+const STEPS = [
+  { label: 'Type', short: 'Type', icon: BriefcaseBusiness },
+  { label: 'Platforms', short: 'Tags', icon: LayoutGrid },
+  { label: 'Brief', short: 'Brief', icon: FileText },
+  { label: 'Skills', short: 'Skills', icon: Wand2 },
+  { label: 'Assign', short: 'Assign', icon: Users },
+] as const;
+
+const NEXT_LABELS = ['Choose platforms', 'Write the brief', 'Add skills', 'Find your person'];
+
+const ALLOWED_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+export default function TaskComposer() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [category, setCategory] = useState<TaskCategory>('EXTERNAL');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [deliverables, setDeliverables] = useState('');
+  const [materialsNote, setMaterialsNote] = useState('');
+  const [materialFiles, setMaterialFiles] = useState<UploadedMaterial[]>([]);
+  const [materialLinks, setMaterialLinks] = useState<string[]>([]);
+  const [linkDraft, setLinkDraft] = useState('');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
+
+  const [assigneeUserId, setAssigneeUserId] = useState(
+    () => searchParams.get('assignee') || '',
+  );
+  const [dueAt, setDueAt] = useState('');
+  const [compensationModel, setCompensationModel] =
+    useState<CompensationModel>('FIXED');
+  const [compensationAmount, setCompensationAmount] = useState('');
+  const [requiresBusinessApproval, setRequiresBusinessApproval] = useState(true);
+
+  const createTask = useCreateAffiliateTask();
+  const upload = useUploadBusinessFile();
+  const { data: accessRes } = usePlatformAccess();
+  const platforms = accessRes?.data?.platforms ?? [];
+
+  const amountNeeded =
+    compensationModel === 'FIXED' ||
+    compensationModel === 'HOURLY' ||
+    compensationModel === 'COMMISSION';
+
+  const progress = useMemo(
+    () => Math.round(((stepIndex + 1) / STEPS.length) * 100),
+    [stepIndex],
+  );
+
+  const selectedPlatformNames = useMemo(
+    () =>
+      platforms
+        .filter((platform) => selectedPlatforms.includes(platform.key))
+        .map((platform) => platform.name),
+    [platforms, selectedPlatforms],
+  );
+
+  const togglePlatform = (key: string) => {
+    setSelectedPlatforms((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key],
+    );
+  };
+
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setUploadError(null);
+
+    const remainingSlots = Math.max(0, 10 - materialFiles.length);
+    const selected = Array.from(files);
+    if (selected.length > remainingSlots) {
+      setUploadError('You can attach up to 10 files. Add the rest as links.');
+    }
+
+    for (const file of selected.slice(0, remainingSlots)) {
+      if (!ALLOWED_UPLOAD_TYPES.includes(file.type)) {
+        setUploadError(`${file.name} is not an image. Use PNG, JPG, GIF or WEBP, or add a link.`);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setUploadError(`${file.name} is larger than 5MB. Compress it or add a shared link.`);
+        continue;
+      }
+      try {
+        const result = await upload.mutateAsync(file);
+        const url =
+          (result as any)?.secure_url ||
+          (result as any)?.data?.secure_url ||
+          (result as any)?.url;
+        if (!url) throw new Error('No upload URL returned');
+        setMaterialFiles((current) => {
+          if (current.some((item) => item.url === url)) return current;
+          return [...current, { name: file.name, url }];
+        });
+      } catch (error: any) {
+        const message = error?.response?.data?.message;
+        setUploadError(
+          Array.isArray(message)
+            ? message.join(', ')
+            : message || `Could not upload ${file.name}. Please try again.`,
+        );
+      }
+    }
+  };
+
+  const addLink = () => {
+    const value = linkDraft.trim();
+    if (!value) return;
+    if (!isHttpUrl(value)) {
+      setUploadError('Enter a full link starting with http:// or https://');
+      return;
+    }
+    if (materialLinks.length >= 10) {
+      setUploadError('You can add up to 10 links. Put the rest in the materials note.');
+      return;
+    }
+    if (materialLinks.some((link) => link.toLowerCase() === value.toLowerCase())) {
+      setLinkDraft('');
+      return;
+    }
+    setMaterialLinks((current) => [...current, value]);
+    setLinkDraft('');
+    setUploadError(null);
+  };
+
+  const addSkill = (skill: string) => {
+    const value = skill.trim().slice(0, 40);
+    if (!value) return;
+    setRequiredSkills((current) => {
+      if (current.some((item) => item.toLowerCase() === value.toLowerCase())) {
+        return current;
+      }
+      return [...current, value];
+    });
+  };
+
+  const toggleSkill = (skill: string) => {
+    setRequiredSkills((current) => {
+      const exists = current.some(
+        (item) => item.toLowerCase() === skill.toLowerCase(),
+      );
+      return exists
+        ? current.filter((item) => item.toLowerCase() !== skill.toLowerCase())
+        : [...current, skill];
+    });
+  };
+
+  const validateStep = (index: number): string | null => {
+    if (index === 2) {
+      if (title.trim().length < 3) return 'Give the task a short title (at least 3 characters).';
+      if (description.trim().length < 5) {
+        return 'Describe the outcome you need so the affiliate knows what done looks like.';
+      }
+    }
+    return null;
+  };
+
+  const goNext = () => {
+    const error = validateStep(stepIndex);
+    if (error) {
+      setStepError(error);
+      return;
+    }
+    setStepError(null);
+    setSubmitError(null);
+    if (stepIndex === STEPS.length - 1) {
+      void submit();
+      return;
+    }
+    setStepIndex((current) => Math.min(STEPS.length - 1, current + 1));
+  };
+
+  const goBack = () => {
+    setStepError(null);
+    setSubmitError(null);
+    if (stepIndex === 0) {
+      navigate('/dashboard/tasks');
+      return;
+    }
+    setStepIndex((current) => Math.max(0, current - 1));
+  };
+
+  const submit = async () => {
+    for (const index of [2]) {
+      const error = validateStep(index);
+      if (error) {
+        setStepIndex(index);
+        setStepError(error);
+        return;
+      }
+    }
+
+    const materials = buildMaterialsText(materialsNote, materialFiles, materialLinks);
+    if (materials && materials.length > 4000) {
+      setStepIndex(2);
+      setStepError('Materials are too long. Shorten the note or remove a link.');
+      return;
+    }
+
+    setSubmitError(null);
+    try {
+      const result = (await createTask.mutateAsync({
+        title: title.trim(),
+        description: description.trim(),
+        platforms: selectedPlatforms,
+        assigneeUserId: assigneeUserId || undefined,
+        dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+        category,
+        requiredSkills,
+        deliverables: deliverables.trim() || undefined,
+        materials,
+        requiresBusinessApproval,
+        compensationModel,
+        compensationAmount:
+          amountNeeded && compensationAmount
+            ? Number(compensationAmount)
+            : undefined,
+        // Business charge is intentionally omitted. The backend applies the
+        // business's membership allowance first and handles any remainder.
+      })) as any;
+      const created = result?.data ?? result;
+      navigate('/dashboard/tasks', {
+        state: {
+          taskCreated: true,
+          fundingRequired: created?.paymentStatus === 'ON_HOLD',
+          taskId: created?.id ?? null,
+        },
+      });
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setSubmitError(
+        Array.isArray(message)
+          ? message.join(', ')
+          : message || 'The task could not be launched. Please try again.',
+      );
+    }
+  };
+
+  const isFinalStep = stepIndex === STEPS.length - 1;
+  const busy = createTask.isPending || upload.isPending;
+
+  return (
+    <div className="mx-auto w-full max-w-4xl pb-6">
+      <button
+        type="button"
+        onClick={() => navigate('/dashboard/tasks')}
+        className="mb-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-1 text-[11px] font-black text-gray-500 transition-colors hover:text-brand-blue"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to delegated tasks
+      </button>
+
+      <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-brand-blue/80 p-4 text-white shadow-xl shadow-slate-900/10 sm:p-6">
+        <div className="pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full bg-brand-blue/30 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-12 left-1/3 h-28 w-28 rounded-full bg-rose-500/20 blur-2xl" />
+        <div className="relative">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.18em] text-white/90">
+            <Sparkles className="h-3 w-3" /> New mission
+          </span>
+          <h1 className="mt-2 text-xl font-black leading-tight tracking-tight sm:text-2xl">
+            Launch a delegated task
+          </h1>
+          <p className="mt-1 max-w-xl text-[12px] font-medium leading-5 text-white/70 sm:text-sm">
+            Five quick steps. We will match the brief with the right person using skill,
+            reputation and real postcode distance.
+          </p>
+          <div className="mt-3 flex items-center gap-2 text-[10px] font-bold text-white/70">
+            <span className="rounded-full bg-white/10 px-2 py-1">
+              Step {stepIndex + 1} of {STEPS.length}
+            </span>
+            <span className="rounded-full bg-white/10 px-2 py-1">~2 min</span>
+            <span className="hidden rounded-full bg-white/10 px-2 py-1 sm:inline">
+              {progress}% complete
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
+        <div className="flex items-center gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {STEPS.map((step, index) => {
+            const done = index < stepIndex;
+            const active = index === stepIndex;
+            const Icon = step.icon;
+            return (
+              <button
+                key={step.label}
+                type="button"
+                onClick={() => {
+                  if (index < stepIndex) {
+                    setStepError(null);
+                    setStepIndex(index);
+                  }
+                }}
+                className={cn(
+                  'flex min-h-10 shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-2 text-[10px] font-black transition-colors sm:flex-1 sm:justify-center',
+                  active
+                    ? 'bg-brand-blue text-white'
+                    : done
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-gray-50 text-gray-400',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex h-5 w-5 items-center justify-center rounded-full',
+                    active
+                      ? 'bg-white/20'
+                      : done
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-white text-gray-400',
+                  )}
+                >
+                  {done ? (
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  ) : (
+                    <Icon className="h-3 w-3" />
+                  )}
+                </span>
+                <span className="hidden sm:inline">{step.label}</span>
+                <span className="sm:hidden">{step.short}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-brand-blue to-rose-400 transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-3xl border border-gray-100 bg-white shadow-sm">
+        <div className="p-4 sm:p-6">
+          {submitError && (
+            <p className="mb-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] font-semibold leading-5 text-red-800">
+              {submitError}
+            </p>
+          )}
+          {stepError && (
+            <p className="mb-4 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-[11px] font-semibold leading-5 text-amber-800">
+              {stepError}
+            </p>
+          )}
+
+          <motion.div
+            key={stepIndex}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+              {stepIndex === 0 && (
+                <StepTaskType value={category} onChange={setCategory} />
+              )}
+
+              {stepIndex === 1 && (
+                <StepPlatforms
+                  platforms={platforms}
+                  selected={selectedPlatforms}
+                  onToggle={togglePlatform}
+                />
+              )}
+
+              {stepIndex === 2 && (
+                <StepBrief
+                  title={title}
+                  description={description}
+                  deliverables={deliverables}
+                  materialsNote={materialsNote}
+                  materialFiles={materialFiles}
+                  materialLinks={materialLinks}
+                  linkDraft={linkDraft}
+                  uploading={upload.isPending}
+                  uploadError={uploadError}
+                  onTitleChange={setTitle}
+                  onDescriptionChange={setDescription}
+                  onDeliverablesChange={setDeliverables}
+                  onMaterialsNoteChange={setMaterialsNote}
+                  onFilesSelected={(files) => void handleFilesSelected(files)}
+                  onRemoveFile={(url) =>
+                    setMaterialFiles((current) =>
+                      current.filter((file) => file.url !== url),
+                    )
+                  }
+                  onLinkDraftChange={setLinkDraft}
+                  onAddLink={addLink}
+                  onRemoveLink={(link) =>
+                    setMaterialLinks((current) =>
+                      current.filter((item) => item !== link),
+                    )
+                  }
+                />
+              )}
+
+              {stepIndex === 3 && (
+                <StepSkills
+                  skills={requiredSkills}
+                  onToggle={toggleSkill}
+                  onAdd={addSkill}
+                  onRemove={toggleSkill}
+                />
+              )}
+
+              {stepIndex === 4 && (
+                <StepAssign
+                  category={category}
+                  platforms={selectedPlatformNames}
+                  requiredSkills={requiredSkills}
+                  assigneeUserId={assigneeUserId}
+                  onAssigneeChange={setAssigneeUserId}
+                  dueAt={dueAt}
+                  onDueAtChange={setDueAt}
+                  compensationModel={compensationModel}
+                  onCompensationModelChange={setCompensationModel}
+                  compensationAmount={compensationAmount}
+                  onCompensationAmountChange={setCompensationAmount}
+                  requiresBusinessApproval={requiresBusinessApproval}
+                  onRequiresBusinessApprovalChange={setRequiresBusinessApproval}
+                />
+              )}
+          </motion.div>
+        </div>
+
+        <div className="sticky bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 rounded-b-3xl border-t border-gray-100 bg-white/95 px-4 py-3 backdrop-blur-md sm:px-6 lg:bottom-0">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goBack}
+              disabled={busy}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3.5 text-[11px] font-black text-gray-600 hover:bg-gray-50 disabled:opacity-50 sm:px-4"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">{stepIndex === 0 ? 'Cancel' : 'Back'}</span>
+            </button>
+
+            <div className="hidden flex-1 items-center gap-1.5 px-2 text-[10px] font-semibold text-gray-400 sm:flex">
+              <span className="h-1.5 flex-1 rounded-full bg-gray-100">
+                <span
+                  className="block h-full rounded-full bg-brand-blue transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </span>
+              <span className="shrink-0">{progress}%</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={busy}
+              className={cn(
+                'inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-4 text-[11px] font-black text-white transition-all sm:flex-none sm:px-5',
+                isFinalStep
+                  ? 'bg-gradient-to-r from-brand-blue to-rose-500 shadow-lg shadow-brand-blue/20 hover:brightness-105'
+                  : 'bg-brand-blue hover:bg-brand-dark',
+                busy && 'opacity-60',
+              )}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isFinalStep ? (
+                <Rocket className="h-4 w-4" />
+              ) : null}
+              {busy
+                ? upload.isPending
+                  ? 'Uploading…'
+                  : 'Launching…'
+                : isFinalStep
+                  ? 'Launch task'
+                  : NEXT_LABELS[stepIndex]}
+              {!busy && !isFinalStep && <ArrowRight className="h-4 w-4" />}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[9px] font-semibold text-gray-400 sm:text-left">
+            {isFinalStep
+              ? 'Your membership allowance is applied automatically. No separate business charge to enter.'
+              : 'You can jump back to any completed step.'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
