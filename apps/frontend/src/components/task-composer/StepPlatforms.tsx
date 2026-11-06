@@ -23,6 +23,7 @@ export default function StepPlatforms({
         title="Which platforms does this touch?"
         description="Tag the MCOM platforms involved so we only surface affiliates who can actually do the work inside them."
         tip="You can pick more than one. Platform tags also let us show the right context to the person taking the task."
+        tooltip="Tag each MCOM platform the work touches. This helps us only suggest people with experience in those tools."
       />
 
       {platforms.length === 0 ? (

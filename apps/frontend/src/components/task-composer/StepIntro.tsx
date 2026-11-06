@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
+import FieldTooltip from '../common/FieldTooltip';
 
 interface StepIntroProps {
   icon: LucideIcon;
@@ -6,6 +7,8 @@ interface StepIntroProps {
   title: string;
   description: string;
   tip?: string;
+  /** Optional plain-language explanation shown next to the step title. */
+  tooltip?: string;
 }
 
 export default function StepIntro({
@@ -14,6 +17,7 @@ export default function StepIntro({
   title,
   description,
   tip,
+  tooltip,
 }: StepIntroProps) {
   return (
     <div className="mb-5">
@@ -22,8 +26,9 @@ export default function StepIntro({
           <Icon className="h-5 w-5" />
         </span>
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-blue">
+          <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-brand-blue">
             {eyebrow}
+            {tooltip && <FieldTooltip text={tooltip} align="left" />}
           </p>
           <h2 className="mt-0.5 text-lg font-black leading-tight text-gray-900 sm:text-xl">
             {title}

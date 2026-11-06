@@ -30,6 +30,7 @@ import AccessPlansPanel from '../components/admin/AccessPlansPanel';
 import AdminCouponEditor from './AdminCouponEditor';
 import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
+import AdminTaskComposer from '../components/admin/task-composer/AdminTaskComposer';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -81,6 +82,10 @@ export default function AdminDashboard() {
   const userDetailMatch = useMatch('/admin/users/:userId');
   const isUserDetail = !!userDetailMatch;
 
+  // Full-page admin task composer: /admin/affiliate-tasks/new
+  const adminTaskNewMatch = useMatch('/admin/affiliate-tasks/new');
+  const isAdminTaskComposer = !!adminTaskNewMatch;
+
   const handleTabChange = (tab: AdminTab) => {
     navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
   };
@@ -129,22 +134,26 @@ export default function AdminDashboard() {
   const tabInfo = getTabInfo(activeTab);
   const title = isUserDetail
     ? 'User Profile'
-    : isMembershipEditor
-      ? editorTitle
-      : isAccessEditor
-        ? accessEditorTitle
-        : isCouponEditor
-          ? couponEditorTitle
-          : tabInfo.title;
+    : isAdminTaskComposer
+      ? 'New Affiliate Task'
+      : isMembershipEditor
+        ? editorTitle
+        : isAccessEditor
+          ? accessEditorTitle
+          : isCouponEditor
+            ? couponEditorTitle
+            : tabInfo.title;
   const subtitle = isUserDetail
     ? 'Complete account, membership, subscription, programme and payment history'
-    : isMembershipEditor
-      ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
-      : isAccessEditor
-        ? 'One-time pass — price, fixed duration, platform plans and variants'
-        : isCouponEditor
-          ? 'Discount, membership/access scope, validity and redemption limits'
-          : tabInfo.subtitle;
+    : isAdminTaskComposer
+      ? 'Create a delegated task on behalf of a business — brief, dispatch and price it in one flow'
+      : isMembershipEditor
+        ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
+        : isAccessEditor
+          ? 'One-time pass — price, fixed duration, platform plans and variants'
+          : isCouponEditor
+            ? 'Discount, membership/access scope, validity and redemption limits'
+            : tabInfo.subtitle;
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -218,6 +227,8 @@ export default function AdminDashboard() {
     <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
       {isUserDetail ? (
         <AdminUserDetail userId={userDetailMatch!.params.userId as string} />
+      ) : isAdminTaskComposer ? (
+        <AdminTaskComposer />
       ) : isMembershipEditor ? (
         <AdminMembershipEditor />
       ) : isAccessEditor ? (

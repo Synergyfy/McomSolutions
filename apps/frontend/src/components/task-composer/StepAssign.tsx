@@ -26,6 +26,7 @@ import {
 } from '../../services/business/hooks';
 import type { AffiliateDelegationQuota, NearbyAffiliate } from '../../services/business';
 import StepIntro from './StepIntro';
+import FieldTooltip from '../common/FieldTooltip';
 import {
   COMPENSATION_OPTIONS,
   RADIUS_OPTIONS,
@@ -323,8 +324,9 @@ export default function StepAssign({
       <div className="rounded-2xl border border-gray-100 bg-white p-3.5 sm:p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+            <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
               Who should do it?
+              <FieldTooltip text="Affiliates are ranked by distance, reputation, completed tasks and matching skills. Pick someone, or leave the default for auto-routing." />
             </p>
             <p className="mt-0.5 text-[11px] font-medium text-gray-500">
               Filter by role, distance or a specific skill.
@@ -362,7 +364,12 @@ export default function StepAssign({
               value={skillQuery}
               onChange={(event) => setSkillQuery(event.target.value)}
               placeholder="Search by another skill…"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-base font-semibold text-gray-900 placeholder:font-medium placeholder:text-gray-400 focus:border-brand-blue focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-blue/10 sm:text-xs"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-9 text-base font-semibold text-gray-900 placeholder:font-medium placeholder:text-gray-400 focus:border-brand-blue focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-blue/10 sm:text-xs"
+            />
+            <FieldTooltip
+              text="Narrow the list to people who have a specific skill you need."
+              align="right"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2"
             />
           </div>
           <label className="relative">
@@ -371,7 +378,7 @@ export default function StepAssign({
             <select
               value={radiusMiles}
               onChange={(event) => setRadiusMiles(Number(event.target.value))}
-              className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-8 text-xs font-bold text-gray-700 focus:border-brand-blue focus:bg-white focus:outline-none"
+              className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-9 text-xs font-bold text-gray-700 focus:border-brand-blue focus:bg-white focus:outline-none"
             >
               {RADIUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -379,6 +386,11 @@ export default function StepAssign({
                 </option>
               ))}
             </select>
+            <FieldTooltip
+              text="Only show affiliates within this distance of your business."
+              align="right"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2"
+            />
           </label>
         </div>
 
@@ -505,6 +517,7 @@ export default function StepAssign({
         <label className="block">
           <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
             <CalendarDays className="h-3.5 w-3.5 text-brand-blue" /> Due date
+            <FieldTooltip text="The latest date the work should be finished. Leave it blank if there is no fixed deadline." />
           </span>
           <input
             type="date"
@@ -533,6 +546,7 @@ export default function StepAssign({
         <div>
           <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
             <CircleDollarSign className="h-3.5 w-3.5 text-brand-blue" /> Affiliate reward
+            <FieldTooltip text="Choose how the affiliate is paid. For a fixed fee, hourly or commission, enter the amount in pounds." />
           </span>
           <select
             value={compensationModel}
@@ -639,8 +653,9 @@ export default function StepAssign({
               className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-blue focus:ring-brand-blue"
             />
             <span>
-              <span className="block text-[11px] font-black text-gray-800">
+              <span className="flex items-center gap-1.5 text-[11px] font-black text-gray-800">
                 I approve the delivered outcome
+                <FieldTooltip text="Turn this on if you want to review the work before it is marked complete." />
               </span>
               <span className="block text-[10px] font-medium leading-4 text-gray-500">
                 The affiliate submits the work, then you review it before it is marked complete.

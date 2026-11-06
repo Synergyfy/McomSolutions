@@ -10,6 +10,7 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import StepIntro from './StepIntro';
+import FieldTooltip from '../common/FieldTooltip';
 import type { UploadedMaterial } from './taskComposerUtils';
 
 interface StepBriefProps {
@@ -31,6 +32,7 @@ interface StepBriefProps {
   onLinkDraftChange: (value: string) => void;
   onAddLink: () => void;
   onRemoveLink: (link: string) => void;
+  eyebrow?: string;
 }
 
 const inputClass =
@@ -55,6 +57,7 @@ export default function StepBrief({
   onLinkDraftChange,
   onAddLink,
   onRemoveLink,
+  eyebrow = 'Quest 3 of 5',
 }: StepBriefProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -62,7 +65,7 @@ export default function StepBrief({
     <div>
       <StepIntro
         icon={FileText}
-        eyebrow="Quest 3 of 5"
+        eyebrow={eyebrow}
         title="Brief the mission"
         description="A clear brief gets a better result. Tell us the outcome you want, what success looks like, and hand over anything useful."
         tip="If an affiliate has to guess, the work will show it. One or two extra sentences here saves a revision round later."
@@ -71,7 +74,11 @@ export default function StepBrief({
       <div className="space-y-4">
         <label className="block">
           <span className="mb-1.5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-gray-600">
-            Task title <span className="text-brand-blue">Required</span>
+            <span className="flex items-center gap-1.5">
+              Task title
+              <FieldTooltip text="A short name so you and the affiliate can find this task later. Keep it specific, like 'Design summer sale banners'." />
+            </span>
+            <span className="text-brand-blue">Required</span>
           </span>
           <input
             value={title}
@@ -87,7 +94,11 @@ export default function StepBrief({
 
         <label className="block">
           <span className="mb-1.5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-gray-600">
-            The outcome you need <span className="text-brand-blue">Required</span>
+            <span className="flex items-center gap-1.5">
+              The outcome you need
+              <FieldTooltip text="Describe what the finished work should look like. Mention the audience, tone and anything to avoid." />
+            </span>
+            <span className="text-brand-blue">Required</span>
           </span>
           <textarea
             value={description}
@@ -107,7 +118,11 @@ export default function StepBrief({
 
         <label className="block">
           <span className="mb-1.5 flex items-center justify-between text-[11px] font-black uppercase tracking-widest text-gray-600">
-            Deliverables <span className="text-gray-400">Optional</span>
+            <span className="flex items-center gap-1.5">
+              Deliverables
+              <FieldTooltip text="List exactly what the affiliate should hand over — files, formats or quantities. Optional." />
+            </span>
+            <span className="text-gray-400">Optional</span>
           </span>
           <textarea
             value={deliverables}
@@ -122,8 +137,9 @@ export default function StepBrief({
         <section className="rounded-2xl border border-gray-100 bg-gray-50/70 p-3.5 sm:p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-widest text-gray-600">
+              <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-gray-600">
                 Materials supplied
+                <FieldTooltip text="Add anything the affiliate needs: a short note, uploaded images, or links to a shared folder." />
               </p>
               <p className="mt-1 text-[11px] font-medium leading-5 text-gray-500">
                 Add files from your device or paste links to a shared drive. Images up to 5MB.
@@ -156,26 +172,33 @@ export default function StepBrief({
             }}
           />
 
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="mt-3 flex min-h-[72px] w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-200 bg-white px-3 py-3 text-left transition-colors hover:border-brand-blue/40 hover:bg-brand-blue/[0.02] disabled:opacity-60"
-          >
-            {uploading ? (
-              <Loader2 className="h-5 w-5 animate-spin text-brand-blue" />
-            ) : (
-              <UploadCloud className="h-5 w-5 text-brand-blue" />
-            )}
-            <span>
-              <span className="block text-[12px] font-black text-gray-900">
-                {uploading ? 'Uploading your files…' : 'Choose files from your device'}
+          <div className="relative mt-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-200 bg-white px-3 py-3 pr-10 text-left transition-colors hover:border-brand-blue/40 hover:bg-brand-blue/[0.02] disabled:opacity-60"
+            >
+              {uploading ? (
+                <Loader2 className="h-5 w-5 animate-spin text-brand-blue" />
+              ) : (
+                <UploadCloud className="h-5 w-5 text-brand-blue" />
+              )}
+              <span>
+                <span className="block text-[12px] font-black text-gray-900">
+                  {uploading ? 'Uploading your files…' : 'Choose files from your device'}
+                </span>
+                <span className="block text-[10px] font-semibold text-gray-500">
+                  PNG, JPG, GIF or WEBP · select multiple
+                </span>
               </span>
-              <span className="block text-[10px] font-semibold text-gray-500">
-                PNG, JPG, GIF or WEBP · select multiple
-              </span>
-            </span>
-          </button>
+            </button>
+            <FieldTooltip
+              text="Upload reference images or brand assets. PNG, JPG, GIF or WEBP up to 5MB each. Optional."
+              align="right"
+              className="absolute right-2.5 top-2.5 z-10"
+            />
+          </div>
 
           {uploadError && (
             <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-700">
@@ -217,6 +240,7 @@ export default function StepBrief({
           <div className="mt-3">
             <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-gray-500">
               <Link2 className="h-3.5 w-3.5" /> Or add a link
+              <FieldTooltip text="Paste a full link starting with https:// to a shared folder or file instead of uploading it." />
             </p>
             <div className="flex gap-2">
               <input

@@ -6,17 +6,23 @@ import { TASK_TYPE_OPTIONS, type TaskCategory } from './taskComposerUtils';
 interface StepTaskTypeProps {
   value: TaskCategory;
   onChange: (value: TaskCategory) => void;
+  eyebrow?: string;
 }
 
-export default function StepTaskType({ value, onChange }: StepTaskTypeProps) {
+export default function StepTaskType({
+  value,
+  onChange,
+  eyebrow = 'Quest 1 of 5',
+}: StepTaskTypeProps) {
   return (
     <div>
       <StepIntro
         icon={Sparkles}
-        eyebrow="Quest 1 of 5"
+        eyebrow={eyebrow}
         title="What kind of mission is this?"
         description="Pick the flavour of work. This decides how we match the right people and how the task is tracked."
         tip="Most growth requests are External / professional. Choose Internal / platform when the work happens inside your MCOM tools."
+        tooltip="External is for professional work like design, copywriting or marketing. Internal is for work inside your MCOM tools, like setting up a mall storefront."
       />
 
       <div className="grid gap-3 lg:grid-cols-2">
