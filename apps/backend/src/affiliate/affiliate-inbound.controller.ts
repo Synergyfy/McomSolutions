@@ -217,6 +217,7 @@ export class AffiliateInboundController {
       affiliateTaskId: dto.affiliateTaskId,
       submissionData: dto.submissionData,
       reviewAcknowledged: dto.reviewAcknowledged,
+      declineReason: dto.declineReason,
     });
     return { success: true, data: task };
   }

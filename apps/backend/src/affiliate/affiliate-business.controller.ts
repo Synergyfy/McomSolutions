@@ -19,6 +19,7 @@ import {
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
   ApproveServiceRequestDto,
+  AssignAffiliateTaskDto,
   CloseAffiliateProjectDto,
   CreateAffiliateProjectDto,
   CreateAffiliateServiceRequestDto,
@@ -212,6 +213,18 @@ export class AffiliateBusinessController {
     const business = await this.businessContext(req);
     const task = await this.tasks.getBusinessTask(business.id, id);
     return { success: true, data: task };
+  }
+
+  @Post('tasks/:id/reassign')
+  @ApiOperation({ summary: 'Reassign a task the affiliate declined to another affiliate' })
+  async reassignTask(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: AssignAffiliateTaskDto,
+  ) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.reassignBusinessTask(business.id, id, dto, req.user.userId);
+    return { success: true, data: task, message: 'Task reassigned' };
   }
 
   @Post('tasks/:id/review')

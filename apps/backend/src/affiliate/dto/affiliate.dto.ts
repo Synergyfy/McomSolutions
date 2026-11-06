@@ -578,6 +578,14 @@ export class AffiliateTaskStatusCallbackDto {
   @ApiPropertyOptional()
   @IsOptional()
   reviewAcknowledged?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Why the affiliate declined the assignment. Shown to the business and admins.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  declineReason?: string;
 }
 
 export class AffiliateSettlementQueryDto {

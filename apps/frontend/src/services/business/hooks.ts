@@ -471,6 +471,24 @@ export const useCancelAffiliateTask = () => {
   });
 };
 
+export const useReassignAffiliateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: Parameters<typeof businessApi.reassignAffiliateTask>[1];
+    }) => businessApi.reassignAffiliateTask(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['affiliate-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['business-delegation-quota'] });
+    },
+  });
+};
+
 export const useRateAffiliate = () => {
   const queryClient = useQueryClient();
   return useMutation({

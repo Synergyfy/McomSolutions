@@ -403,6 +403,11 @@ export default function AffiliateTaskAdminPanel() {
                         )}
                       </p>
                       <p className="mt-1 text-xs text-gray-600 line-clamp-2">{task.description}</p>
+                      {task.status === 'DECLINED' && task.declineReason && (
+                        <p className="mt-1.5 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1.5 text-[11px] leading-5 text-red-800">
+                          <span className="font-black">Decline reason:</span> {task.declineReason}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-bold">
                         <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
                           {(task.category || 'EXTERNAL').toLowerCase()}

@@ -3012,6 +3012,9 @@ model AffiliateTask {
   dueAt                          DateTime?                  @map("due_at")
   // Mirror id + sync state for the 247GBS Affiliates task record.
   affiliateTaskId                String?                    @map("affiliate_task_id")
+  // Why the affiliate declined the assignment (shown to business + admins so
+  // the task can be reassigned).
+  declineReason                  String?                    @map("decline_reason") @db.Text
   lastSyncAt                     DateTime?                  @map("last_sync_at")
   lastSyncError                  String?                    @map("last_sync_error")
   // Structured submission from the affiliate (notes, links[], attachments[]).

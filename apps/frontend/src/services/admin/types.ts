@@ -1350,6 +1350,7 @@ export interface AdminAffiliateTask {
     lastName: string | null
     role: string
   } | null
+  declineReason?: string | null
   business?: { id: string; businessName: string; email: string; userId?: string }
   taskDefinition?: { id: string; title: string } | null
   settlement?: AdminAffiliateSettlement | null

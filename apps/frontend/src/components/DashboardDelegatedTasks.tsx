@@ -15,6 +15,7 @@ import {
   Search,
   Send,
   Trophy,
+  UserPlus,
   Wallet,
   X,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import {
   useMyTasks,
   useNearbyAffiliates,
   usePlatformAccess,
+  useReassignAffiliateTask,
   useReviewAffiliateTask,
   useReviewAffiliateTaskCharge,
   useServiceRequests,
@@ -142,6 +144,10 @@ export default function DashboardDelegatedTasks() {
   const distanceFrom = affiliateSearchRes?.distanceFrom ?? null;
   const createTask = useCreateAffiliateTask();
   const cancelTask = useCancelAffiliateTask();
+  const reassignTask = useReassignAffiliateTask();
+  const [reassignFor, setReassignFor] = useState<AffiliateTaskRecord | null>(null);
+  const [reassignAffiliateId, setReassignAffiliateId] = useState('');
+  const [reassignError, setReassignError] = useState<string | null>(null);
 
   // Service request + project state.
   const [showRequest, setShowRequest] = useState(false);
@@ -484,6 +490,11 @@ export default function DashboardDelegatedTasks() {
                           active={!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status)}
                         />
                       </div>
+                      {task.status === 'DECLINED' && task.declineReason && (
+                        <p className="mt-2 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1.5 text-[11px] leading-5 text-red-800">
+                          <span className="font-black">Decline reason:</span> {task.declineReason}
+                        </p>
+                      )}
                     </div>
                     <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                       <button
@@ -493,6 +504,18 @@ export default function DashboardDelegatedTasks() {
                         {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         Details
                       </button>
+                      {task.status === 'DECLINED' && (
+                        <button
+                          onClick={() => {
+                            setReassignFor(task);
+                            setReassignAffiliateId('');
+                            setReassignError(null);
+                          }}
+                          className="inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-brand-blue px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-brand-dark sm:flex-none"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" /> Reassign
+                        </button>
+                      )}
                       {!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status) && (
                         <button
                           onClick={() => cancelTask.mutate(task.id)}
@@ -1109,6 +1132,88 @@ export default function DashboardDelegatedTasks() {
               >
                 {createServiceRequest.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 Submit request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reassignFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setReassignFor(null)}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-gray-900">Reassign “{reassignFor.title}”</h3>
+              <button onClick={() => setReassignFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            {reassignFor.declineReason && (
+              <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[11px] leading-5 text-red-800">
+                <span className="font-black">Decline reason:</span> {reassignFor.declineReason}
+              </p>
+            )}
+            <label className="block text-[11px] font-bold text-gray-700">
+              Send this task to
+              <select
+                value={reassignAffiliateId}
+                onChange={(e) => setReassignAffiliateId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
+              >
+                <option value="">
+                  {affiliateSearching ? 'Loading affiliates…' : 'Select an affiliate'}
+                </option>
+                {affiliateResults
+                  .filter((affiliate: any) => affiliate.userId !== reassignFor.assigneeId)
+                  .map((affiliate: any) => (
+                    <option key={affiliate.userId} value={affiliate.userId}>
+                      {affiliate.name} — {String(affiliate.role).replace('_', ' ').toLowerCase()}
+                      {affiliate.postcode ? ` · ${affiliate.postcode}` : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="text-[11px] font-medium leading-5 text-gray-500">
+              Compensation and charge terms stay the same. The new affiliate can see the decline reason and
+              must accept before work begins.
+            </p>
+            {reassignError && (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800">
+                {reassignError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setReassignFor(null)} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!reassignAffiliateId) {
+                    setReassignError('Select an affiliate to reassign this task to.');
+                    return;
+                  }
+                  setReassignError(null);
+                  try {
+                    await reassignTask.mutateAsync({
+                      id: reassignFor.id,
+                      data: {
+                        assigneeUserId: reassignAffiliateId,
+                        note: 'Reassigned by the business after an affiliate decline',
+                      },
+                    });
+                    setReassignFor(null);
+                  } catch (error: any) {
+                    setReassignError(
+                      error?.response?.data?.message ||
+                        error?.message ||
+                        'Could not reassign the task. Please try again.',
+                    );
+                  }
+                }}
+                disabled={!reassignAffiliateId || reassignTask.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                {reassignTask.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Reassign task
               </button>
             </div>
           </div>
