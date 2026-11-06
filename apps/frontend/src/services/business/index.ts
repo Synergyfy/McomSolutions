@@ -322,6 +322,22 @@ export const businessApi = {
     return res.data;
   },
 
+  reassignAffiliateTask: async (
+    id: string,
+    data: {
+      assigneeUserId: string;
+      note?: string;
+      compensationAmount?: number;
+      compensationCurrency?: string;
+      billableToBusiness?: boolean;
+      businessChargeAmount?: number;
+      requiresBusinessApproval?: boolean;
+    },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/reassign`, data);
+    return res.data;
+  },
+
   // ─── Service requests (the business support channel) ─────────────────
   getServiceRequests: async (params?: { page?: number; limit?: number; status?: string; search?: string }) => {
     const res = await apiClient.get('/business/affiliate/requests', { params });
@@ -604,6 +620,7 @@ export interface AffiliateTaskRecord {
     lastName: string | null;
     role: string;
   } | null;
+  declineReason?: string | null;
   business?: { id: string; businessName: string; email: string; userId?: string };
   taskDefinition?: { id: string; title: string } | null;
   dueAt: string | null;

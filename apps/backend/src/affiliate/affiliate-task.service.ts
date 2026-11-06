@@ -1676,6 +1676,31 @@ export class AffiliateTaskService {
     return updated;
   }
 
+  /**
+   * Business owner reassigns a task an affiliate declined. Only declined tasks
+   * can be reassigned, and the new affiliate must be a verified directory
+   * member. Pricing/compensation are preserved unless the caller overrides them.
+   */
+  async reassignBusinessTask(
+    businessId: string,
+    taskId: string,
+    dto: AssignAffiliateTaskDto,
+    actorId: string,
+  ) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      select: { id: true, businessId: true, status: true },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (task.businessId !== businessId) {
+      throw new ForbiddenException('This task does not belong to your business');
+    }
+    if (task.status !== AffiliateTaskStatus.DECLINED) {
+      throw new BadRequestException('Only a declined task can be reassigned');
+    }
+    return this.assignTask(taskId, dto, actorId, { asBusiness: true });
+  }
+
   // ──────────────────────────── Admin actions ─────────────────────────────
 
   async listAllTasks(query: AffiliateTaskQueryDto) {
@@ -1707,7 +1732,7 @@ export class AffiliateTaskService {
     taskId: string,
     dto: AssignAffiliateTaskDto,
     actorId: string,
-    opts: { asAccountManager?: boolean } = {},
+    opts: { asAccountManager?: boolean; asBusiness?: boolean } = {},
   ) {
     const task = await this.prisma.affiliateTask.findUnique({
       where: { id: taskId },
@@ -1857,7 +1882,7 @@ export class AffiliateTaskService {
       data: {
         assigneeId: assignee.id,
         assigneeRole: assignee.role,
-        assignedByAdminId: opts.asAccountManager ? null : actorId,
+        assignedByAdminId: opts.asAccountManager || opts.asBusiness ? null : actorId,
         status: AffiliateTaskStatus.ASSIGNED,
         compensationModel,
         compensationAmount,
@@ -1890,8 +1915,8 @@ export class AffiliateTaskService {
         // clean review state.
         ...(task.status === AffiliateTaskStatus.DECLINED
           ? {
+              declineReason: null,
               acceptedAt: null,
-              submittedAt: null,
               amReviewedAt: null,
               amReviewedByUserId: null,
               amReviewNotes: null,
@@ -1928,7 +1953,7 @@ export class AffiliateTaskService {
 
     await this.recordEvent(taskId, {
       actorUserId: actorId,
-      actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'ADMIN',
+      actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : opts.asBusiness ? 'BUSINESS' : 'ADMIN',
       type: task.status === AffiliateTaskStatus.DECLINED ? 'TASK_REASSIGNED' : 'TASK_ASSIGNED',
       message: `Assigned to ${assignee.email}`,
       metadata: {
@@ -1950,7 +1975,7 @@ export class AffiliateTaskService {
       );
       await this.recordEvent(taskId, {
         actorUserId: actorId,
-        actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'ADMIN',
+        actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : opts.asBusiness ? 'BUSINESS' : 'ADMIN',
         type: 'TASK_FUNDS_REQUIRED',
         message: 'Affiliate assigned, but the business wallet funds are not locked yet.',
         metadata: {
@@ -2165,6 +2190,7 @@ export class AffiliateTaskService {
       affiliateTaskId?: string | null;
       submissionData?: Record<string, unknown> | null;
       reviewAcknowledged?: boolean;
+      declineReason?: string | null;
     },
   ) {
     const task = await this.prisma.affiliateTask.findUnique({ where: { id: centralTaskId } });
@@ -2200,6 +2226,14 @@ export class AffiliateTaskService {
     };
     if (mapped) data.status = mapped;
     if (mapped === AffiliateTaskStatus.ACCEPTED) data.acceptedAt = new Date();
+    const declineReason = (payload.declineReason ?? '').trim();
+    if (mapped === AffiliateTaskStatus.DECLINED) {
+      data.declineReason = declineReason || 'No reason provided';
+    }
+    if (mapped === AffiliateTaskStatus.ACCEPTED || mapped === AffiliateTaskStatus.IN_PROGRESS) {
+      // A new assignee accepted the work; the previous decline no longer applies.
+      data.declineReason = null;
+    }
     if (payload.affiliateTaskId) data.affiliateTaskId = payload.affiliateTaskId;
     if (payload.submissionData !== undefined) {
       data.submissionData = (payload.submissionData ?? Prisma.JsonNull) as Prisma.InputJsonValue;
@@ -2214,10 +2248,14 @@ export class AffiliateTaskService {
     await this.recordEvent(centralTaskId, {
       actorRole: 'AFFILIATE',
       type: `AFFILIATE_${(mapped ?? 'UPDATED').toString()}`,
-      message: `Affiliate reported status: ${payload.status ?? 'updated'}`,
-      metadata: payload.submissionData
-        ? { hasSubmission: true }
-        : undefined,
+      message:
+        mapped === AffiliateTaskStatus.DECLINED && declineReason
+          ? `Affiliate declined the task: ${declineReason}`
+          : `Affiliate reported status: ${payload.status ?? 'updated'}`,
+      metadata: {
+        ...(payload.submissionData ? { hasSubmission: true } : {}),
+        ...(declineReason ? { declineReason } : {}),
+      },
     });
 
     // Promote structured attachment metadata into first-class rows so admins
