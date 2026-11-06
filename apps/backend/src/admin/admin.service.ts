@@ -253,12 +253,12 @@ export class AdminService implements OnModuleInit {
 
   /**
    * Short-lived in-memory cache for the admin user drill-down. The page is
-   * read-only and admins often revisit the same user while triaging; a 20s TTL
-   * removes the repeated 10+ query fan-out without showing meaningfully stale
-   * data. Entries are capped so a long-lived process cannot grow unbounded.
+   * read-only and admins often revisit the same user while triaging; a 60s TTL
+   * removes the repeated round-trip without showing meaningfully stale data.
+   * Entries are capped so a long-lived process cannot grow unbounded.
    */
   private readonly fullProfileCache = new Map<string, { expiresAt: number; value: any }>();
-  private static readonly FULL_PROFILE_CACHE_TTL_MS = 20_000;
+  private static readonly FULL_PROFILE_CACHE_TTL_MS = 60_000;
   private static readonly FULL_PROFILE_CACHE_MAX_ENTRIES = 100;
 
   private readFullProfileCache(userId: string): any | null {
@@ -1499,9 +1499,12 @@ export class AdminService implements OnModuleInit {
    * programme/task journey, affiliate activity, support tickets and wallet.
    * Read-only. Never returns the password hash.
    *
-   * All sections are fetched by a single SQL statement (one round-trip to the
-   * Supabase pooler) and cached for 20s. Every audited admin write clears the
-   * cache. See ADMIN_FULL_PROFILE_SQL for the per-section JSON projection.
+   * QUERY STRATEGY:
+   * - The user and ALL five role profiles were previously fetched with one
+   *   giant `include`, which made Prisma issue a separate query per relation
+   *   and took ~6s. All sections now come back from one SQL statement.
+   * - Single statement = one round-trip to the Supabase pooler.
+   * - Results are cached for 60s; every audited admin write clears the cache.
    */
   async getUserFullProfile(userId: string) {
     const cached = this.readFullProfileCache(userId);
