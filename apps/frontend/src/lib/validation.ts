@@ -6,13 +6,20 @@
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UK_POSTCODE_REGEX = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i;
+// Channel Islands (GY/JE) and the Isle of Man (IM) are crown dependencies,
+// not part of the UK. The backend rejects them, so match that here.
+const CROWN_DEPENDENCY_POSTCODE_REGEX = /^(GY|JE|IM)\d/i;
 
 export function isValidEmail(email: string): boolean {
   return EMAIL_REGEX.test(email);
 }
 
 export function isValidUkPostcode(postcode: string): boolean {
-  return UK_POSTCODE_REGEX.test((postcode || '').trim());
+  const value = (postcode || '').trim();
+  return (
+    UK_POSTCODE_REGEX.test(value) &&
+    !CROWN_DEPENDENCY_POSTCODE_REGEX.test(value)
+  );
 }
 
 export function normalizeUkPostcode(postcode: string): string {

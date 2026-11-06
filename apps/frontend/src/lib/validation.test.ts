@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isValidEmail,
+  isValidUkPostcode,
   validateEmailAddress,
   validateFullName,
   validatePassword,
@@ -20,6 +21,25 @@ describe('auth validation (Phase 7 frontend smoke)', () => {
       expect(isValidEmail('user@')).toBe(false);
       expect(isValidEmail('user@domain')).toBe(false);
       expect(isValidEmail('user @example.com')).toBe(false);
+    });
+  });
+
+  describe('isValidUkPostcode', () => {
+    it('accepts UK postcodes', () => {
+      expect(isValidUkPostcode('SW1A 1AA')).toBe(true);
+      expect(isValidUkPostcode('M1 1AE')).toBe(true);
+      expect(isValidUkPostcode('BT1 1AA')).toBe(true);
+    });
+
+    it('rejects crown-dependency postcodes', () => {
+      expect(isValidUkPostcode('GY1 1AA')).toBe(false);
+      expect(isValidUkPostcode('JE2 3AB')).toBe(false);
+      expect(isValidUkPostcode('IM1 1AA')).toBe(false);
+    });
+
+    it('rejects malformed postcodes', () => {
+      expect(isValidUkPostcode('12345')).toBe(false);
+      expect(isValidUkPostcode('NOT A POSTCODE')).toBe(false);
     });
   });
 

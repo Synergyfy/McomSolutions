@@ -460,6 +460,16 @@ export const adminApi = {
         skipped: number
         failed: number
         errors: Array<{ businessId: string; postcode: string; message: string }>
+        customers: {
+          dryRun: boolean
+          scanned: number
+          eligible: number
+          processed: number
+          assigned: number
+          skipped: number
+          failed: number
+          errors: Array<{ customerId: string; postcode: string; message: string }>
+        }
         aggregation: Record<string, number> | null
       }
     }

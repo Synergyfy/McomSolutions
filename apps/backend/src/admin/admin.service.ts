@@ -160,7 +160,12 @@ SELECT 'businessProfile', to_jsonb(b) || jsonb_build_object(
   'subCategoryRef', (SELECT to_jsonb(x) FROM sub_categories x WHERE x.id = b.sub_category_id)
 ) FROM b
 UNION ALL
-SELECT 'customerProfile', to_jsonb(c) FROM customer_profiles c WHERE c.user_id = $1 AND c.deleted_at IS NULL
+SELECT 'customerProfile', to_jsonb(c) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = c.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = c.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = c.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = c.local_mall_id)
+) FROM customer_profiles c WHERE c.user_id = $1 AND c.deleted_at IS NULL
 UNION ALL
 SELECT 'agentProfile', to_jsonb(a) || jsonb_build_object(
   'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
@@ -3307,13 +3312,17 @@ export class AdminService implements OnModuleInit {
       limit: dto.limit,
       dryRun: dto.dryRun,
     });
+    const customers = await this.locationAssignment.backfillCustomers({
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    });
 
     const aggregation =
-      summary.dryRun || summary.assigned === 0
+      summary.dryRun || (summary.assigned === 0 && customers.assigned === 0)
         ? null
         : await this.locationAggregation.aggregateAll();
 
-    return { success: true, data: { ...summary, aggregation } };
+    return { success: true, data: { ...summary, customers, aggregation } };
   }
 
   /**

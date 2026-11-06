@@ -2262,7 +2262,7 @@ function BusinessOnboardingInner() {
     setLocationLookupSkipped(false);
     setIsCheckingProximity(true);
     try {
-      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode: postcode.trim() }, { timeout: 10000 });
+      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode: postcode.trim() }, { timeout: 20000 });
       const result = res.data;
       if (!result || !['active', 'inactive'].includes(result.status) || typeof result.resolvedArea !== 'string') {
         throw new Error('The postcode service returned an incomplete location result. Please try again.');

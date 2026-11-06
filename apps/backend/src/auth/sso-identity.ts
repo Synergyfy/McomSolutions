@@ -105,7 +105,8 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
     clean(customer?.postcode) ??
     null;
 
-  const location = agent?.city ?? consultant?.city ?? accountManager?.city ?? null;
+  const location =
+    agent?.city ?? consultant?.city ?? accountManager?.city ?? customer?.city ?? null;
 
   const country =
     clean(business?.country) ??

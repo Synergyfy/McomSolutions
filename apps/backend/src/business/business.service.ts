@@ -295,13 +295,32 @@ export class BusinessService {
     try {
       const resolved = await this.locationAssignment.resolvePostcode(postcode);
 
-      // A valid UK postcode always resolves to a hierarchy. If an admin-created
-      // local mall already covers this postcode, link straight to it; otherwise
-      // the missing entities are created on assignment during signup.
-      const matchedMall = await this.prisma.localMall.findFirst({
-        where: { name: resolved.localMall, borough: resolved.borough },
-        select: { id: true, name: true },
-      });
+      // A valid UK postcode always resolves to a hierarchy. If an existing
+      // local mall already covers this postcode's outward code, show that one;
+      // otherwise the missing entities are created on assignment at signup.
+      // Outward-code matching is what keeps a Peckham business in the curated
+      // "Peckham LocalMall" (SE15) instead of a generated duplicate.
+      let matchedMall = resolved.outwardCode
+        ? await this.prisma.localMall.findFirst({
+            where: {
+              postcodes: { has: resolved.outwardCode },
+              borough: { equals: resolved.borough, mode: 'insensitive' },
+            },
+            select: { id: true, name: true },
+          })
+        : null;
+      if (!matchedMall && resolved.outwardCode) {
+        matchedMall = await this.prisma.localMall.findFirst({
+          where: { postcodes: { has: resolved.outwardCode } },
+          select: { id: true, name: true },
+        });
+      }
+      if (!matchedMall) {
+        matchedMall = await this.prisma.localMall.findFirst({
+          where: { name: resolved.localMall, borough: resolved.borough },
+          select: { id: true, name: true },
+        });
+      }
 
       return {
         resolvedArea: resolved.borough,
