@@ -5,11 +5,12 @@ import { EcosystemEventsModule } from '../ecosystem-events/ecosystem-events.modu
 import { PrismaModule } from '../prisma/prisma.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { MailModule } from '../common/mail/mail.module';
+import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
 import { AccessController } from './access.controller';
 import { AccessService } from './access.service';
 
 @Module({
-  imports: [AuthModule, CouponModule, EcosystemEventsModule, PrismaModule, WalletModule, MailModule],
+  imports: [AuthModule, CouponModule, EcosystemEventsModule, PrismaModule, WalletModule, MailModule, BusinessAcquisitionModule],
   controllers: [AccessController],
   providers: [AccessService],
   exports: [AccessService],

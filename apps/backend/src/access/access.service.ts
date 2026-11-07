@@ -22,6 +22,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, type CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import { WalletService } from '../wallet/wallet.service';
 import { MailService } from '../common/mail/mail.service';
 
@@ -97,6 +98,8 @@ export class AccessService {
     private readonly mailService: MailService,
     @Optional()
     private readonly events?: EcosystemEventsService,
+    @Optional()
+    private readonly businessAcquisition?: BusinessAcquisitionService,
   ) {}
 
   private addDaysUtc(date: Date, days: number): Date {
@@ -1293,6 +1296,17 @@ export class AccessService {
       if (opts.couponRedemptionId) {
         void this.events?.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
       }
+
+      // Paid access pass (or paid code redemption) → acquisition conversion.
+      void this.businessAcquisition?.notifyBusinessConversion({
+        businessId,
+        conversionType: 'access_pass',
+        planName: plan.name,
+        amount: chargedAmount,
+        currency: 'GBP',
+        provider: opts.provider,
+        providerPaymentId: opts.providerPaymentId,
+      });
 
       return {
         ...result.purchase,

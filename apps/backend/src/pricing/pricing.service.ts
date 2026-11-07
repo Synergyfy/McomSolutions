@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { AccountManagerAssignmentService } from '../affiliate/account-manager-assignment.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
   addDaysUtc,
@@ -89,6 +90,8 @@ export class PricingService {
     private readonly taskEventQueue?: Queue<TaskEventJobData>,
     @Optional()
     private readonly accountManagerAssignment?: AccountManagerAssignmentService,
+    @Optional()
+    private readonly businessAcquisition?: BusinessAcquisitionService,
   ) {}
 
   private tierMultiplier(tier: string): number {
@@ -590,6 +593,17 @@ export class PricingService {
     // Paid membership → assign a dedicated account manager (proximity + reputation).
     void this.assignAccountManagerSafely(businessId);
 
+    // Tell the affiliate portal that an invited business has converted.
+    void this.businessAcquisition?.notifyBusinessConversion({
+      businessId,
+      conversionType: 'membership',
+      planName: plan.name,
+      amount: price,
+      currency: 'GBP',
+      provider: opts.provider ?? null,
+      providerPaymentId: opts.providerPaymentId ?? null,
+    });
+
     // Post-commit lifecycle event (never blocks the response).
     if (opts.couponRedemptionId) {
       void this.events.emitCouponRedeemedForRedemption(opts.couponRedemptionId);
@@ -946,6 +960,16 @@ export class PricingService {
     });
 
     void this.assignAccountManagerSafely(business.id);
+
+    void this.businessAcquisition?.notifyBusinessConversion({
+      businessId: business.id,
+      conversionType: 'membership',
+      planName: plan.name,
+      amount: price,
+      currency: 'GBP',
+      provider: opts.provider ?? null,
+      providerPaymentId: opts.providerPaymentId ?? null,
+    });
 
     return {
       ...result.updated,
