@@ -16,6 +16,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { userProfileSelect } from './profile-selects';
+import { ensureUserReferralCode } from '../common/referral/referral.util';
 import type { Response } from 'express';
 
 @ApiTags('Authentication')
@@ -147,6 +148,8 @@ export class AuthController {
     if (!user) {
       throw new UnauthorizedException('Session expired. Please log in again.');
     }
+    // Lazily assign a referral code so older accounts always have one.
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
     const businessId = user.businessProfile?.id || null;
     const name =
       user.businessProfile?.businessName ||
@@ -154,6 +157,7 @@ export class AuthController {
       user.email.split('@')[0];
     return {
       ...user,
+      referralCode,
       name,
       businessId,
       isOnboarded: !!businessId,

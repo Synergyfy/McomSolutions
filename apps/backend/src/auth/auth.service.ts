@@ -22,6 +22,10 @@ import { ssoUserInfoSelect } from './profile-selects';
 import { buildSsoIdentity } from './sso-identity';
 import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import {
+  ensureUserReferralCode,
+  generateUniqueReferralCode,
+} from '../common/referral/referral.util';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import type { ResolvedPostcode } from '../geography/postcode.service';
@@ -87,37 +91,6 @@ export class AuthService {
 
   private generateNumericCode(): string {
     return crypto.randomInt(100000, 1000000).toString();
-  }
-
-  /**
-   * Referral codes: short 8-char uppercase alphanumeric (easy to share).
-   * Uniqueness is enforced by the DB `@unique` constraint; the
-   * check-then-create loop below keeps collisions to a retry, and the
-   * register transactions translate a lost race (P2002) into a 409.
-   */
-  private generateReferralCodeCandidate(): string {
-    return crypto.randomBytes(4).toString('hex').toUpperCase();
-  }
-
-  private async generateUniqueReferralCode(tx: { user: { findUnique: any } }): Promise<string> {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const candidate = this.generateReferralCodeCandidate();
-      const existing = await tx.user.findUnique({
-        where: { referralCode: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-    // Entropy fallback — 12 hex chars (48 bits) after 10 collisions.
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const candidate = crypto.randomBytes(6).toString('hex').toUpperCase();
-      const existing = await tx.user.findUnique({
-        where: { referralCode: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-    throw new ServiceUnavailableException('Could not generate a unique referral code');
   }
 
   /**
@@ -838,7 +811,7 @@ export class AuthService {
       const referredById =
         affiliateInvitation?.affiliateUserId ??
         (await this.resolveReferrerId(tx, data.referredByCode));
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -959,7 +932,7 @@ export class AuthService {
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
       const referredById = await this.resolveReferrerId(tx, data.referredByCode);
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -1044,7 +1017,7 @@ export class AuthService {
     try {
       affiliateUser = await this.prisma.$transaction(async (tx) => {
       const referredById = await this.resolveReferrerId(tx, data.referredByCode);
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -1164,7 +1137,7 @@ export class AuthService {
   }
 
   async generateSsoToken(userId: string, targetClientId?: string) {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id: userId },
       // Same full identity/contact/profile select the OAuth SSO surfaces use,
       // so the launch token carries the same information for every role.
@@ -1173,6 +1146,13 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    // Lazy backfill so the token always carries a referral code for
+    // non-admin accounts, even if the bulk backfill has not run yet.
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
+    if (referralCode && referralCode !== user.referralCode) {
+      user = { ...user, referralCode };
     }
 
     // Legacy launch-token guard: if the target platform is white-label, apply
@@ -1206,7 +1186,9 @@ export class AuthService {
       }
     }
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.config.get<string>('FRONTEND_URL'),
+    });
 
     // `role` keeps its documented business/customer contract for existing
     // consumers. Use `profileType`/`centralRole` for the exact central role
@@ -1278,6 +1260,8 @@ export class AuthService {
       country: identity.country,
       businessId: identity.businessId,
       businessName: identity.businessName,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       businessProfile: businessProfileClaim,
       agentProfile: identity.agentProfile,
       consultantProfile: identity.consultantProfile,

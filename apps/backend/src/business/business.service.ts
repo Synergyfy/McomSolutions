@@ -9,6 +9,7 @@ import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import { ResolvedPostcode } from '../geography/postcode.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { generateUniqueReferralCode } from '../common/referral/referral.util';
 import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -1112,11 +1113,16 @@ export class BusinessService {
     const password = data.password || crypto.randomBytes(24).toString('hex');
     const passwordHash = await bcrypt.hash(password, salt);
 
+    // Every non-admin account owns a referral code. Generate it before the
+    // create so older clients and Google-claim flows are covered too.
+    const referralCode = await generateUniqueReferralCode(this.prisma);
+
     const newUser = await this.prisma.user.create({
       data: {
         email: email,
         password: passwordHash,
         role: Role.BUSINESS,
+        referralCode,
         firstName: data.firstName || '',
         lastName: data.lastName || '',
         registrationSource: affiliateInvitation ? '247gbs-affiliate' : data.source || 'direct',

@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import { generateUniqueReferralCode } from '../common/referral/referral.util';
 import {
   allowedSplit,
   normalizePaymentPlan,
@@ -740,11 +741,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.BUSINESS,
+          referralCode,
           businessProfile: {
             create: {
               businessName: dto.name,
@@ -1063,11 +1066,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.CUSTOMER,
+          referralCode,
           firstName,
           lastName,
           customerProfile: {
@@ -1189,11 +1194,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.AGENT,
+          referralCode,
           firstName,
           lastName,
           agentProfile: {
@@ -1311,11 +1318,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.CONSULTANT,
+          referralCode,
           firstName,
           lastName,
           consultantProfile: {
@@ -1433,11 +1442,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.ACCOUNT_MANAGER,
+          referralCode,
           firstName,
           lastName,
           accountManagerProfile: {

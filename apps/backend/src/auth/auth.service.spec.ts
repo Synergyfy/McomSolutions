@@ -539,6 +539,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: {
           id: 'b1',
           businessName: 'Test Biz',
@@ -572,6 +573,7 @@ describe('AuthService', () => {
         id: '1',
         email: 'test@test.com',
         role: Role.BUSINESS,
+        referralCode: 'A1B2C3D4',
         businessProfile: null,
       };
       mockPrisma.user.findUnique.mockResolvedValue(mockUser);
@@ -590,6 +592,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: { id: 'b1', businessName: 'Test Biz' },
       });
       mockPrisma.ssoClient.findUnique.mockResolvedValue({
@@ -610,6 +613,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: { id: 'b1', businessName: 'Test Biz' },
       });
       mockPrisma.ssoClient.findUnique.mockResolvedValue({

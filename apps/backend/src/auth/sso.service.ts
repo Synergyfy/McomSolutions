@@ -7,6 +7,7 @@ import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
 import { ssoEntitlementClientSelect, ssoUserInfoSelect } from './profile-selects';
 import { buildSsoIdentity, SsoIdentity } from './sso-identity';
+import { ensureUserReferralCode } from '../common/referral/referral.util';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -339,12 +340,7 @@ export class SsoService {
       throw new UnauthorizedException('Authorization code has already been used');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: authCode.userId },
-      // Shared SSO select — full identity + contact + role profile, minus
-      // credentials and other internal columns.
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: authCode.userId });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -358,7 +354,9 @@ export class SsoService {
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
     const name = identity.name;
 
     const accessPayload = {
@@ -372,6 +370,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: authCode.scopes,
     };
 
@@ -386,6 +386,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: authCode.scopes,
     };
 
@@ -471,6 +473,25 @@ export class SsoService {
     };
   }
 
+  /**
+   * Loads the shared SSO identity record and lazily assigns a referral code to
+   * any non-admin account that does not have one yet. This keeps partner
+   * apps (e.g. 247GBS Affiliates) showing a referral code/link even before the
+   * bulk backfill has been run.
+   */
+  private async loadSsoUser(where: Prisma.UserWhereInput) {
+    const user = await this.prisma.user.findFirst({
+      where,
+      select: ssoUserInfoSelect,
+    });
+    if (!user) return null;
+
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
+    return referralCode && referralCode !== user.referralCode
+      ? { ...user, referralCode }
+      : user;
+  }
+
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
@@ -514,10 +535,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid refresh token signature');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: session.userId },
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: session.userId });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -534,7 +552,9 @@ export class SsoService {
       }
     }
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
     const newPayload = {
       jti: crypto.randomUUID(),
       sub: user.id,
@@ -546,6 +566,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: payload.scopes,
     };
 
@@ -1202,10 +1224,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid or expired access token');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: payload.sub });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -1227,7 +1246,9 @@ export class SsoService {
     const { appPlan, membership, enrichedPackages, permissions, entitlement } =
       await this.resolveEntitlements(user, client);
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
 
     return {
       ...this.buildSsoUserPayload(identity, {
@@ -1253,15 +1274,12 @@ export class SsoService {
       throw new BadRequestException('Client not found');
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { id: userIdOrBusinessId },
-          { businessProfile: { id: userIdOrBusinessId } },
-          { email: userIdOrBusinessId },
-        ],
-      },
-      select: ssoUserInfoSelect,
+    const user = await this.loadSsoUser({
+      OR: [
+        { id: userIdOrBusinessId },
+        { businessProfile: { id: userIdOrBusinessId } },
+        { email: userIdOrBusinessId },
+      ],
     });
 
     if (!user) {
@@ -1271,7 +1289,9 @@ export class SsoService {
     const { entitlement, appPlan, membership, enrichedPackages, permissions } =
       await this.resolveEntitlements(user, client);
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
 
     return {
       success: true,
