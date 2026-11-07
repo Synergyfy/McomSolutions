@@ -139,11 +139,17 @@ export default function PlanManagementPanel() {
                       <p className="mt-1 text-[11px] font-bold text-emerald-700">
                         {plan.tiers && plan.tiers.length > 0
                           ? plan.tiers
-                              .map((tier) =>
-                                tier.unlimitedFreeDelegatedTasks
-                                  ? `${tier.tier}: unlimited`
-                                  : `${tier.tier}: ${tier.freeDelegatedTasks ?? 0} free`,
-                              )
+                              .map((tier) => {
+                                const label =
+                                  String(tier.tier) === 'ProPlus'
+                                    ? 'Pro+'
+                                    : String(tier.tier) === 'Normal'
+                                      ? 'Standard'
+                                      : String(tier.tier);
+                                return tier.unlimitedFreeDelegatedTasks
+                                  ? `${label}: unlimited`
+                                  : `${label}: ${tier.freeDelegatedTasks ?? 0} free`;
+                              })
                               .join(' · ')
                           : plan.unlimitedFreeDelegatedTasks
                             ? 'Unlimited free delegated tasks'
