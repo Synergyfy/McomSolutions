@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Check, Star, Zap, ArrowRight, Shield } from 'lucide-react';
+import { Check, Star, Zap, ArrowRight, Shield, Gift, Globe2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { usePricing, ICON_MAP, SubTier, Membership } from '../context/PricingContext';
@@ -79,6 +79,17 @@ export default function MembershipPage() {
             const durationText = selectedTier === 'Pro+' ? 'Annually (Leap year aware)' : selectedTier === 'Pro' ? '180 Days Validity' : '90 Days Validity';
             const features = (plan.tierFeatures as any)?.[selectedTier] || plan.features;
             const PlanIcon = ICON_MAP[plan.iconName as keyof typeof ICON_MAP];
+            const selectedTierDetail = plan.tiers?.find((tier) => tier.tier === selectedTier);
+            const freeTaskSummary = selectedTierDetail
+              ? selectedTierDetail.unlimitedFreeDelegatedTasks
+                ? 'Unlimited free delegated tasks'
+                : `${selectedTierDetail.freeDelegatedTasks ?? 0} free delegated task${
+                    (selectedTierDetail.freeDelegatedTasks ?? 0) === 1 ? '' : 's'
+                  }`
+              : null;
+            const whitelabelForTier = (plan.whitelabelAccess ?? []).filter((grant) =>
+              grant.tiers.includes(selectedTier),
+            );
 
             return (
               <motion.div
@@ -131,6 +142,26 @@ export default function MembershipPage() {
                   )}>
                     <Shield className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
                     <span>{plan.tierEntitlements.length} resource quotas enforced live</span>
+                  </div>
+                )}
+
+                {freeTaskSummary && (
+                  <div className={cn(
+                    "mb-3 p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2",
+                    isGold ? "bg-white/10 border-white/20 text-blue-100" : "bg-amber-50 border-amber-200 text-amber-800"
+                  )}>
+                    <Gift className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                    <span>{freeTaskSummary} included</span>
+                  </div>
+                )}
+
+                {whitelabelForTier.length > 0 && (
+                  <div className={cn(
+                    "mb-3 p-2.5 rounded-xl border text-xs font-bold flex items-start gap-2",
+                    isGold ? "bg-white/10 border-white/20 text-blue-100" : "bg-blue-50 border-blue-200 text-blue-800"
+                  )}>
+                    <Globe2 className="w-3.5 h-3.5 shrink-0 text-blue-600 mt-0.5" />
+                    <span>White-label access: {whitelabelForTier.map((grant) => grant.name).join(', ')}</span>
                   </div>
                 )}
 

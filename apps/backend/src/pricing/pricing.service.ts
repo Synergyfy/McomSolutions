@@ -375,6 +375,11 @@ export class PricingService {
           },
         },
         appBundles: true,
+        whitelabelAccess: {
+          include: {
+            client: { select: { clientId: true, name: true, platformSlug: true } },
+          },
+        },
       },
     });
 
@@ -413,6 +418,8 @@ export class PricingService {
           tier: planTierDisplay(t.tier),
           durationDays: t.durationDays,
           fullPrice: Number(t.fullPrice),
+          freeDelegatedTasks: t.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: t.unlimitedFreeDelegatedTasks,
           features: (t.features ?? []).map((f) => f.feature),
           entitlements: (t.entitlements ?? []).map((e) => ({
             resourceKey: e.resourceKey,
@@ -431,6 +438,12 @@ export class PricingService {
           platform: b.platform,
           externalPlanId: b.externalPlanId,
           packageName: b.packageName,
+        })),
+        whitelabelAccess: (p.whitelabelAccess ?? []).map((grant) => ({
+          clientId: grant.clientId,
+          name: grant.client?.name ?? grant.clientId,
+          platformSlug: grant.client?.platformSlug ?? null,
+          tiers: grant.tiers.map((tier) => planTierDisplay(tier)),
         })),
       };
     });

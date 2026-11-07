@@ -17,6 +17,7 @@ import {
   ListChecks,
   CreditCard,
   Eye,
+  Globe2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -32,6 +33,7 @@ import type {
   MembershipPlan,
   PlatformInfo,
   TierEntitlementResource,
+  TierName,
 } from '../services/admin/types';
 import SplitEditor, {
   TIER_DURATIONS,
@@ -41,6 +43,7 @@ import SplitEditor, {
   type TierKey,
 } from '../components/admin/SplitEditor';
 import EcosystemAccessSkillModal from '../components/admin/EcosystemAccessSkillModal';
+import { useConsoleApps } from '../components/admin/console/hooks/useConsoleApps';
 
 const STEPS = ['Basics', 'Pricing', 'Features', 'Bundles', 'Review'] as const;
 
@@ -78,6 +81,24 @@ const inputClass =
   'w-full bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-3 text-base font-semibold text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 min-h-[48px]';
 const labelClass = 'block text-sm font-bold text-gray-700 mb-1.5';
 const hintClass = 'text-xs sm:text-sm text-gray-400 mt-1';
+
+type TierDelegation = { freeDelegatedTasks: number; unlimitedFreeDelegatedTasks: boolean };
+const TIER_KEYS: TierKey[] = ['Standard', 'Pro', 'Pro+'];
+
+const EMPTY_TIER_DELEGATION: Record<TierKey, TierDelegation> = {
+  Standard: { freeDelegatedTasks: 0, unlimitedFreeDelegatedTasks: true },
+  Pro: { freeDelegatedTasks: 0, unlimitedFreeDelegatedTasks: true },
+  'Pro+': { freeDelegatedTasks: 0, unlimitedFreeDelegatedTasks: true },
+};
+
+/** PlanTier enum values arrive as ProPlus; the UI uses the Pro+ label. */
+function normalizeTierLabel(value?: string | null): TierName | null {
+  const normalized = String(value ?? '').toLowerCase().replace(/[^a-z+]/g, '');
+  if (normalized === 'standard' || normalized === 'normal') return 'Standard';
+  if (normalized === 'pro') return 'Pro';
+  if (normalized === 'pro+' || normalized === 'proplus') return 'Pro+';
+  return null;
+}
 
 function friendlyError(err: unknown): string {
   const msg =
@@ -152,13 +173,22 @@ export default function AdminMembershipEditor() {
   const [includedApps, setIncludedApps] = useState<IncludedAppPlan[]>([]);
   const [selectedBundlePlatform, setSelectedBundlePlatform] = useState('');
   const [selectedBundlePlanId, setSelectedBundlePlanId] = useState('');
-  // Free delegated affiliate tasks included in the plan.
-  const [freeDelegatedTasks, setFreeDelegatedTasks] = useState(0);
-  const [unlimitedFreeDelegatedTasks, setUnlimitedFreeDelegatedTasks] = useState(true);
+  // Per-variant free delegated-task allowance. The purchased tier decides
+  // which limit the backend enforces.
+  const [tierDelegation, setTierDelegation] =
+    useState<Record<TierKey, TierDelegation>>(EMPTY_TIER_DELEGATION);
+  // White-label platforms bundled with the membership, keyed by clientId with
+  // the variants that unlock them.
+  const [whitelabelAccess, setWhitelabelAccess] = useState<Record<string, TierName[]>>({});
 
   // ── Bundles data ──
   const { data: platformsRes } = useSupportedPlatforms();
   const platforms: PlatformInfo[] = platformsRes?.data ?? [];
+  const { data: consoleApps, isLoading: consoleAppsLoading } = useConsoleApps();
+  const whitelabelPlatforms = useMemo(
+    () => (consoleApps ?? []).filter((app) => app.allowWhitelabel && app.isActive),
+    [consoleApps],
+  );
   const { data: externalPlansRes } = useExternalPlans(selectedBundlePlatform);
   const availablePlansForPlatform = useMemo(() => {
     const extPlans = (externalPlansRes as any)?.data ?? [];
@@ -228,8 +258,41 @@ export default function AdminMembershipEditor() {
       setPreservedEntitlements(src.tierEntitlements as TierEntitlementResource[]);
     }
     setIncludedApps(src.includedApps || []);
-    setFreeDelegatedTasks(Number((src as any).freeDelegatedTasks ?? 0));
-    setUnlimitedFreeDelegatedTasks(Boolean((src as any).unlimitedFreeDelegatedTasks));
+    const rawTiers = Array.isArray((src as any).tiers) ? ((src as any).tiers as any[]) : [];
+    const legacyFree = Number((src as any).freeDelegatedTasks ?? 0);
+    const legacyUnlimited = Boolean((src as any).unlimitedFreeDelegatedTasks);
+    setTierDelegation(
+      Object.fromEntries(
+        TIER_KEYS.map((tier) => {
+          const row = rawTiers.find((t) => normalizeTierLabel(t.tier) === tier);
+          return [
+            tier,
+            {
+              freeDelegatedTasks: Number(row?.freeDelegatedTasks ?? legacyFree),
+              unlimitedFreeDelegatedTasks: Boolean(
+                row?.unlimitedFreeDelegatedTasks ?? legacyUnlimited,
+              ),
+            },
+          ];
+        }),
+      ) as Record<TierKey, TierDelegation>,
+    );
+
+    const grants = Array.isArray((src as any).whitelabelAccess)
+      ? ((src as any).whitelabelAccess as any[])
+      : [];
+    setWhitelabelAccess(
+      Object.fromEntries(
+        grants.map((grant) => {
+          const tiers = Array.isArray(grant.tiers)
+            ? grant.tiers
+                .map((tier: string) => normalizeTierLabel(tier))
+                .filter((tier: TierName | null): tier is TierName => Boolean(tier))
+            : [];
+          return [String(grant.clientId), tiers.length > 0 ? tiers : [...TIER_KEYS]];
+        }),
+      ),
+    );
   }, [isNew, planId, plansLoading, editingPlan]);
 
   const unknownPlan = !isNew && !plansLoading && planId && !editingPlan;
@@ -261,6 +324,41 @@ export default function AdminMembershipEditor() {
   const removeFeature = (tier: TierKey, index: number) => {
     setTierFeatures({ ...tierFeatures, [tier]: tierFeatures[tier].filter((_, i) => i !== index) });
   };
+
+  const setTierDelegationValue = (tier: TierKey, patch: Partial<TierDelegation>) =>
+    setTierDelegation((current) => ({
+      ...current,
+      [tier]: { ...current[tier], ...patch },
+    }));
+
+  const toggleWhitelabelPlatform = (clientId: string) =>
+    setWhitelabelAccess((current) => {
+      if (current[clientId]) {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      }
+      return { ...current, [clientId]: [...TIER_KEYS] };
+    });
+
+  const toggleWhitelabelTier = (clientId: string, tier: TierName) =>
+    setWhitelabelAccess((current) => {
+      const selected = current[clientId];
+      if (!selected) return current;
+      // At least one variant must remain selected.
+      if (selected.includes(tier) && selected.length === 1) return current;
+      return {
+        ...current,
+        [clientId]: selected.includes(tier)
+          ? selected.filter((value) => value !== tier)
+          : [...selected, tier],
+      };
+    });
+
+  const setAllWhitelabelTiers = (clientId: string) =>
+    setWhitelabelAccess((current) =>
+      current[clientId] ? { ...current, [clientId]: [...TIER_KEYS] } : current,
+    );
 
   const addBundledApp = () => {
     if (!selectedBundlePlanId || !selectedBundlePlatform) return;
@@ -295,6 +393,10 @@ export default function AdminMembershipEditor() {
       tier,
       fullPrice: tierPrices[tier],
       durationDays: TIER_DURATIONS[tier],
+      freeDelegatedTasks: tierDelegation[tier].unlimitedFreeDelegatedTasks
+        ? 0
+        : Math.max(0, Math.round(tierDelegation[tier].freeDelegatedTasks || 0)),
+      unlimitedFreeDelegatedTasks: tierDelegation[tier].unlimitedFreeDelegatedTasks,
       features: tierFeatures[tier],
       entitlements: preservedEntitlements.map((e) => ({
         resourceKey: e.resourceKey,
@@ -309,6 +411,10 @@ export default function AdminMembershipEditor() {
         })),
       ],
     }));
+
+    const whitelabelPayload = Object.entries(whitelabelAccess)
+      .filter(([, selectedTiers]) => selectedTiers.length > 0)
+      .map(([clientId, selectedTiers]) => ({ clientId, tiers: selectedTiers }));
 
     const payload: CreatePlanInput = {
       name: name.trim(),
@@ -325,8 +431,9 @@ export default function AdminMembershipEditor() {
       platformAccess,
       permissions: ['Basic Dashboard', 'Standard Dashboard'],
       usageLimits: {},
-      freeDelegatedTasks: unlimitedFreeDelegatedTasks ? 0 : Math.max(0, Math.round(freeDelegatedTasks || 0)),
-      unlimitedFreeDelegatedTasks,
+      freeDelegatedTasks: 0,
+      unlimitedFreeDelegatedTasks: false,
+      whitelabelAccess: whitelabelPayload,
       includedApps,
       tierPrices: { ...tierPrices },
       tierFeatures: { ...tierFeatures },
@@ -579,44 +686,208 @@ export default function AdminMembershipEditor() {
 
               <section className="rounded-2xl border-2 border-blue-100 bg-blue-50/40 p-4 sm:p-5 space-y-4">
                 <div>
-                  <h3 className="text-sm font-extrabold text-gray-900">Free delegated tasks</h3>
+                  <h3 className="text-sm font-extrabold text-gray-900">
+                    Free delegated tasks per variant
+                  </h3>
                   <p className="mt-1 text-xs text-gray-600">
-                    How many affiliate-delegated tasks are included in this membership before the
-                    business starts paying per task.
+                    Each membership variant carries its own allowance. A business that buys
+                    Standard, Pro or Pro+ receives exactly that variant's free delegated tasks
+                    before paying per task. The backend enforces the purchased variant.
                   </p>
                 </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <div className="flex-1">
-                    <label htmlFor="free-delegated-tasks" className={labelClass}>
-                      Included free tasks
-                    </label>
-                    <input
-                      id="free-delegated-tasks"
-                      type="number"
-                      min={0}
-                      step={1}
-                      disabled={unlimitedFreeDelegatedTasks}
-                      value={unlimitedFreeDelegatedTasks ? '' : freeDelegatedTasks}
-                      onChange={(e) => setFreeDelegatedTasks(Math.max(0, Number(e.target.value) || 0))}
-                      placeholder="0"
-                      className={cn(inputClass, 'text-xl font-black', unlimitedFreeDelegatedTasks && 'opacity-50')}
-                    />
-                  </div>
-                  <label className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={unlimitedFreeDelegatedTasks}
-                      onChange={(e) => setUnlimitedFreeDelegatedTasks(e.target.checked)}
-                    />
-                    Unlimited free tasks
-                  </label>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                  {(Object.keys(TIER_DURATIONS) as TierKey[]).map((tier) => {
+                    const config = tierDelegation[tier];
+                    return (
+                      <div
+                        key={tier}
+                        className="rounded-xl border border-blue-100 bg-white p-3.5 space-y-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="rounded-md bg-gray-900 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                            {tier}
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-400">
+                            {TIER_META[tier].duration}
+                          </span>
+                        </div>
+                        <div>
+                          <label
+                            htmlFor={`free-delegated-${tier}`}
+                            className={labelClass}
+                          >
+                            Included free tasks
+                          </label>
+                          <input
+                            id={`free-delegated-${tier}`}
+                            type="number"
+                            min={0}
+                            step={1}
+                            disabled={config.unlimitedFreeDelegatedTasks}
+                            value={
+                              config.unlimitedFreeDelegatedTasks
+                                ? ''
+                                : config.freeDelegatedTasks
+                            }
+                            onChange={(e) =>
+                              setTierDelegationValue(tier, {
+                                freeDelegatedTasks: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
+                              })
+                            }
+                            placeholder="0"
+                            className={cn(
+                              inputClass,
+                              'text-xl font-black',
+                              config.unlimitedFreeDelegatedTasks && 'opacity-50',
+                            )}
+                          />
+                        </div>
+                        <label className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs font-bold text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={config.unlimitedFreeDelegatedTasks}
+                            onChange={(e) =>
+                              setTierDelegationValue(tier, {
+                                unlimitedFreeDelegatedTasks: e.target.checked,
+                              })
+                            }
+                          />
+                          Unlimited free tasks
+                        </label>
+                        <p className="text-[11px] font-medium text-gray-500">
+                          {config.unlimitedFreeDelegatedTasks
+                            ? `${tier} buyers never pay for delegated tasks.`
+                            : config.freeDelegatedTasks > 0
+                              ? `The first ${config.freeDelegatedTasks} delegated task${
+                                  config.freeDelegatedTasks === 1 ? '' : 's'
+                                } are free for ${tier} buyers.`
+                              : `Every delegated task is chargeable for ${tier} buyers.`}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
                 <p className="text-[11px] font-medium text-gray-500">
-                  {unlimitedFreeDelegatedTasks
-                    ? 'This membership never charges the business wallet for delegated tasks.'
-                    : freeDelegatedTasks > 0
-                      ? `The first ${freeDelegatedTasks} delegated task${freeDelegatedTasks === 1 ? '' : 's'} are free; further tasks are charged at the price set when the admin assigns them.`
-                      : 'Every delegated task is chargeable.'}
+                  Allowance is consumed within the active membership term. Cancelled tasks free
+                  their slot; reassigned tasks never consume two slots.
+                </p>
+              </section>
+
+              <section className="rounded-2xl border-2 border-emerald-100 bg-emerald-50/40 p-4 sm:p-5 space-y-4">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-extrabold text-gray-900">
+                    <Globe2 className="h-4 w-4 text-emerald-600" />
+                    White-label platform access
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Attach white-label platform access to this membership. Choose every variant
+                    that should unlock each platform, or restrict it to specific variants.
+                    Buyers receive access while their membership is active.
+                  </p>
+                </div>
+
+                {consoleAppsLoading ? (
+                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-400">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading white-label platforms…
+                  </div>
+                ) : whitelabelPlatforms.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-4 text-xs text-gray-500">
+                    No white-label platforms are enabled yet. Turn on{' '}
+                    <span className="font-bold">Allow white-label</span> for a platform in{' '}
+                    <span className="font-mono text-[11px]">/admin/console</span> first.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {whitelabelPlatforms.map((platform) => {
+                      const selectedTiers = whitelabelAccess[platform.clientId];
+                      const isIncluded = Boolean(selectedTiers);
+                      return (
+                        <div
+                          key={platform.clientId}
+                          className={cn(
+                            'rounded-xl border bg-white p-3.5 transition-colors',
+                            isIncluded
+                              ? 'border-emerald-300 shadow-xs'
+                              : 'border-gray-200',
+                          )}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isIncluded}
+                                onChange={() => toggleWhitelabelPlatform(platform.clientId)}
+                                className="size-4 rounded border-gray-300"
+                              />
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-700">
+                                {platform.name.slice(0, 2).toUpperCase()}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="flex flex-wrap items-center gap-2">
+                                  <span className="truncate text-xs font-bold text-gray-900">
+                                    {platform.name}
+                                  </span>
+                                  {platform.platformSlug && (
+                                    <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-gray-500">
+                                      {platform.platformSlug}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="block truncate font-mono text-[10px] text-gray-400">
+                                  {platform.clientId}
+                                </span>
+                              </span>
+                            </label>
+
+                            {isIncluded && (
+                              <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+                                {TIER_KEYS.map((tier) => {
+                                  const active = selectedTiers.includes(tier);
+                                  return (
+                                    <button
+                                      key={tier}
+                                      type="button"
+                                      onClick={() =>
+                                        toggleWhitelabelTier(platform.clientId, tier)
+                                      }
+                                      aria-pressed={active}
+                                      className={cn(
+                                        'min-h-[36px] rounded-lg border px-2.5 text-[11px] font-bold transition-colors',
+                                        active
+                                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                                          : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300',
+                                      )}
+                                    >
+                                      {tier}
+                                    </button>
+                                  );
+                                })}
+                                <button
+                                  type="button"
+                                  onClick={() => setAllWhitelabelTiers(platform.clientId)}
+                                  className="min-h-[36px] rounded-lg px-2 text-[11px] font-bold text-emerald-700 underline-offset-2 hover:underline"
+                                >
+                                  All
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {isIncluded && (
+                            <p className="mt-2 text-[11px] font-medium text-emerald-700">
+                              Unlocked for {selectedTiers.join(', ')} buyers.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] font-medium text-gray-500">
+                  White-label access is business-only and ends automatically when the membership
+                  expires. It is enforced during SSO sign-in on the target platform.
                 </p>
               </section>
             </>
@@ -776,9 +1047,22 @@ export default function AdminMembershipEditor() {
                         </div>
                       ))}
                       <div>{tierFeatures[tier].length} features · {includedApps.length} bundled apps</div>
+                      <div>
+                        {tierDelegation[tier].unlimitedFreeDelegatedTasks
+                          ? 'Unlimited free delegated tasks'
+                          : `${tierDelegation[tier].freeDelegatedTasks} free delegated task${
+                              tierDelegation[tier].freeDelegatedTasks === 1 ? '' : 's'
+                            }`}
+                      </div>
                     </div>
                   </div>
                 ))}
+                </div>
+                <div className="p-3.5 flex justify-between gap-3">
+                  <span className="text-gray-500 font-medium">White-label platforms</span>
+                  <span className="font-bold text-gray-900 text-right">
+                    {Object.keys(whitelabelAccess).length || 'None'}
+                  </span>
                 </div>
               </div>
               <p className="text-xs sm:text-sm text-gray-400 leading-relaxed flex items-start gap-1.5">

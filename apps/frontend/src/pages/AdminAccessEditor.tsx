@@ -11,6 +11,7 @@ import {
   Check,
   CreditCard,
   Eye,
+  Globe2,
   Layers,
   Loader2,
   Plus,
@@ -34,6 +35,7 @@ import type {
   TierName,
 } from '../services/admin/types';
 import EcosystemAccessSkillModal from '../components/admin/EcosystemAccessSkillModal';
+import { useConsoleApps } from '../components/admin/console/hooks/useConsoleApps';
 
 const STEPS = ['Basics', 'Pricing', 'Platform Access', 'Review'] as const;
 
@@ -105,9 +107,16 @@ export default function AdminAccessEditor() {
   const [includedApps, setIncludedApps] = useState<AccessIncludedAppPlan[]>([]);
   const [freeDelegatedTasks, setFreeDelegatedTasks] = useState(0);
   const [unlimitedFreeDelegatedTasks, setUnlimitedFreeDelegatedTasks] = useState(false);
+  const [whitelabelAccess, setWhitelabelAccess] = useState<string[]>([]);
 
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState('');
+
+  const { data: consoleApps, isLoading: consoleAppsLoading } = useConsoleApps();
+  const whitelabelPlatforms = useMemo(
+    () => (consoleApps ?? []).filter((app) => app.allowWhitelabel && app.isActive),
+    [consoleApps],
+  );
 
   const { data: platformsRes, isLoading: platformsLoading } = useAccessPassPlatforms();
   const platforms: AccessPassPlatform[] = platformsRes?.data ?? [];
@@ -153,6 +162,13 @@ export default function AdminAccessEditor() {
     );
     setFreeDelegatedTasks(Number((src as any).freeDelegatedTasks ?? 0));
     setUnlimitedFreeDelegatedTasks(Boolean((src as any).unlimitedFreeDelegatedTasks));
+    setWhitelabelAccess(
+      Array.isArray((src as any).whitelabelAccess)
+        ? ((src as any).whitelabelAccess as any[])
+            .map((grant) => (typeof grant === 'string' ? grant : grant?.clientId))
+            .filter((clientId): clientId is string => Boolean(clientId))
+        : [],
+    );
   }, [isNew, planId, plansLoading, editingPlan]);
 
   const unknownPlan = !isNew && !plansLoading && planId && !editingPlan;
@@ -231,6 +247,7 @@ export default function AdminAccessEditor() {
       features: features.map((f) => f.trim()).filter(Boolean),
       freeDelegatedTasks: unlimitedFreeDelegatedTasks ? 0 : Math.max(0, Math.round(freeDelegatedTasks || 0)),
       unlimitedFreeDelegatedTasks,
+      whitelabelAccess: whitelabelAccess.map((clientId) => ({ clientId })),
       includedApps: includedApps.map((app) => ({
         platform: app.platform,
         planId: app.planId,
@@ -534,6 +551,92 @@ export default function AdminAccessEditor() {
                       : 'Every delegated task is chargeable.'}
                 </p>
               </section>
+
+              <section className="rounded-2xl border-2 border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-extrabold text-gray-900">
+                    <Globe2 className="h-4 w-4 text-emerald-600" />
+                    White-label platform access
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-600">
+                    Attach white-label platform access to this access pass. Buyers receive
+                    access while their pass is active; no membership variant is involved.
+                  </p>
+                </div>
+
+                {consoleAppsLoading ? (
+                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-400">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading white-label platforms…
+                  </div>
+                ) : whitelabelPlatforms.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-4 text-xs text-gray-500">
+                    No white-label platforms are enabled yet. Turn on{' '}
+                    <span className="font-bold">Allow white-label</span> for a platform in{' '}
+                    <span className="font-mono text-[11px]">/admin/console</span> first.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {whitelabelPlatforms.map((platform) => {
+                      const included = whitelabelAccess.includes(platform.clientId);
+                      return (
+                        <label
+                          key={platform.clientId}
+                          className={cn(
+                            'flex cursor-pointer items-center gap-3 rounded-xl border bg-white p-3.5 transition-colors',
+                            included ? 'border-emerald-300 shadow-xs' : 'border-gray-200',
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={included}
+                            onChange={() =>
+                              setWhitelabelAccess((current) =>
+                                current.includes(platform.clientId)
+                                  ? current.filter((id) => id !== platform.clientId)
+                                  : [...current, platform.clientId],
+                              )
+                            }
+                            className="size-4 rounded border-gray-300"
+                          />
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xs font-bold text-emerald-700">
+                            {platform.name.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="truncate text-xs font-bold text-gray-900">
+                                {platform.name}
+                              </span>
+                              {platform.platformSlug && (
+                                <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-gray-500">
+                                  {platform.platformSlug}
+                                </span>
+                              )}
+                            </span>
+                            <span className="block truncate font-mono text-[10px] text-gray-400">
+                              {platform.clientId}
+                            </span>
+                          </span>
+                          <span
+                            className={cn(
+                              'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold',
+                              included
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-gray-100 text-gray-400',
+                            )}
+                          >
+                            {included ? 'Included' : 'Not included'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] font-medium text-gray-500">
+                  White-label access is business-only and ends automatically when the access pass
+                  expires. It is enforced during SSO sign-in on the target platform.
+                </p>
+              </section>
+
               <div className="rounded-2xl bg-emerald-50/70 border border-emerald-100 p-4 text-sm text-emerald-800 flex items-start gap-2">
                 <Calendar className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
@@ -731,6 +834,10 @@ export default function AdminAccessEditor() {
                 <div className="p-3.5 flex justify-between gap-3">
                   <span className="text-gray-500 font-medium">Features</span>
                   <span className="font-bold text-gray-900">{features.length}</span>
+                </div>
+                <div className="p-3.5 flex justify-between gap-3">
+                  <span className="text-gray-500 font-medium">White-label platforms</span>
+                  <span className="font-bold text-gray-900">{whitelabelAccess.length || 'None'}</span>
                 </div>
               </div>
               <p className="text-xs sm:text-sm text-gray-400 leading-relaxed flex items-start gap-1.5">

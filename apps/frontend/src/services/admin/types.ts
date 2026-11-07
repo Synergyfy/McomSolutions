@@ -152,6 +152,8 @@ export interface PlanTierInput {
   tier: TierName
   fullPrice: number
   durationDays?: number
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   features?: string[]
   entitlements?: TierEntitlementInput[]
   paymentOptions?: TierPaymentOptionInput[]
@@ -170,6 +172,8 @@ export interface PlanTierDetail {
   tier: TierName
   durationDays: number
   fullPrice: number
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   features: string[]
   entitlements: { resourceKey: string; quotaValue: string }[]
   paymentOptions: PlanTierPaymentOption[]
@@ -179,6 +183,17 @@ export interface PlanAppBundle {
   platform: string
   externalPlanId?: string | null
   packageName: string
+}
+
+export interface WhitelabelPlatformGrant {
+  clientId: string
+  tiers?: TierName[]
+  client?: {
+    clientId: string
+    name: string
+    platformSlug?: string | null
+    logoUrl?: string | null
+  } | null
 }
 
 export interface MembershipPlan {
@@ -196,6 +211,7 @@ export interface MembershipPlan {
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
@@ -230,6 +246,7 @@ export interface AccessPlan {
   features: string[]
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   whoItIsFor?: string | null
   badge?: string | null
   color?: string | null
@@ -566,6 +583,7 @@ export interface CreatePlanInput {
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
@@ -601,6 +619,7 @@ export interface CreateAccessPlanInput {
   features?: string[]
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   includedApps: AccessIncludedAppPlan[]
 }
 
@@ -967,10 +986,21 @@ export interface WhitelabelPlatform {
   logoUrl?: string | null
 }
 
+export interface BusinessWhitelabelGrant {
+  id: string
+  clientId: string
+  source?: 'ADMIN' | 'MEMBERSHIP' | 'ACCESS_PASS'
+  planName?: string
+  expiresAt?: string | null
+  client?: WhitelabelPlatform | null
+}
+
 export interface BusinessWhitelabelAccess {
   business: { id: string; name: string }
   platforms: WhitelabelPlatform[]
   grantedClientIds: string[]
+  planGrantedClientIds?: string[]
+  derivedGrants?: BusinessWhitelabelGrant[]
 }
 
 export interface SetServicePolicyInput {
@@ -1753,6 +1783,9 @@ export interface AdminWhitelabelGrant {
   businessId: string
   clientId: string
   grantedBy: string | null
+  source?: 'ADMIN' | 'MEMBERSHIP' | 'ACCESS_PASS'
+  planName?: string
+  expiresAt?: string | null
   createdAt: string
   client?: {
     clientId: string

@@ -32,6 +32,7 @@ export default function WhitelabelAccessModal({ business, onClose }: WhitelabelA
   const { data, isLoading } = useBusinessWhitelabelAccess(business.id);
   const setAccess = useSetBusinessWhitelabelAccess();
   const access = data?.data;
+  const derivedClientIds = new Set(access?.planGrantedClientIds ?? []);
 
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -116,17 +117,30 @@ export default function WhitelabelAccessModal({ business, onClose }: WhitelabelA
           ) : (
             <div className="space-y-2">
               {(access?.platforms ?? []).map((platform) => {
-                const isSelected = selected.includes(platform.clientId);
+                const isDerived = derivedClientIds.has(platform.clientId);
+                const derivedGrant = access?.derivedGrants?.find(
+                  (grant) => grant.clientId === platform.clientId,
+                );
+                const isSelected = selected.includes(platform.clientId) || isDerived;
                 return (
                   <button
                     key={platform.clientId}
                     type="button"
-                    onClick={() => toggle(platform.clientId)}
+                    onClick={() => {
+                      if (!isDerived) toggle(platform.clientId);
+                    }}
+                    disabled={isDerived}
+                    title={
+                      isDerived
+                        ? 'Included automatically by an active membership or access pass.'
+                        : 'Grant or revoke white-label access for this business.'
+                    }
                     className={cn(
                       'w-full flex items-center gap-3 p-3.5 rounded-2xl border text-left transition-all',
                       isSelected
                         ? 'bg-emerald-50/70 border-emerald-300 shadow-xs'
                         : 'bg-white border-gray-200 hover:border-gray-300',
+                      isDerived && 'cursor-default',
                     )}
                   >
                     <div
@@ -151,6 +165,12 @@ export default function WhitelabelAccessModal({ business, onClose }: WhitelabelA
                       <p className="text-[10px] text-gray-400 font-mono truncate">
                         {platform.clientId}
                       </p>
+                      {isDerived && (
+                        <p className="mt-0.5 text-[10px] font-bold text-emerald-700">
+                          Included with {derivedGrant?.source === 'ACCESS_PASS' ? 'access pass' : 'membership'}
+                          {derivedGrant?.planName ? ` · ${derivedGrant.planName}` : ''}
+                        </p>
+                      )}
                     </div>
                     <div
                       className={cn(
@@ -177,7 +197,9 @@ export default function WhitelabelAccessModal({ business, onClose }: WhitelabelA
 
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
           <span className="text-[11px] font-bold text-gray-400">
-            {selected.length} platform{selected.length === 1 ? '' : 's'} granted
+            {new Set([...selected, ...derivedClientIds]).size} platform
+            {new Set([...selected, ...derivedClientIds]).size === 1 ? '' : 's'} granted
+            {derivedClientIds.size > 0 ? ` · ${derivedClientIds.size} via plan` : ''}
           </span>
           <div className="flex gap-2">
             <button

@@ -563,6 +563,16 @@ function SubscriptionsSection({ profile }: { profile: AdminFullUserProfile }) {
               <span key={grant.id} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 {grant.client?.name || grant.clientId}
+                {grant.source && grant.source !== 'ADMIN' && (
+                  <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white">
+                    {grant.source === 'ACCESS_PASS' ? 'Access pass' : 'Membership'}
+                  </span>
+                )}
+                {grant.expiresAt && (
+                  <span className="text-[10px] font-semibold text-emerald-600">
+                    until {fmtDate(grant.expiresAt)}
+                  </span>
+                )}
               </span>
             ))}
           </div>

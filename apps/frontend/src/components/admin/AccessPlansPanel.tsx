@@ -121,6 +121,12 @@ export default function AccessPlansPanel() {
                       ? 'Unlimited free delegated tasks'
                       : `${plan.freeDelegatedTasks ?? 0} free delegated task${(plan.freeDelegatedTasks ?? 0) === 1 ? '' : 's'}`}
                   </p>
+                  {(plan.whitelabelAccess?.length ?? 0) > 0 && (
+                    <p className="mt-1 text-[11px] font-bold text-emerald-700">
+                      {plan.whitelabelAccess!.length} white-label platform
+                      {plan.whitelabelAccess!.length === 1 ? '' : 's'} included
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button

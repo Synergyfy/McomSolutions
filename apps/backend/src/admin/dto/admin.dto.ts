@@ -329,6 +329,30 @@ export class AccessIncludedAppPlanDto {
   limits?: Record<string, any>;
 }
 
+export class WhitelabelPlatformInputDto {
+  @ApiProperty({
+    example: '247gbs-rewards',
+    description: 'SsoClient.clientId of the white-label-enabled platform to include.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  clientId: string;
+}
+
+export class MembershipWhitelabelPlatformInputDto extends WhitelabelPlatformInputDto {
+  @ApiProperty({
+    enum: ['Standard', 'Pro', 'Pro+'],
+    isArray: true,
+    example: ['Standard', 'Pro', 'Pro+'],
+    description:
+      'Membership variants that unlock this white-label platform. Use all three for every variant, or a subset for specific variants only.',
+  })
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsIn(['Standard', 'Normal', 'Pro', 'Pro+', 'ProPlus'], { each: true })
+  tiers: string[];
+}
+
 export class CreateAccessPlanDto {
   @ApiProperty({ example: '7-Day Mall Pass' })
   @IsString()
@@ -403,6 +427,18 @@ export class CreateAccessPlanDto {
   @ValidateNested({ each: true })
   @Type(() => AccessIncludedAppPlanDto)
   includedApps?: AccessIncludedAppPlanDto[];
+
+  @ApiPropertyOptional({
+    type: [WhitelabelPlatformInputDto],
+    description:
+      'White-label platforms included with this access pass. Buyers receive access while the pass is active.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => WhitelabelPlatformInputDto)
+  whitelabelAccess?: WhitelabelPlatformInputDto[];
 }
 
 export class UpdateAccessPlanDto {
@@ -479,6 +515,18 @@ export class UpdateAccessPlanDto {
   @ValidateNested({ each: true })
   @Type(() => AccessIncludedAppPlanDto)
   includedApps?: AccessIncludedAppPlanDto[];
+
+  @ApiPropertyOptional({
+    type: [WhitelabelPlatformInputDto],
+    description:
+      'White-label platforms included with this access pass. Send the full desired set; omitted platforms are removed.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => WhitelabelPlatformInputDto)
+  whitelabelAccess?: WhitelabelPlatformInputDto[];
 
   @ApiPropertyOptional({ example: false })
   @IsOptional()
@@ -559,6 +607,18 @@ export class CreateMembershipPlanDto {
   @ValidateNested({ each: true })
   @Type(() => IncludedAppPlanDto)
   includedApps?: IncludedAppPlanDto[];
+
+  @ApiPropertyOptional({
+    type: [MembershipWhitelabelPlatformInputDto],
+    description:
+      'White-label platforms included with this membership. Each platform can be scoped to all variants or specific variants.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => MembershipWhitelabelPlatformInputDto)
+  whitelabelAccess?: MembershipWhitelabelPlatformInputDto[];
 
   @ApiPropertyOptional({ example: { Normal: 350, Pro: 600, 'Pro+': 900 } })
   @IsOptional()
@@ -685,6 +745,25 @@ export class PlanTierInputDto {
   @Min(1, { message: 'Duration must be at least 1 day.' })
   @Max(800, { message: 'Duration looks too long. Please check the number of days.' })
   durationDays?: number;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description:
+      'Free delegated affiliate tasks included with this variant. Ignored when unlimitedFreeDelegatedTasks is true.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeDelegatedTasks?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      'Give buyers of this variant unlimited free delegated tasks.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  unlimitedFreeDelegatedTasks?: boolean;
 
   @ApiPropertyOptional({ type: [String], example: ['Local directory listing'] })
   @IsOptional()
@@ -1645,6 +1724,18 @@ export class UpdateMembershipPlanDto {
   @IsOptional()
   @IsArray()
   includedApps?: any[];
+
+  @ApiPropertyOptional({
+    type: [MembershipWhitelabelPlatformInputDto],
+    description:
+      'White-label platforms included with this membership. Send the full desired set; omitted platforms are removed.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => MembershipWhitelabelPlatformInputDto)
+  whitelabelAccess?: MembershipWhitelabelPlatformInputDto[];
 
   @ApiPropertyOptional({ example: { Normal: 350, Pro: 600, 'Pro+': 900 } })
   @IsOptional()
