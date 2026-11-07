@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -22,10 +22,14 @@ import {
   Activity,
   BadgeCheck,
   KeyRound,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Gift,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useAdminUserFullProfile } from '../services/admin/hooks';
+import { useAdminReferralDetail, useAdminUserFullProfile } from '../services/admin/hooks';
 import type { AdminFullUserProfile, AdminBusinessProgrammeRecord } from '../services/admin/types';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -208,6 +212,7 @@ function UserProfileBody({ profile, onBack }: { profile: AdminFullUserProfile; o
           <FinancialSection profile={profile} />
           <ProgrammeSection profile={profile} />
           <AffiliateSection profile={profile} />
+          <ReferralHistorySection userId={account.id} />
           <SupportSection profile={profile} />
         </div>
 
@@ -798,6 +803,133 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
             ])}
           />
         </SubBlock>
+      )}
+    </Section>
+  );
+}
+
+function ReferralHistorySection({ userId }: { userId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: res, isLoading, isError } = useAdminReferralDetail(userId);
+  const detail = res?.data;
+  const summary = detail?.summary;
+  const referredUsers = detail?.referredUsers ?? [];
+  const rule = detail?.config;
+
+  return (
+    <Section
+      title="Referral history"
+      subtitle="People this user referred and commission earned from each"
+      icon={Users}
+    >
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading referral history…
+        </div>
+      ) : isError ? (
+        <p className="text-xs text-red-600">Referral history could not be loaded.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Total referrals</p>
+              <p className="mt-1 text-xl font-black text-gray-900">{summary?.totalReferrals ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Earning referrals</p>
+              <p className="mt-1 text-xl font-black text-gray-900">{summary?.creditedReferrals ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">MCOM earned</p>
+              <p className="mt-1 text-xl font-black text-emerald-700">
+                {Number(summary?.totalEarnedCredits ?? 0).toLocaleString('en-GB', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                })}
+              </p>
+            </div>
+            <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-orange-600">GBP commission</p>
+              <p className="mt-1 text-xl font-black text-orange-700">
+                {fmtMoney(summary?.totalEarnedGbp ?? 0)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+            <p className="text-[11px] font-medium text-gray-500">
+              {rule
+                ? `Rule v${rule.version} · ${rule.commissionFrequency === 'RECURRING' ? 'recurring' : 'one-time'} · ${
+                    rule.rewardType === 'PERCENTAGE'
+                      ? `${rule.percentage ?? 0}%`
+                      : fmtMoney(rule.fixedAmountGbp ?? 0)
+                  } · ${summary?.creditedCommissionCount ?? 0} commission${
+                    (summary?.creditedCommissionCount ?? 0) === 1 ? '' : 's'
+                  }`
+                : 'No referral rule was active when this user referred others.'}
+            </p>
+            {referredUsers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExpanded((current) => !current)}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-bold text-gray-700 hover:bg-gray-50"
+              >
+                <Gift className="w-3.5 h-3.5" />
+                {expanded ? 'Hide referred people' : 'View referred people'}
+                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
+          </div>
+
+          {referredUsers.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-500">
+              This user has not referred anyone yet.
+            </p>
+          ) : expanded ? (
+            <div className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 font-bold">Referred person</th>
+                    <th className="px-4 py-3 font-bold">Role</th>
+                    <th className="px-4 py-3 font-bold">Joined</th>
+                    <th className="px-4 py-3 font-bold">Qualifying purchases</th>
+                    <th className="px-4 py-3 text-right font-bold">Earned</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {referredUsers.map((referred) => (
+                    <tr key={referred.id}>
+                      <td className="px-4 py-3">
+                        <p className="font-bold text-gray-900">{referred.displayName}</p>
+                        <p className="text-[11px] text-gray-400">{referred.email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{humanize(referred.role)}</td>
+                      <td className="px-4 py-3 text-gray-600">{fmtDate(referred.joinedAt)}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {referred.creditedCount} credited / {referred.evaluationCount} evaluated
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-black text-emerald-700">
+                          {Number(referred.earnedCredits).toLocaleString('en-GB', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          })}{' '}
+                          MCOM
+                        </p>
+                        <p className="text-[10px] text-gray-400">{fmtMoney(referred.earnedGbp)} commission</p>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] text-gray-400">
+              Click “View referred people” to see each account and what it earned.
+            </p>
+          )}
+        </>
       )}
     </Section>
   );
