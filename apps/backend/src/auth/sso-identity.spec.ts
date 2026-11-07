@@ -9,6 +9,7 @@ function buildUser(overrides: Partial<SsoUserRecord>): SsoUserRecord {
     lastName: 'Doe',
     jobTitle: 'Managing Director',
     registrationSource: 'direct',
+    referralCode: 'A1B2C3D4',
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     businessProfile: null,
     customerProfile: null,
@@ -124,6 +125,30 @@ describe('buildSsoIdentity', () => {
     });
     expect(identity.agentProfile?.permissions).toEqual(['view_tasks']);
     expect(identity.businessProfile).toBeNull();
+  });
+
+  it('exposes the referral code and link for affiliates', () => {
+    const user = buildUser({ role: 'AGENT' });
+
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: 'https://central.example.com',
+    });
+
+    expect(identity.referralCode).toBe('A1B2C3D4');
+    expect(identity.referralLink).toBe(
+      'https://central.example.com/register?ref=A1B2C3D4',
+    );
+  });
+
+  it('never exposes referral details for admin accounts', () => {
+    const user = buildUser({ role: 'ADMIN', referralCode: 'ADMIN123' });
+
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: 'https://central.example.com',
+    });
+
+    expect(identity.referralCode).toBeNull();
+    expect(identity.referralLink).toBeNull();
   });
 
   it('falls back to the customer profile phone and the email local part for the display name', () => {

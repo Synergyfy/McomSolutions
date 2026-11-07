@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferralQueryDto } from './dto/referral-query.dto';
+import {
+  buildReferralLink,
+  ensureUserReferralCode,
+  isReferralEligibleRole,
+} from '../common/referral/referral.util';
 
 const referredUserSelect = {
   id: true,
@@ -19,28 +24,32 @@ export class ReferralsService {
     private readonly config: ConfigService,
   ) {}
 
-  private buildReferralLink(code: string): string {
-    const baseUrl =
-      this.config.get<string>('FRONTEND_URL') ?? process.env.FRONTEND_URL ?? '';
-    const base = baseUrl.replace(/\/$/, '');
-    return `${base}/register?ref=${code}`;
+  private buildLink(code: string): string {
+    return buildReferralLink(this.config.get<string>('FRONTEND_URL'), code);
   }
 
   async getMyReferralInfo(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, referralCode: true },
+      select: { id: true, role: true, referralCode: true },
     });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    if (!user.referralCode) {
+    if (!isReferralEligibleRole(user.role)) {
+      throw new ForbiddenException('Admin accounts do not participate in the referral programme');
+    }
+
+    // Lazily assign a code for older accounts so nobody is left without one.
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
+    if (!referralCode) {
       throw new NotFoundException('Referral code not yet assigned');
     }
+
     return {
       success: true,
-      referralCode: user.referralCode,
-      referralLink: this.buildReferralLink(user.referralCode),
+      referralCode,
+      referralLink: this.buildLink(referralCode),
     };
   }
 

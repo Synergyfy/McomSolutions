@@ -92,6 +92,7 @@ async function main() {
       email: 'contact@globalretailers.com',
       password: userPasswordHash,
       role: Role.BUSINESS,
+      referralCode: 'SEEDBIZ1',
       firstName: 'George',
       lastName: 'Retailer',
       businessProfile: {
@@ -120,6 +121,7 @@ async function main() {
       email: 'info@ecomarket.co.uk',
       password: userPasswordHash,
       role: Role.BUSINESS,
+      referralCode: 'SEEDBIZ2',
       firstName: 'Elena',
       lastName: 'Green',
       businessProfile: {
@@ -149,6 +151,7 @@ async function main() {
       email: 'alice@email.com',
       password: userPasswordHash,
       role: Role.CUSTOMER,
+      referralCode: 'SEEDCUST',
       firstName: 'Alice',
       lastName: 'Johnson',
       customerProfile: {
@@ -170,6 +173,7 @@ async function main() {
       email: 'david@mcomsolutions.co.uk',
       password: userPasswordHash,
       role: Role.AGENT,
+      referralCode: 'SEEDAGNT',
       firstName: 'David',
       lastName: 'Brown',
       agentProfile: {
@@ -190,6 +194,7 @@ async function main() {
       email: 'frank@consultancy.com',
       password: userPasswordHash,
       role: Role.CONSULTANT,
+      referralCode: 'SEEDCONS',
       firstName: 'Frank',
       lastName: 'Taylor',
       consultantProfile: {
@@ -210,6 +215,7 @@ async function main() {
       email: 'grace@mcomsolutions.co.uk',
       password: userPasswordHash,
       role: Role.ACCOUNT_MANAGER,
+      referralCode: 'SEEDMGR1',
       firstName: 'Grace',
       lastName: 'Anderson',
       accountManagerProfile: {

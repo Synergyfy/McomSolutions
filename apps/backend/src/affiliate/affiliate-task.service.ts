@@ -157,7 +157,7 @@ export class AffiliateTaskService {
     business: Awaited<ReturnType<AffiliateDirectoryService['getBusiness']>>,
     userId: string,
     dto: CreateAffiliateTaskDto,
-    actorRole: 'BUSINESS' | 'ADMIN',
+    actorRole: 'BUSINESS' | 'ADMIN' | 'ACCOUNT_MANAGER',
   ) {
     // Paid memberships get an account manager assigned before delegation, so
     // the task goes straight to them instead of waiting for admin routing.
@@ -383,6 +383,7 @@ export class AffiliateTaskService {
         business: { select: { id: true, businessName: true, email: true, userId: true } },
         assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
         taskDefinition: { select: { id: true, title: true } },
+        project: { select: { id: true, title: true } },
       },
     });
 
@@ -1543,6 +1544,43 @@ export class AffiliateTaskService {
     });
     if (!project) throw new NotFoundException('Project not found for your businesses');
     return this.closeProject(managerId, project.businessId, projectId, dto);
+  }
+
+  /**
+   * Create a task inside one of the manager's projects. The project must
+   * belong to a business assigned to this manager. The normal task creation
+   * path runs quota/escrow checks and queues the affiliate sync, so the task
+   * appears on the 247GBS board exactly like Central-created work.
+   */
+  async createProjectTaskForManager(
+    managerId: string,
+    projectId: string,
+    dto: CreateAffiliateTaskDto,
+  ) {
+    const project = await this.prisma.affiliateProject.findFirst({
+      where: {
+        id: projectId,
+        accountManagerId: managerId,
+        business: { accountManagerId: managerId, deletedAt: null },
+      },
+      select: { id: true, businessId: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found for your businesses');
+    }
+
+    const business = await this.directory.getBusinessById(project.businessId);
+    if (business.accountManagerId !== managerId) {
+      throw new ForbiddenException('You are not the account manager for this business');
+    }
+
+    const created = await this.createTaskForBusiness(
+      business,
+      managerId,
+      { ...dto, projectId: project.id },
+      'ACCOUNT_MANAGER',
+    );
+    return this.getTaskForManager(managerId, created.id);
   }
 
   async listBusinessTasks(businessId: string, query: AffiliateTaskQueryDto) {

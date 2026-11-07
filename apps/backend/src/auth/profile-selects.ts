@@ -82,6 +82,7 @@ export const ssoUserInfoSelect = {
   lastName: true,
   jobTitle: true,
   registrationSource: true,
+  referralCode: true,
   createdAt: true,
   businessProfile: {
     select: {

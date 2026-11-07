@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -26,6 +27,7 @@ export class ReferralsController {
   @ApiOperation({ summary: 'Get my referral code and shareable referral link' })
   @ApiOkResponse({ type: ReferralInfoResponseDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid auth token' })
+  @ApiForbiddenResponse({ description: 'Admin accounts do not have referral codes' })
   getMyReferralInfo(@Request() req: any): Promise<ReferralInfoResponseDto> {
     return this.referralsService.getMyReferralInfo(req.user.userId);
   }

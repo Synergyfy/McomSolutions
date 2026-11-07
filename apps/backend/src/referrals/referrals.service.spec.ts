@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ReferralsService } from './referrals.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,6 +12,7 @@ describe('ReferralsService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
+      update: jest.fn(),
     },
   };
 
@@ -35,7 +36,11 @@ describe('ReferralsService', () => {
 
   describe('getMyReferralInfo', () => {
     it('returns code and link for a user with a code', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', referralCode: 'A1B2C3D4' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        role: 'BUSINESS',
+        referralCode: 'A1B2C3D4',
+      });
       const result = await service.getMyReferralInfo('u1');
       expect(result).toEqual({
         success: true,
@@ -49,9 +54,36 @@ describe('ReferralsService', () => {
       await expect(service.getMyReferralInfo('missing')).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('throws 404 when the user has no code yet', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', referralCode: null });
-      await expect(service.getMyReferralInfo('u1')).rejects.toBeInstanceOf(NotFoundException);
+    it('lazily assigns a code to a non-admin user without one', async () => {
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'u1', role: 'BUSINESS', referralCode: null })
+        // uniqueness check for the generated candidate
+        .mockResolvedValueOnce(null);
+      mockPrisma.user.update.mockResolvedValue({ id: 'u1' });
+
+      const result = await service.getMyReferralInfo('u1');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u1' },
+          data: { referralCode: expect.stringMatching(/^[A-F0-9]{8}$/) },
+        }),
+      );
+      expect(result.referralCode).toMatch(/^[A-F0-9]{8}$/);
+      expect(result.referralLink).toBe(
+        `https://app.example.com/register?ref=${result.referralCode}`,
+      );
+    });
+
+    it('rejects admin accounts', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'admin1',
+        role: 'ADMIN',
+        referralCode: null,
+      });
+      await expect(service.getMyReferralInfo('admin1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
   });
 
