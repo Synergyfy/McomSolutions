@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminReferralDetail, useAdminUserFullProfile } from '../services/admin/hooks';
-import type { AdminFullUserProfile, AdminBusinessProgrammeRecord } from '../services/admin/types';
+import type { AdminFullUserProfile, AdminBusinessProgrammeRecord, AdminAffiliateTaskRecord } from '../services/admin/types';
 
 const ROLE_LABELS: Record<string, string> = {
   BUSINESS: 'Business',
@@ -728,40 +728,126 @@ function ProgrammeCard({ programme }: { key?: string; programme: AdminBusinessPr
 }
 
 function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
-  const { affiliate } = profile;
-  const hasAny =
+  const { affiliate, account } = profile;
+  const role = String(account.role || '').toUpperCase();
+  const isAffiliate = ['AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'].includes(role);
+  const isBusinessViewer = ['BUSINESS', 'CUSTOMER'].includes(role);
+  if (!isAffiliate && !isBusinessViewer) return null;
+
+  const hasAffiliateActivity =
     affiliate.tasks.length > 0 ||
     affiliate.reputationEvents.length > 0 ||
     affiliate.ratingsReceived.length > 0 ||
     affiliate.reports.length > 0;
-  if (!hasAny) return null;
+  if (isAffiliate && !hasAffiliateActivity) return null;
+
+  const completedTasks = affiliate.tasks.filter((t) => String(t.status).toUpperCase() === 'COMPLETED');
+  const openTasks = affiliate.tasks.filter((t) => !['COMPLETED', 'CANCELLED'].includes(String(t.status).toUpperCase()));
+  const totalSpent = affiliate.tasks.reduce((sum, t) => sum + Number(t.spentGbp ?? t.businessChargeAmount ?? 0), 0);
+
+  const assigneeLabel = (task: AdminAffiliateTaskRecord) => {
+    if (!task.assignee) return 'Unassigned';
+    return (
+      [task.assignee.firstName, task.assignee.lastName].filter(Boolean).join(' ') ||
+      task.assignee.email ||
+      'Unassigned'
+    );
+  };
+
+  const reputationCell = (task: AdminAffiliateTaskRecord) => {
+    const delta = Number(task.reputationDelta ?? 0);
+    return (
+      <span className={cn('font-bold', delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-gray-400')}>
+        {delta > 0 ? '+' : ''}
+        {delta}
+      </span>
+    );
+  };
 
   return (
-    <Section title="Affiliate activity" icon={Star} subtitle="Reputation, delegated work and reviews">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
-        <MiniStat label="Reputation" value={String(affiliate.reputationScore)} tone={affiliate.reputationScore >= 0 ? 'green' : 'red'} />
-        <MiniStat label="Tasks" value={String(affiliate.tasks.length)} tone="blue" />
-        <MiniStat label="Ratings" value={String(affiliate.ratingsReceived.length)} tone="amber" />
-        <MiniStat label="Reports" value={String(affiliate.reports.length)} tone="gray" />
-      </div>
-
-      {affiliate.tasks.length > 0 && (
-        <SubBlock title="Affiliate tasks">
-          <Table
-            headers={['Task', 'Business', 'Status', 'Category', 'Compensation', 'Due']}
-            rows={affiliate.tasks.map((t) => [
-              t.title,
-              t.business?.businessName || '—',
-              <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
-              humanize(t.category),
-              fmtMoney(t.compensationAmount ?? (t.compensationPence ? t.compensationPence / 100 : null)),
-              fmtDate(t.dueAt),
-            ])}
-          />
-        </SubBlock>
+    <Section
+      title={isAffiliate ? 'Affiliate activity' : 'Delegated tasks'}
+      icon={Star}
+      subtitle={
+        isAffiliate
+          ? 'Reputation, delegated work, earnings and reviews'
+          : 'Work this account delegated to affiliates and the amount spent'
+      }
+    >
+      {isAffiliate ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+          <MiniStat label="Reputation" value={String(affiliate.reputationScore)} tone={affiliate.reputationScore >= 0 ? 'green' : 'red'} />
+          <MiniStat label="Tasks" value={String(affiliate.tasks.length)} tone="blue" />
+          <MiniStat label="Ratings" value={String(affiliate.ratingsReceived.length)} tone="amber" />
+          <MiniStat label="Reports" value={String(affiliate.reports.length)} tone="gray" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+          <MiniStat label="Tasks delegated" value={String(affiliate.tasks.length)} tone="blue" />
+          <MiniStat label="Completed" value={String(completedTasks.length)} tone="green" />
+          <MiniStat label="Open" value={String(openTasks.length)} tone="amber" />
+          <MiniStat label="Total spent" value={fmtMoney(totalSpent)} tone="gray" />
+        </div>
       )}
 
-      {affiliate.reputationEvents.length > 0 && (
+      {affiliate.tasks.length > 0 ? (
+        <SubBlock title={isAffiliate ? 'Affiliate tasks' : 'Delegated affiliate tasks'}>
+          {isAffiliate ? (
+            <Table
+              headers={['Task', 'Business', 'Status', 'Category', 'Assigned', 'Due', 'Reputation', 'Earned']}
+              rows={affiliate.tasks.map((t) => [
+                <div>
+                  <p className="font-bold text-gray-800">{t.title}</p>
+                  <p className="text-[10px] text-gray-400">{t.id.slice(0, 10)}</p>
+                </div>,
+                t.business?.businessName || '—',
+                <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
+                humanize(t.category),
+                fmtDate(t.assignedAt || t.createdAt),
+                fmtDate(t.dueAt),
+                reputationCell(t),
+                <div>
+                  <p className="font-bold text-emerald-700">{fmtMoney(t.earnedGbp ?? t.compensationAmount)}</p>
+                  {t.earnedCredits != null && (
+                    <p className="text-[10px] text-gray-400">
+                      {Number(t.earnedCredits).toLocaleString('en-GB', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}{' '}
+                      MCOM
+                    </p>
+                  )}
+                </div>,
+              ])}
+            />
+          ) : (
+            <Table
+              headers={['Task', 'Affiliate', 'Status', 'Category', 'Assigned', 'Due', 'Spent']}
+              rows={affiliate.tasks.map((t) => [
+                <div>
+                  <p className="font-bold text-gray-800">{t.title}</p>
+                  <p className="text-[10px] text-gray-400">{t.id.slice(0, 10)}</p>
+                </div>,
+                <div>
+                  <p className="font-semibold text-gray-700">{assigneeLabel(t)}</p>
+                  {t.assignee?.email && <p className="text-[10px] text-gray-400">{t.assignee.email}</p>}
+                </div>,
+                <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
+                humanize(t.category),
+                fmtDate(t.assignedAt || t.createdAt),
+                fmtDate(t.dueAt),
+                fmtMoney(t.spentGbp ?? t.businessChargeAmount),
+              ])}
+            />
+          )}
+        </SubBlock>
+      ) : (
+        <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-500">
+          {isAffiliate ? 'No affiliate tasks have been assigned yet.' : 'This account has not delegated any affiliate tasks yet.'}
+        </p>
+      )}
+
+      {isAffiliate && affiliate.reputationEvents.length > 0 && (
         <SubBlock title="Reputation events">
           <Table
             headers={['Reason', 'Delta', 'Source', 'Date']}
@@ -775,7 +861,7 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
         </SubBlock>
       )}
 
-      {affiliate.ratingsReceived.length > 0 && (
+      {isAffiliate && affiliate.ratingsReceived.length > 0 && (
         <SubBlock title="Ratings received">
           <Table
             headers={['Business', 'Rating', 'Comment', 'Status', 'Date']}
@@ -790,7 +876,7 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
         </SubBlock>
       )}
 
-      {affiliate.reports.length > 0 && (
+      {isAffiliate && affiliate.reports.length > 0 && (
         <SubBlock title="Reports">
           <Table
             headers={['Business', 'Reason', 'Status', 'Notes', 'Date']}

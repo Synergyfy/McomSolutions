@@ -1922,6 +1922,11 @@ export interface AdminAffiliateTaskRecord {
     lastName: string | null
   } | null
   dueAt: string | null
+  assignedAt?: string | null
+  reputationDelta?: number
+  earnedGbp?: number | null
+  earnedCredits?: number | null
+  spentGbp?: number | null
   compensationModel: string
   compensationAmount: number | null
   compensationPence: number | null

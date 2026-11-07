@@ -1564,10 +1564,43 @@ export class AdminService implements OnModuleInit {
     const notifications = sortByDateDesc(grouped.notifications ?? []);
     const supportTickets = sortByDateDesc(grouped.supportTickets ?? []);
     const programmes = sortByDateDesc(grouped.programmes ?? []);
-    const affiliateTasks = sortByDateDesc(grouped.affiliateTasks ?? []);
+    const affiliateTasksRaw = sortByDateDesc(grouped.affiliateTasks ?? []);
     const reputationEvents = sortByDateDesc(grouped.reputationEvents ?? []);
     const ratingsReceived = sortByDateDesc(grouped.ratingsReceived ?? []);
     const affiliateReports = sortByDateDesc(grouped.affiliateReports ?? []);
+
+    const reputationByTask = new Map<string, number>();
+    for (const event of reputationEvents as Array<{ delta?: number; sourceId?: string | null }>) {
+      if (!event.sourceId) continue;
+      reputationByTask.set(
+        event.sourceId,
+        (reputationByTask.get(event.sourceId) ?? 0) + Number(event.delta ?? 0),
+      );
+    }
+
+    const affiliateTasks = affiliateTasksRaw.map((task: any) => {
+      const settlement = task.settlement ?? null;
+      const earnedGbp =
+        settlement?.compensationAmount != null
+          ? Number(settlement.compensationAmount)
+          : task.compensationAmount != null
+            ? Number(task.compensationAmount)
+            : null;
+      const earnedCredits =
+        settlement?.affiliatePayoutCredits != null
+          ? Number(settlement.affiliatePayoutCredits)
+          : null;
+      return {
+        ...task,
+        // The schema has no dedicated assignment timestamp; acceptance is the
+        // closest event, otherwise the task creation date is the assignment date.
+        assignedAt: task.acceptedAt ?? task.createdAt ?? null,
+        reputationDelta: reputationByTask.get(task.id) ?? 0,
+        earnedGbp,
+        earnedCredits,
+        spentGbp: task.businessChargeAmount != null ? Number(task.businessChargeAmount) : null,
+      };
+    });
 
     const walletRow = grouped.wallet?.[0] ?? null;
     const wallet = walletRow
