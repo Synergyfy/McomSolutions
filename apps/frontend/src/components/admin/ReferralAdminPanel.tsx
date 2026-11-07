@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Gift,
   History,
+  HelpCircle,
   RefreshCw,
   Save,
   Settings2,
@@ -78,6 +79,38 @@ function formFromConfig(config: AdminReferralConfig): PublishReferralConfigInput
     commissionFrequency: config.commissionFrequency,
     note: config.note ?? '',
   };
+}
+
+function InfoTooltip({ text, label }: { text: string; label?: string }) {
+  return (
+    <span
+      className="group relative inline-flex shrink-0 align-middle"
+      tabIndex={0}
+      role="button"
+      aria-label={label ?? text}
+      onClick={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.preventDefault();
+      }}
+    >
+      <HelpCircle className="h-3.5 w-3.5 cursor-help text-gray-400 transition-colors hover:text-gray-700" />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-[70] mb-2 w-64 max-w-[min(16rem,80vw)] -translate-x-1/2 rounded-lg bg-gray-950 px-3 py-2 text-[11px] font-medium leading-relaxed text-white opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function FieldLabel({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <span className="mb-1 flex items-center gap-1.5 text-xs font-bold text-gray-600">
+      {label}
+      <InfoTooltip text={tooltip} label={`About ${label}`} />
+    </span>
+  );
 }
 
 export default function ReferralAdminPanel() {
@@ -594,12 +627,19 @@ export default function ReferralAdminPanel() {
                   className="size-4 rounded border-gray-300"
                 />
                 Programme active
+                <InfoTooltip
+                  text="When switched off, new referral purchases are recorded but no commission is paid until the programme is switched back on."
+                  label="About programme active"
+                />
               </label>
             </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-bold text-gray-600">Reward mode</span>
+                <FieldLabel
+                  label="Reward mode"
+                  tooltip="Choose whether every eligible role receives the same commission rule, or whether each role gets its own percentage or fixed amount."
+                />
                 <select
                   value={form.rewardMode}
                   onChange={(event) =>
@@ -615,7 +655,10 @@ export default function ReferralAdminPanel() {
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-bold text-gray-600">Commission type</span>
+                <FieldLabel
+                  label="Commission type"
+                  tooltip="Percentage pays a share of the qualifying purchase amount. Fixed GBP pays the same amount for every qualifying purchase, regardless of price."
+                />
                 <select
                   value={form.rewardType}
                   onChange={(event) =>
@@ -632,9 +675,10 @@ export default function ReferralAdminPanel() {
               </label>
               {form.rewardType === 'PERCENTAGE' ? (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-bold text-gray-600">
-                    Default percentage (%)
-                  </span>
+                  <FieldLabel
+                    label="Default percentage (%)"
+                    tooltip="Used when reward mode is “Same reward for all” or when an eligible role has no per-role override. Example: 10 means the referrer earns 10% of the qualifying purchase."
+                  />
                   <input
                     type="number"
                     min={0}
@@ -652,9 +696,10 @@ export default function ReferralAdminPanel() {
                 </label>
               ) : (
                 <label className="block">
-                  <span className="mb-1 block text-xs font-bold text-gray-600">
-                    Default fixed amount (£)
-                  </span>
+                  <FieldLabel
+                    label="Default fixed amount (£)"
+                    tooltip="Used when reward mode is “Same reward for all” or when an eligible role has no per-role override. The referrer receives this GBP amount for each qualifying purchase."
+                  />
                   <input
                     type="number"
                     min={0}
@@ -671,9 +716,10 @@ export default function ReferralAdminPanel() {
                 </label>
               )}
               <label className="block">
-                <span className="mb-1 block text-xs font-bold text-gray-600">
-                  Commission frequency
-                </span>
+                <FieldLabel
+                  label="Commission frequency"
+                  tooltip="Recurring pays on every qualifying purchase. One-time pays only on the first qualifying purchase from each referred account."
+                />
                 <select
                   value={form.commissionFrequency}
                   onChange={(event) =>
@@ -692,7 +738,13 @@ export default function ReferralAdminPanel() {
           </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6">
-            <h2 className="font-bold text-gray-900">Roles qualified to earn</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-bold text-gray-900">Roles qualified to earn</h2>
+              <InfoTooltip
+                text="Only users whose role is ticked here can earn commission. Referrals are still recorded for other roles, but the commission is skipped and shown as ineligible in the audit row."
+                label="About roles qualified to earn"
+              />
+            </div>
             <p className="text-xs text-gray-500">
               A referral is always recorded. Commission is only paid when the referrer's role is
               selected here.
@@ -721,7 +773,13 @@ export default function ReferralAdminPanel() {
 
           {form.rewardMode === 'PER_ROLE' && (
             <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6">
-              <h2 className="font-bold text-gray-900">Reward per role</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-gray-900">Reward per role</h2>
+                <InfoTooltip
+                  text="Set a specific commission rule for each eligible role. Any role left without a value falls back to the default Commission type and amount above."
+                  label="About reward per role"
+                />
+              </div>
               <p className="text-xs text-gray-500">
                 Roles left blank fall back to the default rule above.
               </p>
@@ -737,11 +795,16 @@ export default function ReferralAdminPanel() {
                       key={role}
                       className="grid gap-2 rounded-xl border border-gray-100 bg-gray-50/60 p-3 sm:grid-cols-[1fr_150px_160px] sm:items-center"
                     >
-                      <span className="text-xs font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
                         {role.replaceAll('_', ' ')}
+                        <InfoTooltip
+                          text={`Commission rule applied when a user with the ${role.replaceAll('_', ' ')} role refers a qualifying purchase.`}
+                          label={`About ${role.replaceAll('_', ' ')} reward`}
+                        />
                       </span>
                       <select
                         value={reward.rewardType}
+                        title="Choose whether this role earns a percentage of the purchase or a fixed GBP amount."
                         onChange={(event) =>
                           updateRoleReward(role, {
                             rewardType: event.target.value as 'PERCENTAGE' | 'FIXED',
@@ -759,6 +822,7 @@ export default function ReferralAdminPanel() {
                           max={100}
                           step="0.01"
                           value={reward.percentage ?? ''}
+                          title="Percentage of each qualifying purchase earned by this role. Example: 10 = 10% commission."
                           onChange={(event) =>
                             updateRoleReward(role, {
                               percentage: Number(event.target.value),
@@ -773,6 +837,7 @@ export default function ReferralAdminPanel() {
                           min={0}
                           step="0.01"
                           value={reward.fixedAmountGbp ?? ''}
+                          title="Fixed GBP commission paid to this role for each qualifying purchase."
                           onChange={(event) =>
                             updateRoleReward(role, {
                               fixedAmountGbp: Number(event.target.value),
@@ -793,7 +858,13 @@ export default function ReferralAdminPanel() {
             <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-bold text-gray-900">Qualified memberships</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-gray-900">Qualified memberships</h2>
+                    <InfoTooltip
+                      text="Select which membership plans earn referral commission. Tick “All” to include every current and future membership plan, or untick it to choose specific plans."
+                      label="About qualified memberships"
+                    />
+                  </div>
                   <p className="text-xs text-gray-500">
                     Which membership purchases earn commission.
                   </p>
@@ -811,6 +882,10 @@ export default function ReferralAdminPanel() {
                     className="size-4 rounded border-gray-300"
                   />
                   All
+                  <InfoTooltip
+                    text="When ticked, every membership plan qualifies. Untick to show and select individual membership plans."
+                    label="About all memberships"
+                  />
                 </label>
               </div>
               {!form.qualifyAllMemberships && (
@@ -821,6 +896,7 @@ export default function ReferralAdminPanel() {
                     membershipPlans.map((plan) => (
                       <label
                         key={plan.id}
+                        title="Tick to make purchases of this membership plan qualify for referral commission."
                         className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                       >
                         <input
@@ -841,7 +917,13 @@ export default function ReferralAdminPanel() {
             <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-bold text-gray-900">Qualified access passes</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-gray-900">Qualified access passes</h2>
+                    <InfoTooltip
+                      text="Select which access-pass plans earn referral commission. Tick “All” to include every current and future access plan, or untick it to choose specific passes."
+                      label="About qualified access passes"
+                    />
+                  </div>
                   <p className="text-xs text-gray-500">
                     Which access-pass purchases earn commission.
                   </p>
@@ -859,6 +941,10 @@ export default function ReferralAdminPanel() {
                     className="size-4 rounded border-gray-300"
                   />
                   All
+                  <InfoTooltip
+                    text="When ticked, every access pass qualifies. Untick to show and select individual access-pass plans."
+                    label="About all access passes"
+                  />
                 </label>
               </div>
               {!form.qualifyAllAccessPasses && (
@@ -869,6 +955,7 @@ export default function ReferralAdminPanel() {
                     accessPlans.map((plan) => (
                       <label
                         key={plan.id}
+                        title="Tick to make purchases of this access pass qualify for referral commission."
                         className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                       >
                         <input
@@ -889,9 +976,10 @@ export default function ReferralAdminPanel() {
 
           <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6">
             <label className="block">
-              <span className="mb-1 block text-xs font-bold text-gray-600">
-                Changelog note (optional)
-              </span>
+              <FieldLabel
+                label="Changelog note (optional)"
+                tooltip="A short explanation stored with this configuration version so other admins can see why the rule changed. It appears in the immutable changelog."
+              />
               <textarea
                 value={form.note ?? ''}
                 onChange={(event) =>
@@ -913,6 +1001,7 @@ export default function ReferralAdminPanel() {
                 type="button"
                 onClick={() => void saveConfig()}
                 disabled={publishMutation.isPending || form.eligibleRoles.length === 0}
+                title="Create a new immutable configuration version. This becomes the rule used for all future qualifying purchases."
                 className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Save className="h-4 w-4" />
