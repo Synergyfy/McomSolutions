@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -22,11 +22,15 @@ import {
   Activity,
   BadgeCheck,
   KeyRound,
+  Users,
+  ChevronDown,
+  ChevronUp,
+  Gift,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useAdminUserFullProfile } from '../services/admin/hooks';
-import type { AdminFullUserProfile, AdminBusinessProgrammeRecord } from '../services/admin/types';
+import { useAdminReferralDetail, useAdminUserFullProfile } from '../services/admin/hooks';
+import type { AdminFullUserProfile, AdminBusinessProgrammeRecord, AdminAffiliateTaskRecord } from '../services/admin/types';
 
 const ROLE_LABELS: Record<string, string> = {
   BUSINESS: 'Business',
@@ -208,6 +212,7 @@ function UserProfileBody({ profile, onBack }: { profile: AdminFullUserProfile; o
           <FinancialSection profile={profile} />
           <ProgrammeSection profile={profile} />
           <AffiliateSection profile={profile} />
+          <ReferralHistorySection userId={account.id} />
           <SupportSection profile={profile} />
         </div>
 
@@ -558,6 +563,16 @@ function SubscriptionsSection({ profile }: { profile: AdminFullUserProfile }) {
               <span key={grant.id} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 {grant.client?.name || grant.clientId}
+                {grant.source && grant.source !== 'ADMIN' && (
+                  <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white">
+                    {grant.source === 'ACCESS_PASS' ? 'Access pass' : 'Membership'}
+                  </span>
+                )}
+                {grant.expiresAt && (
+                  <span className="text-[10px] font-semibold text-emerald-600">
+                    until {fmtDate(grant.expiresAt)}
+                  </span>
+                )}
               </span>
             ))}
           </div>
@@ -723,40 +738,126 @@ function ProgrammeCard({ programme }: { key?: string; programme: AdminBusinessPr
 }
 
 function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
-  const { affiliate } = profile;
-  const hasAny =
+  const { affiliate, account } = profile;
+  const role = String(account.role || '').toUpperCase();
+  const isAffiliate = ['AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'].includes(role);
+  const isBusinessViewer = ['BUSINESS', 'CUSTOMER'].includes(role);
+  if (!isAffiliate && !isBusinessViewer) return null;
+
+  const hasAffiliateActivity =
     affiliate.tasks.length > 0 ||
     affiliate.reputationEvents.length > 0 ||
     affiliate.ratingsReceived.length > 0 ||
     affiliate.reports.length > 0;
-  if (!hasAny) return null;
+  if (isAffiliate && !hasAffiliateActivity) return null;
+
+  const completedTasks = affiliate.tasks.filter((t) => String(t.status).toUpperCase() === 'COMPLETED');
+  const openTasks = affiliate.tasks.filter((t) => !['COMPLETED', 'CANCELLED'].includes(String(t.status).toUpperCase()));
+  const totalSpent = affiliate.tasks.reduce((sum, t) => sum + Number(t.spentGbp ?? t.businessChargeAmount ?? 0), 0);
+
+  const assigneeLabel = (task: AdminAffiliateTaskRecord) => {
+    if (!task.assignee) return 'Unassigned';
+    return (
+      [task.assignee.firstName, task.assignee.lastName].filter(Boolean).join(' ') ||
+      task.assignee.email ||
+      'Unassigned'
+    );
+  };
+
+  const reputationCell = (task: AdminAffiliateTaskRecord) => {
+    const delta = Number(task.reputationDelta ?? 0);
+    return (
+      <span className={cn('font-bold', delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-red-500' : 'text-gray-400')}>
+        {delta > 0 ? '+' : ''}
+        {delta}
+      </span>
+    );
+  };
 
   return (
-    <Section title="Affiliate activity" icon={Star} subtitle="Reputation, delegated work and reviews">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
-        <MiniStat label="Reputation" value={String(affiliate.reputationScore)} tone={affiliate.reputationScore >= 0 ? 'green' : 'red'} />
-        <MiniStat label="Tasks" value={String(affiliate.tasks.length)} tone="blue" />
-        <MiniStat label="Ratings" value={String(affiliate.ratingsReceived.length)} tone="amber" />
-        <MiniStat label="Reports" value={String(affiliate.reports.length)} tone="gray" />
-      </div>
-
-      {affiliate.tasks.length > 0 && (
-        <SubBlock title="Affiliate tasks">
-          <Table
-            headers={['Task', 'Business', 'Status', 'Category', 'Compensation', 'Due']}
-            rows={affiliate.tasks.map((t) => [
-              t.title,
-              t.business?.businessName || '—',
-              <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
-              humanize(t.category),
-              fmtMoney(t.compensationAmount ?? (t.compensationPence ? t.compensationPence / 100 : null)),
-              fmtDate(t.dueAt),
-            ])}
-          />
-        </SubBlock>
+    <Section
+      title={isAffiliate ? 'Affiliate activity' : 'Delegated tasks'}
+      icon={Star}
+      subtitle={
+        isAffiliate
+          ? 'Reputation, delegated work, earnings and reviews'
+          : 'Work this account delegated to affiliates and the amount spent'
+      }
+    >
+      {isAffiliate ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+          <MiniStat label="Reputation" value={String(affiliate.reputationScore)} tone={affiliate.reputationScore >= 0 ? 'green' : 'red'} />
+          <MiniStat label="Tasks" value={String(affiliate.tasks.length)} tone="blue" />
+          <MiniStat label="Ratings" value={String(affiliate.ratingsReceived.length)} tone="amber" />
+          <MiniStat label="Reports" value={String(affiliate.reports.length)} tone="gray" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+          <MiniStat label="Tasks delegated" value={String(affiliate.tasks.length)} tone="blue" />
+          <MiniStat label="Completed" value={String(completedTasks.length)} tone="green" />
+          <MiniStat label="Open" value={String(openTasks.length)} tone="amber" />
+          <MiniStat label="Total spent" value={fmtMoney(totalSpent)} tone="gray" />
+        </div>
       )}
 
-      {affiliate.reputationEvents.length > 0 && (
+      {affiliate.tasks.length > 0 ? (
+        <SubBlock title={isAffiliate ? 'Affiliate tasks' : 'Delegated affiliate tasks'}>
+          {isAffiliate ? (
+            <Table
+              headers={['Task', 'Business', 'Status', 'Category', 'Assigned', 'Due', 'Reputation', 'Earned']}
+              rows={affiliate.tasks.map((t) => [
+                <div>
+                  <p className="font-bold text-gray-800">{t.title}</p>
+                  <p className="text-[10px] text-gray-400">{t.id.slice(0, 10)}</p>
+                </div>,
+                t.business?.businessName || '—',
+                <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
+                humanize(t.category),
+                fmtDate(t.assignedAt || t.createdAt),
+                fmtDate(t.dueAt),
+                reputationCell(t),
+                <div>
+                  <p className="font-bold text-emerald-700">{fmtMoney(t.earnedGbp ?? t.compensationAmount)}</p>
+                  {t.earnedCredits != null && (
+                    <p className="text-[10px] text-gray-400">
+                      {Number(t.earnedCredits).toLocaleString('en-GB', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4,
+                      })}{' '}
+                      MCOM
+                    </p>
+                  )}
+                </div>,
+              ])}
+            />
+          ) : (
+            <Table
+              headers={['Task', 'Affiliate', 'Status', 'Category', 'Assigned', 'Due', 'Spent']}
+              rows={affiliate.tasks.map((t) => [
+                <div>
+                  <p className="font-bold text-gray-800">{t.title}</p>
+                  <p className="text-[10px] text-gray-400">{t.id.slice(0, 10)}</p>
+                </div>,
+                <div>
+                  <p className="font-semibold text-gray-700">{assigneeLabel(t)}</p>
+                  {t.assignee?.email && <p className="text-[10px] text-gray-400">{t.assignee.email}</p>}
+                </div>,
+                <Pill tone={toneForStatus(t.status)}>{humanize(t.status)}</Pill>,
+                humanize(t.category),
+                fmtDate(t.assignedAt || t.createdAt),
+                fmtDate(t.dueAt),
+                fmtMoney(t.spentGbp ?? t.businessChargeAmount),
+              ])}
+            />
+          )}
+        </SubBlock>
+      ) : (
+        <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-500">
+          {isAffiliate ? 'No affiliate tasks have been assigned yet.' : 'This account has not delegated any affiliate tasks yet.'}
+        </p>
+      )}
+
+      {isAffiliate && affiliate.reputationEvents.length > 0 && (
         <SubBlock title="Reputation events">
           <Table
             headers={['Reason', 'Delta', 'Source', 'Date']}
@@ -770,7 +871,7 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
         </SubBlock>
       )}
 
-      {affiliate.ratingsReceived.length > 0 && (
+      {isAffiliate && affiliate.ratingsReceived.length > 0 && (
         <SubBlock title="Ratings received">
           <Table
             headers={['Business', 'Rating', 'Comment', 'Status', 'Date']}
@@ -785,7 +886,7 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
         </SubBlock>
       )}
 
-      {affiliate.reports.length > 0 && (
+      {isAffiliate && affiliate.reports.length > 0 && (
         <SubBlock title="Reports">
           <Table
             headers={['Business', 'Reason', 'Status', 'Notes', 'Date']}
@@ -798,6 +899,133 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
             ])}
           />
         </SubBlock>
+      )}
+    </Section>
+  );
+}
+
+function ReferralHistorySection({ userId }: { userId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: res, isLoading, isError } = useAdminReferralDetail(userId);
+  const detail = res?.data;
+  const summary = detail?.summary;
+  const referredUsers = detail?.referredUsers ?? [];
+  const rule = detail?.config;
+
+  return (
+    <Section
+      title="Referral history"
+      subtitle="People this user referred and commission earned from each"
+      icon={Users}
+    >
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading referral history…
+        </div>
+      ) : isError ? (
+        <p className="text-xs text-red-600">Referral history could not be loaded.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Total referrals</p>
+              <p className="mt-1 text-xl font-black text-gray-900">{summary?.totalReferrals ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Earning referrals</p>
+              <p className="mt-1 text-xl font-black text-gray-900">{summary?.creditedReferrals ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">MCOM earned</p>
+              <p className="mt-1 text-xl font-black text-emerald-700">
+                {Number(summary?.totalEarnedCredits ?? 0).toLocaleString('en-GB', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                })}
+              </p>
+            </div>
+            <div className="rounded-xl border border-orange-100 bg-orange-50/60 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-orange-600">GBP commission</p>
+              <p className="mt-1 text-xl font-black text-orange-700">
+                {fmtMoney(summary?.totalEarnedGbp ?? 0)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+            <p className="text-[11px] font-medium text-gray-500">
+              {rule
+                ? `Rule v${rule.version} · ${rule.commissionFrequency === 'RECURRING' ? 'recurring' : 'one-time'} · ${
+                    rule.rewardType === 'PERCENTAGE'
+                      ? `${rule.percentage ?? 0}%`
+                      : fmtMoney(rule.fixedAmountGbp ?? 0)
+                  } · ${summary?.creditedCommissionCount ?? 0} commission${
+                    (summary?.creditedCommissionCount ?? 0) === 1 ? '' : 's'
+                  }`
+                : 'No referral rule was active when this user referred others.'}
+            </p>
+            {referredUsers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setExpanded((current) => !current)}
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-gray-200 px-3 text-xs font-bold text-gray-700 hover:bg-gray-50"
+              >
+                <Gift className="w-3.5 h-3.5" />
+                {expanded ? 'Hide referred people' : 'View referred people'}
+                {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            )}
+          </div>
+
+          {referredUsers.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-500">
+              This user has not referred anyone yet.
+            </p>
+          ) : expanded ? (
+            <div className="mt-4 overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="bg-gray-50 text-[10px] uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="px-4 py-3 font-bold">Referred person</th>
+                    <th className="px-4 py-3 font-bold">Role</th>
+                    <th className="px-4 py-3 font-bold">Joined</th>
+                    <th className="px-4 py-3 font-bold">Qualifying purchases</th>
+                    <th className="px-4 py-3 text-right font-bold">Earned</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {referredUsers.map((referred) => (
+                    <tr key={referred.id}>
+                      <td className="px-4 py-3">
+                        <p className="font-bold text-gray-900">{referred.displayName}</p>
+                        <p className="text-[11px] text-gray-400">{referred.email}</p>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{humanize(referred.role)}</td>
+                      <td className="px-4 py-3 text-gray-600">{fmtDate(referred.joinedAt)}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {referred.creditedCount} credited / {referred.evaluationCount} evaluated
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <p className="font-black text-emerald-700">
+                          {Number(referred.earnedCredits).toLocaleString('en-GB', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 4,
+                          })}{' '}
+                          MCOM
+                        </p>
+                        <p className="text-[10px] text-gray-400">{fmtMoney(referred.earnedGbp)} commission</p>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] text-gray-400">
+              Click “View referred people” to see each account and what it earned.
+            </p>
+          )}
+        </>
       )}
     </Section>
   );

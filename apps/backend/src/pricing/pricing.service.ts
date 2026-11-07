@@ -6,6 +6,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { AccountManagerAssignmentService } from '../affiliate/account-manager-assignment.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { ReferralCommissionService } from '../referrals/referral-commission.service';
+import { ReferralCommissionSourceType } from '@prisma/client';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
 import {
   addDaysUtc,
@@ -89,6 +92,10 @@ export class PricingService {
     private readonly taskEventQueue?: Queue<TaskEventJobData>,
     @Optional()
     private readonly accountManagerAssignment?: AccountManagerAssignmentService,
+    @Optional()
+    private readonly businessAcquisition?: BusinessAcquisitionService,
+    @Optional()
+    private readonly referralCommission?: ReferralCommissionService,
   ) {}
 
   private tierMultiplier(tier: string): number {
@@ -368,6 +375,11 @@ export class PricingService {
           },
         },
         appBundles: true,
+        whitelabelAccess: {
+          include: {
+            client: { select: { clientId: true, name: true, platformSlug: true } },
+          },
+        },
       },
     });
 
@@ -406,6 +418,8 @@ export class PricingService {
           tier: planTierDisplay(t.tier),
           durationDays: t.durationDays,
           fullPrice: Number(t.fullPrice),
+          freeDelegatedTasks: t.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: t.unlimitedFreeDelegatedTasks,
           features: (t.features ?? []).map((f) => f.feature),
           entitlements: (t.entitlements ?? []).map((e) => ({
             resourceKey: e.resourceKey,
@@ -424,6 +438,12 @@ export class PricingService {
           platform: b.platform,
           externalPlanId: b.externalPlanId,
           packageName: b.packageName,
+        })),
+        whitelabelAccess: (p.whitelabelAccess ?? []).map((grant) => ({
+          clientId: grant.clientId,
+          name: grant.client?.name ?? grant.clientId,
+          platformSlug: grant.client?.platformSlug ?? null,
+          tiers: grant.tiers.map((tier) => planTierDisplay(tier)),
         })),
       };
     });
@@ -508,6 +528,7 @@ export class PricingService {
     }
 
     let updated;
+    let membershipBillingId: string | null = null;
     try {
       const activation = await this.prisma.$transaction(async (tx) => {
         const profileUpdate = await tx.businessProfile.update({
@@ -557,6 +578,7 @@ export class PricingService {
         return { profileUpdate, billingId: billing.id };
       });
       updated = activation.profileUpdate;
+      membershipBillingId = activation.billingId;
     } catch (err) {
       // Lost the race with a concurrent activation using the same payment reference.
       if (
@@ -589,6 +611,38 @@ export class PricingService {
 
     // Paid membership → assign a dedicated account manager (proximity + reputation).
     void this.assignAccountManagerSafely(businessId);
+
+    // Tell the affiliate portal that an invited business has converted.
+    void this.businessAcquisition?.notifyBusinessConversion({
+      businessId,
+      conversionType: 'membership',
+      planName: plan.name,
+      amount: price,
+      currency: 'GBP',
+      provider: opts.provider ?? null,
+      providerPaymentId: opts.providerPaymentId ?? null,
+    });
+
+    if (
+      membershipBillingId &&
+      opts.provider !== 'manual' &&
+      Boolean(
+        opts.providerPaymentId ||
+          opts.provider === 'stripe' ||
+          opts.provider === 'paypal' ||
+          opts.provider === 'wallet',
+      )
+    ) {
+      void this.referralCommission?.recordBusinessPurchase({
+        businessId,
+        sourceType: ReferralCommissionSourceType.MEMBERSHIP,
+        sourceId: `membership-billing:${membershipBillingId}`,
+        sourceName: plan.name,
+        planId: plan.id,
+        amountGbp: price,
+        paymentReference: opts.providerPaymentId ?? null,
+      });
+    }
 
     // Post-commit lifecycle event (never blocks the response).
     if (opts.couponRedemptionId) {
@@ -921,7 +975,7 @@ export class PricingService {
           },
         });
       }
-      return { updated, installmentNo, expiresAt };
+      return { updated, installmentNo, expiresAt, billingId: billing.id };
     });
 
     if ('replay' in result) {
@@ -946,6 +1000,36 @@ export class PricingService {
     });
 
     void this.assignAccountManagerSafely(business.id);
+
+    void this.businessAcquisition?.notifyBusinessConversion({
+      businessId: business.id,
+      conversionType: 'membership',
+      planName: plan.name,
+      amount: price,
+      currency: 'GBP',
+      provider: opts.provider ?? null,
+      providerPaymentId: opts.providerPaymentId ?? null,
+    });
+
+    if (
+      opts.provider !== 'manual' &&
+      Boolean(
+        opts.providerPaymentId ||
+          opts.provider === 'stripe' ||
+          opts.provider === 'paypal' ||
+          opts.provider === 'wallet',
+      )
+    ) {
+      void this.referralCommission?.recordBusinessPurchase({
+        businessId: business.id,
+        sourceType: ReferralCommissionSourceType.MEMBERSHIP,
+        sourceId: `membership-billing:${result.billingId}`,
+        sourceName: plan.name,
+        planId: plan.id,
+        amountGbp: price,
+        paymentReference: opts.providerPaymentId ?? null,
+      });
+    }
 
     return {
       ...result.updated,

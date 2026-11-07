@@ -77,6 +77,10 @@ import type {
   AdminAffiliateSettlementQuery,
   AffiliateSettlementSummary,
   AdminFullUserProfile,
+  AdminReferralReferrersResponse,
+  AdminReferralConfig,
+  PublishReferralConfigInput,
+  AdminReferralDetail,
 } from './types'
 
 export const adminApi = {
@@ -1244,6 +1248,30 @@ export const adminApi = {
   backfillAccountManagers: async (limit?: number) => {
     const res = await apiClient.post('/admin/account-managers/backfill', { limit })
     return res.data as ApiResponse<{ candidates: number; assigned: number; skipped: number; failed: number }>
+  },
+
+  // ─── Referral Rewards ────────────────────────────────
+  getReferralReferrers: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const res = await apiClient.get('/admin/referrals', { params })
+    return res.data as AdminReferralReferrersResponse
+  },
+
+  getReferralConfig: async () => {
+    const res = await apiClient.get('/admin/referrals/config')
+    return res.data as ApiResponse<{
+      current: AdminReferralConfig | null
+      history: AdminReferralConfig[]
+    }>
+  },
+
+  publishReferralConfig: async (data: PublishReferralConfigInput) => {
+    const res = await apiClient.post('/admin/referrals/config', data)
+    return res.data as ApiResponse<AdminReferralConfig>
+  },
+
+  getReferralDetail: async (userId: string) => {
+    const res = await apiClient.get(`/admin/referrals/${userId}`)
+    return res.data as ApiResponse<AdminReferralDetail>
   },
 
 }

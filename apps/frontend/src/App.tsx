@@ -43,7 +43,17 @@ function SignupRedirect() {
 
   React.useEffect(() => {
     const searchStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
-    if (role === 'customer') {
+    const affiliateInvite =
+      searchParams.get('affiliateInvite') ||
+      searchParams.get('affiliate_invite') ||
+      searchParams.get('invite');
+    if (affiliateInvite) {
+      // A tracked agent invitation skips the account-type chooser entirely.
+      const params = new URLSearchParams(searchParams);
+      params.set('entry', 'signup');
+      params.set('role', 'business');
+      navigate(`/getstarted/business?${params.toString()}`, { replace: true });
+    } else if (role === 'customer') {
       navigate(`/register/customer${searchStr}`, { replace: true });
     } else if (role === 'business') {
       navigate(`/getstarted/business${searchStr}`, { replace: true });

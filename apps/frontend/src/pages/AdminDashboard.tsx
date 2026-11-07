@@ -31,6 +31,7 @@ import AdminCouponEditor from './AdminCouponEditor';
 import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
 import AdminTaskComposer from '../components/admin/task-composer/AdminTaskComposer';
+import ReferralAdminPanel from '../components/admin/ReferralAdminPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -52,6 +53,7 @@ const ADMIN_TABS: AdminTab[] = [
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories', 'cities',
+  'referrals',
 ];
 
 export default function AdminDashboard() {
@@ -127,6 +129,7 @@ export default function AdminDashboard() {
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
       'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
       cities: { title: 'City Management', subtitle: 'Top-level geographic hierarchy with assigned business totals' },
+      referrals: { title: 'Referral Rewards', subtitle: 'Configure commissions by role, qualifying plans and recurrence; audit every referrer' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -195,6 +198,8 @@ export default function AdminDashboard() {
         return <ConsolePanel />;
       case 'wallet':
         return <WalletPanel />;
+      case 'referrals':
+        return <ReferralAdminPanel />;
       case 'mcom-pay':
         return <McomPayPanel />;
       case 'programme':

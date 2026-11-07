@@ -11,6 +11,7 @@ import CHSLogo from '../components/CHSLogo';
 import DashboardAllProducts from '../components/DashboardAllProducts';
 import DashboardMessages from '../components/DashboardMessages';
 import DashboardWallet from '../components/DashboardWallet';
+import ReferralEarningsCard from '../components/ReferralEarningsCard';
 import { useLogout, useCurrentUser } from '../services/auth/hooks';
 import { useMyWallet, useWalletTransactions } from '../services/wallet/hooks';
 import { useEcosystemApps } from '../services/business/hooks';
@@ -399,6 +400,8 @@ function CustomerOverview({
           </div>
         ))}</div> : <p className="px-4 py-8 text-center text-sm text-slate-500 sm:px-5">No wallet activity to show yet.</p>}
       </section>
+
+      <ReferralEarningsCard compact />
     </div>
   );
 }

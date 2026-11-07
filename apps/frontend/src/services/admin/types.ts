@@ -152,6 +152,8 @@ export interface PlanTierInput {
   tier: TierName
   fullPrice: number
   durationDays?: number
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   features?: string[]
   entitlements?: TierEntitlementInput[]
   paymentOptions?: TierPaymentOptionInput[]
@@ -170,6 +172,8 @@ export interface PlanTierDetail {
   tier: TierName
   durationDays: number
   fullPrice: number
+  freeDelegatedTasks?: number
+  unlimitedFreeDelegatedTasks?: boolean
   features: string[]
   entitlements: { resourceKey: string; quotaValue: string }[]
   paymentOptions: PlanTierPaymentOption[]
@@ -179,6 +183,17 @@ export interface PlanAppBundle {
   platform: string
   externalPlanId?: string | null
   packageName: string
+}
+
+export interface WhitelabelPlatformGrant {
+  clientId: string
+  tiers?: TierName[]
+  client?: {
+    clientId: string
+    name: string
+    platformSlug?: string | null
+    logoUrl?: string | null
+  } | null
 }
 
 export interface MembershipPlan {
@@ -196,6 +211,7 @@ export interface MembershipPlan {
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
@@ -230,6 +246,7 @@ export interface AccessPlan {
   features: string[]
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   whoItIsFor?: string | null
   badge?: string | null
   color?: string | null
@@ -566,6 +583,7 @@ export interface CreatePlanInput {
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
   includedApps?: IncludedAppPlan[]
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   tierPrices?: Record<string, number>
   tierFeatures?: Record<string, string[]>
   tierEntitlements?: TierEntitlementResource[]
@@ -601,6 +619,7 @@ export interface CreateAccessPlanInput {
   features?: string[]
   freeDelegatedTasks?: number
   unlimitedFreeDelegatedTasks?: boolean
+  whitelabelAccess?: WhitelabelPlatformGrant[]
   includedApps: AccessIncludedAppPlan[]
 }
 
@@ -967,10 +986,21 @@ export interface WhitelabelPlatform {
   logoUrl?: string | null
 }
 
+export interface BusinessWhitelabelGrant {
+  id: string
+  clientId: string
+  source?: 'ADMIN' | 'MEMBERSHIP' | 'ACCESS_PASS'
+  planName?: string
+  expiresAt?: string | null
+  client?: WhitelabelPlatform | null
+}
+
 export interface BusinessWhitelabelAccess {
   business: { id: string; name: string }
   platforms: WhitelabelPlatform[]
   grantedClientIds: string[]
+  planGrantedClientIds?: string[]
+  derivedGrants?: BusinessWhitelabelGrant[]
 }
 
 export interface SetServicePolicyInput {
@@ -1753,6 +1783,9 @@ export interface AdminWhitelabelGrant {
   businessId: string
   clientId: string
   grantedBy: string | null
+  source?: 'ADMIN' | 'MEMBERSHIP' | 'ACCESS_PASS'
+  planName?: string
+  expiresAt?: string | null
   createdAt: string
   client?: {
     clientId: string
@@ -1922,6 +1955,11 @@ export interface AdminAffiliateTaskRecord {
     lastName: string | null
   } | null
   dueAt: string | null
+  assignedAt?: string | null
+  reputationDelta?: number
+  earnedGbp?: number | null
+  earnedCredits?: number | null
+  spentGbp?: number | null
   compensationModel: string
   compensationAmount: number | null
   compensationPence: number | null
@@ -2031,4 +2069,125 @@ export interface AdminFullUserProfile {
     }>
   }
   meta: { generatedAt: string }
+}
+
+// ─── Referral rewards ─────────────────────────────────
+export interface AdminReferralReferrer {
+  id: string
+  email: string
+  firstName: string | null
+  lastName: string | null
+  displayName: string
+  role: string
+  referralCode: string | null
+  joinedAt: string
+  totalReferrals: number
+  creditedCommissions: number
+  skippedEvaluations: number
+  earnedCredits: number
+  earnedGbp: number
+  lastActivityAt: string | null
+}
+
+export interface AdminReferralReferrersResponse {
+  success: boolean
+  data: AdminReferralReferrer[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+export interface RoleRewardConfig {
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage?: number | null
+  fixedAmountGbp?: number | null
+}
+
+export interface AdminReferralConfig {
+  id: string
+  version: number
+  isCurrent: boolean
+  isActive: boolean
+  rewardMode: 'SINGLE' | 'PER_ROLE'
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage: number | null
+  fixedAmountGbp: number | null
+  roleRewards: Record<string, RoleRewardConfig>
+  eligibleRoles: string[]
+  qualifyAllMemberships: boolean
+  qualifyAllAccessPasses: boolean
+  qualifiedMembershipPlanIds: string[]
+  qualifiedAccessPlanIds: string[]
+  commissionFrequency: 'ONE_TIME' | 'RECURRING'
+  note: string | null
+  changes: Array<{ field: string; from: unknown; to: unknown }>
+  createdByUserId: string
+  createdAt: string
+}
+
+export interface PublishReferralConfigInput {
+  isActive?: boolean
+  rewardMode: 'SINGLE' | 'PER_ROLE'
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage?: number | null
+  fixedAmountGbp?: number | null
+  roleRewards?: Record<string, RoleRewardConfig>
+  eligibleRoles: string[]
+  qualifyAllMemberships?: boolean
+  qualifyAllAccessPasses?: boolean
+  qualifiedMembershipPlanIds?: string[]
+  qualifiedAccessPlanIds?: string[]
+  commissionFrequency: 'ONE_TIME' | 'RECURRING'
+  note?: string
+}
+
+export interface AdminReferralCommission {
+  id: string
+  sourceType: 'MEMBERSHIP' | 'ACCESS_PASS'
+  sourceName: string | null
+  purchaseAmountGbp: number
+  commissionAmountGbp: number
+  commissionCredits: number
+  status: string
+  referredUserId: string
+  referredName: string | null
+  referredEmail: string | null
+  configVersion: number | null
+  createdAt: string
+}
+
+export interface AdminReferralDetail {
+  referrer: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+    role: string
+    referralCode: string | null
+    createdAt: string
+  }
+  summary: {
+    totalReferrals: number
+    creditedReferrals: number
+    totalEarnedCredits: number
+    totalEarnedGbp: number
+    creditedCommissionCount: number
+    configActive: boolean
+    configVersion: number | null
+  }
+  referredUsers: Array<{
+    id: string
+    email: string
+    displayName: string
+    role: string
+    joinedAt: string
+    earnedCredits: number
+    earnedGbp: number
+    creditedCount: number
+    evaluationCount: number
+    lastActivityAt: string | null
+  }>
+  history: AdminReferralCommission[]
+  config: AdminReferralConfig | null
 }

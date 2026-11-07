@@ -6,7 +6,7 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -29,7 +29,7 @@ export type AdminTab =
   | 'affiliate-tasks'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
-  | 'sectors-categories' | 'cities';
+  | 'sectors-categories' | 'cities' | 'referrals';
 
 interface NavGroup {
   label: string;
@@ -55,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'User Management',
     items: [
       { tab: 'users', icon: Users, label: 'All Users' },
+      { tab: 'referrals', icon: Gift, label: 'Referral Rewards' },
     ],
   },
   {

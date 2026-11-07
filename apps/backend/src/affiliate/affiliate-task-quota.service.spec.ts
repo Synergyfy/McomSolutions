@@ -48,6 +48,55 @@ describe('AffiliateTaskQuotaService', () => {
     expect(result.used).toBe(7);
   });
 
+  it('uses the purchased membership variant allowance, not the plan default', async () => {
+    const { service, prisma } = buildHarness();
+    prisma.businessProfile.findFirst.mockResolvedValue({
+      membershipStatus: 'active',
+      membershipPlanName: 'Gold',
+      membershipExpiresAt: future,
+      membershipTier: MembershipTier.ProPlus,
+    });
+    prisma.membershipPlan.findFirst.mockResolvedValue({
+      id: 'plan-variant',
+      name: 'Gold',
+      // Legacy plan-level fallback must lose to the tier-specific row.
+      freeDelegatedTasks: 0,
+      unlimitedFreeDelegatedTasks: false,
+      tiers: [
+        {
+          durationDays: 365,
+          freeDelegatedTasks: 8,
+          unlimitedFreeDelegatedTasks: false,
+        },
+      ],
+    });
+    prisma.ecosystemSubscription.findFirst.mockResolvedValue({
+      startDate: past,
+      endDate: future,
+    });
+    prisma.affiliateTask.count.mockResolvedValue(3);
+
+    const result = await service.resolve('business-1');
+
+    expect(result.source).toBe('MEMBERSHIP');
+    expect(result.freeLimit).toBe(8);
+    expect(result.remaining).toBe(5);
+    expect(result.isFree).toBe(true);
+    expect(prisma.membershipPlan.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          tiers: expect.objectContaining({
+            where: { tier: PlanTier.ProPlus },
+            select: expect.objectContaining({
+              freeDelegatedTasks: true,
+              unlimitedFreeDelegatedTasks: true,
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it('marks the next task chargeable once the membership cap is used', async () => {
     const { service, prisma } = buildHarness();
     prisma.businessProfile.findFirst.mockResolvedValue({

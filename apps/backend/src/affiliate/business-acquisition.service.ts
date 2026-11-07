@@ -112,7 +112,9 @@ export class BusinessAcquisitionService {
       process.env.FRONTEND_URL ||
       'http://localhost:3000'
     ).replace(/\/+$/, '');
-    return `${base}/getstarted/business?entry=signup&affiliateInvite=${encodeURIComponent(token)}`;
+    // `role=business` + `/getstarted/business` skip the account-type chooser:
+    // the invited business lands directly at the first business-signup step.
+    return `${base}/getstarted/business?entry=signup&role=business&affiliateInvite=${encodeURIComponent(token)}`;
   }
 
   // ── Invitations ───────────────────────────────────────────────────────
@@ -928,6 +930,76 @@ export class BusinessAcquisitionService {
   }
 
   // ── 247GBS notification ──────────────────────────────────────────────
+
+  /**
+   * Notifies 247GBS when an invited business converts: paid for a membership,
+   * bought/redeemed an access pass, or paid the verification fee and started
+   * a trial. The affiliate portal records the event and relays it to the
+   * agent and admin dashboards over SSE.
+   */
+  async notifyBusinessConversion(input: {
+    businessId: string;
+    conversionType: 'membership' | 'access_pass' | 'trial';
+    planName?: string | null;
+    amount?: number | null;
+    currency?: string | null;
+    provider?: string | null;
+    providerPaymentId?: string | null;
+    occurredAt?: Date;
+  }) {
+    try {
+      const business = await this.prisma.businessProfile.findFirst({
+        where: { id: input.businessId, deletedAt: null },
+        select: {
+          id: true,
+          businessName: true,
+          acquiredByAffiliateId: true,
+          acquiredByAffiliateExternalId: true,
+          acquisitionInvitationId: true,
+        },
+      });
+      if (!business) return { notified: false as const };
+      if (!business.acquiredByAffiliateId && !business.acquiredByAffiliateExternalId) {
+        // A direct signup with no affiliate attribution is not an acquisition event.
+        return { notified: false as const };
+      }
+
+      const invitation = business.acquisitionInvitationId
+        ? await this.prisma.affiliateBusinessInvitation.findUnique({
+            where: { id: business.acquisitionInvitationId },
+            select: { token: true, prospectExternalId: true },
+          })
+        : null;
+
+      const occurredAt = input.occurredAt ?? new Date();
+      await this.notifyAffiliate({
+        type: 'conversion',
+        invitationToken: invitation?.token ?? null,
+        prospectExternalId: invitation?.prospectExternalId ?? null,
+        businessId: business.id,
+        businessName: business.businessName,
+        status: 'CONVERTED',
+        occurredAt: occurredAt.toISOString(),
+        conversionType: input.conversionType,
+        planName: input.planName ?? null,
+        amount: input.amount ?? null,
+        currency: input.currency ?? null,
+        provider: input.provider ?? null,
+        paymentReference: input.providerPaymentId ?? null,
+      });
+
+      return { notified: true as const };
+    } catch (error) {
+      // Payment activation must never fail because the affiliate notification
+      // could not be delivered. 247GBS also reconciles from CHS on next load.
+      this.logger.warn(
+        `Could not notify 247GBS about a ${input.conversionType} conversion for business ${input.businessId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return { notified: false as const };
+    }
+  }
 
   private async notifyAffiliate(event: Record<string, unknown>) {
     const base = (

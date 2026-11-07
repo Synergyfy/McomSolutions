@@ -53,6 +53,10 @@ import type {
   AdminAffiliateReputation,
   AdminAffiliateSettlementQuery,
   AdminFullUserProfile,
+  AdminReferralReferrersResponse,
+  AdminReferralConfig,
+  PublishReferralConfigInput,
+  AdminReferralDetail,
   ApiResponse,
 } from './types'
 
@@ -1847,3 +1851,46 @@ export const useBackfillAccountManagers = () => {
     },
   })
 }
+
+// ─── Referral Rewards ──────────────────────────────────
+export const useAdminReferrers = (params?: {
+  page?: number
+  limit?: number
+  search?: string
+}) => {
+  return useQuery({
+    queryKey: ['admin', 'referrers', params],
+    queryFn: () => adminApi.getReferralReferrers(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useAdminReferralConfig = () => {
+  return useQuery({
+    queryKey: ['admin', 'referral-config'],
+    queryFn: () => adminApi.getReferralConfig(),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const usePublishReferralConfig = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: PublishReferralConfigInput) => adminApi.publishReferralConfig(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'referral-config'] })
+      queryClient.invalidateQueries({ queryKey: ['referrals', 'earnings'] })
+      queryClient.invalidateQueries({ queryKey: ['referrals', 'me'] })
+    },
+  })
+}
+
+export const useAdminReferralDetail = (userId?: string) => {
+  return useQuery({
+    queryKey: ['admin', 'referral-detail', userId],
+    queryFn: () => adminApi.getReferralDetail(userId as string),
+    enabled: !!userId,
+    staleTime: 1000 * 30,
+  })
+}
+

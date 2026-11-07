@@ -109,95 +109,95 @@ model User {
 }
 
 model BusinessProfile {
-  id                       String                    @id @default(uuid())
-  userId                   String                    @unique
-  user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  businessName             String
-  businessType             String
-  country                  String
-  phone                    String
-  email                    String
-  isOnGoogle               Boolean                   @default(false)
-  googlePlaceId            String?
-  address                  String?
-  postcode                 String?
-  industry                 String?
-  category                 String?
-  subCategory              String?
-  description              String?
-  website                  String?
-  logoUrl                  String?
-  openingHours             String?
-  socialMedia              String?
-  membershipLevel          MembershipLevel           @default(Bronze)
-  membershipTier           MembershipTier            @default(Normal)
-  membershipStatus         MembershipStatus          @default(active)
-  membershipPlanName       String?                   @map("membership_plan_name")
-  membershipExpiresAt      DateTime?                 @map("membership_expires_at")
+  id                            String                              @id @default(uuid())
+  userId                        String                              @unique
+  user                          User                                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName                  String
+  businessType                  String
+  country                       String
+  phone                         String
+  email                         String
+  isOnGoogle                    Boolean                             @default(false)
+  googlePlaceId                 String?
+  address                       String?
+  postcode                      String?
+  industry                      String?
+  category                      String?
+  subCategory                   String?
+  description                   String?
+  website                       String?
+  logoUrl                       String?
+  openingHours                  String?
+  socialMedia                   String?
+  membershipLevel               MembershipLevel                     @default(Bronze)
+  membershipTier                MembershipTier                      @default(Normal)
+  membershipStatus              MembershipStatus                    @default(active)
+  membershipPlanName            String?                             @map("membership_plan_name")
+  membershipExpiresAt           DateTime?                           @map("membership_expires_at")
   // Recurring billing linkage. Loose ids on purpose (same precedent as
   // EcosystemSubscription): historical rows may not have a matching record.
-  membershipRecurringId    String?                   @map("membership_recurring_id")
-  stripeCustomerId         String?                   @map("stripe_customer_id")
-  paypalPayerId            String?                   @map("paypal_payer_id")
-  hasPaidVerificationFee   Boolean                   @default(false) @map("has_paid_verification_fee")
-  verificationFeePaidAt    DateTime?                 @map("verification_fee_paid_at")
-  trialAccessDays          Int                       @default(14) @map("trial_access_days")
-  trialAccessExpiresAt     DateTime?                 @map("trial_access_expires_at")
-  apiKey                   String?                   @unique
-  localMallName            String?
-  localMallId              String?
-  proximityTier            String?                   @default("national") // high_street, national
+  membershipRecurringId         String?                             @map("membership_recurring_id")
+  stripeCustomerId              String?                             @map("stripe_customer_id")
+  paypalPayerId                 String?                             @map("paypal_payer_id")
+  hasPaidVerificationFee        Boolean                             @default(false) @map("has_paid_verification_fee")
+  verificationFeePaidAt         DateTime?                           @map("verification_fee_paid_at")
+  trialAccessDays               Int                                 @default(14) @map("trial_access_days")
+  trialAccessExpiresAt          DateTime?                           @map("trial_access_expires_at")
+  apiKey                        String?                             @unique
+  localMallName                 String?
+  localMallId                   String?
+  proximityTier                 String?                             @default("national") // high_street, national
   // ─── Location hierarchy assignment (auto-resolved from UK postcode) ───
-  cityId                   String?                   @map("city_id")
-  city                     City?                     @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  boroughId                String?                   @map("borough_id")
-  borough                  Borough?                  @relation(fields: [boroughId], references: [id], onDelete: SetNull)
-  highStreetId             String?                   @map("high_street_id")
-  highStreet               HighStreet?               @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
-  localMall                LocalMall?                @relation(fields: [localMallId], references: [id], onDelete: SetNull)
-  sectorId                 String?                   @map("sector_id")
-  sector                   Sector?                   @relation(fields: [sectorId], references: [id], onDelete: SetNull)
-  categoryId               String?                   @map("category_id")
-  categoryRef              Category?                 @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  subCategoryId            String?                   @map("sub_category_id")
-  subCategoryRef           SubCategory?              @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
-  locationAssignedAt       DateTime?                 @map("location_assigned_at")
+  cityId                        String?                             @map("city_id")
+  city                          City?                               @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  boroughId                     String?                             @map("borough_id")
+  borough                       Borough?                            @relation(fields: [boroughId], references: [id], onDelete: SetNull)
+  highStreetId                  String?                             @map("high_street_id")
+  highStreet                    HighStreet?                         @relation(fields: [highStreetId], references: [id], onDelete: SetNull)
+  localMall                     LocalMall?                          @relation(fields: [localMallId], references: [id], onDelete: SetNull)
+  sectorId                      String?                             @map("sector_id")
+  sector                        Sector?                             @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+  categoryId                    String?                             @map("category_id")
+  categoryRef                   Category?                           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subCategoryId                 String?                             @map("sub_category_id")
+  subCategoryRef                SubCategory?                        @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+  locationAssignedAt            DateTime?                           @map("location_assigned_at")
   // ── Account manager assignment (membership subscribers only) ──
-  accountManagerId         String?                   @map("account_manager_id")
-  accountManager           User?                     @relation("BusinessAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
-  accountManagerAssignedAt DateTime?                 @map("account_manager_assigned_at")
+  accountManagerId              String?                             @map("account_manager_id")
+  accountManager                User?                               @relation("BusinessAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  accountManagerAssignedAt      DateTime?                           @map("account_manager_assigned_at")
   // ── Business acquisition & attribution (247GBS Affiliates) ──
   // These fields are intentionally separate from accountManagerId: the
   // affiliate who introduced a business and the manager who runs the
   // relationship are distinct roles and may be different people.
-  acquiredByAffiliateId         String?                          @map("acquired_by_affiliate_id")
-  acquiredByAffiliateExternalId String?                          @map("acquired_by_affiliate_external_id")
-  acquiredByAffiliateName       String?                          @map("acquired_by_affiliate_name")
-  acquiredByAffiliateRole       String?                          @map("acquired_by_affiliate_role")
-  onboardedByAffiliateId        String?                          @map("onboarded_by_affiliate_id")
-  acquisitionSource             String?                          @default("direct") @map("acquisition_source")
-  acquisitionInvitationId       String?                          @map("acquisition_invitation_id")
+  acquiredByAffiliateId         String?                             @map("acquired_by_affiliate_id")
+  acquiredByAffiliateExternalId String?                             @map("acquired_by_affiliate_external_id")
+  acquiredByAffiliateName       String?                             @map("acquired_by_affiliate_name")
+  acquiredByAffiliateRole       String?                             @map("acquired_by_affiliate_role")
+  onboardedByAffiliateId        String?                             @map("onboarded_by_affiliate_id")
+  acquisitionSource             String?                             @default("direct") @map("acquisition_source")
+  acquisitionInvitationId       String?                             @map("acquisition_invitation_id")
   acquisitionStatus             AffiliateBusinessAcquisitionStatus? @map("acquisition_status")
-  acquisitionAttributedAt       DateTime?                        @map("acquisition_attributed_at")
-  acquisitionVerifiedAt         DateTime?                        @map("acquisition_verified_at")
-  acquisitionVerifiedByUserId   String?                          @map("acquisition_verified_by_user_id")
+  acquisitionAttributedAt       DateTime?                           @map("acquisition_attributed_at")
+  acquisitionVerifiedAt         DateTime?                           @map("acquisition_verified_at")
+  acquisitionVerifiedByUserId   String?                             @map("acquisition_verified_by_user_id")
   relationshipHistory           BusinessRelationshipHistory[]
   affiliateInvitations          AffiliateBusinessInvitation[]
-  packages                 PlatformPackage[]
-  transactions             BillingTransaction[]
-  notifications            Notification[]
-  supportTickets           SupportTicket[]
-  couponRedemptions        CouponRedemption[]
-  accessPurchases          AccessPurchase[]
-  whitelabelAccess         WhitelabelAccess[]
-  affiliateTasks           AffiliateTask[]
-  affiliateProjects        AffiliateProject[]
-  affiliateServiceRequests AffiliateServiceRequest[]
-  affiliateRatings         AffiliateRating[]
-  affiliateReports         AffiliateReport[]
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  deletedAt                DateTime?                 @map("deleted_at")
+  packages                      PlatformPackage[]
+  transactions                  BillingTransaction[]
+  notifications                 Notification[]
+  supportTickets                SupportTicket[]
+  couponRedemptions             CouponRedemption[]
+  accessPurchases               AccessPurchase[]
+  whitelabelAccess              WhitelabelAccess[]
+  affiliateTasks                AffiliateTask[]
+  affiliateProjects             AffiliateProject[]
+  affiliateServiceRequests      AffiliateServiceRequest[]
+  affiliateRatings              AffiliateRating[]
+  affiliateReports              AffiliateReport[]
+  createdAt                     DateTime                            @default(now())
+  updatedAt                     DateTime                            @updatedAt
+  deletedAt                     DateTime?                           @map("deleted_at")
 
   @@index([deletedAt])
   @@index([membershipExpiresAt])
@@ -525,8 +525,10 @@ model SsoClient {
   // When true, this platform only admits businesses that an admin has
   // explicitly granted white-label access to. It bypasses membership and
   // access-pass checks entirely (grant = immediate dashboard access).
-  allowWhitelabel  Boolean            @default(false) @map("allow_whitelabel")
-  whitelabelAccess WhitelabelAccess[]
+  allowWhitelabel            Boolean                          @default(false) @map("allow_whitelabel")
+  whitelabelAccess           WhitelabelAccess[]
+  membershipWhitelabelAccess MembershipPlanWhitelabelAccess[]
+  accessPlanWhitelabelAccess AccessPlanWhitelabelAccess[]
 
   @@index([clientId])
   @@index([apiKey])
@@ -837,26 +839,26 @@ model AccountManagerProfile {
 // ─── ADMIN DASHBOARD CONFIG & ENTITY TABLES ──────────────────────────────────
 
 model MembershipPlan {
-  id             String    @id @default(cuid())
-  name           String    @map("name")
-  description    String    @map("description")
-  price          Float     @map("price")
-  billingCycle   String    @map("billing_cycle")
-  monthlyPrice   Float?    @map("monthly_price")
-  quarterlyPrice Float?    @map("quarterly_price")
-  annualPrice    Float?    @map("annual_price")
-  platformAccess String[]  @map("platform_access")
-  usageLimits    Json      @map("usage_limits")
-  permissions    String[]  @map("permissions")
+  id                          String    @id @default(cuid())
+  name                        String    @map("name")
+  description                 String    @map("description")
+  price                       Float     @map("price")
+  billingCycle                String    @map("billing_cycle")
+  monthlyPrice                Float?    @map("monthly_price")
+  quarterlyPrice              Float?    @map("quarterly_price")
+  annualPrice                 Float?    @map("annual_price")
+  platformAccess              String[]  @map("platform_access")
+  usageLimits                 Json      @map("usage_limits")
+  permissions                 String[]  @map("permissions")
   // Free delegated tasks included in this plan. `unlimitedFreeDelegatedTasks`
   // wins over `freeDelegatedTasks`; once the free allowance is used up, the
   // business wallet is charged for further delegations.
-  freeDelegatedTasks          Int     @default(0) @map("free_delegated_tasks")
-  unlimitedFreeDelegatedTasks Boolean @default(false) @map("unlimited_free_delegated_tasks")
-  archived       Boolean   @default(false) @map("archived")
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  freeDelegatedTasks          Int       @default(0) @map("free_delegated_tasks")
+  unlimitedFreeDelegatedTasks Boolean   @default(false) @map("unlimited_free_delegated_tasks")
+  archived                    Boolean   @default(false) @map("archived")
+  deletedAt                   DateTime? @map("deleted_at")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   // Multi-App Bundle & Dynamic Presentation Extensions
   // NOTE: tier_* / includedApps JSON columns are legacy mirrors (kept for
@@ -875,6 +877,7 @@ model MembershipPlan {
 
   tiers                     MembershipPlanTier[]
   appBundles                MembershipPlanAppBundle[]
+  whitelabelAccess          MembershipPlanWhitelabelAccess[]
   couponLinks               CouponMembershipPlan[]
   taskRewardCouponPlanLinks TaskRewardCouponPlan[]
   couponRedemptions         CouponRedemption[]
@@ -910,15 +913,19 @@ enum PaymentPriceMode {
 }
 
 model MembershipPlanTier {
-  id           String         @id @default(cuid())
-  planId       String         @map("plan_id")
-  plan         MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  tier         PlanTier       @map("tier")
-  durationDays Int            @map("duration_days")
-  fullPrice    Float          @map("full_price")
-  sortOrder    Int            @default(0) @map("sort_order")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
+  id                          String         @id @default(cuid())
+  planId                      String         @map("plan_id")
+  plan                        MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tier                        PlanTier       @map("tier")
+  durationDays                Int            @map("duration_days")
+  fullPrice                   Float          @map("full_price")
+  // Per-variant free delegated-task allowance. The purchased tier decides the
+  // allowance, so Standard/Pro/Pro+ can each carry a different limit.
+  freeDelegatedTasks          Int            @default(0) @map("free_delegated_tasks")
+  unlimitedFreeDelegatedTasks Boolean        @default(false) @map("unlimited_free_delegated_tasks")
+  sortOrder                   Int            @default(0) @map("sort_order")
+  createdAt                   DateTime       @default(now()) @map("created_at")
+  updatedAt                   DateTime       @updatedAt @map("updated_at")
 
   features       MembershipTierFeature[]
   entitlements   MembershipTierEntitlement[]
@@ -993,31 +1000,51 @@ model MembershipPlanAppBundle {
   @@map("membership_plan_app_bundles")
 }
 
+// White-label platform access bundled with a membership. Access is granted to
+// the buyer only while the membership is active and the purchased variant is
+// listed in `tiers`. An empty list is normalised away by the API.
+model MembershipPlanWhitelabelAccess {
+  id        String         @id @default(cuid())
+  planId    String         @map("plan_id")
+  plan      MembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  clientId  String         @map("client_id")
+  client    SsoClient      @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  tiers     PlanTier[]     @default([])
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  @@unique([planId, clientId])
+  @@index([planId])
+  @@index([clientId])
+  @@map("membership_plan_whitelabel_accesses")
+}
+
 // ─── ACCESS PLANS (one-time, fixed-duration platform passes) ─────────────────
 // Unlike memberships, access plans have no tiers or instalment options. A
 // purchase grants the bundled platform plans for exactly `durationDays`.
 
 model AccessPlan {
-  id             String    @id @default(cuid())
-  name           String    @map("name")
-  description    String    @map("description")
-  price          Float     @map("price")
-  durationDays   Int       @map("duration_days")
-  platformAccess String[]  @default([]) @map("platform_access")
-  features       String[]  @default([])
+  id                          String    @id @default(cuid())
+  name                        String    @map("name")
+  description                 String    @map("description")
+  price                       Float     @map("price")
+  durationDays                Int       @map("duration_days")
+  platformAccess              String[]  @default([]) @map("platform_access")
+  features                    String[]  @default([])
   // Free delegated tasks included in this access pass. Null/0 + not unlimited
   // means every delegated task is chargeable.
-  freeDelegatedTasks          Int     @default(0) @map("free_delegated_tasks")
-  unlimitedFreeDelegatedTasks Boolean @default(false) @map("unlimited_free_delegated_tasks")
-  whoItIsFor     String?   @map("who_it_is_for")
-  badge          String?
-  color          String?
-  archived       Boolean   @default(false) @map("archived")
-  deletedAt      DateTime? @map("deleted_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  freeDelegatedTasks          Int       @default(0) @map("free_delegated_tasks")
+  unlimitedFreeDelegatedTasks Boolean   @default(false) @map("unlimited_free_delegated_tasks")
+  whoItIsFor                  String?   @map("who_it_is_for")
+  badge                       String?
+  color                       String?
+  archived                    Boolean   @default(false) @map("archived")
+  deletedAt                   DateTime? @map("deleted_at")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   appBundles                AccessPlanAppBundle[]
+  whitelabelAccess          AccessPlanWhitelabelAccess[]
   couponLinks               CouponAccessPlan[]
   taskRewardCouponPlanLinks TaskRewardCouponAccessPlan[]
   couponRedemptions         CouponRedemption[]
@@ -1045,6 +1072,23 @@ model AccessPlanAppBundle {
   @@index([accessPlanId])
   @@index([platform])
   @@map("access_plan_app_bundles")
+}
+
+// White-label platform access bundled with a one-time access pass. Access is
+// granted while the pass purchase remains active.
+model AccessPlanWhitelabelAccess {
+  id           String     @id @default(cuid())
+  accessPlanId String     @map("access_plan_id")
+  accessPlan   AccessPlan @relation(fields: [accessPlanId], references: [id], onDelete: Cascade)
+  clientId     String     @map("client_id")
+  client       SsoClient  @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@unique([accessPlanId, clientId])
+  @@index([accessPlanId])
+  @@index([clientId])
+  @@map("access_plan_whitelabel_accesses")
 }
 
 model AccessPurchase {
@@ -2840,50 +2884,50 @@ enum AffiliateSettlementFunding {
 // links the business debit, the affiliate credit and the platform fee together
 // so every penny can be reconciled.
 model AffiliateTaskSettlement {
-  id                     String                      @id @default(cuid())
-  taskId                 String                      @unique @map("task_id")
-  task                   AffiliateTask               @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  businessId             String                      @map("business_id")
-  businessUserId         String                      @map("business_user_id")
-  affiliateUserId        String?                     @map("affiliate_user_id")
-  affiliateEmail         String?                     @map("affiliate_email")
+  id              String        @id @default(cuid())
+  taskId          String        @unique @map("task_id")
+  task            AffiliateTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  businessId      String        @map("business_id")
+  businessUserId  String        @map("business_user_id")
+  affiliateUserId String?       @map("affiliate_user_id")
+  affiliateEmail  String?       @map("affiliate_email")
 
   // Source prices are in the task currency (normally GBP); credits are what
   // actually moves in the MCOM wallet.
-  currency               String                      @default("GBP") @map("currency")
-  fxBase                 String                      @default("GBP") @map("fx_base")
-  fxQuote                String                      @default("MCOM") @map("fx_quote")
-  fxRate                 Decimal                     @default(1) @map("fx_rate") @db.Decimal(18, 6)
+  currency String  @default("GBP") @map("currency")
+  fxBase   String  @default("GBP") @map("fx_base")
+  fxQuote  String  @default("MCOM") @map("fx_quote")
+  fxRate   Decimal @default(1) @map("fx_rate") @db.Decimal(18, 6)
 
-  businessChargeAmount   Decimal?                    @map("business_charge_amount") @db.Decimal(18, 4)
-  businessChargeCredits  Decimal?                    @map("business_charge_credits") @db.Decimal(18, 4)
-  compensationAmount     Decimal?                    @map("compensation_amount") @db.Decimal(18, 4)
+  businessChargeAmount   Decimal? @map("business_charge_amount") @db.Decimal(18, 4)
+  businessChargeCredits  Decimal? @map("business_charge_credits") @db.Decimal(18, 4)
+  compensationAmount     Decimal? @map("compensation_amount") @db.Decimal(18, 4)
   // Exact integer source amount in pence (GBP minor units).
-  compensationPence      Int?                        @map("compensation_pence")
-  compensationCredits    Decimal?                    @map("compensation_credits") @db.Decimal(18, 4)
-  platformFeePercent     Decimal                     @default(0) @map("platform_fee_percent") @db.Decimal(7, 4)
-  platformFeeCredits     Decimal                     @default(0) @map("platform_fee_credits") @db.Decimal(18, 4)
+  compensationPence      Int?     @map("compensation_pence")
+  compensationCredits    Decimal? @map("compensation_credits") @db.Decimal(18, 4)
+  platformFeePercent     Decimal  @default(0) @map("platform_fee_percent") @db.Decimal(7, 4)
+  platformFeeCredits     Decimal  @default(0) @map("platform_fee_credits") @db.Decimal(18, 4)
   // The charge-minus-payout spread that stays with the platform on top of the
   // explicit percentage fee. Together they make gross = payout + fee + margin.
-  platformMarginCredits  Decimal                     @default(0) @map("platform_margin_credits") @db.Decimal(18, 4)
-  affiliatePayoutCredits Decimal                     @default(0) @map("affiliate_payout_credits") @db.Decimal(18, 4)
+  platformMarginCredits  Decimal  @default(0) @map("platform_margin_credits") @db.Decimal(18, 4)
+  affiliatePayoutCredits Decimal  @default(0) @map("affiliate_payout_credits") @db.Decimal(18, 4)
 
-  fundingSource          AffiliateSettlementFunding  @default(BUSINESS_WALLET) @map("funding_source")
-  status                 AffiliateSettlementStatus   @default(NOT_REQUIRED) @map("status")
+  fundingSource AffiliateSettlementFunding @default(BUSINESS_WALLET) @map("funding_source")
+  status        AffiliateSettlementStatus  @default(NOT_REQUIRED) @map("status")
 
-  holdId                 String?                     @unique @map("hold_id")
-  holdExpiresAt          DateTime?                   @map("hold_expires_at")
-  businessTransactionId  String?                     @map("business_transaction_id")
-  affiliateTransactionId String?                     @map("affiliate_transaction_id")
-  settlementReference    String?                     @unique @map("settlement_reference")
-  failureReason          String?                     @map("failure_reason")
-  metadata               Json?                       @map("metadata")
+  holdId                 String?   @unique @map("hold_id")
+  holdExpiresAt          DateTime? @map("hold_expires_at")
+  businessTransactionId  String?   @map("business_transaction_id")
+  affiliateTransactionId String?   @map("affiliate_transaction_id")
+  settlementReference    String?   @unique @map("settlement_reference")
+  failureReason          String?   @map("failure_reason")
+  metadata               Json?     @map("metadata")
 
-  heldAt                 DateTime?                   @map("held_at")
-  settledAt              DateTime?                   @map("settled_at")
-  releasedAt             DateTime?                   @map("released_at")
-  createdAt              DateTime                    @default(now()) @map("created_at")
-  updatedAt              DateTime                    @updatedAt @map("updated_at")
+  heldAt     DateTime? @map("held_at")
+  settledAt  DateTime? @map("settled_at")
+  releasedAt DateTime? @map("released_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   @@index([businessId])
   @@index([businessUserId])
@@ -3226,34 +3270,34 @@ enum BusinessRelationshipType {
 /// prospect. The token is the only thing the business needs to register and
 /// still be permanently attributed to the affiliate who introduced them.
 model AffiliateBusinessInvitation {
-  id                 String                            @id @default(uuid())
-  token              String                            @unique
-  affiliateUserId    String?                           @map("affiliate_user_id")
-  affiliateExternalId String?                          @map("affiliate_external_id")
-  affiliateName      String                            @map("affiliate_name")
-  affiliateEmail     String                            @map("affiliate_email")
-  affiliateRole      String                            @map("affiliate_role")
-  prospectExternalId String?                           @map("prospect_external_id")
-  businessName       String                            @map("business_name")
-  contactName        String?                           @map("contact_name")
-  businessPhone      String?                           @map("business_phone")
-  businessEmail      String?                           @map("business_email")
-  postcode           String?
-  address            String?
-  category           String?
-  notes              String?                           @db.Text
-  status             AffiliateBusinessAcquisitionStatus @default(INVITED)
-  businessId         String?                           @map("business_id")
-  business           BusinessProfile?                   @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  registeredUserId   String?                           @map("registered_user_id")
-  registeredAt       DateTime?                         @map("registered_at")
-  onboardingCompletedAt DateTime?                      @map("onboarding_completed_at")
-  verifiedAt         DateTime?                         @map("verified_at")
-  verifiedByUserId   String?                           @map("verified_by_user_id")
-  cancelledAt        DateTime?                         @map("cancelled_at")
-  metadata           Json?
-  createdAt          DateTime                          @default(now()) @map("created_at")
-  updatedAt          DateTime                          @updatedAt @map("updated_at")
+  id                    String                             @id @default(uuid())
+  token                 String                             @unique
+  affiliateUserId       String?                            @map("affiliate_user_id")
+  affiliateExternalId   String?                            @map("affiliate_external_id")
+  affiliateName         String                             @map("affiliate_name")
+  affiliateEmail        String                             @map("affiliate_email")
+  affiliateRole         String                             @map("affiliate_role")
+  prospectExternalId    String?                            @map("prospect_external_id")
+  businessName          String                             @map("business_name")
+  contactName           String?                            @map("contact_name")
+  businessPhone         String?                            @map("business_phone")
+  businessEmail         String?                            @map("business_email")
+  postcode              String?
+  address               String?
+  category              String?
+  notes                 String?                            @db.Text
+  status                AffiliateBusinessAcquisitionStatus @default(INVITED)
+  businessId            String?                            @map("business_id")
+  business              BusinessProfile?                   @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  registeredUserId      String?                            @map("registered_user_id")
+  registeredAt          DateTime?                          @map("registered_at")
+  onboardingCompletedAt DateTime?                          @map("onboarding_completed_at")
+  verifiedAt            DateTime?                          @map("verified_at")
+  verifiedByUserId      String?                            @map("verified_by_user_id")
+  cancelledAt           DateTime?                          @map("cancelled_at")
+  metadata              Json?
+  createdAt             DateTime                           @default(now()) @map("created_at")
+  updatedAt             DateTime                           @updatedAt @map("updated_at")
 
   @@index([affiliateUserId])
   @@index([affiliateExternalId])
@@ -3267,24 +3311,24 @@ model AffiliateBusinessInvitation {
 /// without using the tracked invitation (e.g. in person). Claims require
 /// verification before they can change the permanent acquisition record.
 model AffiliateBusinessClaim {
-  id                  String   @id @default(uuid())
-  businessId          String?  @map("business_id")
-  businessEmail       String?  @map("business_email")
-  businessName        String?  @map("business_name")
-  affiliateUserId     String?  @map("affiliate_user_id")
-  affiliateExternalId String?  @map("affiliate_external_id")
-  affiliateName       String   @map("affiliate_name")
-  affiliateEmail      String   @map("affiliate_email")
-  affiliateRole       String   @map("affiliate_role")
-  prospectExternalId  String?  @map("prospect_external_id")
-  evidence            String?  @db.Text
-  status              String   @default("PENDING") // PENDING | APPROVED | REJECTED
-  reviewedByUserId    String?  @map("reviewed_by_user_id")
+  id                  String    @id @default(uuid())
+  businessId          String?   @map("business_id")
+  businessEmail       String?   @map("business_email")
+  businessName        String?   @map("business_name")
+  affiliateUserId     String?   @map("affiliate_user_id")
+  affiliateExternalId String?   @map("affiliate_external_id")
+  affiliateName       String    @map("affiliate_name")
+  affiliateEmail      String    @map("affiliate_email")
+  affiliateRole       String    @map("affiliate_role")
+  prospectExternalId  String?   @map("prospect_external_id")
+  evidence            String?   @db.Text
+  status              String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedByUserId    String?   @map("reviewed_by_user_id")
   reviewedAt          DateTime? @map("reviewed_at")
-  reviewNotes         String?  @map("review_notes") @db.Text
+  reviewNotes         String?   @map("review_notes") @db.Text
   metadata            Json?
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([businessId])
@@ -3315,4 +3359,110 @@ model BusinessRelationshipHistory {
   @@index([affiliateUserId])
   @@index([affiliateExternalId])
   @@map("business_relationship_history")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL REWARDS
+//
+// Every published configuration is a new immutable version. Only one row is
+// current at a time, so commission calculation always uses the latest update
+// while the full configuration history remains available as a changelog.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ReferralRewardMode {
+  SINGLE
+  PER_ROLE
+}
+
+enum ReferralRewardType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReferralCommissionFrequency {
+  ONE_TIME
+  RECURRING
+}
+
+enum ReferralCommissionSourceType {
+  MEMBERSHIP
+  ACCESS_PASS
+}
+
+enum ReferralCommissionStatus {
+  PENDING
+  CREDITED
+  FAILED
+  SKIPPED_ROLE
+  SKIPPED_PLAN
+  SKIPPED_ONE_TIME
+  SKIPPED_NO_CONFIG
+  SKIPPED_ZERO
+}
+
+model ReferralConfig {
+  id                         String                      @id @default(cuid())
+  version                    Int                         @unique
+  isCurrent                  Boolean                     @default(true) @map("is_current")
+  isActive                   Boolean                     @default(true) @map("is_active")
+  // SINGLE uses percentage/fixedAmountGbp for every eligible role.
+  // PER_ROLE reads roleRewards[role] and falls back to the single values.
+  rewardMode                 ReferralRewardMode          @default(SINGLE) @map("reward_mode")
+  rewardType                 ReferralRewardType          @default(PERCENTAGE) @map("reward_type")
+  percentage                 Decimal?                    @db.Decimal(7, 4)
+  fixedAmountGbp             Decimal?                    @map("fixed_amount_gbp") @db.Decimal(18, 4)
+  roleRewards                Json?                       @map("role_rewards")
+  eligibleRoles              String[]                    @default([]) @map("eligible_roles")
+  qualifyAllMemberships      Boolean                     @default(true) @map("qualify_all_memberships")
+  qualifyAllAccessPasses     Boolean                     @default(true) @map("qualify_all_access_passes")
+  qualifiedMembershipPlanIds String[]                    @default([]) @map("qualified_membership_plan_ids")
+  qualifiedAccessPlanIds     String[]                    @default([]) @map("qualified_access_plan_ids")
+  commissionFrequency        ReferralCommissionFrequency @default(RECURRING) @map("commission_frequency")
+  note                       String?
+  changes                    Json?
+  createdByUserId            String                      @map("created_by_user_id")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+
+  @@index([isCurrent])
+  @@index([createdAt(sort: Desc)])
+  @@map("referral_configs")
+}
+
+/// One row per evaluated referral purchase. Skipped rows are retained so
+/// admins can see that a referral happened even when no commission was due.
+model ReferralCommission {
+  id             String  @id @default(cuid())
+  referrerUserId String  @map("referrer_user_id")
+  referredUserId String  @map("referred_user_id")
+  referrerRole   String  @map("referrer_role")
+  referredRole   String  @map("referred_role")
+  referredEmail  String? @map("referred_email")
+  referredName   String? @map("referred_name")
+
+  sourceType        ReferralCommissionSourceType @map("source_type")
+  sourceId          String                       @map("source_id")
+  sourceName        String?                      @map("source_name")
+  planId            String?                      @map("plan_id")
+  purchaseAmountGbp Decimal                      @map("purchase_amount_gbp") @db.Decimal(18, 4)
+
+  rewardType          ReferralRewardType       @map("reward_type")
+  rewardValue         Decimal                  @map("reward_value") @db.Decimal(18, 4)
+  commissionAmountGbp Decimal                  @default(0) @map("commission_amount_gbp") @db.Decimal(18, 4)
+  fxRate              Decimal?                 @map("fx_rate") @db.Decimal(18, 6)
+  commissionCredits   Decimal                  @default(0) @map("commission_credits") @db.Decimal(18, 4)
+  status              ReferralCommissionStatus
+  walletTransactionId String?                  @map("wallet_transaction_id")
+  configVersion       Int?                     @map("config_version")
+  failureReason       String?                  @map("failure_reason")
+  // Unique per source purchase; makes retries and webhook replays safe.
+  idempotencyKey      String                   @unique @map("idempotency_key")
+  metadata            Json?
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@index([referrerUserId, createdAt(sort: Desc)])
+  @@index([referredUserId])
+  @@index([status])
+  @@index([sourceType, sourceId])
+  @@map("referral_commissions")
 }

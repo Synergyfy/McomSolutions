@@ -25,6 +25,7 @@ import {
 } from '../services/wallet/hooks';
 import { useLockAffiliateTaskFunds } from '../services/business/hooks';
 import { cn } from '../lib/utils';
+import ReferralEarningsCard from './ReferralEarningsCard';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -143,6 +144,8 @@ export default function DashboardWallet() {
         <StatCard label="Received (30d)" value={summary?.totalCredited ?? 0} color="text-emerald-500" icon={ArrowUpRight} />
         <StatCard label="Net Flow" value={summary?.netFlow ?? 0} color={(summary?.netFlow ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'} icon={WalletIcon} />
       </div>
+
+      <ReferralEarningsCard compact />
 
       {/* Spending by platform */}
       {(summary?.spentByPlatform?.length ?? 0) > 0 && (

@@ -6,7 +6,7 @@ import { LocationAssignmentService } from '../geography/location-assignment.serv
 import { UkReferenceDataService } from '../geography/uk-reference-data.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
+import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier, MembershipTier } from '@prisma/client';
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { generateUniqueReferralCode } from '../common/referral/referral.util';
@@ -18,7 +18,7 @@ import {
   planTierLabel,
   resolveOptionPrice,
 } from '../pricing/payment-option.util';
-import type { PlanTierInputDto } from './dto/admin.dto';
+import type { MembershipWhitelabelPlatformInputDto, PlanTierInputDto, WhitelabelPlatformInputDto } from './dto/admin.dto';
 import {
   CreateBusinessUserDto,
   CreateCustomerUserDto,
@@ -794,6 +794,131 @@ export class AdminService implements OnModuleInit {
 
   // ─── White-label Access (business only) ───────────────
   /**
+   * White-label platforms a business is entitled to through its active
+   * membership variant or an active access pass. Manual admin grants live in
+   * `whitelabel_accesses` and are returned separately.
+   */
+  private async resolveDerivedWhitelabelGrants(businessId: string | null | undefined) {
+    if (!businessId) return [];
+    const now = new Date();
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: {
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipLevel: true,
+        membershipExpiresAt: true,
+        membershipTier: true,
+      },
+    });
+    if (!business) return [];
+
+    const results: Array<{
+      id: string;
+      businessId: string;
+      clientId: string;
+      grantedBy: string | null;
+      source: 'MEMBERSHIP' | 'ACCESS_PASS';
+      planName: string;
+      expiresAt: Date | null;
+      createdAt: Date;
+      client: { clientId: string; name: string; platformSlug: string | null; logoUrl: string | null } | null;
+    }> = [];
+
+    const status = String(business.membershipStatus || '').toLowerCase();
+    const planName = business.membershipPlanName || business.membershipLevel;
+    const expired =
+      business.membershipExpiresAt != null &&
+      new Date(business.membershipExpiresAt).getTime() <= now.getTime();
+    if (['active', 'trial', 'past_due'].includes(status) && planName && !expired) {
+      const planTier =
+        business.membershipTier === MembershipTier.Pro
+          ? PlanTier.Pro
+          : business.membershipTier === MembershipTier.ProPlus
+            ? PlanTier.ProPlus
+            : PlanTier.Standard;
+      const grants = await this.prisma.membershipPlanWhitelabelAccess.findMany({
+        where: {
+          tiers: { has: planTier },
+          plan: {
+            name: { equals: planName, mode: 'insensitive' },
+            archived: false,
+            deletedAt: null,
+          },
+        },
+        include: {
+          client: {
+            select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+          },
+        },
+      });
+      for (const grant of grants) {
+        results.push({
+          id: `membership:${grant.id}`,
+          businessId,
+          clientId: grant.clientId,
+          grantedBy: null,
+          source: 'MEMBERSHIP',
+          planName,
+          expiresAt: business.membershipExpiresAt ?? null,
+          createdAt: grant.createdAt,
+          client: grant.client,
+        });
+      }
+    }
+
+    const passes = await this.prisma.accessPurchase.findMany({
+      where: {
+        businessId,
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+        accessPlan: { whitelabelAccess: { some: {} } },
+      },
+      select: {
+        accessPlanName: true,
+        expiresAt: true,
+        accessPlan: {
+          select: {
+            whitelabelAccess: {
+              include: {
+                client: {
+                  select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    for (const purchase of passes) {
+      for (const grant of purchase.accessPlan?.whitelabelAccess ?? []) {
+        results.push({
+          id: `access:${grant.id}:${purchase.expiresAt.toISOString()}`,
+          businessId,
+          clientId: grant.clientId,
+          grantedBy: null,
+          source: 'ACCESS_PASS',
+          planName: purchase.accessPlanName,
+          expiresAt: purchase.expiresAt,
+          createdAt: grant.createdAt,
+          client: grant.client,
+        });
+      }
+    }
+
+    // One row per platform, preferring manual > membership > access pass.
+    const byClient = new Map<string, (typeof results)[number]>();
+    for (const grant of results) {
+      const existing = byClient.get(grant.clientId);
+      if (!existing || (existing.source === 'ACCESS_PASS' && grant.source === 'MEMBERSHIP')) {
+        byClient.set(grant.clientId, grant);
+      }
+    }
+    return [...byClient.values()];
+  }
+
+  /**
    * Lists every white-label-enabled platform plus the grants this business
    * currently holds. Only BUSINESS profiles can own white-label grants.
    */
@@ -804,7 +929,7 @@ export class AdminService implements OnModuleInit {
     });
     if (!business) throw new NotFoundException('Business profile not found');
 
-    const [platforms, grants] = await Promise.all([
+    const [platforms, grants, derivedGrants] = await Promise.all([
       this.prisma.ssoClient.findMany({
         where: { allowWhitelabel: true, isActive: true },
         select: {
@@ -821,6 +946,7 @@ export class AdminService implements OnModuleInit {
         where: { businessId },
         select: { clientId: true, createdAt: true },
       }),
+      this.resolveDerivedWhitelabelGrants(businessId),
     ]);
 
     return {
@@ -829,6 +955,8 @@ export class AdminService implements OnModuleInit {
         business: { id: business.id, name: business.businessName },
         platforms,
         grantedClientIds: grants.map((g) => g.clientId),
+        planGrantedClientIds: derivedGrants.map((g) => g.clientId),
+        derivedGrants,
       },
     };
   }
@@ -1558,16 +1686,61 @@ export class AdminService implements OnModuleInit {
     const platformPackages = sortByDateDesc(grouped.platformPackages ?? []);
     const accessPurchases = sortByDateDesc(grouped.accessPurchases ?? []);
     const whitelabelGrants = sortByDateDesc(grouped.whitelabelGrants ?? []);
+    const derivedWhitelabelGrants = businessProfile
+      ? await this.resolveDerivedWhitelabelGrants(businessProfile.id)
+      : [];
+    const manualWhitelabelClientIds = new Set(
+      whitelabelGrants.map((grant: any) => grant.clientId),
+    );
+    const allWhitelabelGrants = [
+      ...whitelabelGrants.map((grant: any) => ({ ...grant, source: 'ADMIN' })),
+      ...derivedWhitelabelGrants.filter(
+        (grant) => !manualWhitelabelClientIds.has(grant.clientId),
+      ),
+    ];
     const billingTransactions = sortByDateDesc(grouped.billingTransactions ?? []);
     const couponRedemptions = sortByDateDesc(grouped.couponRedemptions ?? []);
     const taskAssignments = sortByDateDesc(grouped.taskAssignments ?? [], 'assignedAt');
     const notifications = sortByDateDesc(grouped.notifications ?? []);
     const supportTickets = sortByDateDesc(grouped.supportTickets ?? []);
     const programmes = sortByDateDesc(grouped.programmes ?? []);
-    const affiliateTasks = sortByDateDesc(grouped.affiliateTasks ?? []);
+    const affiliateTasksRaw = sortByDateDesc(grouped.affiliateTasks ?? []);
     const reputationEvents = sortByDateDesc(grouped.reputationEvents ?? []);
     const ratingsReceived = sortByDateDesc(grouped.ratingsReceived ?? []);
     const affiliateReports = sortByDateDesc(grouped.affiliateReports ?? []);
+
+    const reputationByTask = new Map<string, number>();
+    for (const event of reputationEvents as Array<{ delta?: number; sourceId?: string | null }>) {
+      if (!event.sourceId) continue;
+      reputationByTask.set(
+        event.sourceId,
+        (reputationByTask.get(event.sourceId) ?? 0) + Number(event.delta ?? 0),
+      );
+    }
+
+    const affiliateTasks = affiliateTasksRaw.map((task: any) => {
+      const settlement = task.settlement ?? null;
+      const earnedGbp =
+        settlement?.compensationAmount != null
+          ? Number(settlement.compensationAmount)
+          : task.compensationAmount != null
+            ? Number(task.compensationAmount)
+            : null;
+      const earnedCredits =
+        settlement?.affiliatePayoutCredits != null
+          ? Number(settlement.affiliatePayoutCredits)
+          : null;
+      return {
+        ...task,
+        // The schema has no dedicated assignment timestamp; acceptance is the
+        // closest event, otherwise the task creation date is the assignment date.
+        assignedAt: task.acceptedAt ?? task.createdAt ?? null,
+        reputationDelta: reputationByTask.get(task.id) ?? 0,
+        earnedGbp,
+        earnedCredits,
+        spentGbp: task.businessChargeAmount != null ? Number(task.businessChargeAmount) : null,
+      };
+    });
 
     const walletRow = grouped.wallet?.[0] ?? null;
     const wallet = walletRow
@@ -1649,7 +1822,7 @@ export class AdminService implements OnModuleInit {
           installmentSubscriptions,
           platformPackages,
           accessPurchases,
-          whitelabelGrants,
+          whitelabelGrants: allWhitelabelGrants,
         },
         financials: {
           totalRevenue,
@@ -1707,9 +1880,113 @@ export class AdminService implements OnModuleInit {
           },
         },
         appBundles: true,
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
     return { success: true, data: items };
+  }
+
+  /**
+   * Normalises the admin-selected membership variants for a white-label
+   * platform. "Normal" is the legacy name for Standard; "ProPlus" and "Pro+"
+   * both map to the stored PlanTier.ProPlus value.
+   */
+  private normalizeWhitelabelTiers(tiers: string[] | undefined): PlanTier[] {
+    const seen = new Set<PlanTier>();
+    for (const raw of tiers ?? []) {
+      const normalized = String(raw).toLowerCase().replace(/[^a-z+]/g, '');
+      if (normalized === 'standard' || normalized === 'normal') seen.add(PlanTier.Standard);
+      else if (normalized === 'pro') seen.add(PlanTier.Pro);
+      else if (normalized === 'pro+' || normalized === 'proplus') seen.add(PlanTier.ProPlus);
+      else throw new BadRequestException(`Unknown membership variant "${raw}".`);
+    }
+    if (seen.size === 0) {
+      throw new BadRequestException(
+        'Choose at least one membership variant for each white-label platform.',
+      );
+    }
+    return [...seen];
+  }
+
+  /** Rejects client ids that are not active white-label platforms. */
+  private async assertWhitelabelClientsTx(
+    tx: Prisma.TransactionClient,
+    clientIds: string[],
+  ): Promise<void> {
+    const unique = [...new Set(clientIds.map((id) => id.trim()).filter(Boolean))];
+    if (unique.length === 0) return;
+    const clients = await tx.ssoClient.findMany({
+      where: { clientId: { in: unique } },
+      select: { clientId: true, allowWhitelabel: true, isActive: true },
+    });
+    const invalid = unique.filter(
+      (clientId) =>
+        !clients.some(
+          (c) => c.clientId === clientId && c.allowWhitelabel && c.isActive,
+        ),
+    );
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `These platforms are not active white-label platforms: ${invalid.join(', ')}`,
+      );
+    }
+  }
+
+  private async syncMembershipWhitelabelAccessTx(
+    tx: Prisma.TransactionClient,
+    planId: string,
+    entries: MembershipWhitelabelPlatformInputDto[] | undefined,
+  ): Promise<void> {
+    if (entries === undefined) return;
+    await this.assertWhitelabelClientsTx(
+      tx,
+      entries.map((entry) => entry.clientId),
+    );
+    const byClient = new Map<string, Set<PlanTier>>();
+    for (const entry of entries) {
+      const clientId = entry.clientId?.trim();
+      if (!clientId) continue;
+      const tiers = this.normalizeWhitelabelTiers(entry.tiers);
+      const current = byClient.get(clientId) ?? new Set<PlanTier>();
+      for (const tier of tiers) current.add(tier);
+      byClient.set(clientId, current);
+    }
+    await tx.membershipPlanWhitelabelAccess.deleteMany({ where: { planId } });
+    if (byClient.size === 0) return;
+    await tx.membershipPlanWhitelabelAccess.createMany({
+      data: [...byClient.entries()].map(([clientId, tiers]) => ({
+        planId,
+        clientId,
+        tiers: [...tiers],
+      })),
+    });
+  }
+
+  private async syncAccessPlanWhitelabelAccessTx(
+    tx: Prisma.TransactionClient,
+    accessPlanId: string,
+    entries: WhitelabelPlatformInputDto[] | undefined,
+  ): Promise<void> {
+    if (entries === undefined) return;
+    await this.assertWhitelabelClientsTx(
+      tx,
+      entries.map((entry) => entry.clientId),
+    );
+    const clientIds = [
+      ...new Set(entries.map((entry) => entry.clientId?.trim()).filter(Boolean)),
+    ];
+    await tx.accessPlanWhitelabelAccess.deleteMany({ where: { accessPlanId } });
+    if (clientIds.length === 0) return;
+    await tx.accessPlanWhitelabelAccess.createMany({
+      data: clientIds.map((clientId) => ({ accessPlanId, clientId })),
+    });
   }
 
   /**
@@ -1722,6 +1999,7 @@ export class AdminService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     planId: string,
     tiers: PlanTierInputDto[],
+    defaults: { freeDelegatedTasks?: number; unlimitedFreeDelegatedTasks?: boolean } = {},
   ) {
     const seen = new Set<string>();
     const tierPrices: Record<string, number> = {};
@@ -1746,8 +2024,30 @@ export class AdminService implements OnModuleInit {
 
       const tierRow = await tx.membershipPlanTier.upsert({
         where: { planId_tier: { planId, tier: planTier } },
-        update: { durationDays, fullPrice: t.fullPrice, sortOrder: index },
-        create: { planId, tier: planTier, durationDays, fullPrice: t.fullPrice, sortOrder: index },
+        update: {
+          durationDays,
+          fullPrice: t.fullPrice,
+          sortOrder: index,
+          ...(t.freeDelegatedTasks !== undefined
+            ? { freeDelegatedTasks: Math.max(0, Math.round(t.freeDelegatedTasks)) }
+            : {}),
+          ...(t.unlimitedFreeDelegatedTasks !== undefined
+            ? { unlimitedFreeDelegatedTasks: t.unlimitedFreeDelegatedTasks }
+            : {}),
+        },
+        create: {
+          planId,
+          tier: planTier,
+          durationDays,
+          fullPrice: t.fullPrice,
+          sortOrder: index,
+          freeDelegatedTasks: Math.max(
+            0,
+            Math.round(t.freeDelegatedTasks ?? defaults.freeDelegatedTasks ?? 0),
+          ),
+          unlimitedFreeDelegatedTasks:
+            t.unlimitedFreeDelegatedTasks ?? defaults.unlimitedFreeDelegatedTasks ?? false,
+        },
       });
 
       // Payment options replace the tier's whole set; an outright (full)
@@ -1926,7 +2226,10 @@ export class AdminService implements OnModuleInit {
 
       let result = created;
       if (dto.tiers && dto.tiers.length > 0) {
-        const mirror = await this.syncPlanTiersTx(tx, created.id, dto.tiers);
+        const mirror = await this.syncPlanTiersTx(tx, created.id, dto.tiers, {
+          freeDelegatedTasks: dto.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: dto.unlimitedFreeDelegatedTasks,
+        });
         result = await tx.membershipPlan.update({
           where: { id: created.id },
           data: {
@@ -1939,6 +2242,9 @@ export class AdminService implements OnModuleInit {
       }
       if (Array.isArray(dto.includedApps)) {
         await this.syncPlanBundlesTx(tx, created.id, dto.includedApps);
+      }
+      if (dto.whitelabelAccess !== undefined) {
+        await this.syncMembershipWhitelabelAccessTx(tx, created.id, dto.whitelabelAccess);
       }
 
       await this.logAuditTx(tx, 'Membership Created', 'Membership', dto.name, `Created ${dto.name} membership`, adminName);
@@ -1958,8 +2264,9 @@ export class AdminService implements OnModuleInit {
         platformAccess = Array.from(new Set(updates.includedApps.map((a: any) => a.platform).filter(Boolean)));
       }
 
-      // `tiers` is a relational-only input — never pass it to the plan update.
-      const { tiers, ...planUpdates } = updates;
+      // `tiers` and `whitelabelAccess` are relational-only inputs — never pass
+      // them to the plan update.
+      const { tiers, whitelabelAccess: _whitelabelAccess, ...planUpdates } = updates;
       const result = await tx.membershipPlan.update({
         where: { id },
         data: {
@@ -1970,7 +2277,10 @@ export class AdminService implements OnModuleInit {
       });
 
       if (tiers && tiers.length > 0) {
-        const mirror = await this.syncPlanTiersTx(tx, id, tiers);
+        const mirror = await this.syncPlanTiersTx(tx, id, tiers, {
+          freeDelegatedTasks: updates.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: updates.unlimitedFreeDelegatedTasks,
+        });
         const prevPrices = (planExists.tierPrices as Record<string, number> | null) ?? {};
         const prevFeatures = (planExists.tierFeatures as Record<string, string[]> | null) ?? {};
         const prevDurations = (planExists.tierDurations as Record<string, number> | null) ?? {};
@@ -1997,6 +2307,9 @@ export class AdminService implements OnModuleInit {
       }
       if (Array.isArray(updates.includedApps)) {
         await this.syncPlanBundlesTx(tx, id, updates.includedApps);
+      }
+      if (updates.whitelabelAccess !== undefined) {
+        await this.syncMembershipWhitelabelAccessTx(tx, id, updates.whitelabelAccess);
       }
 
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
@@ -2117,7 +2430,17 @@ export class AdminService implements OnModuleInit {
   async getAccessPlans() {
     const items = await this.prisma.accessPlan.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        appBundles: { orderBy: { createdAt: 'asc' } },
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     return { success: true, data: items };
   }
@@ -2125,7 +2448,17 @@ export class AdminService implements OnModuleInit {
   async getAccessPlan(id: string) {
     const plan = await this.prisma.accessPlan.findFirst({
       where: { id },
-      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        appBundles: { orderBy: { createdAt: 'asc' } },
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     if (!plan) throw new NotFoundException('Access plan not found');
     return { success: true, data: plan };
@@ -2155,6 +2488,9 @@ export class AdminService implements OnModuleInit {
       await tx.accessPlanAppBundle.createMany({
         data: rows.map((row) => ({ ...row, accessPlanId: created.id })),
       });
+      if (dto.whitelabelAccess !== undefined) {
+        await this.syncAccessPlanWhitelabelAccessTx(tx, created.id, dto.whitelabelAccess);
+      }
       await this.logAuditTx(
         tx,
         'Access Plan Created',
@@ -2213,6 +2549,9 @@ export class AdminService implements OnModuleInit {
         await tx.accessPlanAppBundle.createMany({
           data: bundleData.rows.map((row) => ({ ...row, accessPlanId: id })),
         });
+      }
+      if (updates.whitelabelAccess !== undefined) {
+        await this.syncAccessPlanWhitelabelAccessTx(tx, id, updates.whitelabelAccess);
       }
       await this.logAuditTx(
         tx,

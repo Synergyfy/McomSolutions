@@ -7,6 +7,7 @@ import {
   ensureUserReferralCode,
   isReferralEligibleRole,
 } from '../common/referral/referral.util';
+import { ReferralCommissionService } from './referral-commission.service';
 
 const referredUserSelect = {
   id: true,
@@ -22,6 +23,7 @@ export class ReferralsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly commission: ReferralCommissionService,
   ) {}
 
   private buildLink(code: string): string {
@@ -84,5 +86,59 @@ export class ReferralsService {
       where: { referredById: userId },
     });
     return { success: true, totalReferrals };
+  }
+
+  /**
+   * Referral-earnings view for the signed-in business/customer/affiliate.
+   * The wallet balance remains the source of truth; this is the breakdown of
+   * which referred users generated the referral credits.
+   */
+  async getMyEarnings(userId: string, historyLimit = 20) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (!isReferralEligibleRole(user.role)) {
+      throw new ForbiddenException('Admin accounts do not participate in the referral programme');
+    }
+    return this.getEarningsForUser(userId, historyLimit);
+  }
+
+  /** Internal/back-office variant that does not reject admins. */
+  async getEarningsForUser(userId: string, historyLimit = 20) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return {
+      success: true,
+      data: await this.commission.getEarningsForUser(userId, historyLimit),
+    };
+  }
+
+  async getAdminReferrerDetail(userId: string) {
+    const referrer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        referralCode: true,
+        createdAt: true,
+      },
+    });
+    if (!referrer) throw new NotFoundException('Referrer not found');
+    const earnings = await this.commission.getReferrerAdminSummary(userId);
+    return {
+      success: true,
+      data: {
+        referrer,
+        ...earnings,
+      },
+    };
   }
 }

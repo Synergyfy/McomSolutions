@@ -28,6 +28,7 @@ import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatch
 import { ExternalPlan } from '../service-connectors/connectors/connector.interface';
 import { RecurringService } from '../recurring/recurring.service';
 import { WalletService } from '../wallet/wallet.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 
 /** Authenticated caller attempting a payment operation. */
 export interface PaymentCaller {
@@ -149,6 +150,7 @@ export class PaymentService {
     private webhookDispatcher: WebhookDispatcherService,
     private recurringService: RecurringService,
     @Optional() private redis?: RedisService,
+    @Optional() private businessAcquisition?: BusinessAcquisitionService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -3296,6 +3298,17 @@ export class PaymentService {
     } catch (txErr) {
       this.logger.warn(`Failed to record verification fee billing transaction: ${txErr}`);
     }
+
+    // Verification fee paid → the invited business has converted into a trial.
+    void this.businessAcquisition?.notifyBusinessConversion({
+      businessId,
+      conversionType: 'trial',
+      planName: `${days}-day trial access`,
+      amount: amountGBP,
+      currency: 'GBP',
+      provider,
+      providerPaymentId,
+    });
 
     // Dispatch entitlement.trial_started to all console platforms with active tasks in programme
     try {

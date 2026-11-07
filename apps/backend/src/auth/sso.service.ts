@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, SsoClient } from '@prisma/client';
+import { Prisma, SsoClient, MembershipTier, PlanTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
@@ -215,18 +215,84 @@ export class SsoService {
 
   /**
    * White-label grant lookup. `businessId` is the BusinessProfile id and
-   * `clientId` is the SsoClient natural key. Returns null when either side is
-   * missing or no grant exists.
+   * `clientId` is the SsoClient natural key. A grant can come from:
+   *
+   *  1. an explicit admin grant (`whitelabel_accesses`), or
+   *  2. an active membership whose plan includes this platform for the
+   *     purchased variant, or
+   *  3. an active access pass whose plan includes this platform.
+   *
+   * Membership/access-pass grants are evaluated live, so access ends
+   * automatically when the entitlement expires.
    */
   private async findWhitelabelGrant(
     businessId: string | null | undefined,
     clientId: string | null | undefined,
   ) {
     if (!businessId || !clientId) return null;
-    return this.prisma.whitelabelAccess.findUnique({
+
+    const manual = await this.prisma.whitelabelAccess.findUnique({
       where: { businessId_clientId: { businessId, clientId } },
       select: { createdAt: true },
     });
+    if (manual) return manual;
+
+    const now = new Date();
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: {
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipLevel: true,
+        membershipExpiresAt: true,
+        membershipTier: true,
+      },
+    });
+
+    if (business) {
+      const status = String(business.membershipStatus || '').toLowerCase();
+      const planName = business.membershipPlanName || business.membershipLevel;
+      const expired =
+        business.membershipExpiresAt != null &&
+        new Date(business.membershipExpiresAt).getTime() <= now.getTime();
+      const membershipActive =
+        ['active', 'trial', 'past_due'].includes(status) && !!planName && !expired;
+
+      if (membershipActive) {
+        const planTier =
+          business.membershipTier === MembershipTier.Pro
+            ? PlanTier.Pro
+            : business.membershipTier === MembershipTier.ProPlus
+              ? PlanTier.ProPlus
+              : PlanTier.Standard;
+        const match = await this.prisma.membershipPlanWhitelabelAccess.findFirst({
+          where: {
+            clientId,
+            tiers: { has: planTier },
+            plan: {
+              name: { equals: planName!, mode: 'insensitive' },
+              archived: false,
+              deletedAt: null,
+            },
+          },
+          select: { createdAt: true },
+        });
+        if (match) return match;
+      }
+    }
+
+    const pass = await this.prisma.accessPurchase.findFirst({
+      where: {
+        businessId,
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+        accessPlan: { whitelabelAccess: { some: { clientId } } },
+      },
+      orderBy: { expiresAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return pass ?? null;
   }
 
   /**
@@ -236,8 +302,11 @@ export class SsoService {
    *
    * Rules:
    *  - Only BUSINESS accounts (with a business profile) are eligible.
-   *  - An explicit admin grant must exist for that business + platform.
-   *  - Membership tier / packages / access passes are irrelevant.
+   *  - An explicit admin grant, an active membership variant, or an active
+   *    access pass that includes the platform must exist.
+   *  - Membership tier / packages / access passes are checked only through the
+   *    configured white-label bundles, never through the normal entitlement
+   *    pipeline.
    */
   async assertWhitelabelAccess(
     userId: string,
@@ -785,9 +854,9 @@ export class SsoService {
     let appPlan: AppPlanView | null = null;
     const targetPlatformIdent = targetClient?.clientId || targetClient?.platformSlug || targetClient?.name || explicitPlatform;
 
-    // White-label admission: business-only, explicit admin grant, and no
-    // membership/access-pass dependency. This verdict overrides the normal
-    // package/membership resolution below.
+    // White-label admission: business-only, sourced from an explicit admin
+    // grant, an active membership variant, or an active access pass. This
+    // verdict overrides the normal package/membership resolution below.
     const isWhitelabelPlatform = Boolean(targetClient?.allowWhitelabel);
     const whitelabelBusinessId = businessProfile?.id ?? null;
     const whitelabelRoleEligible = user?.role === 'BUSINESS' && Boolean(whitelabelBusinessId);

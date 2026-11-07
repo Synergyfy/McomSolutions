@@ -83,21 +83,30 @@ export class AffiliateTaskQuotaService {
           unlimitedFreeDelegatedTasks: true,
           tiers: {
             where: { tier: this.mapTier(business.membershipTier) },
-            select: { durationDays: true },
+            select: {
+              durationDays: true,
+              freeDelegatedTasks: true,
+              unlimitedFreeDelegatedTasks: true,
+            },
             take: 1,
           },
         },
       });
 
       const period = await this.membershipPeriod(business.id, business.membershipExpiresAt, plan);
+      const tierConfig = plan?.tiers?.[0];
       return this.build(
         'MEMBERSHIP',
         plan?.id ?? null,
         plan?.name ?? planName,
-        plan?.freeDelegatedTasks ?? 0,
+        // The purchased variant carries its own allowance. Plan-level values
+        // remain a fallback for plans created before per-variant quotas.
+        tierConfig?.freeDelegatedTasks ?? plan?.freeDelegatedTasks ?? 0,
         // A paid membership whose plan row no longer exists keeps the legacy
         // "included" behaviour instead of silently charging the business.
-        plan?.unlimitedFreeDelegatedTasks ?? true,
+        tierConfig?.unlimitedFreeDelegatedTasks ??
+          plan?.unlimitedFreeDelegatedTasks ??
+          true,
         businessId,
         period,
         opts.excludeTaskId,
