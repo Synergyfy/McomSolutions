@@ -23,6 +23,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, type CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { ReferralCommissionService } from '../referrals/referral-commission.service';
+import { ReferralCommissionSourceType } from '@prisma/client';
 import { WalletService } from '../wallet/wallet.service';
 import { MailService } from '../common/mail/mail.service';
 
@@ -100,6 +102,8 @@ export class AccessService {
     private readonly events?: EcosystemEventsService,
     @Optional()
     private readonly businessAcquisition?: BusinessAcquisitionService,
+    @Optional()
+    private readonly referralCommission?: ReferralCommissionService,
   ) {}
 
   private addDaysUtc(date: Date, days: number): Date {
@@ -629,6 +633,18 @@ export class AccessService {
       },
     });
 
+    if (existing.purchaserBusinessId && Number(existing.amount) > 0 && opts.provider !== 'manual') {
+      void this.referralCommission?.recordBusinessPurchase({
+        businessId: existing.purchaserBusinessId,
+        sourceType: ReferralCommissionSourceType.ACCESS_PASS,
+        sourceId: `access-code:${updated.id}`,
+        sourceName: existing.accessPlan.name,
+        planId: existing.accessPlanId,
+        amountGbp: Number(existing.amount),
+        paymentReference: opts.providerPaymentId,
+      });
+    }
+
     const emailSent = await this.sendAccessCodeEmail(updated, existing.accessPlan.name);
     return this.codeResult(updated, existing.accessPlan.name, emailSent);
   }
@@ -822,6 +838,18 @@ export class AccessService {
         purchasedAt: new Date(),
       },
     });
+
+    if (Number(input.amount) > 0) {
+      void this.referralCommission?.recordBusinessPurchase({
+        businessId: input.businessId,
+        sourceType: ReferralCommissionSourceType.ACCESS_PASS,
+        sourceId: `access-code:${created.id}`,
+        sourceName: plan.name,
+        planId: input.accessPlanId,
+        amountGbp: Number(input.amount),
+        paymentReference: input.providerPaymentId,
+      });
+    }
 
     const emailSent = await this.sendAccessCodeEmail(created, plan.name);
     return this.codeResult(created, plan.name, emailSent);
@@ -1307,6 +1335,26 @@ export class AccessService {
         provider: opts.provider,
         providerPaymentId: opts.providerPaymentId,
       });
+
+      if (
+        opts.provider !== 'manual' &&
+        Boolean(
+          opts.providerPaymentId ||
+            opts.provider === 'stripe' ||
+            opts.provider === 'paypal' ||
+            opts.provider === 'wallet',
+        )
+      ) {
+        void this.referralCommission?.recordBusinessPurchase({
+          businessId,
+          sourceType: ReferralCommissionSourceType.ACCESS_PASS,
+          sourceId: `access-purchase:${result.purchase.id}`,
+          sourceName: plan.name,
+          planId: plan.id,
+          amountGbp: chargedAmount,
+          paymentReference: opts.providerPaymentId ?? null,
+        });
+      }
 
       return {
         ...result.purchase,

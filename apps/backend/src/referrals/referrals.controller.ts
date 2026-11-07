@@ -10,6 +10,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReferralsService } from './referrals.service';
 import { ReferralQueryDto } from './dto/referral-query.dto';
+import { ReferralEarningsQueryDto } from './dto/referral-config.dto';
 import {
   ReferralInfoResponseDto,
   ReferralListResponseDto,
@@ -39,6 +40,19 @@ export class ReferralsController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid auth token' })
   getMyReferralStats(@Request() req: any): Promise<ReferralStatsResponseDto> {
     return this.referralsService.getMyReferralStats(req.user.userId);
+  }
+
+  @Get('earnings')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get my referral earnings, per-referred-user breakdown and history',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth token' })
+  getMyEarnings(
+    @Request() req: any,
+    @Query() query: ReferralEarningsQueryDto,
+  ) {
+    return this.referralsService.getMyEarnings(req.user.userId, query.limit);
   }
 
   @Get()

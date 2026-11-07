@@ -30,6 +30,8 @@ import { NotificationService } from '../notification/notification.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { PricingService } from '../pricing/pricing.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { ReferralCommissionService } from '../referrals/referral-commission.service';
+import { ReferralCommissionSourceType } from '@prisma/client';
 import { normalizePlanTier } from '../pricing/payment-option.util';
 import {
   ChargeEvidence,
@@ -71,6 +73,7 @@ export class RecurringService {
     private readonly pricingService: PricingService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly businessAcquisition?: BusinessAcquisitionService,
+    @Optional() private readonly referralCommission?: ReferralCommissionService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -991,6 +994,20 @@ export class RecurringService {
           currency: fresh.currency || 'GBP',
           provider: fresh.provider,
           providerPaymentId,
+        });
+      }
+
+      // Recurring mandates earn per paid period when configured RECURRING;
+      // the commission service enforces ONE_TIME automatically.
+      if (!alreadyApplied) {
+        void this.referralCommission?.recordBusinessPurchase({
+          businessId: fresh.businessId,
+          sourceType: ReferralCommissionSourceType.MEMBERSHIP,
+          sourceId: `recurring-charge:${providerPaymentId}`,
+          sourceName: fresh.membershipPlanName || fresh.planName || 'Membership',
+          planId: fresh.membershipPlanId,
+          amountGbp: evidence.amount,
+          paymentReference: providerPaymentId,
         });
       }
     } else if (fresh.platform) {

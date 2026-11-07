@@ -2032,3 +2032,124 @@ export interface AdminFullUserProfile {
   }
   meta: { generatedAt: string }
 }
+
+// ─── Referral rewards ─────────────────────────────────
+export interface AdminReferralReferrer {
+  id: string
+  email: string
+  firstName: string | null
+  lastName: string | null
+  displayName: string
+  role: string
+  referralCode: string | null
+  joinedAt: string
+  totalReferrals: number
+  creditedCommissions: number
+  skippedEvaluations: number
+  earnedCredits: number
+  earnedGbp: number
+  lastActivityAt: string | null
+}
+
+export interface AdminReferralReferrersResponse {
+  success: boolean
+  data: AdminReferralReferrer[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+export interface RoleRewardConfig {
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage?: number | null
+  fixedAmountGbp?: number | null
+}
+
+export interface AdminReferralConfig {
+  id: string
+  version: number
+  isCurrent: boolean
+  isActive: boolean
+  rewardMode: 'SINGLE' | 'PER_ROLE'
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage: number | null
+  fixedAmountGbp: number | null
+  roleRewards: Record<string, RoleRewardConfig>
+  eligibleRoles: string[]
+  qualifyAllMemberships: boolean
+  qualifyAllAccessPasses: boolean
+  qualifiedMembershipPlanIds: string[]
+  qualifiedAccessPlanIds: string[]
+  commissionFrequency: 'ONE_TIME' | 'RECURRING'
+  note: string | null
+  changes: Array<{ field: string; from: unknown; to: unknown }>
+  createdByUserId: string
+  createdAt: string
+}
+
+export interface PublishReferralConfigInput {
+  isActive?: boolean
+  rewardMode: 'SINGLE' | 'PER_ROLE'
+  rewardType: 'PERCENTAGE' | 'FIXED'
+  percentage?: number | null
+  fixedAmountGbp?: number | null
+  roleRewards?: Record<string, RoleRewardConfig>
+  eligibleRoles: string[]
+  qualifyAllMemberships?: boolean
+  qualifyAllAccessPasses?: boolean
+  qualifiedMembershipPlanIds?: string[]
+  qualifiedAccessPlanIds?: string[]
+  commissionFrequency: 'ONE_TIME' | 'RECURRING'
+  note?: string
+}
+
+export interface AdminReferralCommission {
+  id: string
+  sourceType: 'MEMBERSHIP' | 'ACCESS_PASS'
+  sourceName: string | null
+  purchaseAmountGbp: number
+  commissionAmountGbp: number
+  commissionCredits: number
+  status: string
+  referredUserId: string
+  referredName: string | null
+  referredEmail: string | null
+  configVersion: number | null
+  createdAt: string
+}
+
+export interface AdminReferralDetail {
+  referrer: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+    role: string
+    referralCode: string | null
+    createdAt: string
+  }
+  summary: {
+    totalReferrals: number
+    creditedReferrals: number
+    totalEarnedCredits: number
+    totalEarnedGbp: number
+    creditedCommissionCount: number
+    configActive: boolean
+    configVersion: number | null
+  }
+  referredUsers: Array<{
+    id: string
+    email: string
+    displayName: string
+    role: string
+    joinedAt: string
+    earnedCredits: number
+    earnedGbp: number
+    creditedCount: number
+    evaluationCount: number
+    lastActivityAt: string | null
+  }>
+  history: AdminReferralCommission[]
+  config: AdminReferralConfig | null
+}

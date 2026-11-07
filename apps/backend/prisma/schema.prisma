@@ -3316,3 +3316,109 @@ model BusinessRelationshipHistory {
   @@index([affiliateExternalId])
   @@map("business_relationship_history")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL REWARDS
+//
+// Every published configuration is a new immutable version. Only one row is
+// current at a time, so commission calculation always uses the latest update
+// while the full configuration history remains available as a changelog.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ReferralRewardMode {
+  SINGLE
+  PER_ROLE
+}
+
+enum ReferralRewardType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReferralCommissionFrequency {
+  ONE_TIME
+  RECURRING
+}
+
+enum ReferralCommissionSourceType {
+  MEMBERSHIP
+  ACCESS_PASS
+}
+
+enum ReferralCommissionStatus {
+  PENDING
+  CREDITED
+  FAILED
+  SKIPPED_ROLE
+  SKIPPED_PLAN
+  SKIPPED_ONE_TIME
+  SKIPPED_NO_CONFIG
+  SKIPPED_ZERO
+}
+
+model ReferralConfig {
+  id                         String                      @id @default(cuid())
+  version                    Int                         @unique
+  isCurrent                  Boolean                     @default(true) @map("is_current")
+  isActive                   Boolean                     @default(true) @map("is_active")
+  // SINGLE uses percentage/fixedAmountGbp for every eligible role.
+  // PER_ROLE reads roleRewards[role] and falls back to the single values.
+  rewardMode                 ReferralRewardMode          @default(SINGLE) @map("reward_mode")
+  rewardType                 ReferralRewardType          @default(PERCENTAGE) @map("reward_type")
+  percentage                 Decimal?                    @db.Decimal(7, 4)
+  fixedAmountGbp             Decimal?                    @map("fixed_amount_gbp") @db.Decimal(18, 4)
+  roleRewards                Json?                       @map("role_rewards")
+  eligibleRoles              String[]                    @default([]) @map("eligible_roles")
+  qualifyAllMemberships      Boolean                     @default(true) @map("qualify_all_memberships")
+  qualifyAllAccessPasses     Boolean                     @default(true) @map("qualify_all_access_passes")
+  qualifiedMembershipPlanIds String[]                    @default([]) @map("qualified_membership_plan_ids")
+  qualifiedAccessPlanIds     String[]                    @default([]) @map("qualified_access_plan_ids")
+  commissionFrequency        ReferralCommissionFrequency @default(RECURRING) @map("commission_frequency")
+  note                       String?
+  changes                    Json?
+  createdByUserId            String                      @map("created_by_user_id")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+
+  @@index([isCurrent])
+  @@index([createdAt(sort: Desc)])
+  @@map("referral_configs")
+}
+
+/// One row per evaluated referral purchase. Skipped rows are retained so
+/// admins can see that a referral happened even when no commission was due.
+model ReferralCommission {
+  id             String  @id @default(cuid())
+  referrerUserId String  @map("referrer_user_id")
+  referredUserId String  @map("referred_user_id")
+  referrerRole   String  @map("referrer_role")
+  referredRole   String  @map("referred_role")
+  referredEmail  String? @map("referred_email")
+  referredName   String? @map("referred_name")
+
+  sourceType        ReferralCommissionSourceType @map("source_type")
+  sourceId          String                       @map("source_id")
+  sourceName        String?                      @map("source_name")
+  planId            String?                      @map("plan_id")
+  purchaseAmountGbp Decimal                      @map("purchase_amount_gbp") @db.Decimal(18, 4)
+
+  rewardType          ReferralRewardType       @map("reward_type")
+  rewardValue         Decimal                  @map("reward_value") @db.Decimal(18, 4)
+  commissionAmountGbp Decimal                  @default(0) @map("commission_amount_gbp") @db.Decimal(18, 4)
+  fxRate              Decimal?                 @map("fx_rate") @db.Decimal(18, 6)
+  commissionCredits   Decimal                  @default(0) @map("commission_credits") @db.Decimal(18, 4)
+  status              ReferralCommissionStatus
+  walletTransactionId String?                  @map("wallet_transaction_id")
+  configVersion       Int?                     @map("config_version")
+  failureReason       String?                  @map("failure_reason")
+  // Unique per source purchase; makes retries and webhook replays safe.
+  idempotencyKey      String                   @unique @map("idempotency_key")
+  metadata            Json?
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  @@index([referrerUserId, createdAt(sort: Desc)])
+  @@index([referredUserId])
+  @@index([status])
+  @@index([sourceType, sourceId])
+  @@map("referral_commissions")
+}
