@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { PRODUCTS } from '../constants';
 import { ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -65,7 +66,9 @@ export default function ProductSuite() {
 
         <div className="space-y-12 md:space-y-14">
           {PRODUCT_SUITES.map((suite) => (
-            <ProductMarquee key={suite.id} suite={suite} direction={suite.id === 'mcom' ? 'right' : 'left'} />
+            <Fragment key={suite.id}>
+              <ProductMarquee suite={suite} direction={suite.id === 'mcom' ? 'right' : 'left'} />
+            </Fragment>
           ))}
         </div>
       </div>

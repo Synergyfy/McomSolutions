@@ -257,9 +257,9 @@ export default function TaskComposer() {
         materials,
         requiresBusinessApproval,
         compensationModel,
-        compensationAmount:
+        compensationPence:
           amountNeeded && compensationAmount
-            ? Number(compensationAmount)
+            ? Math.round(Number(compensationAmount) * 100)
             : undefined,
         // Business charge is intentionally omitted. The backend applies the
         // business's membership allowance first and handles any remainder.

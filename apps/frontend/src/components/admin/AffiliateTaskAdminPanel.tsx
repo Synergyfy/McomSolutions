@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Flag,
+  FolderKanban,
   Loader2,
   Plus,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
   useAdminAccountManagers,
   useAdminAgents,
   useAdminConsultants,
+  useAffiliateProjectsAdmin,
   useAffiliateReports,
   useAffiliateReputation,
   useAffiliateSettlementSummary,
@@ -27,10 +29,12 @@ import {
   useAssignAffiliateTask,
   useBackfillAccountManagers,
   useCancelAffiliateTaskAdmin,
+  useCloseAffiliateProjectAdmin,
   useReviewAffiliateReport,
   useReviewAffiliateTask,
 } from '../../services/admin/hooks';
 import type {
+  AdminAffiliateProject,
   AdminAffiliateReport,
   AdminAffiliateTask,
 } from '../../services/admin/types';
@@ -64,6 +68,22 @@ const STATUS_STYLES: Record<string, string> = {
   REVISION_REQUESTED: 'bg-orange-100 text-orange-800',
   COMPLETED: 'bg-emerald-100 text-emerald-800',
   DECLINED: 'bg-red-100 text-red-700',
+  CANCELLED: 'bg-gray-100 text-gray-600',
+};
+
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active',
+  ON_HOLD: 'On hold',
+  AWAITING_BUSINESS_APPROVAL: 'Awaiting business approval',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+};
+
+const PROJECT_STATUS_STYLES: Record<string, string> = {
+  ACTIVE: 'bg-sky-100 text-sky-800',
+  ON_HOLD: 'bg-amber-100 text-amber-800',
+  AWAITING_BUSINESS_APPROVAL: 'bg-violet-100 text-violet-800',
+  COMPLETED: 'bg-emerald-100 text-emerald-800',
   CANCELLED: 'bg-gray-100 text-gray-600',
 };
 
@@ -116,10 +136,12 @@ export default function AffiliateTaskAdminPanel() {
     | null;
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
-  const [tab, setTab] = useState<'tasks' | 'settlements' | 'reports'>('tasks');
+  const [tab, setTab] = useState<'tasks' | 'projects' | 'settlements' | 'reports'>('tasks');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [unassigned, setUnassigned] = useState(false);
+  const [projectStatus, setProjectStatus] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
 
   const query = useMemo(
     () => ({
@@ -137,6 +159,18 @@ export default function AffiliateTaskAdminPanel() {
   // submission queue, not just the current filter/search.
   const submittedQueue = useAffiliateTasksAdmin({ status: 'SUBMITTED', limit: 1 });
   const submittedCount = submittedQueue.data?.total ?? 0;
+
+  const projectsQuery = useMemo(
+    () => ({
+      status: projectStatus || undefined,
+      search: projectSearch.trim() || undefined,
+      limit: 50,
+    }),
+    [projectStatus, projectSearch],
+  );
+  const projectsRes = useAffiliateProjectsAdmin(projectsQuery);
+  const projects: AdminAffiliateProject[] = projectsRes.data?.data ?? [];
+
   const reportsRes = useAffiliateReports({ limit: 50 });
   const reports: AdminAffiliateReport[] = reportsRes.data?.data ?? [];
 
@@ -161,7 +195,17 @@ export default function AffiliateTaskAdminPanel() {
   const cancelTask = useCancelAffiliateTaskAdmin();
   const reviewReport = useReviewAffiliateReport();
   const backfillManagers = useBackfillAccountManagers();
+  const closeProject = useCloseAffiliateProjectAdmin();
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+
+  const [projectFor, setProjectFor] = useState<AdminAffiliateProject | null>(null);
+  const [projectOutcome, setProjectOutcome] = useState('');
+  const [projectFollowUp, setProjectFollowUp] = useState('');
+  const [projectForce, setProjectForce] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectOpenTasks, setProjectOpenTasks] = useState<
+    Array<{ id: string; title?: string; status: string }>
+  >([]);
 
   const [assignFor, setAssignFor] = useState<AdminAffiliateTask | null>(null);
   const [assignee, setAssignee] = useState('');
@@ -181,6 +225,44 @@ export default function AffiliateTaskAdminPanel() {
   const [reportNotes, setReportNotes] = useState('');
 
   const reputation = useAffiliateReputation(reputationFor ?? undefined);
+
+  const openProjectClose = (project: AdminAffiliateProject) => {
+    setProjectFor(project);
+    setProjectOutcome(project.outcomeSummary ?? '');
+    setProjectFollowUp(project.followUpNotes ?? '');
+    setProjectForce(false);
+    setProjectError(null);
+    setProjectOpenTasks([]);
+  };
+
+  const selectedProjectOpenTasks = (projectFor?.tasks ?? []).filter(
+    (task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED',
+  );
+
+  const submitProjectClose = async () => {
+    if (!projectFor || !projectOutcome.trim() || closeProject.isPending) return;
+    setProjectError(null);
+    try {
+      await closeProject.mutateAsync({
+        id: projectFor.id,
+        data: {
+          outcomeSummary: projectOutcome.trim(),
+          followUpNotes: projectFollowUp.trim() || undefined,
+          force: projectForce,
+        },
+      });
+      setProjectFor(null);
+    } catch (error: any) {
+      const payload = error?.response?.data;
+      const message = Array.isArray(payload?.message)
+        ? payload.message.join(', ')
+        : payload?.message || error?.message || 'The project could not be closed.';
+      setProjectError(message);
+      if (Array.isArray(payload?.openTasks)) {
+        setProjectOpenTasks(payload.openTasks);
+      }
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -219,6 +301,15 @@ export default function AffiliateTaskAdminPanel() {
           )}
         >
           <ClipboardList className="w-4 h-4" /> Delegated tasks
+        </button>
+        <button
+          onClick={() => setTab('projects')}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
+            tab === 'projects' ? 'bg-brand-blue text-white' : 'bg-white border border-gray-200 text-gray-600',
+          )}
+        >
+          <FolderKanban className="w-4 h-4" /> Projects
         </button>
         <button
           onClick={() => setTab('settlements')}
@@ -402,9 +493,10 @@ export default function AffiliateTaskAdminPanel() {
                         {task.platforms.map((platform) => (
                           <span key={platform} className="rounded-full bg-gray-100 px-2 py-0.5 uppercase text-gray-500">{platform}</span>
                         ))}
-                        {task.compensationAmount != null && (
+                        {task.compensationPence != null && (
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
-                            {task.compensationCurrency || 'GBP'} {task.compensationAmount}
+                            {task.compensationCurrency || 'GBP'}{' '}
+                            {(task.compensationPence / 100).toFixed(2)}
                           </span>
                         )}
                         {task.businessChargeStatus === 'PENDING_APPROVAL' && (
@@ -462,10 +554,14 @@ export default function AffiliateTaskAdminPanel() {
                             setAssignFor(task);
                             setAssignee('');
                             setAssignComp(
-                              task.compensationAmount != null ? String(task.compensationAmount) : '',
+                              task.compensationPence != null
+                                ? String(task.compensationPence / 100)
+                                : '',
                             );
                             setAssignCharge(
-                              task.businessChargeAmount != null ? String(task.businessChargeAmount) : '',
+                              task.businessChargePence != null
+                                ? String(task.businessChargePence / 100)
+                                : '',
                             );
                             setAssignBillable(Boolean(task.billableToBusiness));
                             setAssignApproval(task.requiresBusinessApproval ?? true);
@@ -488,7 +584,9 @@ export default function AffiliateTaskAdminPanel() {
                             setReviewDecision('APPROVED');
                             setReviewNotes('');
                             setReviewComp(
-                              task.compensationAmount != null ? String(task.compensationAmount) : '',
+                              task.compensationPence != null
+                                ? String(task.compensationPence / 100)
+                                : '',
                             );
                           }}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700"
@@ -562,6 +660,111 @@ export default function AffiliateTaskAdminPanel() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      ) : tab === 'projects' ? (
+        <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                value={projectSearch}
+                onChange={(e) => setProjectSearch(e.target.value)}
+                placeholder="Search projects or businesses"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+              />
+            </div>
+            <select
+              value={projectStatus}
+              onChange={(e) => setProjectStatus(e.target.value)}
+              className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
+            >
+              <option value="">All statuses</option>
+              {Object.keys(PROJECT_STATUS_LABELS).map((value) => (
+                <option key={value} value={value}>
+                  {PROJECT_STATUS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {projectsRes.isLoading ? (
+            <div className="py-12 flex justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-brand-blue" />
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="py-12 text-center">
+              <FolderKanban className="w-10 h-10 text-gray-300 mx-auto" />
+              <p className="mt-2 text-sm font-bold text-gray-700">No projects found</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Projects are created when an account manager converts a service request.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {projects.map((project) => {
+                const openTasks = (project.tasks ?? []).filter(
+                  (task) => task.status !== 'COMPLETED' && task.status !== 'CANCELLED',
+                );
+                const isClosed =
+                  project.status === 'COMPLETED' || project.status === 'CANCELLED';
+                return (
+                  <div
+                    key={project.id}
+                    className="rounded-2xl border border-gray-100 p-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-black text-gray-900">{project.title}</p>
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-black uppercase',
+                            PROJECT_STATUS_STYLES[project.status] ?? 'bg-gray-100 text-gray-600',
+                          )}
+                        >
+                          {PROJECT_STATUS_LABELS[project.status] ?? project.status}
+                        </span>
+                        {openTasks.length > 0 && !isClosed ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                            {openTasks.length} open task{openTasks.length === 1 ? '' : 's'}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        <span className="font-semibold text-gray-700">
+                          {project.business?.businessName ?? 'Business'}
+                        </span>
+                        {project.accountManager
+                          ? ` · AM ${nameOf(project.accountManager)}`
+                          : ' · No account manager'}
+                        {project.dueAt ? ` · Due ${new Date(project.dueAt).toLocaleDateString()}` : ''}
+                      </p>
+                      <p className="line-clamp-2 text-xs text-gray-500">{project.description}</p>
+                      {project.outcomeSummary ? (
+                        <p className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-900">
+                          <strong>Outcome:</strong> {project.outcomeSummary}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      {isClosed ? (
+                        <span className="text-[11px] font-semibold text-gray-400">
+                          Closed{project.closedAt ? ` ${new Date(project.closedAt).toLocaleDateString()}` : ''}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => openProjectClose(project)}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Close project
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -715,9 +918,13 @@ export default function AffiliateTaskAdminPanel() {
                     id: assignFor.id,
                     data: {
                       assigneeUserId: assignee,
-                      compensationAmount: assignComp ? Number(assignComp) : undefined,
+                      compensationPence: assignComp
+                        ? Math.round(Number(assignComp) * 100)
+                        : undefined,
                       billableToBusiness: assignBillable,
-                      businessChargeAmount: assignCharge ? Number(assignCharge) : undefined,
+                      businessChargePence: assignCharge
+                        ? Math.round(Number(assignCharge) * 100)
+                        : undefined,
                       requiresBusinessApproval: assignApproval,
                       platformFeePercent: assignFee ? Number(assignFee) : undefined,
                     },
@@ -895,6 +1102,94 @@ export default function AffiliateTaskAdminPanel() {
               {reviewReport.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save decision
             </button>
           </div>
+        </Modal>
+      )}
+
+      {/* Project close modal (admin force-close override) */}
+      {projectFor && (
+        <Modal title="Close project" onClose={() => setProjectFor(null)}>
+          <div className="rounded-2xl bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600 space-y-1">
+            <p className="font-black text-gray-900">{projectFor.title}</p>
+            <p>
+              {projectFor.business?.businessName ?? 'Business'}
+              {projectFor.accountManager ? ` · AM ${nameOf(projectFor.accountManager)}` : ''}
+            </p>
+            <p>
+              Status: {PROJECT_STATUS_LABELS[projectFor.status] ?? projectFor.status}
+              {selectedProjectOpenTasks.length > 0
+                ? ` · ${selectedProjectOpenTasks.length} open task(s)`
+                : ' · all tasks resolved'}
+            </p>
+          </div>
+
+          <label className="block text-[11px] font-bold text-gray-700">
+            Outcome summary <span className="text-red-600">*</span>
+            <textarea
+              value={projectOutcome}
+              onChange={(e) => setProjectOutcome(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-normal"
+              placeholder="What was delivered and what changed for the business?"
+            />
+          </label>
+
+          <label className="block text-[11px] font-bold text-gray-700">
+            Follow-up notes
+            <textarea
+              value={projectFollowUp}
+              onChange={(e) => setProjectFollowUp(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-normal"
+              placeholder="Recommended next steps or maintenance notes."
+            />
+          </label>
+
+          {selectedProjectOpenTasks.length > 0 && (
+            <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-900">
+              <input
+                type="checkbox"
+                checked={projectForce}
+                onChange={(e) => setProjectForce(e.target.checked)}
+                className="mt-0.5 rounded border-amber-300 text-amber-700 focus:ring-amber-500"
+              />
+              <span>
+                <strong>Admin force close.</strong> Close even though{' '}
+                {selectedProjectOpenTasks.length} task(s) are still open. The tasks keep their
+                current status and remain visible in the task queue.
+              </span>
+            </label>
+          )}
+
+          {projectOpenTasks.length > 0 && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+              <p className="text-[11px] font-bold text-red-900">Open tasks blocking closure</p>
+              <ul className="mt-1.5 space-y-1 text-[11px] text-red-800">
+                {projectOpenTasks.map((task) => (
+                  <li key={task.id}>
+                    {task.title ?? task.id} — {task.status.replaceAll('_', ' ').toLowerCase()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {projectError && (
+            <p className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-800">
+              {projectError}
+            </p>
+          )}
+
+          <button
+            onClick={() => void submitProjectClose()}
+            disabled={!projectOutcome.trim() || closeProject.isPending}
+            className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {closeProject.isPending
+              ? 'Closing…'
+              : projectForce
+                ? 'Force close project'
+                : 'Close project'}
+          </button>
         </Modal>
       )}
 

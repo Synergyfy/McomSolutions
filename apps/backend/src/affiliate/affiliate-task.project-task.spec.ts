@@ -107,6 +107,7 @@ describe('AffiliateTaskService.createProjectTaskForManager', () => {
         assigneeUserId: 'agent-1',
       }),
       'ACCOUNT_MANAGER',
+      { defaultToManager: false },
     );
     expect(result).toEqual({ id: 'task-1', business: { accountManagerId: 'manager-1' } });
   });

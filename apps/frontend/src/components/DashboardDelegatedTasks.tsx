@@ -432,8 +432,7 @@ export default function DashboardDelegatedTasks() {
               const isOpen = expanded === task.id;
               const requiredCredits = Number(
                 task.settlement?.businessChargeCredits ??
-                  task.businessChargeAmount ??
-                  0,
+                  (task.businessChargePence != null ? task.businessChargePence / 100 : 0),
               );
               const availableCredits = Number(wallet?.availableBalance ?? 0);
               const fundingRequired = task.paymentStatus === 'ON_HOLD';
@@ -613,7 +612,9 @@ export default function DashboardDelegatedTasks() {
                         {task.compensationModel && task.compensationModel !== 'NONE' && (
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
                             {task.compensationModel.replaceAll('_', ' ')}
-                            {task.compensationAmount != null ? ` · ${task.compensationCurrency || 'GBP'} ${task.compensationAmount}` : ''}
+                            {task.compensationPence != null
+                              ? ` · ${task.compensationCurrency || 'GBP'} ${(task.compensationPence / 100).toFixed(2)}`
+                              : ''}
                           </span>
                         )}
                         {task.paymentStatus && (
@@ -665,7 +666,8 @@ export default function DashboardDelegatedTasks() {
                       {task.businessChargeStatus === 'PENDING_APPROVAL' && !fundingRequired && (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
                           <p className="text-[11px] font-bold text-amber-900">
-                            Charge approval required: {task.businessChargeCurrency || 'GBP'} {task.businessChargeAmount ?? 0}
+                            Charge approval required: {task.businessChargeCurrency || 'GBP'}{' '}
+                            {((task.businessChargePence ?? 0) / 100).toFixed(2)}
                           </p>
                           <p className="mt-0.5 text-[10px] text-amber-800">
                             Chargeable work cannot begin until you approve. This is separate from the affiliate&apos;s earnings.
@@ -801,10 +803,15 @@ export default function DashboardDelegatedTasks() {
                     <strong>Account manager:</strong> {request.clarificationNote}
                   </p>
                 )}
-                {request.estimatedCost != null && !request.priceApprovedAt && (
+                {request.estimatedCostPence != null && !request.priceApprovedAt && (
                   <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sky-50 px-2 py-1.5">
                     <span className="text-[11px] font-semibold text-sky-800">
-                      Quote: {request.currency} {request.estimatedCost} — approve before chargeable work begins.
+                      Quote: {request.currency}{' '}
+                      {new Intl.NumberFormat(undefined, {
+                        style: 'currency',
+                        currency: request.currency || 'GBP',
+                      }).format(request.estimatedCostPence / 100)}{' '}
+                      — approve before chargeable work begins.
                     </span>
                     <button
                       onClick={() => void approveServiceRequestPrice.mutateAsync({ id: request.id, data: {} })}

@@ -1,7 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { MembershipStatus, Role } from '@prisma/client';
+import {
+  AffiliateProjectStatus,
+  AffiliateServiceRequestStatus,
+  MembershipStatus,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
 import { ChatService } from '../chat/services/chat.service';
@@ -135,6 +140,39 @@ export class AccountManagerAssignmentService {
           data: { assignedBusinesses: { increment: 1 } },
         });
       }
+
+      // Open work always follows the business. Running this even when the
+      // manager is unchanged also repairs orphaned rows created before
+      // assignment existed.
+      await tx.affiliateServiceRequest.updateMany({
+        where: {
+          businessId,
+          status: {
+            in: [
+              AffiliateServiceRequestStatus.SUBMITTED,
+              AffiliateServiceRequestStatus.CLARIFICATION_REQUIRED,
+              AffiliateServiceRequestStatus.QUOTED,
+              AffiliateServiceRequestStatus.APPROVED,
+              AffiliateServiceRequestStatus.CONVERTED,
+            ],
+          },
+        },
+        data: { accountManagerId: chosen.userId },
+      });
+
+      await tx.affiliateProject.updateMany({
+        where: {
+          businessId,
+          status: {
+            in: [
+              AffiliateProjectStatus.ACTIVE,
+              AffiliateProjectStatus.ON_HOLD,
+              AffiliateProjectStatus.AWAITING_BUSINESS_APPROVAL,
+            ],
+          },
+        },
+        data: { accountManagerId: chosen.userId },
+      });
     });
 
     // Preserve the management relationship trail: replacing a manager closes

@@ -29,11 +29,11 @@ export interface EnsureSettlementInput {
   platformFeePercent?: number;
   /** Pricing/assignee overrides applied before the hold is taken. */
   compensationModel?: AffiliateCompensationModel;
-  compensationAmount?: number | null;
-  /** Exact integer amount in pence; takes precedence over compensationAmount. */
+  /** Exact integer amount in pence. */
   compensationPence?: number | null;
   billableToBusiness?: boolean;
-  businessChargeAmount?: number | null;
+  /** Exact integer business charge in pence. */
+  businessChargePence?: number | null;
   assigneeId?: string | null;
   assigneeEmail?: string | null;
   /** Free/chargeable decision already made by the delegation quota. */
@@ -59,7 +59,7 @@ interface SettlementQuote {
   compensationAmount: Decimal | null;
   compensationPence: number | null;
   compensationCredits: Decimal;
-  businessChargeAmount: Decimal | null;
+  businessChargePence: number | null;
   businessChargeCredits: Decimal;
   platformFeePercent: Decimal;
   platformFeeCredits: Decimal;
@@ -622,16 +622,14 @@ export class AffiliateSettlementService {
     return {
       ...task,
       compensationModel: input.compensationModel ?? task.compensationModel,
-      compensationAmount:
-        input.compensationAmount !== undefined ? input.compensationAmount : task.compensationAmount,
       compensationPence:
         input.compensationPence !== undefined ? input.compensationPence : task.compensationPence,
       billableToBusiness:
         input.billableToBusiness !== undefined ? input.billableToBusiness : task.billableToBusiness,
-      businessChargeAmount:
-        input.businessChargeAmount !== undefined
-          ? input.businessChargeAmount
-          : task.businessChargeAmount,
+      businessChargePence:
+        input.businessChargePence !== undefined
+          ? input.businessChargePence
+          : task.businessChargePence,
       assigneeId: input.assigneeId !== undefined ? input.assigneeId : task.assigneeId,
       freeDelegation:
         input.freeDelegation !== undefined ? input.freeDelegation : task.freeDelegation,
@@ -666,14 +664,17 @@ export class AffiliateSettlementService {
     // New tasks carry an explicit free/chargeable decision from the quota
     // service. Legacy tasks (decision = null) keep the old membership rule.
     const isFree = task.freeDelegation == null ? paidMembership : task.freeDelegation;
-    const compensationAmount = this.compensationAmount(task);
-    const compensationPence = this.compensationPence(task, compensationAmount);
+    const compensationPence = this.normalisePence(task.compensationPence);
+    const compensationAmount =
+      compensationPence != null ? new Decimal(compensationPence).dividedBy(100) : null;
     const fxRate = new Decimal(await this.wallet.getGbpToMcomRate());
     const compensationCredits = compensationAmount
       ? compensationAmount.times(fxRate).toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
       : new Decimal(0);
 
-    const rawCharge = task.businessChargeAmount != null ? new Decimal(task.businessChargeAmount) : null;
+    const businessChargePence = this.normalisePence(task.businessChargePence);
+    const rawCharge =
+      businessChargePence != null ? new Decimal(businessChargePence).dividedBy(100) : null;
     const billable =
       !isFree && task.billableToBusiness && rawCharge != null && rawCharge.greaterThan(0);
 
@@ -685,7 +686,7 @@ export class AffiliateSettlementService {
         compensationAmount,
         compensationPence,
         compensationCredits: new Decimal(0),
-        businessChargeAmount: rawCharge,
+        businessChargePence,
         businessChargeCredits: new Decimal(0),
         platformFeePercent: new Decimal(0),
         platformFeeCredits: new Decimal(0),
@@ -735,7 +736,7 @@ export class AffiliateSettlementService {
       compensationAmount,
       compensationPence,
       compensationCredits,
-      businessChargeAmount: rawCharge,
+      businessChargePence,
       businessChargeCredits,
       platformFeePercent: feePercent,
       platformFeeCredits,
@@ -754,38 +755,11 @@ export class AffiliateSettlementService {
     };
   }
 
-  private compensationAmount(
-    task: Awaited<ReturnType<AffiliateSettlementService['loadTask']>>,
-  ): Decimal | null {
-    // The pence value is authoritative when present, including tasks that began
-    // as MEMBERSHIP_INCLUDED and were priced by an admin at approval time.
-    if (task.compensationPence != null) {
-      const pence = Number(task.compensationPence);
-      if (Number.isFinite(pence) && pence > 0) {
-        return new Decimal(pence).dividedBy(100);
-      }
-    }
-    if (
-      task.compensationModel === AffiliateCompensationModel.NONE ||
-      task.compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED ||
-      task.compensationAmount == null
-    ) {
-      return null;
-    }
-    const amount = new Decimal(task.compensationAmount);
-    return amount.greaterThan(0) ? amount : null;
-  }
-
-  private compensationPence(
-    task: Awaited<ReturnType<AffiliateSettlementService['loadTask']>>,
-    amount: Decimal | null,
-  ): number | null {
-    if (task.compensationPence != null) {
-      const pence = Number(task.compensationPence);
-      if (Number.isFinite(pence) && pence > 0) return Math.round(pence);
-    }
-    if (!amount) return null;
-    return Math.round(amount.toNumber() * 100);
+  /** Integer pence, or null for missing/non-positive values. */
+  private normalisePence(value: number | null | undefined): number | null {
+    if (value == null) return null;
+    const pence = Number(value);
+    return Number.isFinite(pence) && pence > 0 ? Math.round(pence) : null;
   }
 
   private async upsert(
@@ -804,9 +778,8 @@ export class AffiliateSettlementService {
       fxBase: 'GBP',
       fxQuote: 'MCOM',
       fxRate: quote.fxRate,
-      businessChargeAmount: quote.businessChargeAmount,
+      businessChargePence: quote.businessChargePence,
       businessChargeCredits: quote.businessChargeCredits,
-      compensationAmount: quote.compensationAmount,
       compensationPence: quote.compensationPence,
       compensationCredits: quote.compensationCredits,
       platformFeePercent: quote.platformFeePercent,

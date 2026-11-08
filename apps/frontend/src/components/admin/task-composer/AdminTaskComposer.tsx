@@ -340,13 +340,15 @@ export default function AdminTaskComposer() {
         deliverables: deliverables.trim() || undefined,
         materials,
         compensationModel,
-        compensationAmount:
+        compensationPence:
           amountNeededFor(compensationModel) && compensationAmount
-            ? Number(compensationAmount)
+            ? Math.round(Number(compensationAmount) * 100)
             : undefined,
         billableToBusiness,
-        businessChargeAmount:
-          billableToBusiness && businessChargeAmount ? Number(businessChargeAmount) : undefined,
+        businessChargePence:
+          billableToBusiness && businessChargeAmount
+            ? Math.round(Number(businessChargeAmount) * 100)
+            : undefined,
         requiresBusinessApproval,
         platformFeePercent:
           billableToBusiness && platformFeePercent ? Number(platformFeePercent) : undefined,

@@ -286,10 +286,10 @@ export const businessApi = {
     prerequisiteTaskId?: string;
     requiresBusinessApproval?: boolean;
     compensationModel?: 'NONE' | 'FIXED' | 'HOURLY' | 'COMMISSION' | 'MEMBERSHIP_INCLUDED';
-    compensationAmount?: number;
+    compensationPence?: number;
     compensationCurrency?: string;
     billableToBusiness?: boolean;
-    businessChargeAmount?: number;
+    businessChargePence?: number;
     businessChargeCurrency?: string;
   }) => {
     const res = await apiClient.post('/business/affiliate/tasks', data);
@@ -327,10 +327,10 @@ export const businessApi = {
     data: {
       assigneeUserId: string;
       note?: string;
-      compensationAmount?: number;
+      compensationPence?: number;
       compensationCurrency?: string;
       billableToBusiness?: boolean;
-      businessChargeAmount?: number;
+      businessChargePence?: number;
       requiresBusinessApproval?: boolean;
     },
   ) => {
@@ -356,7 +356,7 @@ export const businessApi = {
 
   approveServiceRequestPrice: async (
     id: string,
-    data: { estimatedCost?: number; currency?: string; notes?: string },
+    data: { estimatedCostPence?: number; currency?: string; notes?: string },
   ) => {
     const res = await apiClient.post(`/business/affiliate/requests/${id}/approve-price`, data);
     return res.data;
@@ -502,12 +502,13 @@ export interface AffiliateServiceRequestRecord {
   status:
     | 'SUBMITTED'
     | 'CLARIFICATION_REQUIRED'
+    | 'QUOTED'
     | 'APPROVED'
     | 'CONVERTED'
     | 'COMPLETED'
     | 'REJECTED';
   clarificationNote: string | null;
-  estimatedCost: number | null;
+  estimatedCostPence: number | null;
   currency: string;
   priceApprovedAt: string | null;
   project?: { id: string; title: string; status: string } | null;
@@ -580,10 +581,10 @@ export interface AffiliateTaskRecord {
   amReviewedAt?: string | null;
   amReviewNotes?: string | null;
   compensationModel?: AffiliateCompensationModel;
-  compensationAmount?: number | null;
+  compensationPence?: number | null;
   compensationCurrency?: string;
   billableToBusiness?: boolean;
-  businessChargeAmount?: number | null;
+  businessChargePence?: number | null;
   businessChargeCurrency?: string;
   businessChargeStatus?: AffiliateChargeStatus;
   paymentStatus?: AffiliatePaymentStatus;

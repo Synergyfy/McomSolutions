@@ -34,6 +34,7 @@ import type {
   PlatformInfo,
   TierEntitlementResource,
   TierName,
+  WhitelabelPlatformGrant,
 } from '../services/admin/types';
 import SplitEditor, {
   TIER_DURATIONS,
@@ -412,7 +413,9 @@ export default function AdminMembershipEditor() {
       ],
     }));
 
-    const whitelabelPayload = Object.entries(whitelabelAccess)
+    const whitelabelPayload: WhitelabelPlatformGrant[] = (
+      Object.entries(whitelabelAccess) as Array<[string, TierName[]]>
+    )
       .filter(([, selectedTiers]) => selectedTiers.length > 0)
       .map(([clientId, selectedTiers]) => ({ clientId, tiers: selectedTiers }));
 

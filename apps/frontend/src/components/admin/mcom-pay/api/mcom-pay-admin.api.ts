@@ -62,6 +62,11 @@ export interface WalletActivity {
     lastName?: string | null;
     role?: string | null;
   } | null;
+  business?: {
+    id: string;
+    businessName: string;
+    email?: string | null;
+  } | null;
 }
 
 export interface WalletActivityFilters {

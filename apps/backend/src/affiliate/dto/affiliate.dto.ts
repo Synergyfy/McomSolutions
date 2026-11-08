@@ -115,15 +115,9 @@ export class CreateAffiliateTaskDto {
   @IsEnum(AffiliateCompensationModel)
   compensationModel?: AffiliateCompensationModel;
 
-  @ApiPropertyOptional({ example: 75 })
-  @IsOptional()
-  @Type(() => Number)
-  @Min(0)
-  compensationAmount?: number;
-
   @ApiPropertyOptional({
     example: 7500,
-    description: 'Affiliate compensation in pence; takes precedence over compensationAmount.',
+    description: 'Affiliate compensation in pence (integer minor units).',
   })
   @IsOptional()
   @Type(() => Number)
@@ -142,11 +136,15 @@ export class CreateAffiliateTaskDto {
   @Type(() => Boolean)
   billableToBusiness?: boolean;
 
-  @ApiPropertyOptional({ example: 120 })
+  @ApiPropertyOptional({
+    example: 12000,
+    description: 'Business charge in pence (integer minor units).',
+  })
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
   @Min(0)
-  businessChargeAmount?: number;
+  businessChargePence?: number;
 
   @ApiPropertyOptional({ example: 'GBP' })
   @IsOptional()
@@ -211,11 +209,15 @@ export class ClarifyServiceRequestDto {
 }
 
 export class ApproveServiceRequestDto {
-  @ApiPropertyOptional({ example: 150, description: 'Quoted/estimated cost shown to the business.' })
+  @ApiPropertyOptional({
+    example: 15000,
+    description: 'Quoted/estimated cost in pence (integer minor units).',
+  })
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
   @Min(0)
-  estimatedCost?: number;
+  estimatedCostPence?: number;
 
   @ApiPropertyOptional({ example: 'GBP' })
   @IsOptional()
@@ -284,6 +286,14 @@ export class CloseAffiliateProjectDto {
   @IsOptional()
   @Type(() => Boolean)
   followUpRequired?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Admin only: close even when tasks are still open. Ignored for business/account-manager callers.',
+  })
+  @IsOptional()
+  @Type(() => Boolean)
+  force?: boolean;
 }
 
 export class ApproveBusinessChargeDto {
@@ -320,15 +330,6 @@ export class ReviewAffiliateTaskDto {
   @Min(1)
   compensationPence?: number;
 
-  @ApiPropertyOptional({
-    example: 20,
-    description: 'Affiliate compensation in GBP. Converted to pence server-side.',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
-  compensationAmount?: number;
 }
 
 export class ReviewBusinessTaskDto extends ReviewAffiliateTaskDto {
@@ -418,15 +419,9 @@ export class AssignAffiliateTaskDto {
   @IsEnum(AffiliateCompensationModel)
   compensationModel?: AffiliateCompensationModel;
 
-  @ApiPropertyOptional({ example: 75 })
-  @IsOptional()
-  @Type(() => Number)
-  @Min(0)
-  compensationAmount?: number;
-
   @ApiPropertyOptional({
     example: 7500,
-    description: 'Affiliate compensation in pence; takes precedence over compensationAmount.',
+    description: 'Affiliate compensation in pence (integer minor units).',
   })
   @IsOptional()
   @Type(() => Number)
@@ -445,11 +440,15 @@ export class AssignAffiliateTaskDto {
   @Type(() => Boolean)
   billableToBusiness?: boolean;
 
-  @ApiPropertyOptional({ example: 120 })
+  @ApiPropertyOptional({
+    example: 12000,
+    description: 'Business charge in pence (integer minor units).',
+  })
   @IsOptional()
   @Type(() => Number)
+  @IsInt()
   @Min(0)
-  businessChargeAmount?: number;
+  businessChargePence?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

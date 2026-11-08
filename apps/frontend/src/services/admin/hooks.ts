@@ -49,6 +49,9 @@ import type {
   PartnerAccessCodeQuery,
   AdminAffiliateTask,
   AdminAffiliateTaskQuery,
+  AdminAffiliateProject,
+  AdminAffiliateProjectQuery,
+  CloseAdminAffiliateProjectInput,
   AdminAffiliateReport,
   AdminAffiliateReputation,
   AdminAffiliateSettlementQuery,
@@ -1684,6 +1687,32 @@ export const useAffiliateTaskAdmin = (id?: string) => {
   })
 }
 
+export const useAffiliateProjectsAdmin = (params?: AdminAffiliateProjectQuery) => {
+  return useQuery({
+    queryKey: ['admin', 'affiliate-projects', params],
+    queryFn: () => adminApi.getAffiliateProjects(params),
+    staleTime: 1000 * 15,
+  })
+}
+
+export const useCloseAffiliateProjectAdmin = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string
+      data: CloseAdminAffiliateProjectInput
+    }) => adminApi.closeAffiliateProject(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-projects'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'affiliate-settlements'] })
+    },
+  })
+}
+
 export const useCreateAffiliateTask = () => {
   const queryClient = useQueryClient()
   return useMutation({
@@ -1699,9 +1728,9 @@ export const useCreateAffiliateTask = () => {
       deliverables?: string
       materials?: string
       compensationModel?: string
-      compensationAmount?: number
+      compensationPence?: number
       billableToBusiness?: boolean
-      businessChargeAmount?: number
+      businessChargePence?: number
       requiresBusinessApproval?: boolean
       platformFeePercent?: number
     }) => adminApi.createAffiliateTask(data),
@@ -1724,10 +1753,10 @@ export const useAssignAffiliateTask = () => {
         assigneeUserId: string
         note?: string
         compensationModel?: string
-        compensationAmount?: number
+        compensationPence?: number
         compensationCurrency?: string
         billableToBusiness?: boolean
-        businessChargeAmount?: number
+        businessChargePence?: number
         requiresBusinessApproval?: boolean
         platformFeePercent?: number
       }
@@ -1751,7 +1780,6 @@ export const useReviewAffiliateTask = () => {
         decision: 'APPROVED' | 'CHANGES_REQUESTED'
         notes?: string
         compensationPence?: number
-        compensationAmount?: number
       }
     }) => adminApi.reviewAffiliateTask(id, data),
     onSuccess: () => {

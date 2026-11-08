@@ -126,10 +126,10 @@ export class AffiliateClientService {
         materials: task.materials,
         prerequisiteExternalTaskId: task.prerequisiteTaskId,
         compensationModel: task.compensationModel,
-        compensationAmount: task.compensationAmount,
+        compensationPence: task.compensationPence,
         compensationCurrency: task.compensationCurrency,
         billableToBusiness: task.billableToBusiness,
-        businessChargeAmount: task.businessChargeAmount,
+        businessChargePence: task.businessChargePence,
         businessChargeCurrency: task.businessChargeCurrency,
         chargeApprovalRequired:
           task.businessChargeStatus === 'PENDING_APPROVAL' ||
@@ -150,10 +150,10 @@ export class AffiliateClientService {
           prerequisiteTaskId: task.prerequisiteTaskId,
           prerequisiteStatus: (task as any).prerequisiteTask?.status ?? null,
           compensationModel: task.compensationModel,
-          compensationAmount: task.compensationAmount,
+          compensationPence: task.compensationPence,
           compensationCurrency: task.compensationCurrency,
           billableToBusiness: task.billableToBusiness,
-          businessChargeAmount: task.businessChargeAmount,
+          businessChargePence: task.businessChargePence,
           businessChargeCurrency: task.businessChargeCurrency,
           businessChargeStatus: task.businessChargeStatus,
           chargeApprovalRequired:
@@ -194,7 +194,6 @@ export class AffiliateClientService {
         notes: input.notes ?? null,
         round: input.round,
         status: input.decision === 'APPROVED' ? 'approved' : 'revision_requested',
-        compensationAmount: task.compensationAmount,
         compensationPence: task.compensationPence,
       });
       return { ok: true, affiliateTaskId: task.affiliateTaskId };

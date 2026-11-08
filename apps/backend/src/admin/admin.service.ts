@@ -1720,12 +1720,13 @@ export class AdminService implements OnModuleInit {
 
     const affiliateTasks = affiliateTasksRaw.map((task: any) => {
       const settlement = task.settlement ?? null;
-      const earnedGbp =
-        settlement?.compensationAmount != null
-          ? Number(settlement.compensationAmount)
-          : task.compensationAmount != null
-            ? Number(task.compensationAmount)
+      const earnedPence =
+        settlement?.compensationPence != null
+          ? Number(settlement.compensationPence)
+          : task.compensationPence != null
+            ? Number(task.compensationPence)
             : null;
+      const earnedGbp = earnedPence != null ? earnedPence / 100 : null;
       const earnedCredits =
         settlement?.affiliatePayoutCredits != null
           ? Number(settlement.affiliatePayoutCredits)
@@ -1738,7 +1739,8 @@ export class AdminService implements OnModuleInit {
         reputationDelta: reputationByTask.get(task.id) ?? 0,
         earnedGbp,
         earnedCredits,
-        spentGbp: task.businessChargeAmount != null ? Number(task.businessChargeAmount) : null,
+        spentGbp:
+          task.businessChargePence != null ? Number(task.businessChargePence) / 100 : null,
       };
     });
 
