@@ -193,9 +193,11 @@ export default function DashboardAccountManager() {
                 <p className="text-sm text-gray-500 font-medium">{manager.email}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
                   <MapPin className="w-3.5 h-3.5" />
-                  {manager.postcode || 'Covering your area'}
+                  <span>
+                    {manager.postcode ? `${manager.postcode}${manager.area ? ` · ${manager.area}` : ''}` : 'Covering your area'}
+                  </span>
                   {manager.matchedLevel && (
-                    <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+                    <span className="ml-1 rounded-full bg-blue-50 text-brand-blue px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                       {manager.matchedLevel.replace('_', ' ')}
                     </span>
                   )}

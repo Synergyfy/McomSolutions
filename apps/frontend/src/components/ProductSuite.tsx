@@ -82,6 +82,7 @@ function ProductMarquee({
 }: {
   suite: (typeof PRODUCT_SUITES)[number];
   direction: 'left' | 'right';
+  key?: string;
 }) {
   const renderProducts = (copy: boolean) => suite.products.map((product) => (
     <Link

@@ -39,6 +39,7 @@ import {
   useReviewAffiliateTask,
   useReviewAffiliateTaskCharge,
   useServiceRequests,
+  useProfile,
 } from '../services/business/hooks';
 import type {
   AffiliateDelegationQuota,
@@ -98,8 +99,18 @@ export default function DashboardDelegatedTasks() {
   const [lockingTaskId, setLockingTaskId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [affiliateSkill, setAffiliateSkill] = useState('');
-  const [affiliatePostcode, setAffiliatePostcode] = useState('');
+  // Use the saved business postcode by default so the directory request also
+  // reaches the linked 247GBS affiliate directory without manual re-entry.
+  // `null` means use the saved value; an empty string means the user cleared it.
+  const [affiliatePostcode, setAffiliatePostcode] = useState<string | null>(null);
   const [affiliateRole, setAffiliateRole] = useState('');
+  const { data: businessProfile, isLoading: businessProfileLoading } = useProfile();
+  const savedBusinessPostcode = typeof businessProfile?.postcode === 'string'
+    ? businessProfile.postcode.trim()
+    : '';
+  const postcodeFilter = affiliatePostcode === null
+    ? savedBusinessPostcode
+    : affiliatePostcode.trim();
 
   const query = useMemo(
     () => ({
@@ -134,9 +145,16 @@ export default function DashboardDelegatedTasks() {
   const manager = managerRes?.data ?? null;
   const { data: myTasksRes } = useMyTasks();
   const programmeTasks: any[] = myTasksRes?.data ?? [];
-  const { data: affiliateSearchRes, isLoading: affiliateSearching } = useNearbyAffiliates({
+  const { data: nearbyRes } = useNearbyAffiliates({ limit: 50 });
+  const nearby = nearbyRes?.items ?? [];
+  const {
+    data: affiliateSearchRes,
+    isLoading: affiliateSearching,
+    isError: affiliateSearchFailed,
+    refetch: retryAffiliateSearch,
+  } = useNearbyAffiliates({
     skill: affiliateSkill.trim() || undefined,
-    postcode: affiliatePostcode.trim() || undefined,
+    postcode: postcodeFilter || undefined,
     role: affiliateRole || undefined,
     limit: 12,
   });
@@ -909,9 +927,9 @@ export default function DashboardDelegatedTasks() {
           <div className="relative">
             <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              value={affiliatePostcode}
+              value={affiliatePostcode ?? savedBusinessPostcode}
               onChange={(e) => setAffiliatePostcode(e.target.value)}
-              placeholder="Postcode e.g. M1"
+              placeholder={businessProfileLoading ? 'Loading business postcode…' : 'Postcode e.g. M1'}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
             />
           </div>
@@ -927,7 +945,7 @@ export default function DashboardDelegatedTasks() {
           </select>
         </div>
 
-        {!distanceFrom && (
+        {!postcodeFilter && !distanceFrom && !businessProfileLoading && (
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] font-semibold text-amber-800 flex items-start justify-between gap-3">
             <span>
               Add a postcode to your business profile so we can show how far each affiliate is from you.
@@ -941,9 +959,14 @@ export default function DashboardDelegatedTasks() {
           </div>
         )}
 
-        {affiliateSearching ? (
+        {affiliateSearching || (businessProfileLoading && affiliatePostcode === null) ? (
           <div className="py-8 flex justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-brand-blue" />
+          </div>
+        ) : affiliateSearchFailed ? (
+          <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-center text-xs text-red-800">
+            <p>Affiliates could not be loaded. Check the connection and try again.</p>
+            <button type="button" onClick={() => void retryAffiliateSearch()} className="mt-2 font-bold underline">Try again</button>
           </div>
         ) : affiliateResults.length === 0 ? (
           <div className="mt-3 rounded-2xl bg-gray-50 px-4 py-6 text-center text-xs font-semibold text-gray-500">

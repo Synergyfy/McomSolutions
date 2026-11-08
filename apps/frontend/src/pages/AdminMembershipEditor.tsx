@@ -413,11 +413,9 @@ export default function AdminMembershipEditor() {
       ],
     }));
 
-    const whitelabelPayload: WhitelabelPlatformGrant[] = (
-      Object.entries(whitelabelAccess) as Array<[string, TierName[]]>
-    )
-      .filter(([, selectedTiers]) => selectedTiers.length > 0)
-      .map(([clientId, selectedTiers]) => ({ clientId, tiers: selectedTiers }));
+    const whitelabelPayload: WhitelabelPlatformGrant[] = Object.entries(whitelabelAccess)
+      .filter(([, selectedTiers]) => Array.isArray(selectedTiers) && selectedTiers.length > 0)
+      .map(([clientId, selectedTiers]) => ({ clientId, tiers: selectedTiers as TierName[] }));
 
     const payload: CreatePlanInput = {
       name: name.trim(),
