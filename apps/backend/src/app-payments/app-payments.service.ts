@@ -1195,6 +1195,15 @@ export class AppPaymentsService {
           { wallet: { user: { email: { contains: search, mode: 'insensitive' } } } },
           { wallet: { user: { firstName: { contains: search, mode: 'insensitive' } } } },
           { wallet: { user: { lastName: { contains: search, mode: 'insensitive' } } } },
+          {
+            wallet: {
+              user: {
+                businessProfile: {
+                  businessName: { contains: search, mode: 'insensitive' },
+                },
+              },
+            },
+          },
         ],
       }),
     };
@@ -1218,6 +1227,9 @@ export class AppPaymentsService {
                   firstName: true,
                   lastName: true,
                   role: true,
+                  businessProfile: {
+                    select: { id: true, businessName: true, email: true },
+                  },
                 },
               },
             },
@@ -1254,6 +1266,7 @@ export class AppPaymentsService {
               role: row.wallet.user.role,
             }
           : null,
+        business: row.wallet.user?.businessProfile ?? null,
       })),
       total,
       page,

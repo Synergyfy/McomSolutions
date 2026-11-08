@@ -2831,6 +2831,7 @@ enum AffiliateProjectStatus {
 enum AffiliateServiceRequestStatus {
   SUBMITTED
   CLARIFICATION_REQUIRED
+  QUOTED
   APPROVED
   CONVERTED
   COMPLETED
@@ -2899,10 +2900,9 @@ model AffiliateTaskSettlement {
   fxQuote  String  @default("MCOM") @map("fx_quote")
   fxRate   Decimal @default(1) @map("fx_rate") @db.Decimal(18, 6)
 
-  businessChargeAmount   Decimal? @map("business_charge_amount") @db.Decimal(18, 4)
+  // Exact integer source amounts in pence (GBP minor units).
+  businessChargePence    Int?     @map("business_charge_pence")
   businessChargeCredits  Decimal? @map("business_charge_credits") @db.Decimal(18, 4)
-  compensationAmount     Decimal? @map("compensation_amount") @db.Decimal(18, 4)
-  // Exact integer source amount in pence (GBP minor units).
   compensationPence      Int?     @map("compensation_pence")
   compensationCredits    Decimal? @map("compensation_credits") @db.Decimal(18, 4)
   platformFeePercent     Decimal  @default(0) @map("platform_fee_percent") @db.Decimal(7, 4)
@@ -2992,7 +2992,8 @@ model AffiliateServiceRequest {
   urgency               String                        @default("NORMAL") @map("urgency")
   status                AffiliateServiceRequestStatus @default(SUBMITTED) @map("status")
   clarificationNote     String?                       @map("clarification_note") @db.Text
-  estimatedCost         Float?                        @map("estimated_cost")
+  // Quoted price in pence. Pounds are formatted in the UI only.
+  estimatedCostPence    Int?                          @map("estimated_cost_pence")
   currency              String                        @default("GBP") @map("currency")
   priceApprovedAt       DateTime?                     @map("price_approved_at")
   priceApprovedByUserId String?                       @map("price_approved_by_user_id")
@@ -3093,14 +3094,12 @@ model AffiliateTask {
   businessApprovedByUserId       String?                    @map("business_approved_by_user_id")
   businessApprovalNotes          String?                    @map("business_approval_notes") @db.Text
   // ── Compensation & business charge (kept deliberately separate) ──
+  // All fiat amounts are stored as integer pence. Pounds exist only in the UI.
   compensationModel              AffiliateCompensationModel @default(NONE) @map("compensation_model")
-  compensationAmount             Float?                     @map("compensation_amount")
-  // Authoritative integer amount (minor units / pence) used for exact money
-  // calculations. compensationAmount remains for display/backwards compatibility.
   compensationPence              Int?                       @map("compensation_pence")
   compensationCurrency           String                     @default("GBP") @map("compensation_currency")
   billableToBusiness             Boolean                    @default(false) @map("billable_to_business")
-  businessChargeAmount           Float?                     @map("business_charge_amount")
+  businessChargePence            Int?                       @map("business_charge_pence")
   businessChargeCurrency         String                     @default("GBP") @map("business_charge_currency")
   businessChargeStatus           AffiliateChargeStatus      @default(NOT_APPLICABLE) @map("business_charge_status")
   businessChargeApprovedAt       DateTime?                  @map("business_charge_approved_at")

@@ -158,6 +158,7 @@ export class AffiliateTaskService {
     userId: string,
     dto: CreateAffiliateTaskDto,
     actorRole: 'BUSINESS' | 'ADMIN' | 'ACCOUNT_MANAGER',
+    opts: { defaultToManager?: boolean } = {},
   ) {
     // Paid memberships get an account manager assigned before delegation, so
     // the task goes straight to them instead of waiting for admin routing.
@@ -228,9 +229,14 @@ export class AffiliateTaskService {
           .map((platform) => normalizePlatformKey(platform))
           .filter(Boolean);
 
-    // Resolve assignee: explicit pick wins, otherwise the assigned manager.
+    // Resolve assignee: explicit pick wins, otherwise fall back to the
+    // business's account manager. Account-Manager-created project tasks keep
+    // the manager fallback off so "leave unassigned" stays truly unassigned.
+    const defaultToManager = opts.defaultToManager ?? true;
     let assigneeId = dto.assigneeUserId ?? null;
-    if (!assigneeId && business.accountManagerId) assigneeId = business.accountManagerId;
+    if (!assigneeId && defaultToManager && business.accountManagerId) {
+      assigneeId = business.accountManagerId;
+    }
 
     let assignee: Awaited<ReturnType<AffiliateDirectoryService['assertAffiliateUser']>> | null =
       null;
@@ -263,11 +269,8 @@ export class AffiliateTaskService {
     }
 
     const paidMembership = this.isPaidActiveMembership(business);
-    const explicitCompensationPence =
-      dto.compensationPence ??
-      (dto.compensationAmount != null ? Math.round(Number(dto.compensationAmount) * 100) : null);
-    const explicitCompensation =
-      explicitCompensationPence != null ? explicitCompensationPence / 100 : null;
+    // The API and database use integer pence. Never derive money from a float.
+    const explicitCompensationPence = dto.compensationPence ?? null;
 
     // How many delegated tasks this business gets for free under its current
     // membership / access pass. Trial and no-plan businesses are always charged.
@@ -280,8 +283,8 @@ export class AffiliateTaskService {
     let effectiveAssignee = assignee;
     if (quotaEnforced && !allowance.isFree && effectiveAssignee) {
       const hasPrice =
-        Number(dto.businessChargeAmount ?? 0) > 0 ||
-        Number(explicitCompensation ?? 0) > 0;
+        Number(dto.businessChargePence ?? 0) > 0 ||
+        Number(explicitCompensationPence ?? 0) > 0;
       if (!hasPrice) effectiveAssignee = null;
     }
 
@@ -296,19 +299,19 @@ export class AffiliateTaskService {
       dto.compensationModel ??
       (assigneeIsManager && paidMembership && withinFreeAllowance
         ? AffiliateCompensationModel.MEMBERSHIP_INCLUDED
-        : explicitCompensation != null
+        : explicitCompensationPence != null
           ? AffiliateCompensationModel.FIXED
           : AffiliateCompensationModel.NONE);
 
     const billableToBusiness = quotaEnforced
       ? Boolean(effectiveAssignee) && !allowance.isFree
-      : dto.billableToBusiness ?? (!paidMembership && explicitCompensation != null);
+      : dto.billableToBusiness ?? (!paidMembership && explicitCompensationPence != null);
 
-    const businessChargeAmount = quotaEnforced
+    const businessChargePence = quotaEnforced
       ? billableToBusiness
-        ? dto.businessChargeAmount ?? explicitCompensation ?? 0
+        ? dto.businessChargePence ?? explicitCompensationPence ?? 0
         : null
-      : dto.businessChargeAmount ?? (billableToBusiness ? explicitCompensation ?? 0 : null);
+      : dto.businessChargePence ?? (billableToBusiness ? explicitCompensationPence ?? 0 : null);
     const businessChargeStatus: AffiliateChargeStatus = billableToBusiness
       ? AffiliateChargeStatus.PENDING_APPROVAL
       : AffiliateChargeStatus.NOT_APPLICABLE;
@@ -317,16 +320,14 @@ export class AffiliateTaskService {
       compensationModel = AffiliateCompensationModel.MEMBERSHIP_INCLUDED;
     }
 
-    const compensationAmount =
+    const compensationPence =
       compensationModel === AffiliateCompensationModel.NONE ||
       compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED
         ? null
-        : explicitCompensation;
-    const compensationPence =
-      compensationAmount != null ? Math.round(compensationAmount * 100) : null;
+        : explicitCompensationPence;
 
     const paymentStatus: AffiliatePaymentStatus =
-      compensationAmount != null && compensationAmount > 0
+      compensationPence != null && compensationPence > 0
         ? AffiliatePaymentStatus.PENDING
         : AffiliatePaymentStatus.NOT_APPLICABLE;
 
@@ -358,11 +359,10 @@ export class AffiliateTaskService {
         prerequisiteTaskId: dto.prerequisiteTaskId ?? null,
         requiresBusinessApproval: dto.requiresBusinessApproval ?? false,
         compensationModel,
-        compensationAmount,
         compensationPence,
         compensationCurrency: dto.compensationCurrency ?? 'GBP',
         billableToBusiness,
-        businessChargeAmount,
+        businessChargePence,
         businessChargeCurrency: dto.businessChargeCurrency ?? 'GBP',
         businessChargeStatus,
         paymentStatus,
@@ -395,9 +395,9 @@ export class AffiliateTaskService {
       metadata: {
         projectId: dto.projectId ?? null,
         compensationModel,
-        compensationAmount,
+        compensationPence,
         billableToBusiness,
-        businessChargeAmount,
+        businessChargePence,
         freeDelegation,
         delegationQuotaSource: allowance.source,
         delegationQuotaUsed: allowance.used,
@@ -409,7 +409,7 @@ export class AffiliateTaskService {
     // platform-funded payout before the affiliate can see the work. If the
     // wallet cannot cover the task we still assign it: the affiliate can see
     // the work, but cannot accept it until the funds are locked.
-    if (task.assigneeId && (billableToBusiness || (compensationAmount ?? 0) > 0)) {
+    if (task.assigneeId && (billableToBusiness || (compensationPence ?? 0) > 0)) {
       try {
         await this.settlement.ensureForTask(task.id, {
           platformFeePercent: dto.platformFeePercent,
@@ -564,12 +564,13 @@ export class AffiliateTaskService {
     return this.prisma.affiliateServiceRequest.update({
       where: { id: request.id },
       data: {
-        estimatedCost: dto.estimatedCost ?? request.estimatedCost,
+        estimatedCostPence: dto.estimatedCostPence ?? request.estimatedCostPence,
         currency: dto.currency ?? request.currency,
         priceApprovedAt: new Date(),
         priceApprovedByUserId: userId,
         status:
-          request.status === AffiliateServiceRequestStatus.SUBMITTED
+          request.status === AffiliateServiceRequestStatus.SUBMITTED ||
+          request.status === AffiliateServiceRequestStatus.QUOTED
             ? AffiliateServiceRequestStatus.APPROVED
             : request.status,
         approvedAt: request.approvedAt ?? new Date(),
@@ -592,24 +593,28 @@ export class AffiliateTaskService {
     });
     if (!request) throw new NotFoundException('Service request not found');
     if (!opts.asAdmin) this.assertManager(request.accountManagerId, actorUserId);
-    if (dto.estimatedCost == null) {
-      throw new BadRequestException('estimatedCost is required');
+    if (
+      request.status === AffiliateServiceRequestStatus.CONVERTED ||
+      request.status === AffiliateServiceRequestStatus.COMPLETED ||
+      request.status === AffiliateServiceRequestStatus.REJECTED
+    ) {
+      throw new BadRequestException('This request can no longer be quoted');
+    }
+    if (dto.estimatedCostPence == null) {
+      throw new BadRequestException('estimatedCostPence is required');
     }
 
     const updated = await this.prisma.affiliateServiceRequest.update({
       where: { id: requestId },
       data: {
-        estimatedCost: dto.estimatedCost,
+        estimatedCostPence: dto.estimatedCostPence,
         currency: dto.currency ?? request.currency,
-        status:
-          request.status === AffiliateServiceRequestStatus.CLARIFICATION_REQUIRED
-            ? AffiliateServiceRequestStatus.SUBMITTED
-            : request.status,
+        status: AffiliateServiceRequestStatus.QUOTED,
       },
     });
     await this.notificationForBusiness(request.businessId, request.requestedByUserId, {
       title: 'Quote ready for your approval',
-      message: `"${request.title}": ${updated.currency} ${updated.estimatedCost}. Approve the quote before chargeable work begins.`,
+      message: `"${request.title}": ${updated.currency} ${this.formatPence(updated.estimatedCostPence)}. Approve the quote before chargeable work begins.`,
       data: { requestId, type: 'service_quote' },
     });
     return updated;
@@ -770,11 +775,11 @@ export class AffiliateTaskService {
     businessId: string,
     projectId: string,
     dto: CloseAffiliateProjectDto,
-    opts: { asAdmin?: boolean } = {},
+    opts: { asAdmin?: boolean; force?: boolean } = {},
   ) {
     const project = await this.prisma.affiliateProject.findFirst({
       where: { id: projectId, businessId },
-      include: { tasks: { select: { id: true, status: true } } },
+      include: { tasks: { select: { id: true, title: true, status: true } } },
     });
     if (!project) throw new NotFoundException('Project not found');
     if (!opts.asAdmin) {
@@ -796,6 +801,20 @@ export class AffiliateTaskService {
         task.status !== AffiliateTaskStatus.COMPLETED &&
         task.status !== AffiliateTaskStatus.CANCELLED,
     );
+
+    if (openTasks.length && !opts.force) {
+      throw new ConflictException({
+        code: 'PROJECT_TASKS_OPEN',
+        message:
+          'Resolve or cancel every project task before closing the project.',
+        openTasks: openTasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+        })),
+      });
+    }
+
     const updated = await this.prisma.affiliateProject.update({
       where: { id: project.id },
       data: {
@@ -894,7 +913,10 @@ export class AffiliateTaskService {
       select: { businessId: true },
     });
     if (!project) throw new NotFoundException('Project not found');
-    return this.closeProject(adminId, project.businessId, projectId, dto, { asAdmin: true });
+    return this.closeProject(adminId, project.businessId, projectId, dto, {
+      asAdmin: true,
+      force: dto.force ?? false,
+    });
   }
 
   // ─────────────────────── Review & approval workflow ─────────────────────
@@ -1087,7 +1109,7 @@ export class AffiliateTaskService {
       where: { id: taskId, businessId: business.id },
     });
     if (!task) throw new NotFoundException('Task not found');
-    if (!task.billableToBusiness || task.businessChargeAmount == null) {
+    if (!task.billableToBusiness || task.businessChargePence == null) {
       throw new BadRequestException('This task has no business charge to approve');
     }
     if (task.businessChargeStatus !== AffiliateChargeStatus.PENDING_APPROVAL) {
@@ -1127,7 +1149,7 @@ export class AffiliateTaskService {
       actorRole: 'BUSINESS',
       type: 'CHARGE_APPROVED',
       message: dto.notes ?? 'Business approved the charge',
-      metadata: { amount: task.businessChargeAmount, currency: task.businessChargeCurrency },
+      metadata: { amountPence: task.businessChargePence, currency: task.businessChargeCurrency },
     });
     // Re-sync so the affiliate can now accept the work.
     await this.enqueueAffiliateJob('delegate-task', taskId);
@@ -1141,7 +1163,7 @@ export class AffiliateTaskService {
   ) {
     const task = await this.prisma.affiliateTask.findUnique({ where: { id: taskId } });
     if (!task) throw new NotFoundException('Task not found');
-    if (!task.billableToBusiness || task.businessChargeAmount == null) {
+    if (!task.billableToBusiness || task.businessChargePence == null) {
       throw new BadRequestException('This task has no business charge to approve');
     }
 
@@ -1204,7 +1226,7 @@ export class AffiliateTaskService {
           completedAt: new Date(),
           reputationApplied: true,
           businessChargeStatus:
-            task.billableToBusiness && task.businessChargeAmount != null
+            task.billableToBusiness && task.businessChargePence != null
               ? AffiliateChargeStatus.CHARGED
               : task.businessChargeStatus,
         },
@@ -1312,6 +1334,12 @@ export class AffiliateTaskService {
     }
   }
 
+  /** Format an integer pence amount for human-readable notifications. */
+  private formatPence(pence: number | null | undefined): string {
+    if (pence == null) return '—';
+    return (pence / 100).toFixed(2);
+  }
+
   private assertManager(actualManagerId: string | null, actorUserId: string) {
     if (!actualManagerId || actualManagerId !== actorUserId) {
       throw new ForbiddenException('You are not the account manager for this request');
@@ -1371,7 +1399,7 @@ export class AffiliateTaskService {
     if (!task) return;
     await this.notificationForBusiness(task.business.id, task.business.userId, {
       title: 'Approval needed for chargeable work',
-      message: `"${task.title}" has a charge of ${task.businessChargeAmount} ${task.businessChargeCurrency}. Approve it before the affiliate starts.`,
+      message: `"${task.title}" has a charge of ${task.businessChargeCurrency} ${this.formatPence(task.businessChargePence)}. Approve it before the affiliate starts.`,
       data: { taskId, type: 'charge_approval' },
     });
   }
@@ -1579,6 +1607,7 @@ export class AffiliateTaskService {
       managerId,
       { ...dto, projectId: project.id },
       'ACCOUNT_MANAGER',
+      { defaultToManager: false },
     );
     return this.getTaskForManager(managerId, created.id);
   }
@@ -1800,14 +1829,10 @@ export class AffiliateTaskService {
     const compensationPence =
       dto.compensationPence !== undefined
         ? Number(dto.compensationPence)
-        : dto.compensationAmount !== undefined
-          ? Math.round(Number(dto.compensationAmount) * 100)
-          : task.compensationPence;
-    const compensationAmount =
-      compensationPence != null ? compensationPence / 100 : task.compensationAmount;
+        : task.compensationPence;
     const compensationModel =
       dto.compensationModel ??
-      (compensationAmount != null
+      (compensationPence != null
         ? AffiliateCompensationModel.FIXED
         : task.compensationModel);
 
@@ -1822,43 +1847,44 @@ export class AffiliateTaskService {
 
     const quotaSource = allowance?.source ?? task.delegationQuotaSource;
     const quotaEnforced = quotaSource != null && quotaSource !== 'NONE';
-    const requestedCharge =
-      dto.businessChargeAmount !== undefined ? Number(dto.businessChargeAmount) : undefined;
+    const requestedChargePence =
+      dto.businessChargePence !== undefined ? Number(dto.businessChargePence) : undefined;
 
     let billableToBusiness: boolean;
-    let businessChargeAmount: number | null;
+    let businessChargePence: number | null;
     let businessChargeStatus: AffiliateChargeStatus;
 
     if (quotaEnforced && freeDelegation) {
       // Within the plan allowance: the platform covers the affiliate payout and
       // the business wallet is not touched.
       billableToBusiness = false;
-      businessChargeAmount = null;
+      businessChargePence = null;
       businessChargeStatus = AffiliateChargeStatus.NOT_APPLICABLE;
     } else if (quotaEnforced && !freeDelegation) {
       // Allowance exhausted: the task is chargeable. Refuse to assign without a
       // price rather than silently giving away paid work.
-      const charge = requestedCharge ?? task.businessChargeAmount ?? compensationAmount ?? 0;
-      if (!(charge > 0)) {
+      const chargePence =
+        requestedChargePence ?? task.businessChargePence ?? compensationPence ?? 0;
+      if (!(chargePence > 0)) {
         throw new BadRequestException(
           'This business has used its free delegated tasks. Set a business charge before assigning.',
         );
       }
       billableToBusiness = true;
-      businessChargeAmount = charge;
+      businessChargePence = chargePence;
       businessChargeStatus = task.businessChargeApprovedAt
         ? AffiliateChargeStatus.APPROVED
         : AffiliateChargeStatus.PENDING_APPROVAL;
     } else {
       // Trial / no plan: keep the existing explicit billable rules.
       billableToBusiness = dto.billableToBusiness ?? task.billableToBusiness;
-      businessChargeAmount =
-        requestedCharge !== undefined
-          ? requestedCharge
-          : task.businessChargeAmount ??
-            (billableToBusiness ? compensationAmount : null);
+      businessChargePence =
+        requestedChargePence !== undefined
+          ? requestedChargePence
+          : task.businessChargePence ??
+            (billableToBusiness ? compensationPence : null);
       businessChargeStatus =
-        billableToBusiness && businessChargeAmount != null
+        billableToBusiness && businessChargePence != null
           ? task.businessChargeApprovedAt
             ? AffiliateChargeStatus.APPROVED
             : AffiliateChargeStatus.PENDING_APPROVAL
@@ -1866,7 +1892,7 @@ export class AffiliateTaskService {
     }
 
     let paymentStatus: AffiliatePaymentStatus =
-      compensationAmount != null && compensationAmount > 0
+      compensationPence != null && compensationPence > 0
         ? task.paymentStatus === AffiliatePaymentStatus.PAID
           ? AffiliatePaymentStatus.PAID
           : AffiliatePaymentStatus.PENDING
@@ -1880,10 +1906,9 @@ export class AffiliateTaskService {
       await this.settlement.ensureForTask(taskId, {
         platformFeePercent: dto.platformFeePercent,
         compensationModel,
-        compensationAmount: compensationAmount ?? null,
         compensationPence: compensationPence ?? null,
         billableToBusiness,
-        businessChargeAmount: businessChargeAmount ?? null,
+        businessChargePence: businessChargePence ?? null,
         freeDelegation,
         assigneeId: assignee.id,
         assigneeEmail: assignee.email,
@@ -1905,12 +1930,12 @@ export class AffiliateTaskService {
     }
 
     if (escrowReady) {
-      if (billableToBusiness && businessChargeAmount != null) {
+      if (billableToBusiness && businessChargePence != null) {
         businessChargeStatus = AffiliateChargeStatus.APPROVED;
       }
     } else {
       paymentStatus = AffiliatePaymentStatus.ON_HOLD;
-      if (billableToBusiness && businessChargeAmount != null) {
+      if (billableToBusiness && businessChargePence != null) {
         businessChargeStatus = AffiliateChargeStatus.PENDING_APPROVAL;
       }
     }
@@ -1923,13 +1948,12 @@ export class AffiliateTaskService {
         assignedByAdminId: opts.asAccountManager || opts.asBusiness ? null : actorId,
         status: AffiliateTaskStatus.ASSIGNED,
         compensationModel,
-        compensationAmount,
         compensationPence: compensationPence ?? null,
         compensationCurrency: dto.compensationCurrency ?? task.compensationCurrency,
         billableToBusiness,
-        businessChargeAmount,
+        businessChargePence,
         businessChargeStatus,
-        ...(escrowReady && billableToBusiness && businessChargeAmount != null
+        ...(escrowReady && billableToBusiness && businessChargePence != null
           ? {
               businessChargeApprovedAt: new Date(),
               businessChargeApprovedByUserId: actorId,
@@ -2000,7 +2024,7 @@ export class AffiliateTaskService {
         freeDelegation,
         delegationQuotaSource: quotaSource,
         billableToBusiness,
-        businessChargeAmount,
+        businessChargePence,
         paymentStatus,
         escrowReady,
       },
@@ -2018,7 +2042,7 @@ export class AffiliateTaskService {
         message: 'Affiliate assigned, but the business wallet funds are not locked yet.',
         metadata: {
           requiredCredits,
-          businessChargeAmount,
+          businessChargePence,
           currency: task.businessChargeCurrency,
         },
       });
@@ -2051,16 +2075,8 @@ export class AffiliateTaskService {
     const round = task.revisionCount + 1;
 
     if (dto.decision === AffiliateReviewDecision.APPROVED) {
-      const requestedPence =
-        dto.compensationPence ??
-        (dto.compensationAmount != null
-          ? Math.round(Number(dto.compensationAmount) * 100)
-          : null);
-      const currentPence =
-        task.compensationPence ??
-        (task.compensationAmount != null
-          ? Math.round(Number(task.compensationAmount) * 100)
-          : null);
+      const requestedPence = dto.compensationPence ?? null;
+      const currentPence = task.compensationPence;
       const membershipFunded =
         task.freeDelegation === true ||
         task.compensationModel === AffiliateCompensationModel.MEMBERSHIP_INCLUDED ||
@@ -2071,19 +2087,16 @@ export class AffiliateTaskService {
         if (!Number.isInteger(requestedPence) || requestedPence <= 0) {
           throw new BadRequestException('Compensation must be a positive whole number of pence.');
         }
-        const compensationAmount = requestedPence / 100;
         // Re-price the settlement first so a failed quote (e.g. pay exceeds the
         // business charge) leaves the task untouched.
         await this.settlement.ensureForTask(taskId, {
           compensationModel: AffiliateCompensationModel.FIXED,
-          compensationAmount,
           compensationPence: requestedPence,
         });
         await this.prisma.affiliateTask.update({
           where: { id: taskId },
           data: {
             compensationModel: AffiliateCompensationModel.FIXED,
-            compensationAmount,
             compensationPence: requestedPence,
             compensationCurrency: 'GBP',
             paymentStatus: AffiliatePaymentStatus.PENDING,

@@ -411,7 +411,7 @@ export const useApproveServiceRequestPrice = () => {
       data,
     }: {
       id: string;
-      data: { estimatedCost?: number; currency?: string; notes?: string };
+      data: { estimatedCostPence?: number; currency?: string; notes?: string };
     }) => businessApi.approveServiceRequestPrice(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-requests'] });

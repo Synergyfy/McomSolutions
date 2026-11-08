@@ -753,7 +753,10 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
 
   const completedTasks = affiliate.tasks.filter((t) => String(t.status).toUpperCase() === 'COMPLETED');
   const openTasks = affiliate.tasks.filter((t) => !['COMPLETED', 'CANCELLED'].includes(String(t.status).toUpperCase()));
-  const totalSpent = affiliate.tasks.reduce((sum, t) => sum + Number(t.spentGbp ?? t.businessChargeAmount ?? 0), 0);
+  const totalSpent = affiliate.tasks.reduce(
+    (sum, t) => sum + Number(t.spentGbp ?? (t.businessChargePence ?? 0) / 100),
+    0,
+  );
 
   const assigneeLabel = (task: AdminAffiliateTaskRecord) => {
     if (!task.assignee) return 'Unassigned';
@@ -817,7 +820,9 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
                 fmtDate(t.dueAt),
                 reputationCell(t),
                 <div>
-                  <p className="font-bold text-emerald-700">{fmtMoney(t.earnedGbp ?? t.compensationAmount)}</p>
+                  <p className="font-bold text-emerald-700">
+                    {fmtMoney(t.earnedGbp ?? (t.compensationPence != null ? t.compensationPence / 100 : null))}
+                  </p>
                   {t.earnedCredits != null && (
                     <p className="text-[10px] text-gray-400">
                       {Number(t.earnedCredits).toLocaleString('en-GB', {
@@ -846,7 +851,7 @@ function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
                 humanize(t.category),
                 fmtDate(t.assignedAt || t.createdAt),
                 fmtDate(t.dueAt),
-                fmtMoney(t.spentGbp ?? t.businessChargeAmount),
+                fmtMoney(t.spentGbp ?? (t.businessChargePence != null ? t.businessChargePence / 100 : null)),
               ])}
             />
           )}

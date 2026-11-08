@@ -27,10 +27,10 @@ function buildTask(overrides: Record<string, any> = {}) {
       role: 'AGENT',
     },
     compensationModel: 'FIXED',
-    compensationAmount: 75,
+    compensationPence: 7500,
     compensationCurrency: 'GBP',
     billableToBusiness: true,
-    businessChargeAmount: 120,
+    businessChargePence: 12000,
     businessChargeCurrency: 'GBP',
     dueAt: future,
     settlement: null,
@@ -145,7 +145,7 @@ describe('AffiliateSettlementService', () => {
     });
 
     it('caps the fee at the spread so the affiliate payout is never reduced', async () => {
-      const task = buildTask({ businessChargeAmount: 80 }); // 160 credits vs 150 payout
+      const task = buildTask({ businessChargePence: 8000 }); // 160 credits vs 150 payout
       const { service, prisma } = buildHarness(task);
       prisma.affiliateTaskSettlement.upsert.mockImplementation(async ({ create }: any) => ({
         id: 'settlement-3',
@@ -166,7 +166,7 @@ describe('AffiliateSettlementService', () => {
         business: { ...buildTask().business, membershipPlanName: 'Gold' },
         freeDelegation: true,
         billableToBusiness: true,
-        businessChargeAmount: 120,
+        businessChargePence: 12000,
       });
       const { service, prisma, wallet } = buildHarness(task);
       prisma.affiliateTaskSettlement.upsert.mockImplementation(async ({ create }: any) => ({
@@ -188,7 +188,7 @@ describe('AffiliateSettlementService', () => {
         business: { ...buildTask().business, membershipPlanName: 'Gold' },
         freeDelegation: false,
         billableToBusiness: true,
-        businessChargeAmount: 120,
+        businessChargePence: 12000,
       });
       const { service, prisma, wallet } = buildHarness(task);
       prisma.affiliateTaskSettlement.upsert.mockImplementation(async ({ create }: any) => ({
@@ -208,7 +208,7 @@ describe('AffiliateSettlementService', () => {
     });
 
     it('refuses affiliate pay above the business charge', async () => {
-      const task = buildTask({ businessChargeAmount: 20 }); // 40 credits < 150 payout
+      const task = buildTask({ businessChargePence: 2000 }); // 40 credits < 150 payout
       const { service } = buildHarness(task);
 
       await expect(service.ensureForTask('task-1')).rejects.toThrow(

@@ -247,7 +247,7 @@ export default function AffiliateSettlementLedger() {
                           {formatCredits(settlement.businessChargeCredits)} MCOM
                         </p>
                         <p className="text-[10px] tabular-nums text-gray-400">
-                          £{formatCredits(settlement.businessChargeAmount)}
+                          £{formatCredits(Number(settlement.businessChargePence ?? 0) / 100)}
                         </p>
                       </div>
                       <div>
@@ -259,7 +259,7 @@ export default function AffiliateSettlementLedger() {
                           {formatCredits(outgoing)} MCOM
                         </p>
                         <p className="text-[10px] tabular-nums text-gray-400">
-                          £{formatCredits(settlement.compensationAmount)}
+                          £{formatCredits(Number(settlement.compensationPence ?? 0) / 100)}
                         </p>
                       </div>
                       <div>

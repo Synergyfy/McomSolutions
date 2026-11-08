@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Loader2, RefreshCw, Search, Wallet } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { useAdminWalletActivity } from './hooks/useMcomPayAdmin';
@@ -226,7 +226,9 @@ export function WalletActivityPanel() {
                 </thead>
                 <tbody>
                   {rows.map((row) => (
-                    <WalletRow key={row.id} row={row} />
+                    <Fragment key={row.id}>
+                      <WalletRow row={row} />
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -238,6 +240,11 @@ export function WalletActivityPanel() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-gray-900">{userLabel(row.user)}</p>
+                      {row.business ? (
+                        <p className="text-[10px] font-medium text-brand-blue">
+                          {row.business.businessName}
+                        </p>
+                      ) : null}
                       <p className="mt-0.5 text-[11px] text-gray-500">{activityLabel(row)}</p>
                     </div>
                     <span
@@ -320,6 +327,11 @@ function WalletRow({ row }: { row: WalletActivity; key?: string }) {
       <td className="px-4 py-3 text-xs text-gray-700 max-w-[190px] truncate" title={row.user?.email}>
         <p className="font-semibold text-gray-900">{userLabel(row.user)}</p>
         <p className="text-[10px] text-gray-400 truncate">{row.user?.email || '—'}</p>
+        {row.business ? (
+          <p className="text-[10px] font-medium text-brand-blue truncate">
+            {row.business.businessName}
+          </p>
+        ) : null}
       </td>
       <td className="px-4 py-3 text-xs text-gray-700 max-w-[220px] truncate" title={row.description ?? undefined}>
         {activityLabel(row)}

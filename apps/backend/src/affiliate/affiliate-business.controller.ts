@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Post,
   Query,
@@ -35,6 +36,8 @@ import {
 @Controller('business/affiliate')
 @UseGuards(JwtAuthGuard)
 export class AffiliateBusinessController {
+  private readonly logger = new Logger(AffiliateBusinessController.name);
+
   constructor(
     private readonly directory: AffiliateDirectoryService,
     private readonly assignment: AccountManagerAssignmentService,
@@ -50,7 +53,25 @@ export class AffiliateBusinessController {
   @ApiOperation({ summary: 'Get the business assigned account manager' })
   async getAccountManager(@Req() req: any) {
     const business = await this.businessContext(req);
-    const manager = await this.assignment.getAssignedAccountManager(business.id);
+    let manager = await this.assignment.getAssignedAccountManager(business.id);
+
+    // Self-heal memberships that became active before assignment existed (or
+    // whose manager was deactivated). Never let a lookup failure break the
+    // business dashboard; the response still exposes `assignable`.
+    if (!manager && this.isPaidActiveMembership(business)) {
+      try {
+        manager = await this.assignment.assignForBusiness(business.id, {
+          notify: false,
+        });
+      } catch (error: any) {
+        this.logger.warn(
+          `Lazy account-manager assignment failed for business ${business.id}: ${
+            error?.message ?? error
+          }`,
+        );
+      }
+    }
+
     const assignable = this.isPaidActiveMembership(business);
     return {
       success: true,

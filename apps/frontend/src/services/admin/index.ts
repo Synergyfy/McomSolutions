@@ -71,6 +71,9 @@ import type {
   PartnerAccessCodeQuery,
   AdminAffiliateTask,
   AdminAffiliateTaskQuery,
+  AdminAffiliateProject,
+  AdminAffiliateProjectQuery,
+  CloseAdminAffiliateProjectInput,
   AdminAffiliateReport,
   AdminAffiliateReputation,
   AdminAffiliateSettlement,
@@ -1149,6 +1152,22 @@ export const adminApi = {
     return res.data as ApiResponse<AdminAffiliateTask>
   },
 
+  getAffiliateProjects: async (params?: AdminAffiliateProjectQuery) => {
+    const res = await apiClient.get('/admin/affiliate-projects', { params })
+    return res.data as PaginatedResponse<AdminAffiliateProject>
+  },
+
+  closeAffiliateProject: async (
+    id: string,
+    data: CloseAdminAffiliateProjectInput,
+  ) => {
+    const res = await apiClient.post(`/admin/affiliate-projects/${id}/close`, data)
+    return res.data as ApiResponse<{
+      project: AdminAffiliateProject
+      openTasks: number
+    }>
+  },
+
   createAffiliateTask: async (data: {
     businessId: string
     title: string
@@ -1161,9 +1180,9 @@ export const adminApi = {
     deliverables?: string
     materials?: string
     compensationModel?: string
-    compensationAmount?: number
+    compensationPence?: number
     billableToBusiness?: boolean
-    businessChargeAmount?: number
+    businessChargePence?: number
     requiresBusinessApproval?: boolean
     platformFeePercent?: number
   }) => {
@@ -1177,10 +1196,10 @@ export const adminApi = {
       assigneeUserId: string
       note?: string
       compensationModel?: string
-      compensationAmount?: number
+      compensationPence?: number
       compensationCurrency?: string
       billableToBusiness?: boolean
-      businessChargeAmount?: number
+      businessChargePence?: number
       requiresBusinessApproval?: boolean
       platformFeePercent?: number
     },
@@ -1195,7 +1214,6 @@ export const adminApi = {
       decision: 'APPROVED' | 'CHANGES_REQUESTED'
       notes?: string
       compensationPence?: number
-      compensationAmount?: number
     },
   ) => {
     const res = await apiClient.post(`/admin/affiliate-tasks/${id}/review`, data)

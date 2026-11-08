@@ -1356,11 +1356,10 @@ export interface AdminAffiliateTask {
   amReviewedAt?: string | null
   amReviewNotes?: string | null
   compensationModel?: string
-  compensationAmount?: number | null
   compensationPence?: number | null
   compensationCurrency?: string
   billableToBusiness?: boolean
-  businessChargeAmount?: number | null
+  businessChargePence?: number | null
   businessChargeStatus?: string
   paymentStatus?: string
   paidAt?: string | null
@@ -1419,6 +1418,65 @@ export interface AdminAffiliateTaskQuery {
   unassigned?: string
 }
 
+export type AdminAffiliateProjectStatus =
+  | 'ACTIVE'
+  | 'ON_HOLD'
+  | 'AWAITING_BUSINESS_APPROVAL'
+  | 'COMPLETED'
+  | 'CANCELLED'
+
+export interface AdminAffiliateProject {
+  id: string
+  businessId: string
+  serviceRequestId: string | null
+  accountManagerId: string | null
+  createdByUserId: string
+  title: string
+  description: string
+  objective: string | null
+  status: AdminAffiliateProjectStatus
+  dueAt: string | null
+  requiresBusinessApproval: boolean
+  businessApprovedAt: string | null
+  closedAt: string | null
+  outcomeSummary: string | null
+  followUpRequired: boolean
+  followUpNotes: string | null
+  createdAt: string
+  updatedAt: string
+  business?: { id: string; businessName: string | null; email?: string | null } | null
+  accountManager?: {
+    id: string
+    email: string
+    firstName: string | null
+    lastName: string | null
+  } | null
+  serviceRequest?: {
+    id: string
+    title: string
+    status: string
+  } | null
+  tasks?: Array<{
+    id: string
+    title: string
+    status: string
+  }>
+}
+
+export interface AdminAffiliateProjectQuery {
+  page?: number
+  limit?: number
+  status?: string
+  search?: string
+  businessId?: string
+}
+
+export interface CloseAdminAffiliateProjectInput {
+  outcomeSummary: string
+  followUpNotes?: string
+  force?: boolean
+}
+
 export type AdminAffiliateSettlementStatus =
   | 'NOT_REQUIRED'
   | 'PENDING_HOLD'
@@ -1441,9 +1499,8 @@ export interface AdminAffiliateSettlement {
   fxBase: string
   fxQuote: string
   fxRate: string | number
-  businessChargeAmount: string | number | null
+  businessChargePence: number | null
   businessChargeCredits: string | number | null
-  compensationAmount: string | number | null
   compensationPence: number | null
   compensationCredits: string | number | null
   platformFeePercent: string | number
@@ -1961,10 +2018,9 @@ export interface AdminAffiliateTaskRecord {
   earnedCredits?: number | null
   spentGbp?: number | null
   compensationModel: string
-  compensationAmount: number | null
   compensationPence: number | null
   billableToBusiness: boolean
-  businessChargeAmount: number | null
+  businessChargePence: number | null
   paymentStatus: string
   completedAt: string | null
   createdAt: string

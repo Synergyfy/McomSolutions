@@ -137,7 +137,11 @@ function SuiteColumn({ label, note, products }: { label: string; note: string; p
   return <div className="min-w-0">
     <div className="mb-4 flex items-baseline justify-between gap-3"><h3 className="text-lg font-bold text-slate-900">{label}</h3><span className="text-xs text-slate-500">{note}</span></div>
     <div className="grid grid-cols-3 gap-2 sm:gap-3">
-      {products.map((product) => <ProductTile key={product.id} product={product} />)}
+      {products.map((product) => (
+        <React.Fragment key={product.id}>
+          <ProductTile product={product} />
+        </React.Fragment>
+      ))}
     </div>
   </div>;
 }
