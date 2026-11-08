@@ -2,7 +2,6 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -109,7 +108,6 @@ export class CreateAffiliateTaskDto {
   @ApiPropertyOptional({ description: 'The business owner must approve the submitted outcome.' })
   @IsOptional()
   @Type(() => Boolean)
-  @IsBoolean()
   requiresBusinessApproval?: boolean;
 
   @ApiPropertyOptional({ enum: AffiliateCompensationModel, description: 'How the assigned affiliate is compensated.' })
