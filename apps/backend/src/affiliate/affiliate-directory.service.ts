@@ -644,8 +644,17 @@ export class AffiliateDirectoryService {
   }
 
   async assertAffiliateUser(userId: string) {
+    const trimmed = userId.trim();
     const user = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
+      where: {
+        deletedAt: null,
+        OR: [
+          { id: trimmed },
+          ...(trimmed.includes('@')
+            ? [{ email: { equals: trimmed, mode: 'insensitive' as const } }]
+            : []),
+        ],
+      },
       select: {
         id: true,
         email: true,
@@ -662,7 +671,7 @@ export class AffiliateDirectoryService {
       throw new ForbiddenException('Selected user is not an agent, account manager or consultant');
     }
     const profile = user.agentProfile || user.accountManagerProfile || user.consultantProfile;
-    if (!profile || profile.status !== 'Active') {
+    if (profile?.status && profile.status.toLowerCase() !== 'active') {
       throw new ForbiddenException('Selected affiliate is not active');
     }
     return user;

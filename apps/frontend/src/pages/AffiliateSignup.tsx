@@ -78,7 +78,7 @@ export default function AffiliateSignup() {
     };
 
     return (
-        <div className="min-h-screen flex bg-white font-display">
+        <div className="min-h-screen flex bg-white font-display lg:h-dvh lg:min-h-0 lg:overflow-hidden">
             <AuthSidebar
                 title="Scale your professional services with confidence."
                 imageSrc="https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=2026&auto=format&fit=crop"
@@ -90,14 +90,14 @@ export default function AffiliateSignup() {
                 ]}
             />
 
-            <div className="w-full lg:w-1/2 flex flex-col items-center p-8 md:p-16 lg:p-24 bg-white overflow-y-auto">
+            <div className="w-full lg:w-1/2 flex flex-col items-center p-8 md:p-16 lg:p-24 bg-white overflow-y-auto lg:h-dvh lg:min-h-0 lg:overscroll-contain">
                 <div className="w-full max-w-md">
                     <div className="lg:hidden flex items-center mb-8">
                         <CHSLogo variant="full" size="md" imageClassName="h-9" />
                     </div>
 
                     <div className="mb-8">
-                        <Link className="inline-flex items-center text-primary text-sm font-bold hover:underline transition-all duration-200 tracking-widest gap-2 group font-display" to="/register/affiliate">
+                        <Link className="inline-flex items-center text-primary text-sm font-bold hover:underline transition-all duration-200 tracking-widest gap-2 group font-display" to={`/register/affiliate${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}>
                             <span className="material-symbols-outlined group-hover:-translate-x-1 transition-transform">arrow_back</span>
                             Back to Role Selection
                         </Link>

@@ -17,6 +17,11 @@ export interface AssignedAccountManager {
   email: string;
   phone: string | null;
   postcode: string | null;
+  cityName?: string | null;
+  boroughName?: string | null;
+  highStreetName?: string | null;
+  localMallName?: string | null;
+  area?: string | null;
   assignedAt: Date | null;
   reputationScore: number;
   experienceScore: number;
@@ -274,9 +279,13 @@ export class AccountManagerAssignmentService {
                 phone: true,
                 postcode: true,
                 cityId: true,
+                city: { select: { name: true, region: true } },
                 boroughId: true,
+                borough: { select: { name: true } },
                 highStreetId: true,
+                highStreet: { select: { name: true } },
                 localMallId: true,
+                localMall: { select: { name: true } },
                 reputationScore: true,
                 experienceScore: true,
                 completedTasksCount: true,
@@ -324,6 +333,9 @@ export class AccountManagerAssignmentService {
     );
     const score = ranked[0]?.score;
 
+    const areaParts = [profile.borough?.name, profile.city?.name].filter(Boolean);
+    const area = areaParts.length ? areaParts.join(', ') : null;
+
     return {
       userId: manager.id,
       profileId: profile.id,
@@ -332,6 +344,11 @@ export class AccountManagerAssignmentService {
       email: manager.email,
       phone: profile.phone ?? null,
       postcode: profile.postcode ?? null,
+      cityName: profile.city?.name ?? null,
+      boroughName: profile.borough?.name ?? null,
+      highStreetName: profile.highStreet?.name ?? null,
+      localMallName: profile.localMall?.name ?? null,
+      area,
       assignedAt: business.accountManagerAssignedAt,
       reputationScore: summary.reputationScore,
       experienceScore: summary.experienceScore,

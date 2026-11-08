@@ -142,7 +142,7 @@ function SuiteColumn({ label, note, products }: { label: string; note: string; p
   </div>;
 }
 
-function ProductTile({ product }: { product: Product }) {
+function ProductTile({ product }: { product: Product; key?: string }) {
   return <Link to={`/product/${product.id}`} className="group block">
     <div className="relative mb-2 aspect-square w-full overflow-hidden rounded-xl transition duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lg group-hover:shadow-orange-500/15">
       <img src={productImages[product.id]} alt="" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
