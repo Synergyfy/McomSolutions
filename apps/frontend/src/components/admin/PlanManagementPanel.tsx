@@ -137,10 +137,30 @@ export default function PlanManagementPanel() {
                       )}
                       <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>
                       <p className="mt-1 text-[11px] font-bold text-emerald-700">
-                        {plan.unlimitedFreeDelegatedTasks
-                          ? 'Unlimited free delegated tasks'
-                          : `${plan.freeDelegatedTasks ?? 0} free delegated task${(plan.freeDelegatedTasks ?? 0) === 1 ? '' : 's'}`}
+                        {plan.tiers && plan.tiers.length > 0
+                          ? plan.tiers
+                              .map((tier) => {
+                                const label =
+                                  String(tier.tier) === 'ProPlus'
+                                    ? 'Pro+'
+                                    : String(tier.tier) === 'Normal'
+                                      ? 'Standard'
+                                      : String(tier.tier);
+                                return tier.unlimitedFreeDelegatedTasks
+                                  ? `${label}: unlimited`
+                                  : `${label}: ${tier.freeDelegatedTasks ?? 0} free`;
+                              })
+                              .join(' · ')
+                          : plan.unlimitedFreeDelegatedTasks
+                            ? 'Unlimited free delegated tasks'
+                            : `${plan.freeDelegatedTasks ?? 0} free delegated task${(plan.freeDelegatedTasks ?? 0) === 1 ? '' : 's'}`}
                       </p>
+                      {(plan.whitelabelAccess?.length ?? 0) > 0 && (
+                        <p className="mt-1 text-[11px] font-bold text-emerald-700">
+                          {plan.whitelabelAccess!.length} white-label platform
+                          {plan.whitelabelAccess!.length === 1 ? '' : 's'} included
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-1.5">
                       <button

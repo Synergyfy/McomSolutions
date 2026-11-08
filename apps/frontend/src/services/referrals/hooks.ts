@@ -33,3 +33,13 @@ export const useReferrals = (page = 1, limit = 20, enabled = true) => {
     retry: false,
   });
 };
+
+export const useReferralEarnings = (limit = 20, enabled = true) => {
+  return useQuery({
+    queryKey: ['referrals', 'earnings', limit],
+    queryFn: () => referralApi.getMyReferralEarnings(limit),
+    staleTime: 1000 * 30,
+    enabled: Boolean(enabled && hasToken()),
+    retry: false,
+  });
+};

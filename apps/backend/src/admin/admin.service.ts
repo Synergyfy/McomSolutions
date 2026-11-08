@@ -6,9 +6,10 @@ import { LocationAssignmentService } from '../geography/location-assignment.serv
 import { UkReferenceDataService } from '../geography/uk-reference-data.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier } from '@prisma/client';
+import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier, MembershipTier } from '@prisma/client';
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import { generateUniqueReferralCode } from '../common/referral/referral.util';
 import {
   allowedSplit,
   normalizePaymentPlan,
@@ -17,7 +18,7 @@ import {
   planTierLabel,
   resolveOptionPrice,
 } from '../pricing/payment-option.util';
-import type { PlanTierInputDto } from './dto/admin.dto';
+import type { MembershipWhitelabelPlatformInputDto, PlanTierInputDto, WhitelabelPlatformInputDto } from './dto/admin.dto';
 import {
   CreateBusinessUserDto,
   CreateCustomerUserDto,
@@ -100,8 +101,198 @@ export interface AssignedUserRow {
   } | null;
 }
 
+/**
+ * Recursively converts snake_case keys returned by raw SQL JSON into the
+ * camelCase shape the frontend already consumes from Prisma models.
+ */
+function camelizeKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => camelizeKeys(item)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      output[key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase())] = camelizeKeys(nested);
+    }
+    return output as T;
+  }
+  return value;
+}
+
+function sortByDateDesc<T extends Record<string, unknown>>(
+  rows: T[],
+  field: 'createdAt' | 'assignedAt' | 'startedAt' = 'createdAt',
+): T[] {
+  return [...rows].sort((a, b) => {
+    const aTime = a[field] ? new Date(String(a[field])).getTime() : 0;
+    const bTime = b[field] ? new Date(String(b[field])).getTime() : 0;
+    return bTime - aTime;
+  });
+}
+
+/**
+ * The admin user drill-down needs data from ~20 tables. Against the deployed
+ * Supabase pooler each Prisma query costs a full network round-trip (~200ms),
+ * so the previous 15-17 query fan-out took 6-9 seconds even though the actual
+ * SQL runs in under a millisecond (tables hold < 200 rows).
+ *
+ * This single statement returns every section as JSON rows (`section`,
+ * `payload`) so the whole page is one round-trip. Keys are camelized in code.
+ * Soft-delete filters mirror the Prisma client extensions.
+ */
+const ADMIN_FULL_PROFILE_SQL = `
+WITH me AS (
+  SELECT id FROM "User" WHERE id = $1 AND deleted_at IS NULL
+), b AS (
+  SELECT * FROM "BusinessProfile" WHERE "userId" = $1 AND deleted_at IS NULL
+)
+SELECT 'account'::text AS section, to_jsonb(u) - 'password' AS payload
+  FROM "User" u JOIN me ON me.id = u.id
+UNION ALL
+SELECT 'referredBy', to_jsonb(r) - 'password'
+  FROM "User" r WHERE r.id = (SELECT referred_by_id FROM "User" WHERE id = $1)
+UNION ALL
+SELECT 'businessProfile', to_jsonb(b) || jsonb_build_object(
+  'accountManager', (SELECT to_jsonb(am) - 'password' FROM "User" am WHERE am.id = b.account_manager_id),
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = b.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = b.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = b.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = b."localMallId"),
+  'sector', (SELECT to_jsonb(x) FROM sectors x WHERE x.id = b.sector_id),
+  'categoryRef', (SELECT to_jsonb(x) FROM categories x WHERE x.id = b.category_id),
+  'subCategoryRef', (SELECT to_jsonb(x) FROM sub_categories x WHERE x.id = b.sub_category_id)
+) FROM b
+UNION ALL
+SELECT 'customerProfile', to_jsonb(c) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = c.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = c.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = c.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = c.local_mall_id)
+) FROM customer_profiles c WHERE c.user_id = $1 AND c.deleted_at IS NULL
+UNION ALL
+SELECT 'agentProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM agent_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'consultantProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM consultant_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'accountManagerProfile', to_jsonb(a) || jsonb_build_object(
+  'city', (SELECT to_jsonb(x) FROM cities x WHERE x.id = a.city_id),
+  'borough', (SELECT to_jsonb(x) FROM boroughs x WHERE x.id = a.borough_id),
+  'highStreet', (SELECT to_jsonb(x) FROM high_streets x WHERE x.id = a.high_street_id),
+  'localMall', (SELECT to_jsonb(x) FROM local_malls x WHERE x.id = a.local_mall_id)
+) FROM account_manager_profiles a WHERE a.user_id = $1 AND a.deleted_at IS NULL
+UNION ALL
+SELECT 'platformPackages', to_jsonb(p) FROM "PlatformPackage" p WHERE p."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'accessPurchases', to_jsonb(p) FROM access_purchases p WHERE p.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'whitelabelGrants', to_jsonb(w) || jsonb_build_object(
+  'client', (SELECT to_jsonb(sc) FROM sso_clients sc WHERE sc.client_id = w.client_id)
+) FROM whitelabel_accesses w WHERE w.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'ecosystemSubscriptions', to_jsonb(s) FROM ecosystem_subscriptions s WHERE s.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'recurringSubscriptions', to_jsonb(r) || jsonb_build_object(
+  'charges', (SELECT coalesce(jsonb_agg(to_jsonb(rc)), '[]'::jsonb) FROM recurring_charges rc WHERE rc.subscription_id = r.id)
+) FROM recurring_subscriptions r WHERE r.user_id = $1 OR r.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'installmentSubscriptions', to_jsonb(i) || jsonb_build_object(
+  'paymentOption', (SELECT to_jsonb(po) FROM membership_payment_options po WHERE po.id = i.payment_option_id)
+) FROM membership_installment_subscriptions i WHERE i.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'taskAssignments', to_jsonb(a) || jsonb_build_object(
+  'task', (SELECT to_jsonb(t) FROM task_definitions t WHERE t.id = a.task_id),
+  'rewardCoupon', (SELECT to_jsonb(c) FROM coupons c WHERE c.task_assignment_id = a.id LIMIT 1)
+) FROM user_task_assignments a WHERE a.user_id = $1
+UNION ALL
+SELECT 'billingTransactions', to_jsonb(t) FROM "BillingTransaction" t WHERE t."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'couponRedemptions', to_jsonb(cr) || jsonb_build_object(
+  'coupon', (SELECT to_jsonb(c) FROM coupons c WHERE c.id = cr.coupon_id)
+) FROM coupon_redemptions cr WHERE cr.user_id = $1 OR cr.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'notifications', to_jsonb(n) FROM "Notification" n WHERE n.user_id = $1 OR n."businessId" = (SELECT id FROM b)
+UNION ALL
+SELECT 'supportTickets', to_jsonb(t) FROM support_tickets t WHERE t.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'programmes', to_jsonb(p) || jsonb_build_object(
+  'phase', (SELECT to_jsonb(ph) FROM programme_phases ph WHERE ph.id = p.phase_id),
+  'taskStatuses', (SELECT coalesce(jsonb_agg(to_jsonb(ts)), '[]'::jsonb) FROM programme_task_statuses ts WHERE ts.business_programme_id = p.id)
+) FROM business_programmes p
+WHERE (p.business_id = (SELECT id FROM b) OR p.agent_id = $1 OR p.consultant_id = $1 OR p.account_manager_id = $1)
+  AND p.deleted_at IS NULL
+UNION ALL
+SELECT 'affiliateTasks', to_jsonb(t) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = t.business_id),
+  'assignee', (SELECT to_jsonb(x) - 'password' FROM "User" x WHERE x.id = t.assignee_id),
+  'settlement', (SELECT to_jsonb(s) FROM affiliate_task_settlements s WHERE s.task_id = t.id LIMIT 1)
+) FROM affiliate_tasks t
+WHERE t.assignee_id = $1 OR t.created_by_user_id = $1 OR t.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'reputationEvents', to_jsonb(e) FROM affiliate_reputation_events e WHERE e.affiliate_user_id = $1
+UNION ALL
+SELECT 'ratingsReceived', to_jsonb(r) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = r.business_id)
+) FROM affiliate_ratings r WHERE r.affiliate_user_id = $1
+UNION ALL
+SELECT 'affiliateReports', to_jsonb(r) || jsonb_build_object(
+  'business', (SELECT to_jsonb(x) FROM "BusinessProfile" x WHERE x.id = r.business_id)
+) FROM affiliate_reports r WHERE r.affiliate_user_id = $1 OR r.business_id = (SELECT id FROM b)
+UNION ALL
+SELECT 'wallet', to_jsonb(w) FROM wallets w WHERE w.user_id = $1
+UNION ALL
+SELECT 'walletTransactions', to_jsonb(t) FROM wallet_transactions t WHERE t.wallet_id = (SELECT id FROM wallets WHERE user_id = $1)
+UNION ALL
+SELECT 'walletTopUpRequests', to_jsonb(t) FROM wallet_top_up_requests t WHERE t.wallet_id = (SELECT id FROM wallets WHERE user_id = $1)
+`;
+
 @Injectable()
 export class AdminService implements OnModuleInit {
+
+
+  /**
+   * Short-lived in-memory cache for the admin user drill-down. The page is
+   * read-only and admins often revisit the same user while triaging; a 60s TTL
+   * removes the repeated round-trip without showing meaningfully stale data.
+   * Entries are capped so a long-lived process cannot grow unbounded.
+   */
+  private readonly fullProfileCache = new Map<string, { expiresAt: number; value: any }>();
+  private static readonly FULL_PROFILE_CACHE_TTL_MS = 60_000;
+  private static readonly FULL_PROFILE_CACHE_MAX_ENTRIES = 100;
+
+  private readFullProfileCache(userId: string): any | null {
+    const entry = this.fullProfileCache.get(userId);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+      this.fullProfileCache.delete(userId);
+      return null;
+    }
+    return entry.value;
+  }
+
+  private writeFullProfileCache(userId: string, value: any) {
+    if (this.fullProfileCache.size >= AdminService.FULL_PROFILE_CACHE_MAX_ENTRIES) {
+      const oldest = this.fullProfileCache.keys().next().value;
+      if (oldest) this.fullProfileCache.delete(oldest);
+    }
+    this.fullProfileCache.set(userId, {
+      expiresAt: Date.now() + AdminService.FULL_PROFILE_CACHE_TTL_MS,
+      value,
+    });
+  }
+
+  private invalidateFullProfileCache(userId?: string) {
+    if (userId) this.fullProfileCache.delete(userId);
+    else this.fullProfileCache.clear();
+  }
+
 
   async onModuleInit() {
     // No boot-time seeding: memberships-only model, tiers live as
@@ -242,6 +433,7 @@ export class AdminService implements OnModuleInit {
     // the cached dashboard stats here keeps GET /admin/stats fresh without
     // touching every write method. Reads never call this.
     this.invalidateStatsCache();
+    this.invalidateFullProfileCache();
     return tx.auditLog.create({
       data: {
         action,
@@ -549,11 +741,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.BUSINESS,
+          referralCode,
           businessProfile: {
             create: {
               businessName: dto.name,
@@ -600,6 +794,131 @@ export class AdminService implements OnModuleInit {
 
   // ─── White-label Access (business only) ───────────────
   /**
+   * White-label platforms a business is entitled to through its active
+   * membership variant or an active access pass. Manual admin grants live in
+   * `whitelabel_accesses` and are returned separately.
+   */
+  private async resolveDerivedWhitelabelGrants(businessId: string | null | undefined) {
+    if (!businessId) return [];
+    const now = new Date();
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: {
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipLevel: true,
+        membershipExpiresAt: true,
+        membershipTier: true,
+      },
+    });
+    if (!business) return [];
+
+    const results: Array<{
+      id: string;
+      businessId: string;
+      clientId: string;
+      grantedBy: string | null;
+      source: 'MEMBERSHIP' | 'ACCESS_PASS';
+      planName: string;
+      expiresAt: Date | null;
+      createdAt: Date;
+      client: { clientId: string; name: string; platformSlug: string | null; logoUrl: string | null } | null;
+    }> = [];
+
+    const status = String(business.membershipStatus || '').toLowerCase();
+    const planName = business.membershipPlanName || business.membershipLevel;
+    const expired =
+      business.membershipExpiresAt != null &&
+      new Date(business.membershipExpiresAt).getTime() <= now.getTime();
+    if (['active', 'trial', 'past_due'].includes(status) && planName && !expired) {
+      const planTier =
+        business.membershipTier === MembershipTier.Pro
+          ? PlanTier.Pro
+          : business.membershipTier === MembershipTier.ProPlus
+            ? PlanTier.ProPlus
+            : PlanTier.Standard;
+      const grants = await this.prisma.membershipPlanWhitelabelAccess.findMany({
+        where: {
+          tiers: { has: planTier },
+          plan: {
+            name: { equals: planName, mode: 'insensitive' },
+            archived: false,
+            deletedAt: null,
+          },
+        },
+        include: {
+          client: {
+            select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+          },
+        },
+      });
+      for (const grant of grants) {
+        results.push({
+          id: `membership:${grant.id}`,
+          businessId,
+          clientId: grant.clientId,
+          grantedBy: null,
+          source: 'MEMBERSHIP',
+          planName,
+          expiresAt: business.membershipExpiresAt ?? null,
+          createdAt: grant.createdAt,
+          client: grant.client,
+        });
+      }
+    }
+
+    const passes = await this.prisma.accessPurchase.findMany({
+      where: {
+        businessId,
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+        accessPlan: { whitelabelAccess: { some: {} } },
+      },
+      select: {
+        accessPlanName: true,
+        expiresAt: true,
+        accessPlan: {
+          select: {
+            whitelabelAccess: {
+              include: {
+                client: {
+                  select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    for (const purchase of passes) {
+      for (const grant of purchase.accessPlan?.whitelabelAccess ?? []) {
+        results.push({
+          id: `access:${grant.id}:${purchase.expiresAt.toISOString()}`,
+          businessId,
+          clientId: grant.clientId,
+          grantedBy: null,
+          source: 'ACCESS_PASS',
+          planName: purchase.accessPlanName,
+          expiresAt: purchase.expiresAt,
+          createdAt: grant.createdAt,
+          client: grant.client,
+        });
+      }
+    }
+
+    // One row per platform, preferring manual > membership > access pass.
+    const byClient = new Map<string, (typeof results)[number]>();
+    for (const grant of results) {
+      const existing = byClient.get(grant.clientId);
+      if (!existing || (existing.source === 'ACCESS_PASS' && grant.source === 'MEMBERSHIP')) {
+        byClient.set(grant.clientId, grant);
+      }
+    }
+    return [...byClient.values()];
+  }
+
+  /**
    * Lists every white-label-enabled platform plus the grants this business
    * currently holds. Only BUSINESS profiles can own white-label grants.
    */
@@ -610,7 +929,7 @@ export class AdminService implements OnModuleInit {
     });
     if (!business) throw new NotFoundException('Business profile not found');
 
-    const [platforms, grants] = await Promise.all([
+    const [platforms, grants, derivedGrants] = await Promise.all([
       this.prisma.ssoClient.findMany({
         where: { allowWhitelabel: true, isActive: true },
         select: {
@@ -627,6 +946,7 @@ export class AdminService implements OnModuleInit {
         where: { businessId },
         select: { clientId: true, createdAt: true },
       }),
+      this.resolveDerivedWhitelabelGrants(businessId),
     ]);
 
     return {
@@ -635,6 +955,8 @@ export class AdminService implements OnModuleInit {
         business: { id: business.id, name: business.businessName },
         platforms,
         grantedClientIds: grants.map((g) => g.clientId),
+        planGrantedClientIds: derivedGrants.map((g) => g.clientId),
+        derivedGrants,
       },
     };
   }
@@ -872,11 +1194,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.CUSTOMER,
+          referralCode,
           firstName,
           lastName,
           customerProfile: {
@@ -998,11 +1322,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.AGENT,
+          referralCode,
           firstName,
           lastName,
           agentProfile: {
@@ -1120,11 +1446,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.CONSULTANT,
+          referralCode,
           firstName,
           lastName,
           consultantProfile: {
@@ -1242,11 +1570,13 @@ export class AdminService implements OnModuleInit {
 
     const user = await this.wrapUniqueEmail(() =>
       this.prisma.$transaction(async (tx) => {
+      const referralCode = await generateUniqueReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
           password: passwordHash,
           role: Role.ACCOUNT_MANAGER,
+          referralCode,
           firstName,
           lastName,
           accountManagerProfile: {
@@ -1306,6 +1636,236 @@ export class AdminService implements OnModuleInit {
     return { success: true };
   }
 
+  // ─── Full user profile (admin drill-down) ──────────────
+  /**
+   * Aggregates everything an admin needs about a single user: the account
+   * itself, the role-specific profile, memberships, subscriptions, payments,
+   * programme/task journey, affiliate activity, support tickets and wallet.
+   * Read-only. Never returns the password hash.
+   *
+   * QUERY STRATEGY:
+   * - The user and ALL five role profiles were previously fetched with one
+   *   giant `include`, which made Prisma issue a separate query per relation
+   *   and took ~6s. All sections now come back from one SQL statement.
+   * - Single statement = one round-trip to the Supabase pooler.
+   * - Results are cached for 60s; every audited admin write clears the cache.
+   */
+  async getUserFullProfile(userId: string) {
+    const cached = this.readFullProfileCache(userId);
+    if (cached) return cached;
+
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ section: string; payload: any }>>(
+      ADMIN_FULL_PROFILE_SQL,
+      userId,
+    );
+
+    const grouped: Record<string, any[]> = {};
+    for (const row of rows) {
+      const key = row.section;
+      (grouped[key] ||= []).push(camelizeKeys(row.payload));
+    }
+
+    const account = grouped.account?.[0];
+    if (!account) throw new NotFoundException('User not found');
+
+    const businessProfile = grouped.businessProfile?.[0] ?? null;
+    const customerProfile = grouped.customerProfile?.[0] ?? null;
+    const agentProfile = grouped.agentProfile?.[0] ?? null;
+    const consultantProfile = grouped.consultantProfile?.[0] ?? null;
+    const accountManagerProfile = grouped.accountManagerProfile?.[0] ?? null;
+    const referredBy = grouped.referredBy?.[0] ?? null;
+
+    const ecosystemSubscriptions = sortByDateDesc(grouped.ecosystemSubscriptions ?? []);
+    const recurringSubscriptions = sortByDateDesc(grouped.recurringSubscriptions ?? []).map(
+      (subscription: any) => ({
+        ...subscription,
+        charges: sortByDateDesc(subscription.charges ?? []),
+      }),
+    );
+    const installmentSubscriptions = sortByDateDesc(grouped.installmentSubscriptions ?? []);
+    const platformPackages = sortByDateDesc(grouped.platformPackages ?? []);
+    const accessPurchases = sortByDateDesc(grouped.accessPurchases ?? []);
+    const whitelabelGrants = sortByDateDesc(grouped.whitelabelGrants ?? []);
+    const derivedWhitelabelGrants = businessProfile
+      ? await this.resolveDerivedWhitelabelGrants(businessProfile.id)
+      : [];
+    const manualWhitelabelClientIds = new Set(
+      whitelabelGrants.map((grant: any) => grant.clientId),
+    );
+    const allWhitelabelGrants = [
+      ...whitelabelGrants.map((grant: any) => ({ ...grant, source: 'ADMIN' })),
+      ...derivedWhitelabelGrants.filter(
+        (grant) => !manualWhitelabelClientIds.has(grant.clientId),
+      ),
+    ];
+    const billingTransactions = sortByDateDesc(grouped.billingTransactions ?? []);
+    const couponRedemptions = sortByDateDesc(grouped.couponRedemptions ?? []);
+    const taskAssignments = sortByDateDesc(grouped.taskAssignments ?? [], 'assignedAt');
+    const notifications = sortByDateDesc(grouped.notifications ?? []);
+    const supportTickets = sortByDateDesc(grouped.supportTickets ?? []);
+    const programmes = sortByDateDesc(grouped.programmes ?? []);
+    const affiliateTasksRaw = sortByDateDesc(grouped.affiliateTasks ?? []);
+    const reputationEvents = sortByDateDesc(grouped.reputationEvents ?? []);
+    const ratingsReceived = sortByDateDesc(grouped.ratingsReceived ?? []);
+    const affiliateReports = sortByDateDesc(grouped.affiliateReports ?? []);
+
+    const reputationByTask = new Map<string, number>();
+    for (const event of reputationEvents as Array<{ delta?: number; sourceId?: string | null }>) {
+      if (!event.sourceId) continue;
+      reputationByTask.set(
+        event.sourceId,
+        (reputationByTask.get(event.sourceId) ?? 0) + Number(event.delta ?? 0),
+      );
+    }
+
+    const affiliateTasks = affiliateTasksRaw.map((task: any) => {
+      const settlement = task.settlement ?? null;
+      const earnedGbp =
+        settlement?.compensationAmount != null
+          ? Number(settlement.compensationAmount)
+          : task.compensationAmount != null
+            ? Number(task.compensationAmount)
+            : null;
+      const earnedCredits =
+        settlement?.affiliatePayoutCredits != null
+          ? Number(settlement.affiliatePayoutCredits)
+          : null;
+      return {
+        ...task,
+        // The schema has no dedicated assignment timestamp; acceptance is the
+        // closest event, otherwise the task creation date is the assignment date.
+        assignedAt: task.acceptedAt ?? task.createdAt ?? null,
+        reputationDelta: reputationByTask.get(task.id) ?? 0,
+        earnedGbp,
+        earnedCredits,
+        spentGbp: task.businessChargeAmount != null ? Number(task.businessChargeAmount) : null,
+      };
+    });
+
+    const walletRow = grouped.wallet?.[0] ?? null;
+    const wallet = walletRow
+      ? {
+          ...walletRow,
+          transactions: sortByDateDesc(grouped.walletTransactions ?? []),
+          topUpRequests: sortByDateDesc(grouped.walletTopUpRequests ?? []),
+        }
+      : null;
+
+    const now = new Date();
+
+    const totalRevenue = billingTransactions.reduce(
+      (sum: number, txn: any) => (txn.status === 'paid' ? sum + Number(txn.amount ?? 0) : sum),
+      0,
+    );
+
+    const assignments = taskAssignments.map((a: any) => {
+      const isOpen = a.status === 'PENDING' || a.status === 'IN_PROGRESS';
+      const effectiveStatus = isOpen && new Date(a.deadlineAt) < now ? 'EXPIRED' : a.status;
+      const daysRemaining = Math.max(
+        0,
+        Math.ceil((new Date(a.deadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+      );
+      return { ...a, effectiveStatus, daysRemaining };
+    });
+
+    const taskSummary = assignments.reduce(
+      (acc: Record<string, number>, t: any) => {
+        acc.total += 1;
+        if (t.effectiveStatus === 'COMPLETED') acc.completed += 1;
+        else if (t.effectiveStatus === 'EXPIRED') acc.expired += 1;
+        else if (t.effectiveStatus === 'IN_PROGRESS') acc.inProgress += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { total: 0, completed: 0, expired: 0, inProgress: 0, pending: 0 },
+    );
+
+    const { referredById: _referredById, ...accountFields } = account;
+    const displayName =
+      businessProfile?.businessName ||
+      [account.firstName, account.lastName].filter(Boolean).join(' ') ||
+      account.email.split('@')[0];
+
+    const result = {
+      success: true,
+      data: {
+        account: {
+          ...accountFields,
+          name: displayName,
+          fullName: [account.firstName, account.lastName].filter(Boolean).join(' ') || null,
+          referredBy,
+        },
+        businessProfile: businessProfile
+          ? {
+              ...businessProfile,
+              apiKey: businessProfile.apiKey
+                ? `${businessProfile.apiKey.slice(0, 6)}••••${businessProfile.apiKey.slice(-4)}`
+                : null,
+            }
+          : null,
+        customerProfile,
+        agentProfile,
+        consultantProfile,
+        accountManagerProfile,
+        membership: {
+          level: businessProfile?.membershipLevel ?? null,
+          tier: businessProfile?.membershipTier ?? null,
+          status: businessProfile?.membershipStatus ?? customerProfile?.membershipStatus ?? null,
+          planName: businessProfile?.membershipPlanName ?? null,
+          expiresAt: businessProfile?.membershipExpiresAt ?? null,
+          trialAccessDays: businessProfile?.trialAccessDays ?? null,
+          trialAccessExpiresAt: businessProfile?.trialAccessExpiresAt ?? null,
+          hasPaidVerificationFee: businessProfile?.hasPaidVerificationFee ?? null,
+          verificationFeePaidAt: businessProfile?.verificationFeePaidAt ?? null,
+          ecosystemSubscriptions,
+          recurringSubscriptions,
+          installmentSubscriptions,
+          platformPackages,
+          accessPurchases,
+          whitelabelGrants: allWhitelabelGrants,
+        },
+        financials: {
+          totalRevenue,
+          transactions: billingTransactions,
+          couponRedemptions,
+          wallet,
+        },
+        programme: {
+          programmes,
+          taskAssignments: assignments,
+          taskSummary: {
+            ...taskSummary,
+            outstanding: taskSummary.pending + taskSummary.inProgress,
+            progress:
+              taskSummary.total > 0
+                ? Math.round((taskSummary.completed / taskSummary.total) * 100)
+                : 0,
+          },
+        },
+        affiliate: {
+          tasks: affiliateTasks,
+          reputationEvents,
+          ratingsReceived,
+          reports: affiliateReports,
+          reputationScore: reputationEvents.reduce(
+            (sum: number, e: { delta: number }) => sum + e.delta,
+            0,
+          ),
+        },
+        support: {
+          tickets: supportTickets,
+          notifications,
+        },
+        meta: {
+          generatedAt: now.toISOString(),
+        },
+      },
+    };
+
+    this.writeFullProfileCache(userId, result);
+    return result;
+  }
+
   // ─── Membership Plans CRUD ─────────────────────────────
   async getPlans() {
     const items = await this.prisma.membershipPlan.findMany({
@@ -1320,9 +1880,113 @@ export class AdminService implements OnModuleInit {
           },
         },
         appBundles: true,
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
     return { success: true, data: items };
+  }
+
+  /**
+   * Normalises the admin-selected membership variants for a white-label
+   * platform. "Normal" is the legacy name for Standard; "ProPlus" and "Pro+"
+   * both map to the stored PlanTier.ProPlus value.
+   */
+  private normalizeWhitelabelTiers(tiers: string[] | undefined): PlanTier[] {
+    const seen = new Set<PlanTier>();
+    for (const raw of tiers ?? []) {
+      const normalized = String(raw).toLowerCase().replace(/[^a-z+]/g, '');
+      if (normalized === 'standard' || normalized === 'normal') seen.add(PlanTier.Standard);
+      else if (normalized === 'pro') seen.add(PlanTier.Pro);
+      else if (normalized === 'pro+' || normalized === 'proplus') seen.add(PlanTier.ProPlus);
+      else throw new BadRequestException(`Unknown membership variant "${raw}".`);
+    }
+    if (seen.size === 0) {
+      throw new BadRequestException(
+        'Choose at least one membership variant for each white-label platform.',
+      );
+    }
+    return [...seen];
+  }
+
+  /** Rejects client ids that are not active white-label platforms. */
+  private async assertWhitelabelClientsTx(
+    tx: Prisma.TransactionClient,
+    clientIds: string[],
+  ): Promise<void> {
+    const unique = [...new Set(clientIds.map((id) => id.trim()).filter(Boolean))];
+    if (unique.length === 0) return;
+    const clients = await tx.ssoClient.findMany({
+      where: { clientId: { in: unique } },
+      select: { clientId: true, allowWhitelabel: true, isActive: true },
+    });
+    const invalid = unique.filter(
+      (clientId) =>
+        !clients.some(
+          (c) => c.clientId === clientId && c.allowWhitelabel && c.isActive,
+        ),
+    );
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `These platforms are not active white-label platforms: ${invalid.join(', ')}`,
+      );
+    }
+  }
+
+  private async syncMembershipWhitelabelAccessTx(
+    tx: Prisma.TransactionClient,
+    planId: string,
+    entries: MembershipWhitelabelPlatformInputDto[] | undefined,
+  ): Promise<void> {
+    if (entries === undefined) return;
+    await this.assertWhitelabelClientsTx(
+      tx,
+      entries.map((entry) => entry.clientId),
+    );
+    const byClient = new Map<string, Set<PlanTier>>();
+    for (const entry of entries) {
+      const clientId = entry.clientId?.trim();
+      if (!clientId) continue;
+      const tiers = this.normalizeWhitelabelTiers(entry.tiers);
+      const current = byClient.get(clientId) ?? new Set<PlanTier>();
+      for (const tier of tiers) current.add(tier);
+      byClient.set(clientId, current);
+    }
+    await tx.membershipPlanWhitelabelAccess.deleteMany({ where: { planId } });
+    if (byClient.size === 0) return;
+    await tx.membershipPlanWhitelabelAccess.createMany({
+      data: [...byClient.entries()].map(([clientId, tiers]) => ({
+        planId,
+        clientId,
+        tiers: [...tiers],
+      })),
+    });
+  }
+
+  private async syncAccessPlanWhitelabelAccessTx(
+    tx: Prisma.TransactionClient,
+    accessPlanId: string,
+    entries: WhitelabelPlatformInputDto[] | undefined,
+  ): Promise<void> {
+    if (entries === undefined) return;
+    await this.assertWhitelabelClientsTx(
+      tx,
+      entries.map((entry) => entry.clientId),
+    );
+    const clientIds = [
+      ...new Set(entries.map((entry) => entry.clientId?.trim()).filter(Boolean)),
+    ];
+    await tx.accessPlanWhitelabelAccess.deleteMany({ where: { accessPlanId } });
+    if (clientIds.length === 0) return;
+    await tx.accessPlanWhitelabelAccess.createMany({
+      data: clientIds.map((clientId) => ({ accessPlanId, clientId })),
+    });
   }
 
   /**
@@ -1335,6 +1999,7 @@ export class AdminService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     planId: string,
     tiers: PlanTierInputDto[],
+    defaults: { freeDelegatedTasks?: number; unlimitedFreeDelegatedTasks?: boolean } = {},
   ) {
     const seen = new Set<string>();
     const tierPrices: Record<string, number> = {};
@@ -1359,8 +2024,30 @@ export class AdminService implements OnModuleInit {
 
       const tierRow = await tx.membershipPlanTier.upsert({
         where: { planId_tier: { planId, tier: planTier } },
-        update: { durationDays, fullPrice: t.fullPrice, sortOrder: index },
-        create: { planId, tier: planTier, durationDays, fullPrice: t.fullPrice, sortOrder: index },
+        update: {
+          durationDays,
+          fullPrice: t.fullPrice,
+          sortOrder: index,
+          ...(t.freeDelegatedTasks !== undefined
+            ? { freeDelegatedTasks: Math.max(0, Math.round(t.freeDelegatedTasks)) }
+            : {}),
+          ...(t.unlimitedFreeDelegatedTasks !== undefined
+            ? { unlimitedFreeDelegatedTasks: t.unlimitedFreeDelegatedTasks }
+            : {}),
+        },
+        create: {
+          planId,
+          tier: planTier,
+          durationDays,
+          fullPrice: t.fullPrice,
+          sortOrder: index,
+          freeDelegatedTasks: Math.max(
+            0,
+            Math.round(t.freeDelegatedTasks ?? defaults.freeDelegatedTasks ?? 0),
+          ),
+          unlimitedFreeDelegatedTasks:
+            t.unlimitedFreeDelegatedTasks ?? defaults.unlimitedFreeDelegatedTasks ?? false,
+        },
       });
 
       // Payment options replace the tier's whole set; an outright (full)
@@ -1539,7 +2226,10 @@ export class AdminService implements OnModuleInit {
 
       let result = created;
       if (dto.tiers && dto.tiers.length > 0) {
-        const mirror = await this.syncPlanTiersTx(tx, created.id, dto.tiers);
+        const mirror = await this.syncPlanTiersTx(tx, created.id, dto.tiers, {
+          freeDelegatedTasks: dto.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: dto.unlimitedFreeDelegatedTasks,
+        });
         result = await tx.membershipPlan.update({
           where: { id: created.id },
           data: {
@@ -1552,6 +2242,9 @@ export class AdminService implements OnModuleInit {
       }
       if (Array.isArray(dto.includedApps)) {
         await this.syncPlanBundlesTx(tx, created.id, dto.includedApps);
+      }
+      if (dto.whitelabelAccess !== undefined) {
+        await this.syncMembershipWhitelabelAccessTx(tx, created.id, dto.whitelabelAccess);
       }
 
       await this.logAuditTx(tx, 'Membership Created', 'Membership', dto.name, `Created ${dto.name} membership`, adminName);
@@ -1571,8 +2264,9 @@ export class AdminService implements OnModuleInit {
         platformAccess = Array.from(new Set(updates.includedApps.map((a: any) => a.platform).filter(Boolean)));
       }
 
-      // `tiers` is a relational-only input — never pass it to the plan update.
-      const { tiers, ...planUpdates } = updates;
+      // `tiers` and `whitelabelAccess` are relational-only inputs — never pass
+      // them to the plan update.
+      const { tiers, whitelabelAccess: _whitelabelAccess, ...planUpdates } = updates;
       const result = await tx.membershipPlan.update({
         where: { id },
         data: {
@@ -1583,7 +2277,10 @@ export class AdminService implements OnModuleInit {
       });
 
       if (tiers && tiers.length > 0) {
-        const mirror = await this.syncPlanTiersTx(tx, id, tiers);
+        const mirror = await this.syncPlanTiersTx(tx, id, tiers, {
+          freeDelegatedTasks: updates.freeDelegatedTasks,
+          unlimitedFreeDelegatedTasks: updates.unlimitedFreeDelegatedTasks,
+        });
         const prevPrices = (planExists.tierPrices as Record<string, number> | null) ?? {};
         const prevFeatures = (planExists.tierFeatures as Record<string, string[]> | null) ?? {};
         const prevDurations = (planExists.tierDurations as Record<string, number> | null) ?? {};
@@ -1610,6 +2307,9 @@ export class AdminService implements OnModuleInit {
       }
       if (Array.isArray(updates.includedApps)) {
         await this.syncPlanBundlesTx(tx, id, updates.includedApps);
+      }
+      if (updates.whitelabelAccess !== undefined) {
+        await this.syncMembershipWhitelabelAccessTx(tx, id, updates.whitelabelAccess);
       }
 
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
@@ -1730,7 +2430,17 @@ export class AdminService implements OnModuleInit {
   async getAccessPlans() {
     const items = await this.prisma.accessPlan.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        appBundles: { orderBy: { createdAt: 'asc' } },
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     return { success: true, data: items };
   }
@@ -1738,7 +2448,17 @@ export class AdminService implements OnModuleInit {
   async getAccessPlan(id: string) {
     const plan = await this.prisma.accessPlan.findFirst({
       where: { id },
-      include: { appBundles: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        appBundles: { orderBy: { createdAt: 'asc' } },
+        whitelabelAccess: {
+          include: {
+            client: {
+              select: { clientId: true, name: true, platformSlug: true, logoUrl: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     if (!plan) throw new NotFoundException('Access plan not found');
     return { success: true, data: plan };
@@ -1768,6 +2488,9 @@ export class AdminService implements OnModuleInit {
       await tx.accessPlanAppBundle.createMany({
         data: rows.map((row) => ({ ...row, accessPlanId: created.id })),
       });
+      if (dto.whitelabelAccess !== undefined) {
+        await this.syncAccessPlanWhitelabelAccessTx(tx, created.id, dto.whitelabelAccess);
+      }
       await this.logAuditTx(
         tx,
         'Access Plan Created',
@@ -1826,6 +2549,9 @@ export class AdminService implements OnModuleInit {
         await tx.accessPlanAppBundle.createMany({
           data: bundleData.rows.map((row) => ({ ...row, accessPlanId: id })),
         });
+      }
+      if (updates.whitelabelAccess !== undefined) {
+        await this.syncAccessPlanWhitelabelAccessTx(tx, id, updates.whitelabelAccess);
       }
       await this.logAuditTx(
         tx,
@@ -2936,13 +3662,17 @@ export class AdminService implements OnModuleInit {
       limit: dto.limit,
       dryRun: dto.dryRun,
     });
+    const customers = await this.locationAssignment.backfillCustomers({
+      limit: dto.limit,
+      dryRun: dto.dryRun,
+    });
 
     const aggregation =
-      summary.dryRun || summary.assigned === 0
+      summary.dryRun || (summary.assigned === 0 && customers.assigned === 0)
         ? null
         : await this.locationAggregation.aggregateAll();
 
-    return { success: true, data: { ...summary, aggregation } };
+    return { success: true, data: { ...summary, customers, aggregation } };
   }
 
   /**

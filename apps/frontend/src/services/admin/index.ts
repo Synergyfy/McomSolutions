@@ -76,6 +76,11 @@ import type {
   AdminAffiliateSettlement,
   AdminAffiliateSettlementQuery,
   AffiliateSettlementSummary,
+  AdminFullUserProfile,
+  AdminReferralReferrersResponse,
+  AdminReferralConfig,
+  PublishReferralConfigInput,
+  AdminReferralDetail,
 } from './types'
 
 export const adminApi = {
@@ -209,6 +214,12 @@ export const adminApi = {
   deleteAccountManager: async (id: string) => {
     const res = await apiClient.delete(`/admin/users/account-managers/${id}`)
     return res.data
+  },
+
+  // ─── Full User Profile (drill-down) ──────────────────
+  getUserFullProfile: async (userId: string) => {
+    const res = await apiClient.get(`/admin/users/${userId}/profile`)
+    return res.data as ApiResponse<AdminFullUserProfile>
   },
 
   // ─── Membership Plans ────────────────────────────────
@@ -453,6 +464,16 @@ export const adminApi = {
         skipped: number
         failed: number
         errors: Array<{ businessId: string; postcode: string; message: string }>
+        customers: {
+          dryRun: boolean
+          scanned: number
+          eligible: number
+          processed: number
+          assigned: number
+          skipped: number
+          failed: number
+          errors: Array<{ customerId: string; postcode: string; message: string }>
+        }
         aggregation: Record<string, number> | null
       }
     }
@@ -1128,6 +1149,28 @@ export const adminApi = {
     return res.data as ApiResponse<AdminAffiliateTask>
   },
 
+  createAffiliateTask: async (data: {
+    businessId: string
+    title: string
+    description: string
+    assigneeUserId?: string
+    dueAt?: string
+    category?: 'INTERNAL' | 'EXTERNAL'
+    platforms?: string[]
+    requiredSkills?: string[]
+    deliverables?: string
+    materials?: string
+    compensationModel?: string
+    compensationAmount?: number
+    billableToBusiness?: boolean
+    businessChargeAmount?: number
+    requiresBusinessApproval?: boolean
+    platformFeePercent?: number
+  }) => {
+    const res = await apiClient.post('/admin/affiliate-tasks', data)
+    return res.data as ApiResponse<AdminAffiliateTask>
+  },
+
   assignAffiliateTask: async (
     id: string,
     data: {
@@ -1205,6 +1248,30 @@ export const adminApi = {
   backfillAccountManagers: async (limit?: number) => {
     const res = await apiClient.post('/admin/account-managers/backfill', { limit })
     return res.data as ApiResponse<{ candidates: number; assigned: number; skipped: number; failed: number }>
+  },
+
+  // ─── Referral Rewards ────────────────────────────────
+  getReferralReferrers: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const res = await apiClient.get('/admin/referrals', { params })
+    return res.data as AdminReferralReferrersResponse
+  },
+
+  getReferralConfig: async () => {
+    const res = await apiClient.get('/admin/referrals/config')
+    return res.data as ApiResponse<{
+      current: AdminReferralConfig | null
+      history: AdminReferralConfig[]
+    }>
+  },
+
+  publishReferralConfig: async (data: PublishReferralConfigInput) => {
+    const res = await apiClient.post('/admin/referrals/config', data)
+    return res.data as ApiResponse<AdminReferralConfig>
+  },
+
+  getReferralDetail: async (userId: string) => {
+    const res = await apiClient.get(`/admin/referrals/${userId}`)
+    return res.data as ApiResponse<AdminReferralDetail>
   },
 
 }

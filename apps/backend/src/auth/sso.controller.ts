@@ -200,6 +200,8 @@ export class SsoController {
           role: userInfo.role,
           profileType: userInfo.profileType,
           isAffiliate: userInfo.isAffiliate,
+          referralCode: userInfo.referralCode,
+          referralLink: userInfo.referralLink,
           firstName: userInfo.firstName,
           lastName: userInfo.lastName,
           fullName: userInfo.fullName,

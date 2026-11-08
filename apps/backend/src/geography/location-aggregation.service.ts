@@ -253,11 +253,17 @@ export class LocationAggregationService {
       where: {
         aggregatedAt: null,
         businessProfiles: { none: {} },
+        customerProfiles: { none: {} },
         agentProfiles: { none: {} },
         consultantProfiles: { none: {} },
         accountManagerProfiles: { none: {} },
       },
-      data: { businesses: 0, affiliateCount: 0, aggregatedAt: new Date() },
+      data: {
+        businesses: 0,
+        affiliateCount: 0,
+        customers: 0,
+        aggregatedAt: new Date(),
+      },
     });
 
     const rows = (await this.prisma.localMall.findMany({
@@ -266,15 +272,23 @@ export class LocationAggregationService {
     const changed = this.needsRefresh(rows);
     if (changed.length === 0) return 0;
 
-    const [grouped, affiliateCounts] = await Promise.all([
+    const [grouped, affiliateCounts, customerGroups] = await Promise.all([
       this.prisma.businessProfile.groupBy({
         by: ['localMallId'],
         where: { deletedAt: null, localMallId: { not: null } },
         _count: { _all: true },
       }),
       this.affiliateCountsFor('localMallId'),
+      this.prisma.customerProfile.groupBy({
+        by: ['localMallId'],
+        where: { deletedAt: null, localMallId: { not: null } },
+        _count: { _all: true },
+      }),
     ]);
     const counts = new Map(grouped.map((g) => [g.localMallId as string, g._count._all]));
+    const customerCounts = new Map(
+      customerGroups.map((g) => [g.localMallId as string, g._count._all]),
+    );
 
     await this.applyBatched(changed, (row) =>
       this.prisma.localMall.update({
@@ -282,6 +296,7 @@ export class LocationAggregationService {
         data: {
           businesses: counts.get(row.id) ?? 0,
           affiliateCount: affiliateCounts.get(row.id) ?? 0,
+          customers: customerCounts.get(row.id) ?? 0,
           aggregatedAt: row.lastItemCreatedAt ?? new Date(),
         },
       }),

@@ -22,8 +22,14 @@ import { ssoUserInfoSelect } from './profile-selects';
 import { buildSsoIdentity } from './sso-identity';
 import { hashRefreshToken, parseTtlSeconds } from './refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
+import {
+  ensureUserReferralCode,
+  generateUniqueReferralCode,
+} from '../common/referral/referral.util';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import type { ResolvedPostcode } from '../geography/postcode.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import {
   OTP_COOLDOWN_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -48,6 +54,7 @@ export class AuthService {
     private config: ConfigService,
     private redis: RedisService,
     private locationAssignment: LocationAssignmentService,
+    private businessAcquisition: BusinessAcquisitionService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -84,37 +91,6 @@ export class AuthService {
 
   private generateNumericCode(): string {
     return crypto.randomInt(100000, 1000000).toString();
-  }
-
-  /**
-   * Referral codes: short 8-char uppercase alphanumeric (easy to share).
-   * Uniqueness is enforced by the DB `@unique` constraint; the
-   * check-then-create loop below keeps collisions to a retry, and the
-   * register transactions translate a lost race (P2002) into a 409.
-   */
-  private generateReferralCodeCandidate(): string {
-    return crypto.randomBytes(4).toString('hex').toUpperCase();
-  }
-
-  private async generateUniqueReferralCode(tx: { user: { findUnique: any } }): Promise<string> {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const candidate = this.generateReferralCodeCandidate();
-      const existing = await tx.user.findUnique({
-        where: { referralCode: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-    // Entropy fallback — 12 hex chars (48 bits) after 10 collisions.
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const candidate = crypto.randomBytes(6).toString('hex').toUpperCase();
-      const existing = await tx.user.findUnique({
-        where: { referralCode: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-    throw new ServiceUnavailableException('Could not generate a unique referral code');
   }
 
   /**
@@ -820,14 +796,22 @@ export class AuthService {
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(data.password || 'password123', salt);
 
+    // A tracked affiliate invitation outranks a generic ?ref= code: it is
+    // created for this specific business and carries the acquisition record.
+    const affiliateInvitation = data.affiliateInvite
+      ? await this.businessAcquisition.resolveInvitationForRegistration(data.affiliateInvite)
+      : null;
+
     // Create user, business profile, and wallet atomically.
     // Phase 5: a trashed row may still hold the email (hidden by the
     // soft-delete extension) — translate the unique violation to a 409.
     let newUser;
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
-      const referredById = await this.resolveReferrerId(tx, data.referredByCode);
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referredById =
+        affiliateInvitation?.affiliateUserId ??
+        (await this.resolveReferrerId(tx, data.referredByCode));
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -894,6 +878,25 @@ export class AuthService {
           }`,
         );
       }
+
+      if (affiliateInvitation) {
+        try {
+          await this.businessAcquisition.applyInvitationToBusiness(affiliateInvitation.id, {
+            businessId: newUser.businessProfile.id,
+            userId: newUser.id,
+            email,
+          });
+          await this.businessAcquisition.markOnboardingCompleted(newUser.businessProfile.id);
+        } catch (error) {
+          // Registration succeeded; attribution is reconciled later rather
+          // than returning a misleading failure to the new business.
+          this.logger.error(
+            `Could not apply affiliate invitation ${affiliateInvitation.id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     }
 
     return this.login(newUser);
@@ -910,11 +913,15 @@ export class AuthService {
     }
 
     // Customer postcode is optional, but when supplied it must be a valid UK
-    // postcode. No location hierarchy assignment is performed for customers.
+    // postcode. Customers are assigned to the same City → Borough → High
+    // Street → Local Mall hierarchy as businesses and affiliates.
     let customerPostcode: string | null = null;
+    let resolvedCustomerPostcode: ResolvedPostcode | null = null;
     if (data.postcode && String(data.postcode).trim()) {
-      const resolved = await this.locationAssignment.resolvePostcode(String(data.postcode));
-      customerPostcode = resolved.postcode;
+      resolvedCustomerPostcode = await this.locationAssignment.resolvePostcode(
+        String(data.postcode),
+      );
+      customerPostcode = resolvedCustomerPostcode.postcode;
     }
 
     const salt = await bcrypt.genSalt(12);
@@ -925,7 +932,7 @@ export class AuthService {
     try {
       newUser = await this.prisma.$transaction(async (tx) => {
       const referredById = await this.resolveReferrerId(tx, data.referredByCode);
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -942,11 +949,30 @@ export class AuthService {
             create: customerPostcode ? { postcode: customerPostcode } : {},
           },
         },
+        include: { customerProfile: true },
       });
       return user;
       });
     } catch (e) {
       rethrowAsConflictOnUniqueViolation(e);
+    }
+
+    if (resolvedCustomerPostcode && newUser.customerProfile?.id) {
+      try {
+        await this.locationAssignment.assignCustomer(
+          newUser.customerProfile.id,
+          resolvedCustomerPostcode.postcode,
+          resolvedCustomerPostcode,
+        );
+      } catch (error) {
+        // Registration itself already committed. Log the assignment failure
+        // instead of returning a misleading 500 to the new customer.
+        this.logger.error(
+          `Customer ${newUser.customerProfile.id} could not be auto-assigned to a location: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     return this.login(newUser);
@@ -991,7 +1017,7 @@ export class AuthService {
     try {
       affiliateUser = await this.prisma.$transaction(async (tx) => {
       const referredById = await this.resolveReferrerId(tx, data.referredByCode);
-      const referralCode = await this.generateUniqueReferralCode(tx);
+      const referralCode = await generateUniqueReferralCode(tx);
       const user = await tx.user.create({
         data: {
           email,
@@ -1111,7 +1137,7 @@ export class AuthService {
   }
 
   async generateSsoToken(userId: string, targetClientId?: string) {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id: userId },
       // Same full identity/contact/profile select the OAuth SSO surfaces use,
       // so the launch token carries the same information for every role.
@@ -1120,6 +1146,13 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    // Lazy backfill so the token always carries a referral code for
+    // non-admin accounts, even if the bulk backfill has not run yet.
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
+    if (referralCode && referralCode !== user.referralCode) {
+      user = { ...user, referralCode };
     }
 
     // Legacy launch-token guard: if the target platform is white-label, apply
@@ -1153,7 +1186,9 @@ export class AuthService {
       }
     }
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.config.get<string>('FRONTEND_URL'),
+    });
 
     // `role` keeps its documented business/customer contract for existing
     // consumers. Use `profileType`/`centralRole` for the exact central role
@@ -1225,6 +1260,8 @@ export class AuthService {
       country: identity.country,
       businessId: identity.businessId,
       businessName: identity.businessName,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       businessProfile: businessProfileClaim,
       agentProfile: identity.agentProfile,
       consultantProfile: identity.consultantProfile,

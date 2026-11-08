@@ -25,10 +25,13 @@ import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
 import CouponsPanel from '../components/admin/CouponsPanel';
 import AdminMembershipEditor from './AdminMembershipEditor';
 import AdminAccessEditor from './AdminAccessEditor';
+import AdminUserDetail from './AdminUserDetail';
 import AccessPlansPanel from '../components/admin/AccessPlansPanel';
 import AdminCouponEditor from './AdminCouponEditor';
 import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
+import AdminTaskComposer from '../components/admin/task-composer/AdminTaskComposer';
+import ReferralAdminPanel from '../components/admin/ReferralAdminPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -50,6 +53,7 @@ const ADMIN_TABS: AdminTab[] = [
   'system-settings', 'developer-center', 'super-admin',
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories', 'cities',
+  'referrals',
 ];
 
 export default function AdminDashboard() {
@@ -75,6 +79,14 @@ export default function AdminDashboard() {
   const accessEditMatch = useMatch('/admin/access/:id/edit');
   const isAccessEditor = !!(accessNewMatch || accessEditMatch);
   const accessEditorTitle = accessNewMatch ? 'New Access Pass' : 'Edit Access Pass';
+
+  // Full user drill-down: /admin/users/:userId
+  const userDetailMatch = useMatch('/admin/users/:userId');
+  const isUserDetail = !!userDetailMatch;
+
+  // Full-page admin task composer: /admin/affiliate-tasks/new
+  const adminTaskNewMatch = useMatch('/admin/affiliate-tasks/new');
+  const isAdminTaskComposer = !!adminTaskNewMatch;
 
   const handleTabChange = (tab: AdminTab) => {
     navigate(tab === 'dashboard' ? '/admin' : `/admin/${tab}`);
@@ -117,25 +129,34 @@ export default function AdminDashboard() {
       'local-malls': { title: 'LocalMall Management', subtitle: 'Control centre for local digital economies — postcode territories, businesses, and ecosystem participation' },
       'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
       cities: { title: 'City Management', subtitle: 'Top-level geographic hierarchy with assigned business totals' },
+      referrals: { title: 'Referral Rewards', subtitle: 'Configure commissions by role, qualifying plans and recurrence; audit every referrer' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
 
   const tabInfo = getTabInfo(activeTab);
-  const title = isMembershipEditor
-    ? editorTitle
-    : isAccessEditor
-      ? accessEditorTitle
-      : isCouponEditor
-        ? couponEditorTitle
-        : tabInfo.title;
-  const subtitle = isMembershipEditor
-    ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
-    : isAccessEditor
-      ? 'One-time pass — price, fixed duration, platform plans and variants'
-      : isCouponEditor
-        ? 'Discount, membership/access scope, validity and redemption limits'
-        : tabInfo.subtitle;
+  const title = isUserDetail
+    ? 'User Profile'
+    : isAdminTaskComposer
+      ? 'New Affiliate Task'
+      : isMembershipEditor
+        ? editorTitle
+        : isAccessEditor
+          ? accessEditorTitle
+          : isCouponEditor
+            ? couponEditorTitle
+            : tabInfo.title;
+  const subtitle = isUserDetail
+    ? 'Complete account, membership, subscription, programme and payment history'
+    : isAdminTaskComposer
+      ? 'Create a delegated task on behalf of a business — brief, dispatch and price it in one flow'
+      : isMembershipEditor
+        ? 'Step-by-step setup — tiers, splits, features, limits and bundles'
+        : isAccessEditor
+          ? 'One-time pass — price, fixed duration, platform plans and variants'
+          : isCouponEditor
+            ? 'Discount, membership/access scope, validity and redemption limits'
+            : tabInfo.subtitle;
 
   const renderPanel = () => {
     switch (activeTab) {
@@ -177,6 +198,8 @@ export default function AdminDashboard() {
         return <ConsolePanel />;
       case 'wallet':
         return <WalletPanel />;
+      case 'referrals':
+        return <ReferralAdminPanel />;
       case 'mcom-pay':
         return <McomPayPanel />;
       case 'programme':
@@ -207,7 +230,11 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout activeTab={activeTab} onTabChange={handleTabChange} title={title} subtitle={subtitle}>
-      {isMembershipEditor ? (
+      {isUserDetail ? (
+        <AdminUserDetail userId={userDetailMatch!.params.userId as string} />
+      ) : isAdminTaskComposer ? (
+        <AdminTaskComposer />
+      ) : isMembershipEditor ? (
         <AdminMembershipEditor />
       ) : isAccessEditor ? (
         <AdminAccessEditor />

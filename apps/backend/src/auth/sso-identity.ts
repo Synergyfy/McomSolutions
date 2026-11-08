@@ -1,5 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { ssoUserInfoSelect } from './profile-selects';
+import {
+  buildReferralLink,
+  isReferralEligibleRole,
+} from '../common/referral/referral.util';
 
 /**
  * A user record shaped by {@link ssoUserInfoSelect} — the full identity,
@@ -24,6 +28,12 @@ export interface SsoIdentity {
   profileType: string;
   /** True when the user signed up through an affiliate/partner portal. */
   isAffiliate: boolean;
+
+  // ── Referral programme (non-admin accounts only) ───────────────────────────
+  /** The user's own shareable referral code, or null for admins. */
+  referralCode: string | null;
+  /** Fully-qualified `?ref=` registration link, or null for admins. */
+  referralLink: string | null;
 
   firstName: string | null;
   lastName: string | null;
@@ -73,7 +83,10 @@ function clean(value: string | null | undefined): string | null {
  * agents / affiliates / consultants / account managers get the same
  * first name, last name, email and phone treatment as businesses.
  */
-export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
+export function buildSsoIdentity(
+  user: SsoUserRecord,
+  options?: { frontendUrl?: string | null },
+): SsoIdentity {
   const business = user.businessProfile;
   const customer = user.customerProfile;
   const agent = user.agentProfile;
@@ -105,7 +118,8 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
     clean(customer?.postcode) ??
     null;
 
-  const location = agent?.city ?? consultant?.city ?? accountManager?.city ?? null;
+  const location =
+    agent?.city ?? consultant?.city ?? accountManager?.city ?? customer?.city ?? null;
 
   const country =
     clean(business?.country) ??
@@ -117,6 +131,11 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
 
   const profileType = user.role;
 
+  // Admins are excluded from the referral programme.
+  const referralCode = isReferralEligibleRole(user.role)
+    ? clean(user.referralCode)
+    : null;
+
   return {
     id: user.id,
     sub: user.id,
@@ -124,6 +143,11 @@ export function buildSsoIdentity(user: SsoUserRecord): SsoIdentity {
     role: user.role,
     profileType,
     isAffiliate: user.registrationSource === 'affiliate-portal',
+
+    referralCode: referralCode,
+    referralLink: referralCode
+      ? buildReferralLink(options?.frontendUrl, referralCode)
+      : null,
 
     firstName,
     lastName,

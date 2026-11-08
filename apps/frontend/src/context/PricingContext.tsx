@@ -27,9 +27,18 @@ export interface PlanTier {
   tier: 'Standard' | 'Pro' | 'Pro+';
   durationDays: number;
   fullPrice: number;
+  freeDelegatedTasks?: number;
+  unlimitedFreeDelegatedTasks?: boolean;
   features: string[];
   entitlements: { resourceKey: string; quotaValue: string }[];
   paymentOptions: PlanPaymentOption[];
+}
+
+export interface WhitelabelPlanAccess {
+  clientId: string;
+  name: string;
+  platformSlug?: string | null;
+  tiers: ('Standard' | 'Pro' | 'Pro+')[];
 }
 
 export interface PricingPlan {
@@ -53,6 +62,7 @@ export interface PricingPlan {
   tierDurations?: Record<string, number>;
   tiers?: PlanTier[];
   appBundles?: { platform: string; externalPlanId?: string | null; packageName: string }[];
+  whitelabelAccess?: WhitelabelPlanAccess[];
 }
 
 interface PricingContextType {
@@ -126,6 +136,8 @@ const mapApiPlan = (p: any): PricingPlan => {
           tier: t.tier,
           durationDays: Number(t.durationDays) || 0,
           fullPrice: Number(t.fullPrice) || 0,
+          freeDelegatedTasks: t.freeDelegatedTasks != null ? Number(t.freeDelegatedTasks) : undefined,
+          unlimitedFreeDelegatedTasks: Boolean(t.unlimitedFreeDelegatedTasks),
           features: Array.isArray(t.features) ? t.features : [],
           entitlements: Array.isArray(t.entitlements) ? t.entitlements : [],
           paymentOptions: Array.isArray(t.paymentOptions)
@@ -141,6 +153,7 @@ const mapApiPlan = (p: any): PricingPlan => {
         }))
       : [],
     appBundles: Array.isArray(p.appBundles) ? p.appBundles : [],
+    whitelabelAccess: Array.isArray(p.whitelabelAccess) ? p.whitelabelAccess : [],
   };
 };
 

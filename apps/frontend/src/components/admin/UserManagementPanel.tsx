@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -15,6 +16,7 @@ import {
 type UserTab = 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers';
 
 export default function UserManagementPanel() {
+  const navigate = useNavigate();
   const { data: bizRes, isLoading: bizLoading } = useAdminBusinesses();
   const { data: custRes, isLoading: custLoading } = useAdminCustomers();
   const { data: agentRes, isLoading: agentLoading } = useAdminAgents();
@@ -63,6 +65,8 @@ export default function UserManagementPanel() {
   const filterBySearch = <T extends { name: string; email: string }>(items: T[]) =>
     items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.email.toLowerCase().includes(search.toLowerCase()));
 
+  const openUser = (userId: string) => navigate(`/admin/users/${userId}`);
+
   const renderTable = () => {
     if (isLoading) {
       return (
@@ -72,11 +76,11 @@ export default function UserManagementPanel() {
       );
     }
     switch (userTab) {
-      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} onWhitelabel={(b: any) => setWhitelabelBusiness({ id: b.id, name: b.name })} />;
-      case 'customers': return <CustomerTable data={filterBySearch(customers)} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'agents': return <AgentTable data={filterBySearch(agents)} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} onWhitelabel={(b: any) => setWhitelabelBusiness({ id: b.id, name: b.name })} />;
+      case 'customers': return <CustomerTable data={filterBySearch(customers)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'agents': return <AgentTable data={filterBySearch(agents)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
     }
   };
 
@@ -147,7 +151,7 @@ export default function UserManagementPanel() {
 
 // ── Sub-components (BusinessTable, CustomerTable, etc.) ──
 
-function BusinessTable({ data, onEdit, onDelete, onAdd, onWhitelabel }: any) {
+function BusinessTable({ data, onView, onEdit, onDelete, onAdd, onWhitelabel }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -161,7 +165,7 @@ function BusinessTable({ data, onEdit, onDelete, onAdd, onWhitelabel }: any) {
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {data.map((b: any) => (
-              <tr key={b.id} className="hover:bg-gray-50/80 transition-colors group">
+              <tr key={b.id} onClick={() => onView(b.userId)} className="hover:bg-gray-50/80 transition-colors group cursor-pointer">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-blue-50 text-brand-blue rounded-lg flex items-center justify-center font-bold text-xs">{b.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{b.name}</div><div className="text-[10px] text-gray-400 font-bold">{b.email}</div></div>
@@ -170,11 +174,14 @@ function BusinessTable({ data, onEdit, onDelete, onAdd, onWhitelabel }: any) {
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", b.status === 'Active' ? 'bg-green-500' : b.status === 'Pending' ? 'bg-amber-500' : 'bg-red-500')} /><span className="text-xs font-bold">{b.status}</span></div></td>
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{b.revenue}</td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onWhitelabel?.(b)} className="flex items-center gap-1.5 px-2.5 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-all text-[10px] font-bold" aria-label="Give white-label access" title="Give white-label access">
+                  <button onClick={(e) => { e.stopPropagation(); onView(b.userId); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-brand-blue/10 text-brand-blue rounded-lg hover:bg-brand-blue/20 transition-all text-[10px] font-bold" aria-label="View full profile" title="View full profile">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onWhitelabel?.(b); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-all text-[10px] font-bold" aria-label="Give white-label access" title="Give white-label access">
                     <ShieldCheck className="w-3.5 h-3.5" /> Give Access
                   </button>
-                  <button onClick={() => onEdit(b)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(b.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(b); }} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(b.id); }} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -186,7 +193,7 @@ function BusinessTable({ data, onEdit, onDelete, onAdd, onWhitelabel }: any) {
   );
 }
 
-function CustomerTable({ data, onEdit, onDelete }: any) {
+function CustomerTable({ data, onView, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -199,7 +206,7 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {data.map((c: any) => (
-              <tr key={c.id} className="hover:bg-gray-50/80 transition-colors group">
+              <tr key={c.id} onClick={() => onView(c.userId)} className="hover:bg-gray-50/80 transition-colors group cursor-pointer">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{c.name}</div><div className="text-[10px] text-gray-400 font-bold">{c.email}</div></div>
@@ -207,8 +214,11 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{c.loyaltyPoints?.toLocaleString()}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-red-500')} /><span className="text-xs font-bold">{c.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onView(c.userId); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-brand-blue/10 text-brand-blue rounded-lg hover:bg-brand-blue/20 transition-all text-[10px] font-bold" aria-label="View full profile" title="View full profile">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(c); }} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(c.id); }} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -220,7 +230,7 @@ function CustomerTable({ data, onEdit, onDelete }: any) {
   );
 }
 
-function AgentTable({ data, onEdit, onDelete }: any) {
+function AgentTable({ data, onView, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -233,7 +243,7 @@ function AgentTable({ data, onEdit, onDelete }: any) {
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {data.map((a: any) => (
-              <tr key={a.id} className="hover:bg-gray-50/80 transition-colors group">
+              <tr key={a.id} onClick={() => onView(a.userId)} className="hover:bg-gray-50/80 transition-colors group cursor-pointer">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{a.name}</div><div className="text-[10px] text-gray-400 font-bold">{a.email}</div></div>
@@ -241,8 +251,11 @@ function AgentTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4"><div className="flex gap-1 flex-wrap">{a.permissions?.map((p: string) => <span key={p} className="px-2 py-0.5 bg-gray-100 rounded text-[10px] font-bold text-gray-600">{p}</span>)}</div></td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onView(a.userId); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-brand-blue/10 text-brand-blue rounded-lg hover:bg-brand-blue/20 transition-all text-[10px] font-bold" aria-label="View full profile" title="View full profile">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(a); }} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all" aria-label="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(a.id); }} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -254,7 +267,7 @@ function AgentTable({ data, onEdit, onDelete }: any) {
   );
 }
 
-function ConsultantTable({ data, onEdit, onDelete }: any) {
+function ConsultantTable({ data, onView, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -267,7 +280,7 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {data.map((c: any) => (
-              <tr key={c.id} className="hover:bg-gray-50/80 transition-colors group">
+              <tr key={c.id} onClick={() => onView(c.userId)} className="hover:bg-gray-50/80 transition-colors group cursor-pointer">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center font-bold text-xs">{c.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{c.name}</div><div className="text-[10px] text-gray-400 font-bold">{c.email}</div></div>
@@ -275,8 +288,11 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4 text-sm font-bold text-gray-700">{c.specialisation}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", c.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{c.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(c)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(c.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onView(c.userId); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-brand-blue/10 text-brand-blue rounded-lg hover:bg-brand-blue/20 transition-all text-[10px] font-bold" aria-label="View full profile" title="View full profile">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(c); }} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(c.id); }} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}
@@ -288,7 +304,7 @@ function ConsultantTable({ data, onEdit, onDelete }: any) {
   );
 }
 
-function AccountManagerTable({ data, onEdit, onDelete }: any) {
+function AccountManagerTable({ data, onView, onEdit, onDelete }: any) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="overflow-x-auto">
@@ -301,7 +317,7 @@ function AccountManagerTable({ data, onEdit, onDelete }: any) {
           </tr></thead>
           <tbody className="divide-y divide-gray-50">
             {data.map((a: any) => (
-              <tr key={a.id} className="hover:bg-gray-50/80 transition-colors group">
+              <tr key={a.id} onClick={() => onView(a.userId)} className="hover:bg-gray-50/80 transition-colors group cursor-pointer">
                 <td className="px-6 py-4"><div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-cyan-50 text-cyan-600 rounded-lg flex items-center justify-center font-bold text-xs">{a.name?.charAt(0)}</div>
                   <div><div className="font-bold text-sm text-gray-900">{a.name}</div><div className="text-[10px] text-gray-400 font-bold">{a.email}</div></div>
@@ -309,8 +325,11 @@ function AccountManagerTable({ data, onEdit, onDelete }: any) {
                 <td className="px-6 py-4 text-sm font-bold text-gray-900">{a.assignedBusinesses}</td>
                 <td className="px-6 py-4"><div className="flex items-center gap-2"><span className={cn("w-2 h-2 rounded-full", a.status === 'Active' ? 'bg-green-500' : 'bg-gray-400')} /><span className="text-xs font-bold">{a.status}</span></div></td>
                 <td className="px-6 py-4"><div className="flex justify-center gap-2">
-                  <button onClick={() => onEdit(a)} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(a.id)} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onView(a.userId); }} className="flex items-center gap-1.5 px-2.5 py-2 bg-brand-blue/10 text-brand-blue rounded-lg hover:bg-brand-blue/20 transition-all text-[10px] font-bold" aria-label="View full profile" title="View full profile">
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); onEdit(a); }} className="p-2 bg-gray-50 rounded-lg hover:bg-blue-50 hover:text-brand-blue transition-all"><Edit3 className="w-3.5 h-3.5" /></button>
+                  <button onClick={(e) => { e.stopPropagation(); onDelete(a.id); }} className="p-2 bg-gray-50 rounded-lg hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div></td>
               </tr>
             ))}

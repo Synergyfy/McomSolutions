@@ -7,6 +7,7 @@ import { ConflictException, ForbiddenException, HttpException, UnauthorizedExcep
 import { Role } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -115,6 +116,14 @@ describe('AuthService', () => {
       adminWard: 'St James',
     }),
     assignBusiness: jest.fn().mockResolvedValue(null),
+    assignAffiliate: jest.fn().mockResolvedValue(null),
+    assignCustomer: jest.fn().mockResolvedValue(null),
+  };
+
+  const mockBusinessAcquisition = {
+    resolveInvitationForRegistration: jest.fn().mockResolvedValue(null),
+    applyInvitationToBusiness: jest.fn().mockResolvedValue(null),
+    markOnboardingCompleted: jest.fn().mockResolvedValue(null),
   };
 
   beforeEach(async () => {
@@ -126,6 +135,7 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: RedisService, useValue: mockRedis },
         { provide: LocationAssignmentService, useValue: mockLocationAssignment },
+        { provide: BusinessAcquisitionService, useValue: mockBusinessAcquisition },
       ],
     }).compile();
 
@@ -407,6 +417,10 @@ describe('AuthService', () => {
       );
       expect(result.accessToken).toBe('mock-token');
       expect(result.user.email).toBe('newbiz@test.com');
+      expect(mockLocationAssignment.assignBusiness).toHaveBeenCalledWith(
+        'b1',
+        expect.objectContaining({ postcode: 'SW1A 1AA' }),
+      );
     });
   });
 
@@ -446,6 +460,34 @@ describe('AuthService', () => {
         }),
       );
       expect(result.accessToken).toBe('mock-token');
+    });
+
+    it('assigns a customer with a postcode to the geographic hierarchy', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      const newUser = {
+        id: '3',
+        email: 'located@test.com',
+        password: 'hashed',
+        role: Role.CUSTOMER,
+        customerProfile: { id: 'cust-1', postcode: 'SW1A 1AA' },
+      };
+      mockPrisma.user.create.mockResolvedValue(newUser);
+
+      await service.registerCustomer({
+        email: 'located@test.com',
+        firstName: 'Located',
+        lastName: 'Customer',
+        postcode: 'SW1A 1AA',
+      });
+
+      expect(mockLocationAssignment.resolvePostcode).toHaveBeenCalledWith(
+        'SW1A 1AA',
+      );
+      expect(mockLocationAssignment.assignCustomer).toHaveBeenCalledWith(
+        'cust-1',
+        'SW1A 1AA',
+        expect.objectContaining({ postcode: 'SW1A 1AA' }),
+      );
     });
   });
 
@@ -497,6 +539,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: {
           id: 'b1',
           businessName: 'Test Biz',
@@ -530,6 +573,7 @@ describe('AuthService', () => {
         id: '1',
         email: 'test@test.com',
         role: Role.BUSINESS,
+        referralCode: 'A1B2C3D4',
         businessProfile: null,
       };
       mockPrisma.user.findUnique.mockResolvedValue(mockUser);
@@ -548,6 +592,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: { id: 'b1', businessName: 'Test Biz' },
       });
       mockPrisma.ssoClient.findUnique.mockResolvedValue({
@@ -568,6 +613,7 @@ describe('AuthService', () => {
         role: Role.BUSINESS,
         firstName: 'Owner',
         lastName: 'Person',
+        referralCode: 'A1B2C3D4',
         businessProfile: { id: 'b1', businessName: 'Test Biz' },
       });
       mockPrisma.ssoClient.findUnique.mockResolvedValue({

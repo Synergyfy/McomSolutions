@@ -19,6 +19,7 @@ import {
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
   ApproveServiceRequestDto,
+  AssignAffiliateTaskDto,
   CloseAffiliateProjectDto,
   CreateAffiliateProjectDto,
   CreateAffiliateServiceRequestDto,
@@ -251,6 +252,18 @@ export class AffiliateBusinessController {
     return { success: true, data: task };
   }
 
+  @Post('tasks/:id/reassign')
+  @ApiOperation({ summary: 'Reassign a task the affiliate declined to another affiliate' })
+  async reassignTask(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: AssignAffiliateTaskDto,
+  ) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.reassignBusinessTask(business.id, id, dto, req.user.userId);
+    return { success: true, data: task, message: 'Task reassigned' };
+  }
+
   @Post('tasks/:id/review')
   @ApiOperation({ summary: 'Business owner approves or requests changes on a submitted outcome' })
   async reviewTask(
@@ -273,6 +286,20 @@ export class AffiliateBusinessController {
     const business = await this.businessContext(req);
     const task = await this.tasks.reviewBusinessCharge(req.user.userId, business.id, id, dto);
     return { success: true, data: task, message: 'Charge decision recorded' };
+  }
+
+  @Post('tasks/:id/lock-funds')
+  @ApiOperation({
+    summary: 'Lock the business wallet funds for an assigned task after funding the wallet',
+  })
+  async lockTaskFunds(@Req() req: any, @Param('id') id: string) {
+    const business = await this.businessContext(req);
+    const task = await this.tasks.lockBusinessTaskFunds(req.user.userId, business.id, id);
+    return {
+      success: true,
+      data: task,
+      message: 'Funds locked. The affiliate can now start the task.',
+    };
   }
 
   @Post('tasks/:id/cancel')

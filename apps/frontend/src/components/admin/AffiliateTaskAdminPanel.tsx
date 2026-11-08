@@ -1,10 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
   Flag,
   Loader2,
+  Plus,
   RefreshCw,
   Search,
   Trophy,
@@ -102,6 +104,18 @@ function nameOf(person?: { firstName?: string | null; lastName?: string | null; 
 }
 
 export default function AffiliateTaskAdminPanel() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const createdNotice = (location.state ?? null) as
+    | {
+        taskCreated?: boolean;
+        taskTitle?: string;
+        businessName?: string;
+        assigneeName?: string | null;
+      }
+    | null;
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+
   const [tab, setTab] = useState<'tasks' | 'settlements' | 'reports'>('tasks');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -170,6 +184,32 @@ export default function AffiliateTaskAdminPanel() {
 
   return (
     <div className="space-y-5">
+      {createdNotice?.taskCreated && !noticeDismissed && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <div>
+              <p className="text-sm font-black text-emerald-900">
+                Task created{createdNotice.taskTitle ? `: ${createdNotice.taskTitle}` : ''}
+              </p>
+              <p className="mt-0.5 text-xs font-medium text-emerald-800">
+                {createdNotice.businessName ? `For ${createdNotice.businessName}. ` : ''}
+                {createdNotice.assigneeName
+                  ? `Assigned to ${createdNotice.assigneeName}.`
+                  : 'Left unassigned for auto-routing.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setNoticeDismissed(true)}
+            className="shrink-0 rounded-lg p-1 text-emerald-700 hover:bg-emerald-100"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setTab('tasks')}
@@ -209,6 +249,12 @@ export default function AffiliateTaskAdminPanel() {
           )}
         </button>
         <button
+          onClick={() => navigate('/admin/affiliate-tasks/new')}
+          className="ml-auto inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark"
+        >
+          <Plus className="w-4 h-4" /> New task
+        </button>
+        <button
           onClick={async () => {
             const res = await backfillManagers.mutateAsync(100);
             const data = res?.data;
@@ -220,7 +266,7 @@ export default function AffiliateTaskAdminPanel() {
           }}
           disabled={backfillManagers.isPending}
           title="Assign account managers to paid businesses that have never had one (runs nightly too)"
-          className="ml-auto inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
         >
           {backfillManagers.isPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -341,6 +387,11 @@ export default function AffiliateTaskAdminPanel() {
                         )}
                       </p>
                       <p className="mt-1 text-xs text-gray-600 line-clamp-2">{task.description}</p>
+                      {task.status === 'DECLINED' && task.declineReason && (
+                        <p className="mt-1.5 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1.5 text-[11px] leading-5 text-red-800">
+                          <span className="font-black">Decline reason:</span> {task.declineReason}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] font-bold">
                         <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
                           {(task.category || 'EXTERNAL').toLowerCase()}
@@ -912,7 +963,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
       <div
-        className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-3"
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">

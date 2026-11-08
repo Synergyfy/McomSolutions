@@ -12,6 +12,15 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
     membershipPlan: {
       findFirst: jest.fn(),
     },
+    membershipPlanWhitelabelAccess: {
+      findFirst: jest.fn(),
+    },
+    accessPurchase: {
+      findFirst: jest.fn(),
+    },
+    businessProfile: {
+      findFirst: jest.fn(),
+    },
     taskDefinition: {
       findMany: jest.fn(),
     },
@@ -52,6 +61,9 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPrisma.programmeSetting.findMany.mockResolvedValue([]);
+    mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+    mockPrisma.membershipPlanWhitelabelAccess.findFirst.mockResolvedValue(null);
+    mockPrisma.accessPurchase.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SsoService,
@@ -504,6 +516,57 @@ describe('SsoService - Entitlement & Trial Protocol', () => {
         expect(result.entitlement?.whitelabel?.roleEligible).toBe(true);
         expect(result.entitlement?.membershipContext.isIncludedInMembership).toBe(false);
         expect(result.permissions.canAccess_247gbs_rewards).toBe(true);
+      });
+
+      it('grants WHITELABEL access when the active membership variant includes the platform', async () => {
+        mockPrisma.whitelabelAccess.findUnique.mockResolvedValue(null);
+        mockPrisma.businessProfile.findFirst.mockResolvedValue({
+          membershipStatus: 'active',
+          membershipPlanName: 'Gold',
+          membershipLevel: 'Gold',
+          membershipExpiresAt: new Date(Date.now() + 86_400_000),
+          membershipTier: 'Pro',
+        });
+        mockPrisma.membershipPlanWhitelabelAccess.findFirst.mockResolvedValue({
+          createdAt: new Date('2026-10-30T10:00:00.000Z'),
+        });
+
+        const result = await service.resolveEntitlements(businessUser, whitelabelClient);
+
+        expect(result.entitlement?.access.hasAccess).toBe(true);
+        expect(result.entitlement?.access.accessType).toBe('WHITELABEL');
+        expect(result.entitlement?.whitelabel?.granted).toBe(true);
+        expect(mockPrisma.membershipPlanWhitelabelAccess.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              clientId: '247gbs-rewards',
+              tiers: { has: 'Pro' },
+            }),
+          }),
+        );
+      });
+
+      it('grants WHITELABEL access while a bundled access pass is active', async () => {
+        mockPrisma.whitelabelAccess.findUnique.mockResolvedValue(null);
+        mockPrisma.businessProfile.findFirst.mockResolvedValue(null);
+        mockPrisma.accessPurchase.findFirst.mockResolvedValue({
+          createdAt: new Date('2026-10-30T10:00:00.000Z'),
+        });
+
+        const result = await service.resolveEntitlements(businessUser, whitelabelClient);
+
+        expect(result.entitlement?.access.hasAccess).toBe(true);
+        expect(result.entitlement?.access.accessType).toBe('WHITELABEL');
+        expect(result.entitlement?.whitelabel?.granted).toBe(true);
+        expect(mockPrisma.accessPurchase.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              businessId: 'biz_wl_1',
+              status: 'ACTIVE',
+              accessPlan: { whitelabelAccess: { some: { clientId: '247gbs-rewards' } } },
+            }),
+          }),
+        );
       });
 
       it('denies a business that has no grant with WHITELABEL_ACCESS_DENIED', async () => {

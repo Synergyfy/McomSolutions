@@ -7,7 +7,7 @@ import {
   ChevronRight, ChevronLeft, Upload, Check, KeyRound,
   Shield, Crown, Compass, MapPin,
   Trophy, Building2, Globe, Eye, EyeOff, Image, AlertCircle, Phone, User,
-  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers
+  Mail, ShieldCheck, X, Search, Star, Clock, ArrowRight, Map, MessageSquare, RefreshCw, CheckCircle2, CloudDownload, ShoppingBag, Utensils, UtensilsCrossed, Umbrella, Wine, Coffee, Lightbulb, Bell, Package, Briefcase, ChevronUp, ChevronDown, Badge, Rocket, Fingerprint, Info, Heart, Gift, Megaphone, Gamepad2, Calendar, CalendarDays, Ticket, Store, BadgeCheck, Archive, Puzzle, Truck, Settings, Circle, LayoutDashboard, Share2, Award, UserPlus, Sparkles, Calculator, Plane, Palette, CreditCard, Croissant, Landmark, Zap, Factory, HardHat, GraduationCap, Cpu, Sprout, Users, Monitor, Target, BarChart3, FileText, TrendingUp, ShoppingCart, LogOut, Layers, Handshake
 } from 'lucide-react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient, setSharedAuthCookies, clearSharedAuthCookies } from '../../services/api';
@@ -26,7 +26,12 @@ import VerificationPaymentModal from '../../components/payment/VerificationPayme
 import { cn } from '../../lib/utils';
 import { SECTORS, CATEGORIES, SUBCATEGORIES } from '../../data/sectors';
 import { setProgrammeStarted, resetProgrammeStarted } from '../../lib/programmeData';
-import { persistReferralCodeFromSearchParams } from '../../lib/referral';
+import {
+  clearStoredAffiliateInvite,
+  getStoredAffiliateInvite,
+  persistAffiliateInviteFromSearchParams,
+  persistReferralCodeFromSearchParams,
+} from '../../lib/referral';
 import { validatePostcode, normalizeUkPostcode } from '../../lib/validation';
 import { isAuthOrOnboardingRedirect } from '../../lib/redirects';
 import { assertSignupEmailAvailable, isDuplicateSignupError, signupErrorMessage } from './businessOnboardingAuth';
@@ -120,6 +125,7 @@ function useCreateUser() {
         categoryId: data.categoryId || undefined,
         subCategoryId: data.subCategoryId || undefined,
         role: data.role || 'BUSINESS',
+        affiliateInvite: getStoredAffiliateInvite() || data.affiliateInvite || undefined,
       });
       return { data: res };
     },
@@ -672,6 +678,10 @@ function BusinessOnboardingInner() {
   const router = useRouter();
   const logout = useLogout();
   const [searchParams] = useSearchParams();
+  const [affiliateInviteInfo, setAffiliateInviteInfo] = useState<{
+    name: string;
+    role: string;
+  } | null>(null);
   // Direct preview link for the access-selection screen. This intentionally
   // bypasses earlier onboarding steps and any saved draft restoration.
   const demoMode = searchParams.get('demo');
@@ -683,7 +693,7 @@ function BusinessOnboardingInner() {
   // current onboarding path as a ?redirect target.
   const loginHref = (() => {
     const params = new URLSearchParams();
-    for (const key of ['client_id', 'redirect_uri', 'state', 'scope', 'source', 'redirect', 'callbackUrl']) {
+    for (const key of ['client_id', 'redirect_uri', 'state', 'scope', 'source', 'redirect', 'callbackUrl', 'affiliateInvite']) {
       const value = searchParams.get(key);
       if (!value) continue;
       if ((key === 'redirect' || key === 'callbackUrl') && isAuthOrOnboardingRedirect(value)) continue;
@@ -737,6 +747,9 @@ function BusinessOnboardingInner() {
     const redirect = searchParams.get('redirect') || searchParams.get('callbackUrl');
     // Persist ?ref= alongside the SSO intent (register funnel merges it).
     persistReferralCodeFromSearchParams(searchParams);
+    // Persist the tracked 247GBS affiliate invitation separately so it is not
+    // overwritten by the shorter ?ref= code.
+    persistAffiliateInviteFromSearchParams(searchParams);
 
     if (clientId || redirectUri || source || redirect) {
       const intent: any = {};
@@ -750,6 +763,32 @@ function BusinessOnboardingInner() {
         localStorage.setItem('mcom_sso_intent', JSON.stringify(intent));
       } catch { }
     }
+  }, [searchParams]);
+
+  // Show the invited business who introduced them. This is informational only;
+  // the token is validated again server-side when the account is created.
+  useEffect(() => {
+    const token = getStoredAffiliateInvite() || searchParams.get('affiliateInvite');
+    if (!token) {
+      setAffiliateInviteInfo(null);
+      return;
+    }
+    let cancelled = false;
+    apiClient
+      .get(`/affiliate/business-invitations/token/${encodeURIComponent(token)}`)
+      .then((response) => {
+        if (cancelled) return;
+        const affiliate = response.data?.data?.affiliate;
+        if (affiliate?.name) {
+          setAffiliateInviteInfo({ name: affiliate.name, role: affiliate.role || 'affiliate' });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAffiliateInviteInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [searchParams]);
 
   const performSSORedirect = async (fallbackRoute: string = '/dashboard') => {
@@ -1419,6 +1458,10 @@ function BusinessOnboardingInner() {
         subCategoryId: googleSubCategoryId,
         logoUrl: b.heroImg || '',
         source: searchParams.get('source') || 'direct',
+        affiliateInvite:
+          getStoredAffiliateInvite() ||
+          searchParams.get('affiliateInvite') ||
+          undefined,
       });
 
       const { auth, user, listing } = res.data;
@@ -1429,6 +1472,7 @@ function BusinessOnboardingInner() {
         localStorage.setItem('auth_token', auth.accessToken);
         localStorage.setItem('business_user', JSON.stringify(user));
       }
+      clearStoredAffiliateInvite();
       api.defaults.headers.common['Authorization'] = `Bearer ${auth.accessToken}`;
       setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
       dispatch(setAuthTokens({ accessToken: auth.accessToken, refreshToken: auth.refreshToken }));
@@ -2218,7 +2262,7 @@ function BusinessOnboardingInner() {
     setLocationLookupSkipped(false);
     setIsCheckingProximity(true);
     try {
-      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode: postcode.trim() }, { timeout: 10000 });
+      const res = await apiClient.post('/localmall/onboarding/check-location', { postcode: postcode.trim() }, { timeout: 20000 });
       const result = res.data;
       if (!result || !['active', 'inactive'].includes(result.status) || typeof result.resolvedArea !== 'string') {
         throw new Error('The postcode service returned an incomplete location result. Please try again.');
@@ -2708,6 +2752,19 @@ function BusinessOnboardingInner() {
       <div className="registration-page relative flex min-h-screen flex-col overflow-x-hidden overflow-y-auto bg-[#f7f8fa] pt-6">
         <ChsLogoPattern />
         <main className="relative z-10 flex flex-grow flex-col items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
+          {affiliateInviteInfo && (
+            <div className="mb-4 flex w-full max-w-6xl items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
+              <Handshake className="mt-0.5 h-[18px] w-[18px] shrink-0 text-orange-700" />
+              <p>
+                <strong>{affiliateInviteInfo.name}</strong>{' '}
+                <span className="capitalize">
+                  ({affiliateInviteInfo.role.replaceAll('_', ' ')})
+                </span>{' '}
+                introduced you to CHS. Your business will be permanently attributed to
+                them when you register.
+              </p>
+            </div>
+          )}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -4485,6 +4542,10 @@ function BusinessOnboardingInner() {
           selectedPlan: selectedPlan,
           openingHours: serializeOpeningHours(),
           source: searchParams.get('source') || 'direct',
+          affiliateInvite:
+            getStoredAffiliateInvite() ||
+            searchParams.get('affiliateInvite') ||
+            undefined,
         };
 
         const res = await apiClient.post('/google-business/complete-onboarding', onboardingPayload);
@@ -4496,6 +4557,8 @@ function BusinessOnboardingInner() {
         if (auth?.accessToken) {
           localStorage.setItem('auth_token', auth.accessToken);
           localStorage.setItem('business_user', JSON.stringify(user));
+
+          clearStoredAffiliateInvite();
 
           // Set shared cookies for localhost ports SSO
           setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
@@ -6449,6 +6512,22 @@ function BusinessOnboardingInner() {
         animate={{ backgroundColor: currentQuest.color }}
         transition={{ duration: 0.4 }}
       />
+
+      {affiliateInviteInfo && (
+        <div className="relative z-10 mx-auto mt-3 w-full max-w-5xl px-4 sm:px-6">
+          <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-950">
+            <Handshake className="mt-0.5 h-[18px] w-[18px] shrink-0 text-orange-700" />
+            <p>
+              <strong>{affiliateInviteInfo.name}</strong>{' '}
+              <span className="capitalize">
+                ({affiliateInviteInfo.role.replaceAll('_', ' ')})
+              </span>{' '}
+              introduced you to CHS. Your business will be permanently attributed to
+              them when you register.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className={`relative z-10 mx-auto flex min-h-0 w-full flex-1 flex-col px-4 pb-3 pt-4 sm:px-6 sm:pb-4 ${isEmailRegistrationStep ? 'max-w-5xl' : 'max-w-2xl'}`}>
         {/* ─── Onboarding Header ─── */}

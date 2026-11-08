@@ -168,6 +168,15 @@ export class CreateAffiliateTaskDto {
   platformFeePercent?: number;
 }
 
+export class AdminCreateAffiliateTaskDto extends CreateAffiliateTaskDto {
+  @ApiProperty({
+    description: 'Business profile id the task is being created on behalf of (admin only).',
+  })
+  @IsString()
+  @IsNotEmpty()
+  businessId: string;
+}
+
 export class CreateAffiliateServiceRequestDto {
   @ApiProperty({ example: 'Promote my new product collection' })
   @IsString()
@@ -521,6 +530,17 @@ export class NearbyAffiliatesQueryDto {
   @MaxLength(60)
   skill?: string;
 
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Only return affiliates within this many miles of the business postcode.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  radiusMiles?: number;
+
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @Type(() => Number)
@@ -560,6 +580,14 @@ export class AffiliateTaskStatusCallbackDto {
   @ApiPropertyOptional()
   @IsOptional()
   reviewAcknowledged?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Why the affiliate declined the assignment. Shown to the business and admins.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  declineReason?: string;
 }
 
 export class AffiliateSettlementQueryDto {

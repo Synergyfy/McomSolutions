@@ -9,6 +9,7 @@ function buildUser(overrides: Partial<SsoUserRecord>): SsoUserRecord {
     lastName: 'Doe',
     jobTitle: 'Managing Director',
     registrationSource: 'direct',
+    referralCode: 'A1B2C3D4',
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     businessProfile: null,
     customerProfile: null,
@@ -126,6 +127,30 @@ describe('buildSsoIdentity', () => {
     expect(identity.businessProfile).toBeNull();
   });
 
+  it('exposes the referral code and link for affiliates', () => {
+    const user = buildUser({ role: 'AGENT' });
+
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: 'https://central.example.com',
+    });
+
+    expect(identity.referralCode).toBe('A1B2C3D4');
+    expect(identity.referralLink).toBe(
+      'https://central.example.com/register?ref=A1B2C3D4',
+    );
+  });
+
+  it('never exposes referral details for admin accounts', () => {
+    const user = buildUser({ role: 'ADMIN', referralCode: 'ADMIN123' });
+
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: 'https://central.example.com',
+    });
+
+    expect(identity.referralCode).toBeNull();
+    expect(identity.referralLink).toBeNull();
+  });
+
   it('falls back to the customer profile phone and the email local part for the display name', () => {
     const user = buildUser({
       role: 'CUSTOMER',
@@ -134,7 +159,11 @@ describe('buildSsoIdentity', () => {
       customerProfile: {
         id: 'cust_1',
         phone: '+44 7700 900999',
-        postcode: null,
+        postcode: 'SE15 3TR',
+        city: { name: 'London', region: 'London', country: 'England' },
+        borough: { name: 'Southwark' },
+        highStreet: { name: 'Nunhead Lane' },
+        localMall: { name: 'Peckham LocalMall' },
         loyaltyPoints: 10,
         platformUsage: ['mall'],
         membershipStatus: 'None',
@@ -149,6 +178,7 @@ describe('buildSsoIdentity', () => {
     expect(identity.name).toBe('user');
     expect(identity.phone).toBe('+44 7700 900999');
     expect(identity.profileType).toBe('CUSTOMER');
+    expect(identity.city).toBe('London');
     expect(identity.customerProfile?.loyaltyPoints).toBe(10);
   });
 });

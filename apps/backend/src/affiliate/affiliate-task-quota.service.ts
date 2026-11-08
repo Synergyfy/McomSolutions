@@ -46,6 +46,7 @@ export class AffiliateTaskQuotaService {
       where: { id: businessId, deletedAt: null },
       select: {
         id: true,
+        membershipLevel: true,
         membershipStatus: true,
         membershipPlanName: true,
         membershipExpiresAt: true,
@@ -57,14 +58,24 @@ export class AffiliateTaskQuotaService {
       return this.none();
     }
 
+    // Older business rows only carry the membership level (e.g. "Gold") and
+    // not the plan name. Treat that level as the plan identifier so their
+    // delegated-task allowance still resolves.
+    const planName =
+      business.membershipPlanName ||
+      (business.membershipLevel &&
+      business.membershipLevel.toLowerCase() !== 'bronze'
+        ? business.membershipLevel
+        : null);
+
     const membershipActive =
       business.membershipStatus === 'active' &&
-      !!business.membershipPlanName &&
+      !!planName &&
       (!business.membershipExpiresAt || business.membershipExpiresAt > now);
 
     if (membershipActive) {
       const plan = await this.prisma.membershipPlan.findFirst({
-        where: { name: business.membershipPlanName!, deletedAt: null },
+        where: { name: planName!, deletedAt: null },
         select: {
           id: true,
           name: true,
@@ -72,21 +83,30 @@ export class AffiliateTaskQuotaService {
           unlimitedFreeDelegatedTasks: true,
           tiers: {
             where: { tier: this.mapTier(business.membershipTier) },
-            select: { durationDays: true },
+            select: {
+              durationDays: true,
+              freeDelegatedTasks: true,
+              unlimitedFreeDelegatedTasks: true,
+            },
             take: 1,
           },
         },
       });
 
       const period = await this.membershipPeriod(business.id, business.membershipExpiresAt, plan);
+      const tierConfig = plan?.tiers?.[0];
       return this.build(
         'MEMBERSHIP',
         plan?.id ?? null,
-        plan?.name ?? business.membershipPlanName,
-        plan?.freeDelegatedTasks ?? 0,
+        plan?.name ?? planName,
+        // The purchased variant carries its own allowance. Plan-level values
+        // remain a fallback for plans created before per-variant quotas.
+        tierConfig?.freeDelegatedTasks ?? plan?.freeDelegatedTasks ?? 0,
         // A paid membership whose plan row no longer exists keeps the legacy
         // "included" behaviour instead of silently charging the business.
-        plan?.unlimitedFreeDelegatedTasks ?? true,
+        tierConfig?.unlimitedFreeDelegatedTasks ??
+          plan?.unlimitedFreeDelegatedTasks ??
+          true,
         businessId,
         period,
         opts.excludeTaskId,

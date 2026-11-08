@@ -5,7 +5,7 @@
  * Usage:
  *   npx ts-node scripts/backfill-referral-codes.ts
  *
- * Safe to run repeatedly — only touches users with a null referralCode.
+ * Safe to run repeatedly — only touches non-admin users with a null referralCode.
  */
 import { PrismaClient } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -17,8 +17,9 @@ function candidate(): string {
 }
 
 async function main() {
+  // Admin accounts are excluded from the referral programme.
   const users = await prisma.user.findMany({
-    where: { referralCode: null },
+    where: { referralCode: null, role: { not: 'ADMIN' } },
     select: { id: true, email: true },
   });
   console.log(`Backfilling referral codes for ${users.length} users...`);

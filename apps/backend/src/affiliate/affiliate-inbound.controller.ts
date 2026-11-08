@@ -6,6 +6,7 @@ import { AffiliateClientService } from './affiliate-client.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import { WalletService } from '../wallet/wallet.service';
 import { WalletLedgerService } from '../wallet/wallet-ledger.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import {
   AffiliateTaskQueryDto,
   ApproveServiceRequestDto,
@@ -26,6 +27,7 @@ export class AffiliateInboundController {
     private readonly accountManagers: AccountManagerAssignmentService,
     private readonly wallet: WalletService,
     private readonly ledger: WalletLedgerService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   @Get('health')
@@ -55,12 +57,13 @@ export class AffiliateInboundController {
     @Query('limit') limit?: string,
   ) {
     const wallet = await this.wallet.getWalletForUser(userId);
-    const [transactions, holds] = await Promise.all([
+    const [transactions, holds, referralEarnings] = await Promise.all([
       this.ledger.getTransactions(wallet.id, {
         page: Math.max(1, Number(page) || 1),
         limit: Math.min(50, Math.max(1, Number(limit) || 20)),
       }),
       this.ledger.getActiveHolds(wallet.id),
+      this.referrals.getEarningsForUser(userId, 50),
     ]);
     return {
       success: true,
@@ -76,6 +79,7 @@ export class AffiliateInboundController {
           createdAt: hold.createdAt.toISOString(),
         })),
         transactions,
+        referralEarnings: referralEarnings.data,
       },
     };
   }
@@ -191,20 +195,6 @@ export class AffiliateInboundController {
     return this.tasks.listProjectsForManager(userId, query);
   }
 
-  @Post('account-managers/:userId/projects/:id/tasks')
-  @UseGuards(AffiliateApiKeyGuard)
-  @ApiHeader({ name: 'x-api-key', required: true })
-  @ApiOperation({ summary: 'Account Manager creates a task inside a managed project' })
-  async managerCreateProjectTask(
-    @Param('userId') userId: string,
-    @Param('id') id: string,
-    @Body() dto: CreateAffiliateTaskDto,
-  ) {
-    return {
-      success: true,
-      data: await this.tasks.createProjectTaskForManager(userId, id, dto),
-    };
-  }
 
   @Post('account-managers/:userId/projects/:id/close')
   @UseGuards(AffiliateApiKeyGuard)
@@ -217,6 +207,22 @@ export class AffiliateInboundController {
     return {
       success: true,
       data: await this.tasks.closeProjectForManager(userId, id, dto),
+    };
+  }
+
+  @Post('account-managers/:userId/projects/:id/tasks')
+  @UseGuards(AffiliateApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
+  @ApiOperation({ summary: 'Create a task inside a project managed by an account manager' })
+  async managerCreateProjectTask(
+    @Param('userId') userId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateAffiliateTaskDto,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.createProjectTaskForManager(userId, id, dto),
+      message: 'Task created',
     };
   }
 
@@ -233,6 +239,7 @@ export class AffiliateInboundController {
       affiliateTaskId: dto.affiliateTaskId,
       submissionData: dto.submissionData,
       reviewAcknowledged: dto.reviewAcknowledged,
+      declineReason: dto.declineReason,
     });
     return { success: true, data: task };
   }

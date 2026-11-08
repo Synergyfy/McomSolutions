@@ -190,7 +190,9 @@ Authorization: Basic base64(client_id:client_secret)
 #### Identity payload (all roles)
 
 `user` always contains the person's identity — `firstName`, `lastName`,
-`fullName`, `email`, `phone`, `jobTitle` — plus one role-specific profile:
+`fullName`, `email`, `phone`, `jobTitle` — plus one role-specific profile.
+Non-admin accounts also receive `referralCode` and `referralLink` (the
+shareable `.../register?ref=CODE` URL). Admin accounts receive `null` for both.
 
 | `profileType` | Profile object populated |
 |---|---|
@@ -258,7 +260,7 @@ Branch on `user.profileType`; `businessProfile` is `null` for non-business roles
   "role": "AGENT", "profileType": "AGENT", "isAffiliate": true,
   "firstName": "Ade", "lastName": "Okafor", "fullName": "Ade Okafor",
   "name": "Ade Okafor", "email": "ade@247gbs.com",
-  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null,
+  "phone": "+44 7700 900123", "address": null, "postcode": null, "country": null, "referralCode": "A1B2C3D4", "referralLink": "https://centralhubsolution.com/register?ref=A1B2C3D4",
   "businessId": null, "businessName": null, "businessProfile": null,
   "customerProfile": null,
   "agentProfile": {

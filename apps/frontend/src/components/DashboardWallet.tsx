@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Wallet as WalletIcon,
   ArrowUpRight,
@@ -23,16 +23,22 @@ import {
   useInitiateTopUp,
   useConfirmTopUp,
 } from '../services/wallet/hooks';
+import { useLockAffiliateTaskFunds } from '../services/business/hooks';
 import { cn } from '../lib/utils';
+import ReferralEarningsCard from './ReferralEarningsCard';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
 export default function DashboardWallet() {
+  const navigate = useNavigate();
   const { data: wallet, isLoading: walletLoading } = useMyWallet();
   const { data: txns, isLoading: txnsLoading } = useWalletTransactions({ limit: 20 });
   const { data: summary } = useWalletSummary('30d');
   const { data: holds } = useWalletHolds();
+  const lockTaskFunds = useLockAffiliateTaskFunds();
   const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpInitialAmount, setTopUpInitialAmount] = useState<string | undefined>(undefined);
+  const [fundingTaskId, setFundingTaskId] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [urlNotice, setUrlNotice] = useState<'success' | 'cancelled' | null>(null);
 
@@ -46,8 +52,31 @@ export default function DashboardWallet() {
       setUrlNotice('cancelled');
       searchParams.delete('topup');
       setSearchParams(searchParams, { replace: true });
+    } else if (topupStatus === 'required') {
+      const requested = Number(searchParams.get('amount') ?? 0);
+      const amount =
+        Number.isFinite(requested) && requested > 0
+          ? Math.min(500, Math.max(5, Math.ceil(requested)))
+          : 50;
+      setTopUpInitialAmount(String(amount));
+      setFundingTaskId(searchParams.get('taskId'));
+      setShowTopUp(true);
+      searchParams.delete('topup');
+      searchParams.delete('amount');
+      searchParams.delete('taskId');
+      setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  const handleFunded = () => {
+    if (!fundingTaskId) return;
+    void lockTaskFunds
+      .mutateAsync(fundingTaskId)
+      .catch(() => undefined)
+      .finally(() => {
+        navigate('/dashboard/tasks');
+      });
+  };
 
   const maxSpent = Math.max(...(summary?.spentByPlatform ?? []).map((p) => p.totalSpent), 1);
 
@@ -116,6 +145,8 @@ export default function DashboardWallet() {
         <StatCard label="Net Flow" value={summary?.netFlow ?? 0} color={(summary?.netFlow ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500'} icon={WalletIcon} />
       </div>
 
+      <ReferralEarningsCard compact />
+
       {/* Spending by platform */}
       {(summary?.spentByPlatform?.length ?? 0) > 0 && (
         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-6">
@@ -170,7 +201,17 @@ export default function DashboardWallet() {
         )}
       </div>
 
-      {showTopUp && <TopUpModal onClose={() => setShowTopUp(false)} />}
+      {showTopUp && (
+        <TopUpModal
+          initialAmount={topUpInitialAmount}
+          onFunded={handleFunded}
+          onClose={() => {
+            setShowTopUp(false);
+            setTopUpInitialAmount(undefined);
+            setFundingTaskId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -286,9 +327,17 @@ function StripePaymentForm({
   );
 }
 
-function TopUpModal({ onClose }: { onClose: () => void }) {
+function TopUpModal({
+  onClose,
+  initialAmount,
+  onFunded,
+}: {
+  onClose: () => void;
+  initialAmount?: string;
+  onFunded?: () => void;
+}) {
   const [step, setStep] = useState<'amount' | 'payment' | 'success'>('amount');
-  const [amount, setAmount] = useState('50');
+  const [amount, setAmount] = useState(initialAmount || '50');
   const [error, setError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [topUpRequestId, setTopUpRequestId] = useState<string | null>(null);
@@ -320,6 +369,7 @@ function TopUpModal({ onClose }: { onClose: () => void }) {
 
   const handleSuccess = () => {
     setStep('success');
+    onFunded?.();
     setTimeout(() => {
       onClose();
     }, 2000);

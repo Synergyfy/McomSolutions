@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { HighStreet, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostcodeService, ResolvedPostcode } from './postcode.service';
 
@@ -35,6 +35,17 @@ export interface BackfillBusinessSummary {
   skipped: number;
   failed: number;
   errors: Array<{ businessId: string; postcode: string; message: string }>;
+}
+
+export interface BackfillCustomerSummary {
+  dryRun: boolean;
+  scanned: number;
+  eligible: number;
+  processed: number;
+  assigned: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ customerId: string; postcode: string; message: string }>;
 }
 
 function slugify(value: string): string {
@@ -280,6 +291,109 @@ export class LocationAssignmentService {
   }
 
   /**
+   * Backfills location assignments for existing customers that already have a
+   * postcode but predate customer location assignment.
+   */
+  async backfillCustomers(
+    options: { limit?: number; dryRun?: boolean } = {},
+  ): Promise<BackfillCustomerSummary> {
+    const dryRun = Boolean(options.dryRun);
+    const candidates = await this.prisma.customerProfile.findMany({
+      where: {
+        deletedAt: null,
+        postcode: { not: null },
+        OR: [
+          { locationAssignedAt: null },
+          { cityId: null },
+          { boroughId: null },
+          { highStreetId: null },
+          { localMallId: null },
+        ],
+      },
+      select: { id: true, postcode: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const eligible = candidates.filter(
+      (customer) => (customer.postcode || '').trim().length > 0,
+    );
+    const limited = options.limit ? eligible.slice(0, options.limit) : eligible;
+
+    const summary: BackfillCustomerSummary = {
+      dryRun,
+      scanned: candidates.length,
+      eligible: eligible.length,
+      processed: limited.length,
+      assigned: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+
+    const resolvedCache = new Map<string, ResolvedPostcode | { error: string }>();
+    const resolveOnce = async (postcode: string) => {
+      const key = postcode.toUpperCase().replace(/\s+/g, ' ').trim();
+      const cached = resolvedCache.get(key);
+      if (cached) return cached;
+      try {
+        const resolved = await this.postcodeService.resolve(postcode);
+        resolvedCache.set(key, resolved);
+        return resolved;
+      } catch (error) {
+        const recorded = {
+          error: error instanceof Error ? error.message : String(error),
+        };
+        resolvedCache.set(key, recorded);
+        return recorded;
+      }
+    };
+
+    for (const customer of limited) {
+      const postcode = (customer.postcode || '').trim();
+      if (!postcode) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      const resolved = await resolveOnce(postcode);
+      if ('error' in resolved) {
+        summary.failed += 1;
+        summary.errors.push({
+          customerId: customer.id,
+          postcode,
+          message: resolved.error,
+        });
+        continue;
+      }
+
+      if (dryRun) {
+        summary.assigned += 1;
+        continue;
+      }
+
+      try {
+        await this.assignCustomer(customer.id, resolved.postcode, resolved);
+        summary.assigned += 1;
+      } catch (error) {
+        summary.failed += 1;
+        summary.errors.push({
+          customerId: customer.id,
+          postcode,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    this.logger.log(
+      `Customer postcode backfill ${dryRun ? '(dry run) ' : ''}complete: ` +
+        `${summary.assigned} assigned, ${summary.failed} failed, ${summary.skipped} skipped ` +
+        `across ${summary.processed} customers`,
+    );
+
+    return summary;
+  }
+
+  /**
    * Assigns an affiliate profile (Agent / Consultant / Account Manager) to the
    * same City → Borough → High Street → Local Mall hierarchy derived from its
    * validated postcode.
@@ -375,32 +489,145 @@ export class LocationAssignmentService {
     return hierarchy;
   }
 
+  /**
+   * Assigns a customer profile to the same City → Borough → High Street →
+   * Local Mall hierarchy derived from its postcode. Customers often only give
+   * a postcode at signup, so this is what lets us target them by place.
+   */
+  async assignCustomer(
+    customerId: string,
+    postcode?: string,
+    resolvedPostcode?: ResolvedPostcode,
+  ): Promise<AssignedHierarchy | null> {
+    const customer = await this.prisma.customerProfile.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        postcode: true,
+        cityId: true,
+        boroughId: true,
+        highStreetId: true,
+        localMallId: true,
+      },
+    });
+    if (!customer) return null;
+
+    const effectivePostcode = postcode?.trim() || customer.postcode?.trim();
+    if (!effectivePostcode) return null;
+
+    const resolved =
+      resolvedPostcode ??
+      (await this.postcodeService.resolve(effectivePostcode));
+    const assignedAt = new Date();
+
+    const hierarchy = await this.prisma.$transaction(
+      async (tx) => {
+        const hierarchy = await this.ensureHierarchy(tx, resolved);
+        await tx.customerProfile.update({
+          where: { id: customerId },
+          data: {
+            postcode: resolved.postcode,
+            cityId: hierarchy.cityId,
+            boroughId: hierarchy.boroughId,
+            highStreetId: hierarchy.highStreetId,
+            localMallId: hierarchy.localMallId,
+            locationAssignedAt: assignedAt,
+          },
+        });
+
+        await this.touchScopes(
+          tx,
+          hierarchy,
+          { sectorId: null, categoryId: null, subCategoryId: null },
+          assignedAt,
+          {
+            cityId: customer.cityId,
+            boroughId: customer.boroughId,
+            highStreetId: customer.highStreetId,
+            localMallId: customer.localMallId,
+            sectorId: null,
+            categoryId: null,
+            subCategoryId: null,
+          },
+        );
+
+        return hierarchy;
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+
+    this.logger.log(
+      `Assigned customer ${customerId} to ${hierarchy.cityName} > ${hierarchy.boroughName} > ` +
+        `${hierarchy.highStreetName} > ${hierarchy.localMallName}`,
+    );
+    return hierarchy;
+  }
+
   private async ensureHierarchy(
     tx: Prisma.TransactionClient,
     resolved: ResolvedPostcode,
   ): Promise<AssignedHierarchy> {
-    const cityName = resolved.city || 'Unknown City';
-    const boroughName = resolved.borough || cityName;
-    const highStreetName = resolved.highStreet || boroughName;
-    const localMallName = resolved.localMall || `${highStreetName} Local Mall`;
+    const cityName = this.cleanName(resolved.city) || 'Unknown City';
+    const boroughName = this.cleanName(resolved.borough) || cityName;
+    const highStreetName = this.cleanName(resolved.highStreet) || boroughName;
+    const localMallName =
+      this.cleanName(resolved.localMall) || `${highStreetName} Local Mall`;
 
-    let city = await tx.city.findUnique({ where: { name: cityName } });
+    // ── City (settlement) ────────────────────────────────────────────────
+    let city = resolved.cityGssCode
+      ? await tx.city.findFirst({ where: { gssCode: resolved.cityGssCode } })
+      : null;
     if (!city) {
-      city = await tx.city.create({
-        data: { name: cityName, region: resolved.region || null },
-      });
-    } else if (resolved.region && city.region !== resolved.region) {
-      city = await tx.city.update({
-        where: { id: city.id },
-        data: { region: resolved.region },
+      city = await tx.city.findFirst({
+        where: { name: { equals: cityName, mode: 'insensitive' } },
       });
     }
+    if (!city) {
+      city = await tx.city.create({
+        data: {
+          name: cityName,
+          region: resolved.region || null,
+          country: resolved.country || 'United Kingdom',
+          gssCode: resolved.cityGssCode ?? null,
+        },
+      });
+    } else {
+      const cityUpdates: Prisma.CityUpdateInput = {};
+      if (resolved.region && city.region !== resolved.region) {
+        cityUpdates.region = resolved.region;
+      }
+      if (
+        resolved.country &&
+        city.country !== resolved.country &&
+        city.country === 'United Kingdom'
+      ) {
+        cityUpdates.country = resolved.country;
+      }
+      if (resolved.cityGssCode && !city.gssCode) {
+        cityUpdates.gssCode = resolved.cityGssCode;
+      }
+      if (Object.keys(cityUpdates).length > 0) {
+        city = await tx.city.update({
+          where: { id: city.id },
+          data: cityUpdates,
+        });
+      }
+    }
 
-    let borough = await tx.borough.findUnique({ where: { name: boroughName } });
+    // ── Borough (local authority district) ───────────────────────────────
+    let borough = resolved.boroughGssCode
+      ? await tx.borough.findFirst({ where: { gssCode: resolved.boroughGssCode } })
+      : null;
+    if (!borough) {
+      borough = await tx.borough.findFirst({
+        where: { name: { equals: boroughName, mode: 'insensitive' } },
+      });
+    }
     if (!borough) {
       borough = await tx.borough.create({
         data: {
           name: boroughName,
+          gssCode: resolved.boroughGssCode ?? null,
           cityId: city.id,
           populationActivity: 'Moderate',
           rewardsParticipation: '0%',
@@ -413,16 +640,44 @@ export class LocationAssignmentService {
           activity: 'Inactive',
         },
       });
-    } else if (!borough.cityId) {
-      borough = await tx.borough.update({
-        where: { id: borough.id },
-        data: { cityId: city.id },
-      });
+    } else {
+      const boroughUpdates: Prisma.BoroughUpdateInput = {};
+      // The city is deterministic per local authority district, so this
+      // remaps legacy region-as-city rows to the real settlement.
+      if (borough.cityId !== city.id) {
+        boroughUpdates.city = { connect: { id: city.id } };
+      }
+      if (resolved.boroughGssCode && !borough.gssCode) {
+        boroughUpdates.gssCode = resolved.boroughGssCode;
+      }
+      if (resolved.region && borough.region !== resolved.region) {
+        boroughUpdates.region = resolved.region;
+      }
+      if (Object.keys(boroughUpdates).length > 0) {
+        borough = await tx.borough.update({
+          where: { id: borough.id },
+          data: boroughUpdates,
+        });
+      }
     }
 
-    let highStreet = await tx.highStreet.findFirst({
-      where: { name: highStreetName, borough: boroughName },
-    });
+    // ── High street (named retail street, fallback to ward) ─────────────
+    const isRetailStreet = resolved.highStreetSource === 'osm';
+    let highStreet: HighStreet | null = null;
+    if (!isRetailStreet && resolved.highStreetGssCode) {
+      highStreet = await tx.highStreet.findFirst({
+        where: { gssCode: resolved.highStreetGssCode },
+      });
+    }
+    if (!highStreet) {
+      highStreet = await tx.highStreet.findFirst({
+        where: {
+          name: { equals: highStreetName, mode: 'insensitive' },
+          borough: { equals: boroughName, mode: 'insensitive' },
+          ...(isRetailStreet ? { gssCode: null } : {}),
+        },
+      });
+    }
     if (!highStreet) {
       highStreet = await tx.highStreet.create({
         data: {
@@ -433,23 +688,78 @@ export class LocationAssignmentService {
           status: 'Active',
           lat: resolved.latitude,
           lng: resolved.longitude,
+          gssCode: isRetailStreet
+            ? null
+            : resolved.highStreetGssCode ?? null,
         },
       });
-    } else if (!highStreet.cityId || !highStreet.boroughId) {
-      highStreet = await tx.highStreet.update({
-        where: { id: highStreet.id },
-        data: {
-          cityId: highStreet.cityId ?? city.id,
-          boroughId: highStreet.boroughId ?? borough.id,
+    } else {
+      const highStreetUpdates: Prisma.HighStreetUpdateInput = {};
+      if (highStreet.cityId !== city.id) {
+        highStreetUpdates.city = { connect: { id: city.id } };
+      }
+      if (highStreet.boroughId !== borough.id) {
+        highStreetUpdates.boroughRef = { connect: { id: borough.id } };
+      }
+      if (highStreet.borough !== boroughName) {
+        highStreetUpdates.borough = boroughName;
+      }
+      if (highStreet.lat == null && resolved.latitude != null) {
+        highStreetUpdates.lat = resolved.latitude;
+      }
+      if (highStreet.lng == null && resolved.longitude != null) {
+        highStreetUpdates.lng = resolved.longitude;
+      }
+      if (!isRetailStreet && resolved.highStreetGssCode && !highStreet.gssCode) {
+        highStreetUpdates.gssCode = resolved.highStreetGssCode;
+      }
+      if (Object.keys(highStreetUpdates).length > 0) {
+        highStreet = await tx.highStreet.update({
+          where: { id: highStreet.id },
+          data: highStreetUpdates,
+        });
+      }
+    }
+
+    // ── Local mall ───────────────────────────────────────────────────────
+    // Match an existing mall by outward code first. This is what keeps a
+    // Peckham business inside the curated "Peckham LocalMall" (SE15) instead
+    // of creating a duplicate "Rye Lane Local Mall". When several malls share
+    // the outcode, prefer the curated / broader-coverage one in the same
+    // borough, then the oldest record.
+    let localMall = null;
+    if (resolved.outwardCode) {
+      const candidates = await tx.localMall.findMany({
+        where: { postcodes: { has: resolved.outwardCode } },
+      });
+      localMall =
+        [...candidates].sort((a, b) => {
+          const scoreDiff =
+            this.localMallMatchScore(b, boroughName) -
+            this.localMallMatchScore(a, boroughName);
+          if (scoreDiff !== 0) return scoreDiff;
+          // Deterministic tie-breaker: oldest OSM mall wins, then name.
+          const createdDiff =
+            (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0);
+          if (createdDiff !== 0) return createdDiff;
+          return a.name.localeCompare(b.name);
+        })[0] ?? null;
+    }
+    if (!localMall) {
+      localMall = await tx.localMall.findFirst({
+        where: {
+          name: { equals: localMallName, mode: 'insensitive' },
+          borough: { equals: boroughName, mode: 'insensitive' },
         },
       });
     }
 
-    let localMall = await tx.localMall.findFirst({
-      where: { name: localMallName, borough: boroughName },
-    });
     if (!localMall) {
-      const slug = await this.uniqueMallSlug(tx, localMallName, resolved.outwardCode);
+      const slug = await this.uniqueMallSlug(
+        tx,
+        localMallName,
+        resolved.outwardCode,
+      );
       localMall = await tx.localMall.create({
         data: {
           name: localMallName,
@@ -472,22 +782,28 @@ export class LocationAssignmentService {
         },
       });
     } else {
-      const missingLinks =
-        !localMall.cityId || !localMall.boroughId || !localMall.highStreetId;
-      if (missingLinks) {
-        localMall = await tx.localMall.update({
-          where: { id: localMall.id },
-          data: {
-            cityId: localMall.cityId ?? city.id,
-            boroughId: localMall.boroughId ?? borough.id,
-            highStreetId: localMall.highStreetId ?? highStreet.id,
-          },
-        });
+      const mallUpdates: Prisma.LocalMallUpdateInput = {};
+      if (!localMall.cityId) {
+        mallUpdates.city = { connect: { id: city.id } };
       }
-      if (resolved.outwardCode && !localMall.postcodes.includes(resolved.outwardCode)) {
+      if (!localMall.boroughId) {
+        mallUpdates.boroughRef = { connect: { id: borough.id } };
+      }
+      if (!localMall.highStreetId) {
+        mallUpdates.highStreetRef = { connect: { id: highStreet.id } };
+      }
+      if (
+        resolved.outwardCode &&
+        !(localMall.postcodes || []).includes(resolved.outwardCode)
+      ) {
+        mallUpdates.postcodes = {
+          push: resolved.outwardCode,
+        };
+      }
+      if (Object.keys(mallUpdates).length > 0) {
         localMall = await tx.localMall.update({
           where: { id: localMall.id },
-          data: { postcodes: { push: resolved.outwardCode } },
+          data: mallUpdates,
         });
       }
     }
@@ -502,6 +818,32 @@ export class LocationAssignmentService {
       localMallId: localMall.id,
       localMallName: localMall.name,
     };
+  }
+
+  private cleanName(value: string | null | undefined): string {
+    return (value || '').trim().replace(/\s+/g, ' ');
+  }
+
+  /**
+   * Ranks malls that share an outward code. A curated OSM mall in the same
+   * borough with broad postcode coverage should win over an auto-created
+   * single-postcode duplicate.
+   */
+  private localMallMatchScore(
+    mall: {
+      borough: string;
+      osmId: string | null;
+      postcodes: string[];
+    },
+    boroughName: string,
+  ): number {
+    let score = 0;
+    if (mall.borough?.toLowerCase() === boroughName.toLowerCase()) score += 100;
+    if (mall.osmId) score += 5;
+    // A mall that already covers more outward codes is the primary local
+    // mall for the area; prefer it over a single-street OSM entry.
+    score += Math.min((mall.postcodes || []).length, 10) * 10;
+    return score;
   }
 
   private async uniqueMallSlug(

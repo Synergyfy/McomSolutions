@@ -14,6 +14,7 @@ import {
   AffiliateTaskCategory,
   AffiliateTaskSource,
   AffiliateTaskStatus,
+  BusinessRelationshipType,
   Prisma,
   Role,
 } from '@prisma/client';
@@ -25,10 +26,12 @@ import { AffiliateReputationService } from './affiliate-reputation.service';
 import { AffiliateSettlementService } from './affiliate-settlement.service';
 import { AffiliateTaskQuotaService } from './affiliate-task-quota.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
+import { BusinessAcquisitionService } from './business-acquisition.service';
 import { TaskService } from '../task/task.service';
 import { normalizePlatformKey } from './affiliate-affinity.util';
 import { AFFILIATE_TASK_QUEUE, AffiliateTaskJobData } from '../queue/queue.constants';
 import {
+  AdminCreateAffiliateTaskDto,
   AffiliateTaskQueryDto,
   ApproveBusinessChargeDto,
   ApproveServiceRequestDto,
@@ -72,6 +75,7 @@ export class AffiliateTaskService {
     private readonly programmeTasks: TaskService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly acquisition: BusinessAcquisitionService,
     @Optional()
     @InjectQueue(AFFILIATE_TASK_QUEUE)
     private readonly affiliateQueue?: Queue<AffiliateTaskJobData>,
@@ -140,9 +144,26 @@ export class AffiliateTaskService {
     opts: { asAccountManager?: boolean; actorUserId?: string } = {},
   ) {
     const business = await this.directory.getBusiness(userId, businessId);
-    const actorUserId = opts.actorUserId ?? userId;
-    const actorRole = opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'BUSINESS';
+    return this.createTaskForBusiness(business, userId, dto, 'BUSINESS');
+  }
 
+  /**
+   * Admin-created delegation on behalf of a business. Mirrors the business
+   * flow (quota checks, escrow reservation, affiliate sync) but resolves the
+   * business by id and records the admin as the actor.
+   */
+  async createTaskAsAdmin(adminId: string, dto: AdminCreateAffiliateTaskDto) {
+    const business = await this.directory.getBusinessById(dto.businessId);
+    const task = await this.createTaskForBusiness(business, adminId, dto, 'ADMIN');
+    return this.getTaskForAdmin(task.id);
+  }
+
+  private async createTaskForBusiness(
+    business: Awaited<ReturnType<AffiliateDirectoryService['getBusiness']>>,
+    userId: string,
+    dto: CreateAffiliateTaskDto,
+    actorRole: 'BUSINESS' | 'ADMIN' | 'ACCOUNT_MANAGER',
+  ) {
     // Paid memberships get an account manager assigned before delegation, so
     // the task goes straight to them instead of waiting for admin routing.
     // (Trial / access-pass businesses are intentionally excluded.)
@@ -216,7 +237,7 @@ export class AffiliateTaskService {
     // to the assigned account manager. Account Manager-created project tasks stay
     // unassigned when no affiliate is chosen so they can be delegated later.
     let assigneeId = dto.assigneeUserId?.trim() || null;
-    if (!assigneeId && !opts.asAccountManager && business.accountManagerId) {
+    if (!assigneeId && actorRole !== 'ACCOUNT_MANAGER' && business.accountManagerId) {
       assigneeId = business.accountManagerId;
     }
 
@@ -374,14 +395,15 @@ export class AffiliateTaskService {
         business: { select: { id: true, businessName: true, email: true, userId: true } },
         assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
         taskDefinition: { select: { id: true, title: true } },
+        project: { select: { id: true, title: true } },
       },
     });
 
     await this.recordEvent(task.id, {
-      actorUserId,
+      actorUserId: userId,
       actorRole,
       type: 'TASK_CREATED',
-      message: opts.asAccountManager
+      message: actorRole === 'ACCOUNT_MANAGER'
         ? `Task created by Account Manager (${task.category.toLowerCase()})`
         : `Task created (${task.category.toLowerCase()})`,
       metadata: {
@@ -398,29 +420,63 @@ export class AffiliateTaskService {
     });
 
     // Reserve the business charge (trial / access-pass) or note the
-    // platform-funded payout before the affiliate can see the work.
+    // platform-funded payout before the affiliate can see the work. If the
+    // wallet cannot cover the task we still assign it: the affiliate can see
+    // the work, but cannot accept it until the funds are locked.
     if (task.assigneeId && (billableToBusiness || (compensationAmount ?? 0) > 0)) {
       try {
         await this.settlement.ensureForTask(task.id, {
           platformFeePercent: dto.platformFeePercent,
         });
-      } catch (error) {
+        if (billableToBusiness) {
+          await this.prisma.affiliateTask.update({
+            where: { id: task.id },
+            data: {
+              businessChargeStatus: AffiliateChargeStatus.APPROVED,
+              businessChargeApprovedAt: new Date(),
+              businessChargeApprovedByUserId: userId,
+            },
+          });
+        }
+      } catch (error: any) {
+        const escrowResponse =
+          typeof error?.getResponse === 'function'
+            ? error.getResponse()
+            : error?.response;
+        if (escrowResponse?.error !== 'TASK_ESCROW_FAILED') {
+          throw error;
+        }
+        const settlement = await this.settlement.getForTask(task.id);
+        const requiredCredits = Number(
+          settlement?.businessChargeCredits?.toString() ?? 0,
+        );
+        const reason =
+          escrowResponse?.message ||
+          error?.message ||
+          'The business wallet could not reserve the task amount.';
         await this.prisma.affiliateTask.update({
           where: { id: task.id },
-          data: { status: AffiliateTaskStatus.CANCELLED },
+          data: {
+            status: AffiliateTaskStatus.ASSIGNED,
+            paymentStatus: AffiliatePaymentStatus.ON_HOLD,
+            ...(billableToBusiness
+              ? { businessChargeStatus: AffiliateChargeStatus.PENDING_APPROVAL }
+              : {}),
+          },
         });
         await this.recordEvent(task.id, {
-          actorUserId,
+          actorUserId: userId,
           actorRole,
-          type: 'TASK_ESCROW_FAILED',
-          message: 'Task cancelled because the business charge could not be reserved',
+          type: 'TASK_FUNDS_REQUIRED',
+          message: `Task assigned, but funds are not locked yet: ${reason}`,
+          metadata: {
+            requiredCredits,
+            reason,
+            currency: task.businessChargeCurrency,
+          },
         });
-        throw error;
+        await this.notifyBusinessOfFundingRequired(task.id, requiredCredits);
       }
-    }
-
-    if (billableToBusiness) {
-      await this.notifyBusinessOfChargeApproval(task.id);
     }
 
     // Respond immediately — affiliate sync, emails and notifications run on the
@@ -1340,6 +1396,22 @@ export class AffiliateTaskService {
     });
   }
 
+  private async notifyBusinessOfFundingRequired(taskId: string, requiredCredits: number) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      include: { business: { select: { id: true, userId: true } } },
+    });
+    if (!task) return;
+    const amount = Math.max(0, Number(requiredCredits || 0));
+    await this.notificationForBusiness(task.business.id, task.business.userId, {
+      title: 'Fund your wallet to start delegated work',
+      message:
+        `"${task.title}" is assigned, but the funds could not be locked. ` +
+        `Add at least ${amount.toFixed(2)} MCOM to your wallet, then lock the funds so the affiliate can start.`,
+      data: { taskId, type: 'task_funding_required', requiredCredits: amount },
+    });
+  }
+
   private async notifyManagerOfRequest(requestId: string, managerId: string) {
     const request = await this.prisma.affiliateServiceRequest.findUnique({
       where: { id: requestId },
@@ -1501,55 +1573,6 @@ export class AffiliateTaskService {
     return { success: true, data: items, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  /** Account Manager creates a task scoped under one of their managed projects. */
-  async createProjectTaskForManager(
-    managerId: string,
-    projectId: string,
-    dto: CreateAffiliateTaskDto,
-  ) {
-    const project = await this.prisma.affiliateProject.findUnique({
-      where: { id: projectId },
-      include: {
-        business: {
-          select: {
-            id: true,
-            userId: true,
-            accountManagerId: true,
-            deletedAt: true,
-          },
-        },
-      },
-    });
-    if (!project || project.business.deletedAt) {
-      throw new NotFoundException('Project not found for your businesses');
-    }
-    if (
-      project.accountManagerId !== managerId ||
-      (project.business.accountManagerId && project.business.accountManagerId !== managerId)
-    ) {
-      throw new ForbiddenException('You are not the account manager for this project');
-    }
-    if (
-      project.status === AffiliateProjectStatus.COMPLETED ||
-      project.status === AffiliateProjectStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Cannot add tasks to a closed project');
-    }
-
-    return this.createBusinessTask(
-      project.business.userId,
-      project.business.id,
-      {
-        ...dto,
-        projectId: project.id,
-        dueAt: dto.dueAt ?? (project.dueAt ? project.dueAt.toISOString() : undefined),
-        requiresBusinessApproval:
-          dto.requiresBusinessApproval ?? project.requiresBusinessApproval,
-      },
-      { asAccountManager: true, actorUserId: managerId },
-    );
-  }
-
   async closeProjectForManager(
     managerId: string,
     projectId: string,
@@ -1561,6 +1584,60 @@ export class AffiliateTaskService {
     });
     if (!project) throw new NotFoundException('Project not found for your businesses');
     return this.closeProject(managerId, project.businessId, projectId, dto);
+  }
+
+  /**
+   * Create a task inside one of the manager's projects. The project must
+   * belong to a business assigned to this manager. Closed projects reject tasks.
+   * Inherits dueAt and requiresBusinessApproval from the project if omitted.
+   */
+  async createProjectTaskForManager(
+    managerId: string,
+    projectId: string,
+    dto: CreateAffiliateTaskDto,
+  ) {
+    const project = await this.prisma.affiliateProject.findFirst({
+      where: {
+        id: projectId,
+        accountManagerId: managerId,
+        business: { accountManagerId: managerId, deletedAt: null },
+      },
+      select: {
+        id: true,
+        businessId: true,
+        status: true,
+        dueAt: true,
+        requiresBusinessApproval: true,
+      },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found for your businesses');
+    }
+    if (
+      project.status === AffiliateProjectStatus.COMPLETED ||
+      project.status === AffiliateProjectStatus.CANCELLED
+    ) {
+      throw new BadRequestException('Cannot add tasks to a closed project');
+    }
+
+    const business = await this.directory.getBusinessById(project.businessId);
+    if (business.accountManagerId !== managerId) {
+      throw new ForbiddenException('You are not the account manager for this business');
+    }
+
+    const created = await this.createTaskForBusiness(
+      business,
+      managerId,
+      {
+        ...dto,
+        projectId: project.id,
+        dueAt: dto.dueAt ?? (project.dueAt ? project.dueAt.toISOString() : undefined),
+        requiresBusinessApproval:
+          dto.requiresBusinessApproval ?? project.requiresBusinessApproval,
+      },
+      'ACCOUNT_MANAGER',
+    );
+    return this.getTaskForManager(managerId, created.id);
   }
 
   async listBusinessTasks(businessId: string, query: AffiliateTaskQueryDto) {
@@ -1590,6 +1667,83 @@ export class AffiliateTaskService {
     return this.getTaskForBusiness(businessId, id);
   }
 
+  /**
+   * Retry the wallet reservation for an assigned task after the business has
+   * topped up. Until this succeeds the affiliate sees the task but cannot
+   * accept it because `paymentStatus` stays ON_HOLD.
+   */
+  async lockBusinessTaskFunds(userId: string, businessId: string | null, id: string) {
+    const business = await this.directory.getBusiness(userId, businessId);
+    const task = await this.prisma.affiliateTask.findFirst({
+      where: { id, businessId: business.id },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (TERMINAL_STATUSES.includes(task.status)) {
+      throw new BadRequestException('This task can no longer be funded');
+    }
+    if (!task.assigneeId) {
+      throw new BadRequestException('Assign an affiliate before locking funds.');
+    }
+
+    try {
+      await this.settlement.ensureForTask(id);
+    } catch (error: any) {
+      const escrowResponse =
+        typeof error?.getResponse === 'function'
+          ? error.getResponse()
+          : error?.response;
+      if (escrowResponse?.error === 'TASK_ESCROW_FAILED') {
+        await this.prisma.affiliateTask.updateMany({
+          where: { id },
+          data: { paymentStatus: AffiliatePaymentStatus.ON_HOLD },
+        });
+        await this.recordEvent(id, {
+          actorUserId: userId,
+          actorRole: 'BUSINESS',
+          type: 'TASK_FUNDS_STILL_REQUIRED',
+          message:
+            escrowResponse?.message ??
+            error?.message ??
+            'The wallet still cannot cover this task.',
+        });
+      }
+      throw error;
+    }
+
+    const settlement = await this.settlement.getForTask(id);
+    const payout = Number(settlement?.affiliatePayoutCredits?.toString() ?? 0);
+    const updated = await this.prisma.affiliateTask.update({
+      where: { id },
+      data: {
+        paymentStatus:
+          payout > 0 ? AffiliatePaymentStatus.PENDING : AffiliatePaymentStatus.NOT_APPLICABLE,
+        ...(task.billableToBusiness
+          ? {
+              businessChargeStatus: AffiliateChargeStatus.APPROVED,
+              businessChargeApprovedAt: new Date(),
+              businessChargeApprovedByUserId: userId,
+            }
+          : {}),
+      },
+    });
+
+    await this.recordEvent(id, {
+      actorUserId: userId,
+      actorRole: 'BUSINESS',
+      type: 'TASK_FUNDS_LOCKED',
+      message: 'Business funds locked; the affiliate can now accept the task.',
+      metadata: {
+        settlementId: settlement?.id ?? null,
+        businessChargeCredits: settlement?.businessChargeCredits?.toString() ?? null,
+        affiliatePayoutCredits: settlement?.affiliatePayoutCredits?.toString() ?? null,
+      },
+    });
+
+    // Mirror the unlocked state to 247GBS so the accept button becomes active.
+    await this.enqueueAffiliateJob('delegate-task', id);
+    return { ...(await this.getTaskForBusiness(business.id, id)), paymentStatus: updated.paymentStatus };
+  }
+
   async cancelBusinessTask(businessId: string, id: string) {
     const task = await this.prisma.affiliateTask.findFirst({ where: { id, businessId } });
     if (!task) throw new NotFoundException('Task not found');
@@ -1615,6 +1769,31 @@ export class AffiliateTaskService {
     });
     await this.syncStatusToAffiliate(updated);
     return updated;
+  }
+
+  /**
+   * Business owner reassigns a task an affiliate declined. Only declined tasks
+   * can be reassigned, and the new affiliate must be a verified directory
+   * member. Pricing/compensation are preserved unless the caller overrides them.
+   */
+  async reassignBusinessTask(
+    businessId: string,
+    taskId: string,
+    dto: AssignAffiliateTaskDto,
+    actorId: string,
+  ) {
+    const task = await this.prisma.affiliateTask.findUnique({
+      where: { id: taskId },
+      select: { id: true, businessId: true, status: true },
+    });
+    if (!task) throw new NotFoundException('Task not found');
+    if (task.businessId !== businessId) {
+      throw new ForbiddenException('This task does not belong to your business');
+    }
+    if (task.status !== AffiliateTaskStatus.DECLINED) {
+      throw new BadRequestException('Only a declined task can be reassigned');
+    }
+    return this.assignTask(taskId, dto, actorId, { asBusiness: true });
   }
 
   // ──────────────────────────── Admin actions ─────────────────────────────
@@ -1648,7 +1827,7 @@ export class AffiliateTaskService {
     taskId: string,
     dto: AssignAffiliateTaskDto,
     actorId: string,
-    opts: { asAccountManager?: boolean } = {},
+    opts: { asAccountManager?: boolean; asBusiness?: boolean } = {},
   ) {
     const task = await this.prisma.affiliateTask.findUnique({
       where: { id: taskId },
@@ -1749,33 +1928,62 @@ export class AffiliateTaskService {
           : task.businessChargeStatus;
     }
 
-    const paymentStatus =
+    let paymentStatus: AffiliatePaymentStatus =
       compensationAmount != null && compensationAmount > 0
         ? task.paymentStatus === AffiliatePaymentStatus.PAID
           ? AffiliatePaymentStatus.PAID
           : AffiliatePaymentStatus.PENDING
         : AffiliatePaymentStatus.NOT_APPLICABLE;
 
-    // Reserve money *before* the task changes hands. If the business wallet
-    // cannot cover the charge this throws and the assignment never happens.
-    await this.settlement.ensureForTask(taskId, {
-      platformFeePercent: dto.platformFeePercent,
-      compensationModel,
-      compensationAmount: compensationAmount ?? null,
-      compensationPence: compensationPence ?? null,
-      billableToBusiness,
-      businessChargeAmount: businessChargeAmount ?? null,
-      freeDelegation,
-      assigneeId: assignee.id,
-      assigneeEmail: assignee.email,
-    });
+    // Reserve money before the task changes hands. If the wallet cannot cover
+    // the charge we still assign the task; the affiliate can see it, but the
+    // accept action stays blocked until the funds are locked.
+    let escrowReady = true;
+    try {
+      await this.settlement.ensureForTask(taskId, {
+        platformFeePercent: dto.platformFeePercent,
+        compensationModel,
+        compensationAmount: compensationAmount ?? null,
+        compensationPence: compensationPence ?? null,
+        billableToBusiness,
+        businessChargeAmount: businessChargeAmount ?? null,
+        freeDelegation,
+        assigneeId: assignee.id,
+        assigneeEmail: assignee.email,
+      });
+    } catch (error: any) {
+      const escrowResponse =
+        typeof error?.getResponse === 'function'
+          ? error.getResponse()
+          : error?.response;
+      if (escrowResponse?.error !== 'TASK_ESCROW_FAILED') {
+        throw error;
+      }
+      escrowReady = false;
+      const reason =
+        escrowResponse?.message ||
+        error?.message ||
+        'The business wallet could not reserve the task amount.';
+      this.logger.warn(`Escrow not ready for task ${taskId}: ${reason}`);
+    }
+
+    if (escrowReady) {
+      if (billableToBusiness && businessChargeAmount != null) {
+        businessChargeStatus = AffiliateChargeStatus.APPROVED;
+      }
+    } else {
+      paymentStatus = AffiliatePaymentStatus.ON_HOLD;
+      if (billableToBusiness && businessChargeAmount != null) {
+        businessChargeStatus = AffiliateChargeStatus.PENDING_APPROVAL;
+      }
+    }
 
     const updated = await this.prisma.affiliateTask.update({
       where: { id: taskId },
       data: {
         assigneeId: assignee.id,
         assigneeRole: assignee.role,
-        assignedByAdminId: opts.asAccountManager ? null : actorId,
+        assignedByAdminId: opts.asAccountManager || opts.asBusiness ? null : actorId,
         status: AffiliateTaskStatus.ASSIGNED,
         compensationModel,
         compensationAmount,
@@ -1784,6 +1992,12 @@ export class AffiliateTaskService {
         billableToBusiness,
         businessChargeAmount,
         businessChargeStatus,
+        ...(escrowReady && billableToBusiness && businessChargeAmount != null
+          ? {
+              businessChargeApprovedAt: new Date(),
+              businessChargeApprovedByUserId: actorId,
+            }
+          : {}),
         paymentStatus,
         freeDelegation,
         ...(allowance
@@ -1802,8 +2016,8 @@ export class AffiliateTaskService {
         // clean review state.
         ...(task.status === AffiliateTaskStatus.DECLINED
           ? {
+              declineReason: null,
               acceptedAt: null,
-              submittedAt: null,
               amReviewedAt: null,
               amReviewedByUserId: null,
               amReviewNotes: null,
@@ -1814,9 +2028,33 @@ export class AffiliateTaskService {
       },
     });
 
+    // Record the specialist/task relationship separately from acquisition and
+    // account management so history survives reassignment. A history failure
+    // must not block the assignment itself.
+    try {
+      await this.acquisition.recordAssignment({
+        businessId: task.businessId,
+        relationshipType: BusinessRelationshipType.TASK_ASSIGNMENT,
+        affiliateUserId: assignee.id,
+        actorUserId: actorId,
+        newValue: taskId,
+        metadata: {
+          assigneeRole: assignee.role,
+          taskTitle: task.title,
+          reassigned: task.status === AffiliateTaskStatus.DECLINED,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record task assignment history for ${taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
     await this.recordEvent(taskId, {
       actorUserId: actorId,
-      actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : 'ADMIN',
+      actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : opts.asBusiness ? 'BUSINESS' : 'ADMIN',
       type: task.status === AffiliateTaskStatus.DECLINED ? 'TASK_REASSIGNED' : 'TASK_ASSIGNED',
       message: `Assigned to ${assignee.email}`,
       metadata: {
@@ -1826,14 +2064,28 @@ export class AffiliateTaskService {
         delegationQuotaSource: quotaSource,
         billableToBusiness,
         businessChargeAmount,
+        paymentStatus,
+        escrowReady,
       },
     });
 
-    if (
-      billableToBusiness &&
-      businessChargeStatus === AffiliateChargeStatus.PENDING_APPROVAL
-    ) {
-      await this.notifyBusinessOfChargeApproval(taskId);
+    if (!escrowReady) {
+      const settlement = await this.settlement.getForTask(taskId);
+      const requiredCredits = Number(
+        settlement?.businessChargeCredits?.toString() ?? 0,
+      );
+      await this.recordEvent(taskId, {
+        actorUserId: actorId,
+        actorRole: opts.asAccountManager ? 'ACCOUNT_MANAGER' : opts.asBusiness ? 'BUSINESS' : 'ADMIN',
+        type: 'TASK_FUNDS_REQUIRED',
+        message: 'Affiliate assigned, but the business wallet funds are not locked yet.',
+        metadata: {
+          requiredCredits,
+          businessChargeAmount,
+          currency: task.businessChargeCurrency,
+        },
+      });
+      await this.notifyBusinessOfFundingRequired(taskId, requiredCredits);
     }
 
     await this.delegateIfPrerequisiteComplete(taskId);
@@ -2039,6 +2291,7 @@ export class AffiliateTaskService {
       affiliateTaskId?: string | null;
       submissionData?: Record<string, unknown> | null;
       reviewAcknowledged?: boolean;
+      declineReason?: string | null;
     },
   ) {
     const task = await this.prisma.affiliateTask.findUnique({ where: { id: centralTaskId } });
@@ -2074,6 +2327,14 @@ export class AffiliateTaskService {
     };
     if (mapped) data.status = mapped;
     if (mapped === AffiliateTaskStatus.ACCEPTED) data.acceptedAt = new Date();
+    const declineReason = (payload.declineReason ?? '').trim();
+    if (mapped === AffiliateTaskStatus.DECLINED) {
+      data.declineReason = declineReason || 'No reason provided';
+    }
+    if (mapped === AffiliateTaskStatus.ACCEPTED || mapped === AffiliateTaskStatus.IN_PROGRESS) {
+      // A new assignee accepted the work; the previous decline no longer applies.
+      data.declineReason = null;
+    }
     if (payload.affiliateTaskId) data.affiliateTaskId = payload.affiliateTaskId;
     if (payload.submissionData !== undefined) {
       data.submissionData = (payload.submissionData ?? Prisma.JsonNull) as Prisma.InputJsonValue;
@@ -2088,10 +2349,14 @@ export class AffiliateTaskService {
     await this.recordEvent(centralTaskId, {
       actorRole: 'AFFILIATE',
       type: `AFFILIATE_${(mapped ?? 'UPDATED').toString()}`,
-      message: `Affiliate reported status: ${payload.status ?? 'updated'}`,
-      metadata: payload.submissionData
-        ? { hasSubmission: true }
-        : undefined,
+      message:
+        mapped === AffiliateTaskStatus.DECLINED && declineReason
+          ? `Affiliate declined the task: ${declineReason}`
+          : `Affiliate reported status: ${payload.status ?? 'updated'}`,
+      metadata: {
+        ...(payload.submissionData ? { hasSubmission: true } : {}),
+        ...(declineReason ? { declineReason } : {}),
+      },
     });
 
     // Promote structured attachment metadata into first-class rows so admins

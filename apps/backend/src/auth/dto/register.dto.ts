@@ -133,4 +133,12 @@ export class RegisterDto {
   @IsOptional()
   @Matches(/^[A-Za-z0-9]{6,12}$/, { message: 'referredByCode must be 6-12 alphanumeric characters' })
   referredByCode?: string;
+
+  @ApiPropertyOptional({
+    example: '9f8c...',
+    description: 'Tracked 247GBS Affiliates business invitation token (?affiliateInvite=TOKEN)',
+  })
+  @IsString()
+  @IsOptional()
+  affiliateInvite?: string;
 }

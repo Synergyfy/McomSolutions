@@ -244,6 +244,8 @@ export const businessApi = {
     limit?: number;
     postcode?: string;
     skill?: string;
+    radiusMiles?: number;
+    availableOnly?: string;
   }) => {
     const res = await apiClient.get('/business/affiliate/affiliates', { params });
     return res.data;
@@ -310,8 +312,29 @@ export const businessApi = {
     return res.data;
   },
 
+  lockAffiliateTaskFunds: async (id: string) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/lock-funds`);
+    return res.data;
+  },
+
   cancelAffiliateTask: async (id: string) => {
     const res = await apiClient.post(`/business/affiliate/tasks/${id}/cancel`);
+    return res.data;
+  },
+
+  reassignAffiliateTask: async (
+    id: string,
+    data: {
+      assigneeUserId: string;
+      note?: string;
+      compensationAmount?: number;
+      compensationCurrency?: string;
+      billableToBusiness?: boolean;
+      businessChargeAmount?: number;
+      requiresBusinessApproval?: boolean;
+    },
+  ) => {
+    const res = await apiClient.post(`/business/affiliate/tasks/${id}/reassign`, data);
     return res.data;
   },
 
@@ -597,6 +620,7 @@ export interface AffiliateTaskRecord {
     lastName: string | null;
     role: string;
   } | null;
+  declineReason?: string | null;
   business?: { id: string; businessName: string; email: string; userId?: string };
   taskDefinition?: { id: string; title: string } | null;
   dueAt: string | null;

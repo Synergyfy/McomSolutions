@@ -134,6 +134,7 @@ export class AffiliateClientService {
         chargeApprovalRequired:
           task.businessChargeStatus === 'PENDING_APPROVAL' ||
           (task.billableToBusiness && !task.businessChargeApprovedAt),
+        paymentStatus: task.paymentStatus,
         metadata: {
           centralTaskId: task.id,
           centralBusinessId: task.businessId,

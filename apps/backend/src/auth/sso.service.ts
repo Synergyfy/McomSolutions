@@ -1,12 +1,13 @@
 import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, SsoClient } from '@prisma/client';
+import { Prisma, SsoClient, MembershipTier, PlanTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { calculatePermissions } from '../data-sharing/permissions.util';
 import { ssoEntitlementClientSelect, ssoUserInfoSelect } from './profile-selects';
 import { buildSsoIdentity, SsoIdentity } from './sso-identity';
+import { ensureUserReferralCode } from '../common/referral/referral.util';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -214,18 +215,84 @@ export class SsoService {
 
   /**
    * White-label grant lookup. `businessId` is the BusinessProfile id and
-   * `clientId` is the SsoClient natural key. Returns null when either side is
-   * missing or no grant exists.
+   * `clientId` is the SsoClient natural key. A grant can come from:
+   *
+   *  1. an explicit admin grant (`whitelabel_accesses`), or
+   *  2. an active membership whose plan includes this platform for the
+   *     purchased variant, or
+   *  3. an active access pass whose plan includes this platform.
+   *
+   * Membership/access-pass grants are evaluated live, so access ends
+   * automatically when the entitlement expires.
    */
   private async findWhitelabelGrant(
     businessId: string | null | undefined,
     clientId: string | null | undefined,
   ) {
     if (!businessId || !clientId) return null;
-    return this.prisma.whitelabelAccess.findUnique({
+
+    const manual = await this.prisma.whitelabelAccess.findUnique({
       where: { businessId_clientId: { businessId, clientId } },
       select: { createdAt: true },
     });
+    if (manual) return manual;
+
+    const now = new Date();
+    const business = await this.prisma.businessProfile.findFirst({
+      where: { id: businessId, deletedAt: null },
+      select: {
+        membershipStatus: true,
+        membershipPlanName: true,
+        membershipLevel: true,
+        membershipExpiresAt: true,
+        membershipTier: true,
+      },
+    });
+
+    if (business) {
+      const status = String(business.membershipStatus || '').toLowerCase();
+      const planName = business.membershipPlanName || business.membershipLevel;
+      const expired =
+        business.membershipExpiresAt != null &&
+        new Date(business.membershipExpiresAt).getTime() <= now.getTime();
+      const membershipActive =
+        ['active', 'trial', 'past_due'].includes(status) && !!planName && !expired;
+
+      if (membershipActive) {
+        const planTier =
+          business.membershipTier === MembershipTier.Pro
+            ? PlanTier.Pro
+            : business.membershipTier === MembershipTier.ProPlus
+              ? PlanTier.ProPlus
+              : PlanTier.Standard;
+        const match = await this.prisma.membershipPlanWhitelabelAccess.findFirst({
+          where: {
+            clientId,
+            tiers: { has: planTier },
+            plan: {
+              name: { equals: planName!, mode: 'insensitive' },
+              archived: false,
+              deletedAt: null,
+            },
+          },
+          select: { createdAt: true },
+        });
+        if (match) return match;
+      }
+    }
+
+    const pass = await this.prisma.accessPurchase.findFirst({
+      where: {
+        businessId,
+        status: 'ACTIVE',
+        startsAt: { lte: now },
+        expiresAt: { gt: now },
+        accessPlan: { whitelabelAccess: { some: { clientId } } },
+      },
+      orderBy: { expiresAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return pass ?? null;
   }
 
   /**
@@ -235,8 +302,11 @@ export class SsoService {
    *
    * Rules:
    *  - Only BUSINESS accounts (with a business profile) are eligible.
-   *  - An explicit admin grant must exist for that business + platform.
-   *  - Membership tier / packages / access passes are irrelevant.
+   *  - An explicit admin grant, an active membership variant, or an active
+   *    access pass that includes the platform must exist.
+   *  - Membership tier / packages / access passes are checked only through the
+   *    configured white-label bundles, never through the normal entitlement
+   *    pipeline.
    */
   async assertWhitelabelAccess(
     userId: string,
@@ -339,12 +409,7 @@ export class SsoService {
       throw new UnauthorizedException('Authorization code has already been used');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: authCode.userId },
-      // Shared SSO select — full identity + contact + role profile, minus
-      // credentials and other internal columns.
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: authCode.userId });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -358,7 +423,9 @@ export class SsoService {
     const accessTokenTtl = this.configService.get<string>('SSO_ACCESS_TOKEN_TTL') || '3600';
     const refreshTokenTtl = this.configService.get<string>('SSO_REFRESH_TOKEN_TTL') || '604800';
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
     const name = identity.name;
 
     const accessPayload = {
@@ -372,6 +439,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: authCode.scopes,
     };
 
@@ -386,6 +455,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: authCode.scopes,
     };
 
@@ -471,6 +542,25 @@ export class SsoService {
     };
   }
 
+  /**
+   * Loads the shared SSO identity record and lazily assigns a referral code to
+   * any non-admin account that does not have one yet. This keeps partner
+   * apps (e.g. 247GBS Affiliates) showing a referral code/link even before the
+   * bulk backfill has been run.
+   */
+  private async loadSsoUser(where: Prisma.UserWhereInput) {
+    const user = await this.prisma.user.findFirst({
+      where,
+      select: ssoUserInfoSelect,
+    });
+    if (!user) return null;
+
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
+    return referralCode && referralCode !== user.referralCode
+      ? { ...user, referralCode }
+      : user;
+  }
+
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
@@ -514,10 +604,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid refresh token signature');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: session.userId },
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: session.userId });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -534,7 +621,9 @@ export class SsoService {
       }
     }
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
     const newPayload = {
       jti: crypto.randomUUID(),
       sub: user.id,
@@ -546,6 +635,8 @@ export class SsoService {
       lastName: identity.lastName || '',
       businessName: identity.businessName || '',
       businessId: identity.businessId,
+      referralCode: identity.referralCode,
+      referralLink: identity.referralLink,
       scopes: payload.scopes,
     };
 
@@ -763,9 +854,9 @@ export class SsoService {
     let appPlan: AppPlanView | null = null;
     const targetPlatformIdent = targetClient?.clientId || targetClient?.platformSlug || targetClient?.name || explicitPlatform;
 
-    // White-label admission: business-only, explicit admin grant, and no
-    // membership/access-pass dependency. This verdict overrides the normal
-    // package/membership resolution below.
+    // White-label admission: business-only, sourced from an explicit admin
+    // grant, an active membership variant, or an active access pass. This
+    // verdict overrides the normal package/membership resolution below.
     const isWhitelabelPlatform = Boolean(targetClient?.allowWhitelabel);
     const whitelabelBusinessId = businessProfile?.id ?? null;
     const whitelabelRoleEligible = user?.role === 'BUSINESS' && Boolean(whitelabelBusinessId);
@@ -1202,10 +1293,7 @@ export class SsoService {
       throw new UnauthorizedException('Invalid or expired access token');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: ssoUserInfoSelect,
-    });
+    const user = await this.loadSsoUser({ id: payload.sub });
 
     if (!user) {
       throw new UnauthorizedException('User not found');
@@ -1227,7 +1315,9 @@ export class SsoService {
     const { appPlan, membership, enrichedPackages, permissions, entitlement } =
       await this.resolveEntitlements(user, client);
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
 
     return {
       ...this.buildSsoUserPayload(identity, {
@@ -1253,15 +1343,12 @@ export class SsoService {
       throw new BadRequestException('Client not found');
     }
 
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { id: userIdOrBusinessId },
-          { businessProfile: { id: userIdOrBusinessId } },
-          { email: userIdOrBusinessId },
-        ],
-      },
-      select: ssoUserInfoSelect,
+    const user = await this.loadSsoUser({
+      OR: [
+        { id: userIdOrBusinessId },
+        { businessProfile: { id: userIdOrBusinessId } },
+        { email: userIdOrBusinessId },
+      ],
     });
 
     if (!user) {
@@ -1271,7 +1358,9 @@ export class SsoService {
     const { entitlement, appPlan, membership, enrichedPackages, permissions } =
       await this.resolveEntitlements(user, client);
 
-    const identity = buildSsoIdentity(user);
+    const identity = buildSsoIdentity(user, {
+      frontendUrl: this.configService.get<string>('FRONTEND_URL'),
+    });
 
     return {
       success: true,

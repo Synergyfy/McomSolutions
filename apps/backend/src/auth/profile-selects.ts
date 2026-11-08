@@ -82,6 +82,7 @@ export const ssoUserInfoSelect = {
   lastName: true,
   jobTitle: true,
   registrationSource: true,
+  referralCode: true,
   createdAt: true,
   businessProfile: {
     select: {
@@ -140,6 +141,10 @@ export const ssoUserInfoSelect = {
       id: true,
       phone: true,
       postcode: true,
+      city: { select: { name: true, region: true, country: true } },
+      borough: { select: { name: true } },
+      highStreet: { select: { name: true } },
+      localMall: { select: { name: true } },
       loyaltyPoints: true,
       platformUsage: true,
       membershipStatus: true,

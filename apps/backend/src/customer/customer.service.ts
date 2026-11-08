@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
+import { ensureUserReferralCode } from '../common/referral/referral.util';
 
 const customerProfileSelect = {
   id: true,
@@ -30,6 +31,8 @@ export class CustomerService {
   async getProfile(userId: string) {
     const user = await this.requireCustomerUser(userId);
     const customerProfile = await this.ensureCustomerProfile(userId);
+    // Lazily assign a referral code so older customer accounts always have one.
+    const referralCode = await ensureUserReferralCode(this.prisma, user);
 
     return {
       success: true,
@@ -41,7 +44,7 @@ export class CustomerService {
       role: user.role,
       emailNotifications: user.emailNotifications,
       twoFactorEnabled: user.twoFactorEnabled,
-      referralCode: user.referralCode,
+      referralCode,
       memberSince: user.createdAt,
       phone: customerProfile.phone,
       loyaltyPoints: customerProfile.loyaltyPoints,

@@ -7,6 +7,8 @@ import { WebhookDispatcherModule } from '../webhook-dispatcher/webhook-dispatche
 import { NotificationModule } from '../notification/notification.module';
 import { ServiceConnectorsModule } from '../service-connectors/service-connectors.module';
 import { PricingModule } from '../pricing/pricing.module';
+import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 import { RecurringService } from './recurring.service';
 import { RenewalSchedulerService } from './renewal-scheduler.service';
 import { RecurringController } from './recurring.controller';
@@ -22,6 +24,8 @@ import { RecurringAdminController } from './recurring-admin.controller';
     NotificationModule,
     ServiceConnectorsModule,
     PricingModule,
+    BusinessAcquisitionModule,
+    ReferralsModule,
   ],
   controllers: [RecurringController, RecurringAdminController],
   providers: [RecurringService, RenewalSchedulerService],

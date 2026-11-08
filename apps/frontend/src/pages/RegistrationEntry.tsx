@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Building2, User, Briefcase, ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { motion } from 'motion/react';
-import { persistReferralCodeFromSearchParams } from '../lib/referral';
+import { persistReferralCodeFromSearchParams, persistAffiliateInvite, getAffiliateInviteFromSearchParams } from '../lib/referral';
 import ChsLogoPattern from '../components/ChsLogoPattern';
 
 export default function RegistrationEntry() {
@@ -13,7 +13,18 @@ export default function RegistrationEntry() {
   // Persist ?ref= so attribution survives the multi-step signup flows.
   useEffect(() => {
     persistReferralCodeFromSearchParams(searchParams);
-  }, [searchParams]);
+
+    // A tracked agent invitation always means "business signup". Skip the
+    // business/customer/affiliate chooser even if an older link lands here.
+    const affiliateInvite = getAffiliateInviteFromSearchParams(searchParams);
+    if (affiliateInvite) {
+      persistAffiliateInvite(affiliateInvite);
+      const businessParams = new URLSearchParams(searchParams);
+      businessParams.set('entry', 'signup');
+      businessParams.set('role', 'business');
+      navigate(`/getstarted/business?${businessParams.toString()}`, { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   const roles = [
     { id: 'business', title: 'Business', description: 'Register your company and set up your storefront', icon: Building2 },

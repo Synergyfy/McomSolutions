@@ -17,14 +17,30 @@ import { AffiliateTaskProcessor } from './affiliate-task.processor';
 import { AffiliateBusinessController } from './affiliate-business.controller';
 import { AffiliateAdminController } from './affiliate-admin.controller';
 import { AffiliateInboundController } from './affiliate-inbound.controller';
+import { AffiliateBusinessAcquisitionController } from './affiliate-business-acquisition.controller';
+import { AffiliateBusinessAcquisitionAdminController } from './affiliate-business-acquisition-admin.controller';
+import { BusinessAcquisitionModule } from './business-acquisition.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 import { AffiliateApiKeyGuard } from './guards/affiliate-api-key.guard';
 
 @Module({
-  imports: [PrismaModule, MailModule, ChatModule, QueueModule, GeographyModule, TaskModule, WalletModule],
+  imports: [
+    PrismaModule,
+    MailModule,
+    ChatModule,
+    QueueModule,
+    GeographyModule,
+    TaskModule,
+    WalletModule,
+    BusinessAcquisitionModule,
+    ReferralsModule,
+  ],
   controllers: [
     AffiliateBusinessController,
     AffiliateAdminController,
     AffiliateInboundController,
+    AffiliateBusinessAcquisitionController,
+    AffiliateBusinessAcquisitionAdminController,
   ],
   providers: [
     AffiliateApiKeyGuard,

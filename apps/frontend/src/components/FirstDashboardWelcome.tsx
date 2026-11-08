@@ -6,6 +6,22 @@ import {
 import { PROGRAMME_PHASES, getPhaseForDay, getProgrammeDay, getTaskStatus, getTotalMissions } from '../lib/programmeData';
 import { useProfile, useMyTasks } from '../services/business/hooks';
 
+/**
+ * Profile relations such as sector/category may arrive either as plain strings
+ * or as `{ id, name }` objects. Rendering the object directly crashes React,
+ * so normalise every label before it reaches JSX.
+ */
+function displayLabel(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const candidate = record.name ?? record.label ?? record.title;
+    if (typeof candidate === 'string') return candidate;
+  }
+  return '';
+}
+
 export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => void }) {
   const { data: profile } = useProfile();
   const { data: myTasksRes } = useMyTasks();
@@ -15,8 +31,8 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
     : 90;
 
   let businessName = profile?.businessName || '';
-  let sector = profile?.sector || '';
-  let category = profile?.category || '';
+  let sector = displayLabel(profile?.sector);
+  let category = displayLabel(profile?.category);
   let membership = profile?.membershipLevel || '';
   let membershipSub = profile?.membershipTier || '';
   let membershipStatus = profile?.membershipStatus || 'Active';
@@ -27,8 +43,8 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
       try {
         const user = JSON.parse(userRaw);
         businessName = user.businessName || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '');
-        if (!sector) sector = user.sector || '';
-        if (!category) category = user.category || '';
+        if (!sector) sector = displayLabel(user.sector);
+        if (!category) category = displayLabel(user.category);
         if (!membership) membership = user.membershipLevel || '';
         if (!membershipSub) membershipSub = user.membershipTier || '';
       } catch {}
@@ -40,8 +56,8 @@ export default function FirstDashboardWelcome({ onDismiss }: { onDismiss: () => 
     try {
       const data = JSON.parse(onboardingData);
       if (!businessName && data.businessName) businessName = data.businessName;
-      if (!sector && data.sector) sector = data.sector;
-      if (!category && data.category) category = data.category;
+      if (!sector) sector = displayLabel(data.sector);
+      if (!category) category = displayLabel(data.category);
     } catch {}
   }
 

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Award,
   CheckCircle2,
@@ -7,6 +7,7 @@ import {
   ChevronUp,
   ClipboardList,
   Loader2,
+  LockKeyhole,
   MapPin,
   MessageSquare,
   Plus,
@@ -14,9 +15,12 @@ import {
   Search,
   Send,
   Trophy,
+  UserPlus,
+  Wallet,
   X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import TaskCountdown from './TaskCountdown';
 import {
   useAccountManager,
   useAffiliateProjects,
@@ -27,9 +31,11 @@ import {
   useCreateAffiliateTask,
   useCreateServiceRequest,
   useDelegationQuota,
+  useLockAffiliateTaskFunds,
   useMyTasks,
   useNearbyAffiliates,
   usePlatformAccess,
+  useReassignAffiliateTask,
   useReviewAffiliateTask,
   useReviewAffiliateTaskCharge,
   useServiceRequests,
@@ -41,6 +47,7 @@ import type {
   AffiliateServiceRequestRecord,
   AffiliateTaskRecord,
 } from '../services/business';
+import { useMyWallet } from '../services/wallet/hooks';
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING_ASSIGNMENT: 'Awaiting assignment',
@@ -81,10 +88,15 @@ function formatDate(value?: string | null) {
 
 export default function DashboardDelegatedTasks() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const [platform, setPlatform] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
+  const [createdFlash, setCreatedFlash] = useState<{
+    fundingRequired: boolean;
+  } | null>(null);
+  const [fundingFeedback, setFundingFeedback] = useState<string | null>(null);
+  const [lockingTaskId, setLockingTaskId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [affiliateSkill, setAffiliateSkill] = useState('');
   // Use the saved business postcode by default so the directory request also
@@ -110,8 +122,21 @@ export default function DashboardDelegatedTasks() {
     [status, search, platform],
   );
 
-  const { data: tasksRes, isLoading } = useAffiliateTasks(query);
+  useEffect(() => {
+    const state = location.state as {
+      taskCreated?: boolean;
+      fundingRequired?: boolean;
+    } | null;
+    if (state?.taskCreated) {
+      setCreatedFlash({ fundingRequired: Boolean(state.fundingRequired) });
+      navigate('/dashboard/tasks', { replace: true, state: null });
+    }
+  }, [location.state, navigate]);
+
+  const { data: tasksRes, isLoading, refetch: refetchTasks } = useAffiliateTasks(query);
   const tasks: AffiliateTaskRecord[] = tasksRes?.data ?? [];
+  const { data: wallet } = useMyWallet();
+  const lockTaskFunds = useLockAffiliateTaskFunds();
   const { data: accessRes } = usePlatformAccess();
   const platforms = accessRes?.data?.platforms ?? [];
   const { data: quotaRes } = useDelegationQuota();
@@ -137,23 +162,10 @@ export default function DashboardDelegatedTasks() {
   const distanceFrom = affiliateSearchRes?.distanceFrom ?? null;
   const createTask = useCreateAffiliateTask();
   const cancelTask = useCancelAffiliateTask();
-
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [assigneeUserId, setAssigneeUserId] = useState('');
-  const [dueAt, setDueAt] = useState('');
-  const [category, setCategory] = useState<'INTERNAL' | 'EXTERNAL'>('EXTERNAL');
-  const [requiredSkillsText, setRequiredSkillsText] = useState('');
-  const [deliverables, setDeliverables] = useState('');
-  const [materials, setMaterials] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [compensationModel, setCompensationModel] = useState('FIXED');
-  const [compensationAmount, setCompensationAmount] = useState('');
-  const [billableToBusiness, setBillableToBusiness] = useState(false);
-  const [businessChargeAmount, setBusinessChargeAmount] = useState('');
-  const [requiresBusinessApproval, setRequiresBusinessApproval] = useState(true);
-  const [taskError, setTaskError] = useState<string | null>(null);
+  const reassignTask = useReassignAffiliateTask();
+  const [reassignFor, setReassignFor] = useState<AffiliateTaskRecord | null>(null);
+  const [reassignAffiliateId, setReassignAffiliateId] = useState('');
+  const [reassignError, setReassignError] = useState<string | null>(null);
 
   // Service request + project state.
   const [showRequest, setShowRequest] = useState(false);
@@ -177,56 +189,6 @@ export default function DashboardDelegatedTasks() {
   const closeProject = useCloseAffiliateProject();
   const reviewAffiliateTask = useReviewAffiliateTask();
   const reviewAffiliateTaskCharge = useReviewAffiliateTaskCharge();
-
-  const resetForm = () => {
-    setTitle('');
-    setDescription('');
-    setSelectedPlatforms([]);
-    setAssigneeUserId('');
-    setDueAt('');
-    setCategory('EXTERNAL');
-    setRequiredSkillsText('');
-    setDeliverables('');
-    setMaterials('');
-    setProjectId('');
-    setCompensationModel('FIXED');
-    setCompensationAmount('');
-    setBillableToBusiness(false);
-    setBusinessChargeAmount('');
-    setRequiresBusinessApproval(true);
-    setTaskError(null);
-  };
-
-  const submit = async () => {
-    if (!title.trim() || !description.trim()) return;
-    setTaskError(null);
-    try {
-      await createTask.mutateAsync({
-        title: title.trim(),
-        description: description.trim(),
-        platforms: selectedPlatforms,
-        assigneeUserId: assigneeUserId || undefined,
-        dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
-        projectId: projectId || undefined,
-        category,
-        requiredSkills: requiredSkillsText
-          .split(',')
-          .map((skill) => skill.trim())
-          .filter(Boolean),
-        deliverables: deliverables.trim() || undefined,
-        materials: materials.trim() || undefined,
-        requiresBusinessApproval,
-        compensationModel: compensationModel as any,
-        compensationAmount: compensationAmount ? Number(compensationAmount) : undefined,
-        billableToBusiness,
-        businessChargeAmount: businessChargeAmount ? Number(businessChargeAmount) : undefined,
-      });
-      setShowCreate(false);
-      resetForm();
-    } catch (error: any) {
-      setTaskError(error?.response?.data?.message || 'The task could not be created.');
-    }
-  };
 
   const submitServiceRequest = async () => {
     if (!requestTitle.trim() || !requestDescription.trim()) return;
@@ -308,6 +270,27 @@ export default function DashboardDelegatedTasks() {
     });
   };
 
+  const lockFunds = async (task: AffiliateTaskRecord) => {
+    setFundingFeedback(null);
+    setLockingTaskId(task.id);
+    try {
+      await lockTaskFunds.mutateAsync(task.id);
+      setFundingFeedback(
+        `Funds locked for "${task.title}". The affiliate can now start the task.`,
+      );
+      await refetchTasks();
+    } catch (error: any) {
+      const message = error?.response?.data?.message;
+      setFundingFeedback(
+        Array.isArray(message)
+          ? message.join(', ')
+          : message || 'The funds could not be locked yet. Top up the wallet and try again.',
+      );
+    } finally {
+      setLockingTaskId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
@@ -325,7 +308,7 @@ export default function DashboardDelegatedTasks() {
             <MessageSquare className="w-4 h-4" /> New service request
           </button>
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={() => navigate('/dashboard/tasks/new')}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-blue px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-brand-dark"
           >
             <Plus className="w-4 h-4" /> Create task
@@ -350,6 +333,36 @@ export default function DashboardDelegatedTasks() {
         </div>
       )}
 
+      {createdFlash && (
+        <div
+          className={cn(
+            'rounded-2xl border px-4 py-3 text-xs font-semibold flex items-start justify-between gap-3',
+            createdFlash.fundingRequired
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800',
+          )}
+        >
+          <span className="flex items-start gap-2">
+            {createdFlash.fundingRequired ? (
+              <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <span>
+              {createdFlash.fundingRequired
+                ? 'Task assigned, but the funds are not locked yet. Top up your wallet and lock the funds so the affiliate can start. The affiliate can already see the task.'
+                : 'Task launched. We are matching it with the right person now.'}
+            </span>
+          </span>
+          <button onClick={() => setCreatedFlash(null)}><X className="w-4 h-4" /></button>
+        </div>
+      )}
+      {fundingFeedback && (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800 flex items-start justify-between gap-3">
+          <span>{fundingFeedback}</span>
+          <button onClick={() => setFundingFeedback(null)}><X className="w-4 h-4" /></button>
+        </div>
+      )}
       {requestFeedback && (
         <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs font-semibold text-sky-800 flex items-start justify-between gap-3">
           <span>{requestFeedback}</span>
@@ -435,6 +448,21 @@ export default function DashboardDelegatedTasks() {
           <div className="mt-4 divide-y divide-gray-50">
             {tasks.map((task) => {
               const isOpen = expanded === task.id;
+              const requiredCredits = Number(
+                task.settlement?.businessChargeCredits ??
+                  task.businessChargeAmount ??
+                  0,
+              );
+              const availableCredits = Number(wallet?.availableBalance ?? 0);
+              const fundingRequired = task.paymentStatus === 'ON_HOLD';
+              const shortfall = Math.max(
+                0,
+                Number((requiredCredits - availableCredits).toFixed(2)),
+              );
+              const topUpAmount = Math.max(
+                5,
+                Math.min(500, Math.ceil(shortfall || requiredCredits || 5)),
+              );
               return (
                 <div key={task.id} className="py-3">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -449,6 +477,11 @@ export default function DashboardDelegatedTasks() {
                         >
                           {STATUS_LABELS[task.status] ?? task.status}
                         </span>
+                        {fundingRequired && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                            Funds needed
+                          </span>
+                        )}
                         {task.source === 'PROGRAMME' && (
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-500">
                             Programme
@@ -469,6 +502,17 @@ export default function DashboardDelegatedTasks() {
                           </>
                         )}
                       </p>
+                      <div className="mt-1.5">
+                        <TaskCountdown
+                          deadlineAt={task.dueAt}
+                          active={!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status)}
+                        />
+                      </div>
+                      {task.status === 'DECLINED' && task.declineReason && (
+                        <p className="mt-2 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1.5 text-[11px] leading-5 text-red-800">
+                          <span className="font-black">Decline reason:</span> {task.declineReason}
+                        </p>
+                      )}
                     </div>
                     <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                       <button
@@ -478,6 +522,18 @@ export default function DashboardDelegatedTasks() {
                         {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         Details
                       </button>
+                      {task.status === 'DECLINED' && (
+                        <button
+                          onClick={() => {
+                            setReassignFor(task);
+                            setReassignAffiliateId('');
+                            setReassignError(null);
+                          }}
+                          className="inline-flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-brand-blue px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-brand-dark sm:flex-none"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" /> Reassign
+                        </button>
+                      )}
                       {!['COMPLETED', 'CANCELLED', 'DECLINED'].includes(task.status) && (
                         <button
                           onClick={() => cancelTask.mutate(task.id)}
@@ -489,6 +545,51 @@ export default function DashboardDelegatedTasks() {
                       )}
                     </div>
                   </div>
+
+                  {fundingRequired && (
+                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3.5">
+                      <p className="flex items-start gap-2 text-[12px] font-black text-amber-900">
+                        <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                        Funds are not locked — the affiliate can see this task but cannot start.
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium leading-5 text-amber-800">
+                        {shortfall > 0
+                          ? `Add at least ${shortfall.toFixed(2)} MCOM (£${shortfall.toFixed(2)}) to your wallet, then lock the funds.`
+                          : `Your available balance covers this task. Lock ${requiredCredits.toFixed(2)} MCOM now so the affiliate can start.`}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              `/dashboard/wallet?topup=required&amount=${topUpAmount}&taskId=${task.id}`,
+                            )
+                          }
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-black text-white hover:bg-brand-dark"
+                        >
+                          <Wallet className="h-3.5 w-3.5" />
+                          {shortfall > 0 ? 'Fund wallet' : 'Open wallet'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void lockFunds(task)}
+                          disabled={lockingTaskId === task.id}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-black text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                        >
+                          {lockingTaskId === task.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <LockKeyhole className="h-3.5 w-3.5" />
+                          )}
+                          {lockingTaskId === task.id ? 'Locking…' : 'Lock funds now'}
+                        </button>
+                      </div>
+                      <p className="mt-1.5 text-[10px] font-semibold text-amber-700">
+                        You can fund later. The task stays blocked for the affiliate until the
+                        money is reserved.
+                      </p>
+                    </div>
+                  )}
 
                   {isOpen && (
                     <div className="mt-3 rounded-2xl bg-gray-50 border border-gray-100 p-3 space-y-2">
@@ -579,7 +680,7 @@ export default function DashboardDelegatedTasks() {
                         </div>
                       )}
 
-                      {task.businessChargeStatus === 'PENDING_APPROVAL' && (
+                      {task.businessChargeStatus === 'PENDING_APPROVAL' && !fundingRequired && (
                         <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5">
                           <p className="text-[11px] font-bold text-amber-900">
                             Charge approval required: {task.businessChargeCurrency || 'GBP'} {task.businessChargeAmount ?? 0}
@@ -606,7 +707,7 @@ export default function DashboardDelegatedTasks() {
                         </div>
                       )}
 
-                      {task.settlement && task.settlement.status !== 'NOT_REQUIRED' && (
+                      {task.settlement && task.settlement.status !== 'NOT_REQUIRED' && !fundingRequired && (
                         <div
                           className={cn(
                             'rounded-xl border p-2.5 text-[11px]',
@@ -931,10 +1032,11 @@ export default function DashboardDelegatedTasks() {
                 </div>
 
                 <button
-                  onClick={() => {
-                    setAssigneeUserId(affiliate.userId);
-                    setShowCreate(true);
-                  }}
+                  onClick={() =>
+                    navigate(
+                      `/dashboard/tasks/new?assignee=${encodeURIComponent(affiliate.userId)}`,
+                    )
+                  }
                   className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-bold text-white hover:bg-brand-dark"
                 >
                   <Send className="w-3.5 h-3.5" /> Assign a task
@@ -1000,232 +1102,6 @@ export default function DashboardDelegatedTasks() {
         </div>
       )}
 
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowCreate(false)}>
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-xl space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-black text-gray-900">Create a delegated task</h3>
-              <button onClick={() => setShowCreate(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Task title"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="Describe the outcome you need"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
-            />
-
-            <div className="grid gap-2 sm:grid-cols-3">
-              <label className="text-[11px] font-bold text-gray-700">
-                Task type
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as 'INTERNAL' | 'EXTERNAL')}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                >
-                  <option value="EXTERNAL">External / professional</option>
-                  <option value="INTERNAL">Internal / platform</option>
-                </select>
-              </label>
-              <label className="text-[11px] font-bold text-gray-700">
-                Project
-                <select
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                >
-                  <option value="">No project</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.title}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-[11px] font-bold text-gray-700">
-                Required skills
-                <input
-                  value={requiredSkillsText}
-                  onChange={(e) => setRequiredSkillsText(e.target.value)}
-                  placeholder="design, copywriting"
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-[11px] font-bold text-gray-700">
-                Deliverables
-                <textarea
-                  value={deliverables}
-                  onChange={(e) => setDeliverables(e.target.value)}
-                  rows={2}
-                  placeholder="Two banners, PNG + source file"
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                />
-              </label>
-              <label className="text-[11px] font-bold text-gray-700">
-                Materials supplied
-                <textarea
-                  value={materials}
-                  onChange={(e) => setMaterials(e.target.value)}
-                  rows={2}
-                  placeholder="Logo, brand colours, product photos"
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-3">
-              <label className="text-[11px] font-bold text-gray-700">
-                Compensation
-                <select
-                  value={compensationModel}
-                  onChange={(e) => setCompensationModel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                >
-                  <option value="MEMBERSHIP_INCLUDED">Included in membership</option>
-                  <option value="FIXED">Fixed fee</option>
-                  <option value="HOURLY">Hourly</option>
-                  <option value="COMMISSION">Commission</option>
-                  <option value="NONE">Not specified</option>
-                </select>
-              </label>
-              <label className="text-[11px] font-bold text-gray-700">
-                Affiliate amount
-                <input
-                  type="number"
-                  min={0}
-                  value={compensationAmount}
-                  onChange={(e) => setCompensationAmount(e.target.value)}
-                  placeholder="75"
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                />
-              </label>
-              <label className="text-[11px] font-bold text-gray-700">
-                Business charge
-                <input
-                  type="number"
-                  min={0}
-                  value={businessChargeAmount}
-                  onChange={(e) => setBusinessChargeAmount(e.target.value)}
-                  placeholder="120"
-                  className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold"
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-wrap gap-4 text-[11px] font-semibold text-gray-700">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={billableToBusiness}
-                  onChange={(e) => setBillableToBusiness(e.target.checked)}
-                />
-                Charge the business separately
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={requiresBusinessApproval}
-                  onChange={(e) => setRequiresBusinessApproval(e.target.checked)}
-                />
-                Business must approve the delivered outcome
-              </label>
-            </div>
-
-            {taskError && (
-              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800">
-                {taskError}
-              </p>
-            )}
-
-            <div>
-              <p className="text-[11px] font-bold text-gray-700 mb-1.5">Platform tags</p>
-              <div className="flex flex-wrap gap-1.5">
-                {platforms.length === 0 && (
-                  <span className="text-xs text-gray-400">
-                    No platform access detected on your current plan.
-                  </span>
-                )}
-                {platforms.map((item) => {
-                  const active = selectedPlatforms.includes(item.key);
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() =>
-                        setSelectedPlatforms((prev) =>
-                          active ? prev.filter((p) => p !== item.key) : [...prev, item.key],
-                        )
-                      }
-                      className={cn(
-                        'rounded-full px-3 py-1.5 text-[11px] font-bold border transition-colors',
-                        active
-                          ? 'bg-brand-blue text-white border-brand-blue'
-                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50',
-                      )}
-                    >
-                      {item.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-[11px] font-bold text-gray-700 mb-1.5">Assign to</p>
-                <select
-                  value={assigneeUserId}
-                  onChange={(e) => setAssigneeUserId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
-                >
-                  <option value="">
-                    {manager ? `Default — ${manager.name}` : 'Admin will assign'}
-                  </option>
-                  {nearby.map((affiliate) => (
-                    <option key={affiliate.userId} value={affiliate.userId}>
-                      {affiliate.name} ({affiliate.role.replace('_', ' ').toLowerCase()})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-700 mb-1.5">Due date</p>
-                <input
-                  type="date"
-                  value={dueAt}
-                  onChange={(e) => setDueAt(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowCreate(false)}
-                className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submit}
-                disabled={createTask.isPending || !title.trim() || !description.trim()}
-                className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark disabled:opacity-50"
-              >
-                {createTask.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                Delegate task
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowRequest(false)}>
           <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
@@ -1279,6 +1155,88 @@ export default function DashboardDelegatedTasks() {
               >
                 {createServiceRequest.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 Submit request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reassignFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setReassignFor(null)}>
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl sm:p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-gray-900">Reassign “{reassignFor.title}”</h3>
+              <button onClick={() => setReassignFor(null)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            {reassignFor.declineReason && (
+              <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-[11px] leading-5 text-red-800">
+                <span className="font-black">Decline reason:</span> {reassignFor.declineReason}
+              </p>
+            )}
+            <label className="block text-[11px] font-bold text-gray-700">
+              Send this task to
+              <select
+                value={reassignAffiliateId}
+                onChange={(e) => setReassignAffiliateId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs font-semibold"
+              >
+                <option value="">
+                  {affiliateSearching ? 'Loading affiliates…' : 'Select an affiliate'}
+                </option>
+                {affiliateResults
+                  .filter((affiliate: any) => affiliate.userId !== reassignFor.assigneeId)
+                  .map((affiliate: any) => (
+                    <option key={affiliate.userId} value={affiliate.userId}>
+                      {affiliate.name} — {String(affiliate.role).replace('_', ' ').toLowerCase()}
+                      {affiliate.postcode ? ` · ${affiliate.postcode}` : ''}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="text-[11px] font-medium leading-5 text-gray-500">
+              Compensation and charge terms stay the same. The new affiliate can see the decline reason and
+              must accept before work begins.
+            </p>
+            {reassignError && (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-semibold text-red-800">
+                {reassignError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setReassignFor(null)} className="rounded-xl border border-gray-200 px-4 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!reassignAffiliateId) {
+                    setReassignError('Select an affiliate to reassign this task to.');
+                    return;
+                  }
+                  setReassignError(null);
+                  try {
+                    await reassignTask.mutateAsync({
+                      id: reassignFor.id,
+                      data: {
+                        assigneeUserId: reassignAffiliateId,
+                        note: 'Reassigned by the business after an affiliate decline',
+                      },
+                    });
+                    setReassignFor(null);
+                  } catch (error: any) {
+                    setReassignError(
+                      error?.response?.data?.message ||
+                        error?.message ||
+                        'Could not reassign the task. Please try again.',
+                    );
+                  }
+                }}
+                disabled={!reassignAffiliateId || reassignTask.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-xs font-bold text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                {reassignTask.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Reassign task
               </button>
             </div>
           </div>
