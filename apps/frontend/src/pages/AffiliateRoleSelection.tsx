@@ -1,5 +1,5 @@
 
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import CHSLogo from "../components/CHSLogo";
 
 const roles = [
@@ -8,14 +8,12 @@ const roles = [
         title: "Agent",
         description: "Entry-level specialists who complete focused micro-tasks like social post setup, basic email templates, short product descriptions, quick website checks, or small audits. Agents take a short qualification test to appear in listings.",
         icon: "person_search",
-        href: "/register/affiliate/signup?role=agent",
     },
     {
         id: "account-manager",
         title: "Account Manager",
         description: "Mid-level professionals who coordinate onboarding, manage teams of agents, plan and run campaigns, and match businesses to services. Account Managers handle client communications and deliver measurable results.",
         icon: "business_center",
-        href: "/register/affiliate/signup?role=account-manager",
         popular: true,
     },
     {
@@ -23,11 +21,18 @@ const roles = [
         title: "Consultant",
         description: "Senior experts who provide business advice, audits, strategic plans, and deep coaching. Consultants can be visible immediately after signup but are flagged for verification. They charge per session or project.",
         icon: "insights",
-        href: "/register/affiliate/signup?role=consultant",
     },
 ];
 
 export default function AffiliateRoleSelection() {
+    const [searchParams] = useSearchParams();
+
+    const signupHref = (role: string) => {
+        const params = new URLSearchParams(searchParams);
+        params.set("role", role);
+        return `/register/affiliate/signup?${params.toString()}`;
+    };
+
     return (
         <div className="bg-white min-h-screen flex flex-col items-center justify-center p-6 text-text-main font-display">
             <div className="mb-10 flex items-center">
@@ -52,7 +57,7 @@ export default function AffiliateRoleSelection() {
                 {roles.map((role) => (
                     <Link
                         key={role.id}
-                        to={role.href}
+                        to={signupHref(role.id)}
                         className={`group p-8 rounded-[3rem] border border-gray-100 bg-white shadow-sm transition-all duration-500 flex flex-col items-center text-center relative hover:border-primary hover:shadow-2xl hover:-translate-y-3 ${role.popular ? "md:scale-105 border-primary/20 ring-1 ring-primary/5 shadow-md" : ""
                             }`}
                     >

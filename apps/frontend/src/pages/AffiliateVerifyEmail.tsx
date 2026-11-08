@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import { useAffiliateAuthStore } from '../store/useAffiliateAuthStore';
 import { useAffiliateAuth } from '../hooks/useAffiliateAuth';
+import { usePostSsoAuthorize } from '../services/auth/hooks';
 import { persistReferralCodeFromSearchParams } from '../lib/referral';
 import CHSLogo from '../components/CHSLogo';
 
@@ -19,6 +20,7 @@ export default function AffiliateVerifyEmail() {
     const [searchParams] = useSearchParams();
     const { user } = useAffiliateAuthStore();
     const { verifyOtp, sendOtp, signup, login } = useAffiliateAuth();
+    const { mutateAsync: postSsoAuthorize } = usePostSsoAuthorize();
 
     const regState = location.state as {
         firstName?: string;
@@ -156,6 +158,31 @@ export default function AffiliateVerifyEmail() {
                 });
             }
 
+            const clientId = searchParams.get('client_id');
+            const redirectUri = searchParams.get('redirect_uri');
+            const ssoState = searchParams.get('state');
+            if (regState?.password && clientId && redirectUri && ssoState) {
+                try {
+                    const authorization = await postSsoAuthorize({
+                        clientId,
+                        redirectUri,
+                        scope: searchParams.get('scope') || undefined,
+                        state: ssoState,
+                    });
+                    const callbackUrl = new URL(redirectUri);
+                    callbackUrl.searchParams.set('code', authorization.code);
+                    callbackUrl.searchParams.set('state', ssoState);
+                    window.location.assign(callbackUrl.toString());
+                    return;
+                } catch (ssoError) {
+                    console.error('Affiliate registration SSO continuation failed', ssoError);
+                    setSuccessMessage('Your account was created. Please sign in with CHS to continue to 247GBS.');
+                    const loginQuery = searchParams.toString();
+                    setTimeout(() => navigate(`/login${loginQuery ? `?${loginQuery}` : ''}`), 1200);
+                    return;
+                }
+            }
+
             setSuccessMessage('Account successfully created and verified! Redirecting to dashboard...');
 
             setTimeout(() => {
@@ -219,7 +246,7 @@ export default function AffiliateVerifyEmail() {
 
                 <div className="max-w-md w-full mx-auto">
                     <div className="mb-8">
-                        <Link to="/register/affiliate/signup" className="inline-flex items-center text-primary text-sm font-bold hover:underline transition-all duration-200 tracking-widest gap-2 group font-display">
+                        <Link to={`/register/affiliate/signup${searchParams.toString() ? `?${searchParams.toString()}` : ''}`} className="inline-flex items-center text-primary text-sm font-bold hover:underline transition-all duration-200 tracking-widest gap-2 group font-display">
                             <span className="material-symbols-outlined group-hover:-translate-x-1 transition-transform">arrow_back</span>
                             Back to Signup
                         </Link>

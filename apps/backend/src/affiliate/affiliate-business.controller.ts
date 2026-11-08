@@ -41,14 +41,30 @@ export class AffiliateBusinessController {
     private readonly quota: AffiliateTaskQuotaService,
   ) {}
 
-  private async businessContext(req: any) {
-    return this.directory.getBusiness(req.user.userId, req.user.businessId);
+  private async businessContext(req: any, required = true) {
+    try {
+      return await this.directory.getBusiness(req.user.userId, req.user.businessId);
+    } catch (e) {
+      if (required) throw e;
+      return null;
+    }
   }
 
   @Get('account-manager')
   @ApiOperation({ summary: 'Get the business assigned account manager' })
   async getAccountManager(@Req() req: any) {
-    const business = await this.businessContext(req);
+    const business = await this.businessContext(req, false);
+    if (!business) {
+      return {
+        success: true,
+        data: null,
+        meta: {
+          assignable: false,
+          membershipStatus: null,
+          membershipPlanName: null,
+        },
+      };
+    }
     const manager = await this.assignment.getAssignedAccountManager(business.id);
     const assignable = this.isPaidActiveMembership(business);
     return {
@@ -93,15 +109,24 @@ export class AffiliateBusinessController {
   @Get('affiliates')
   @ApiOperation({ summary: 'List nearby agents, account managers and consultants ranked by proximity + reputation' })
   async listAffiliates(@Req() req: any, @Query() query: NearbyAffiliatesQueryDto) {
-    const business = await this.businessContext(req);
-    const result = await this.directory.listNearbyAffiliates(business, query);
+    const business = (await this.businessContext(req, false)) ?? {
+      cityId: null,
+      boroughId: null,
+      highStreetId: null,
+      localMallId: null,
+      postcode: null,
+    };
+    const result = await this.directory.listNearbyAffiliates(business as any, query);
     return { success: true, ...result };
   }
 
   @Get('platform-access')
   @ApiOperation({ summary: 'Platforms the business may tag a delegated task with' })
   async platformAccess(@Req() req: any) {
-    const business = await this.businessContext(req);
+    const business = await this.businessContext(req, false);
+    if (!business) {
+      return { success: true, data: { platforms: [], accessType: 'NONE' } };
+    }
     const result = await this.directory.getPlatformAccess(business.id);
     return { success: true, data: result };
   }
@@ -111,7 +136,13 @@ export class AffiliateBusinessController {
     summary: 'Free delegated-task allowance for the current membership or access pass',
   })
   async taskQuota(@Req() req: any) {
-    const business = await this.businessContext(req);
+    const business = await this.businessContext(req, false);
+    if (!business) {
+      return {
+        success: true,
+        data: { quotaTotal: 0, quotaUsed: 0, quotaRemaining: 0, quotaActive: false },
+      };
+    }
     return { success: true, data: await this.quota.resolve(business.id) };
   }
 
@@ -127,7 +158,10 @@ export class AffiliateBusinessController {
   @Get('requests')
   @ApiOperation({ summary: 'List your service requests' })
   async listServiceRequests(@Req() req: any, @Query() query: AffiliateTaskQueryDto) {
-    const business = await this.businessContext(req);
+    const business = await this.businessContext(req, false);
+    if (!business) {
+      return { success: true, items: [], total: 0 };
+    }
     return this.tasks.listBusinessServiceRequests(business.id, query);
   }
 
@@ -202,7 +236,10 @@ export class AffiliateBusinessController {
   @Get('tasks')
   @ApiOperation({ summary: 'List tasks delegated to affiliates' })
   async listTasks(@Req() req: any, @Query() query: AffiliateTaskQueryDto) {
-    const business = await this.businessContext(req);
+    const business = await this.businessContext(req, false);
+    if (!business) {
+      return { success: true, items: [], total: 0 };
+    }
     return this.tasks.listBusinessTasks(business.id, query);
   }
 

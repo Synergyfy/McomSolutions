@@ -12,6 +12,7 @@ import {
   AssignAffiliateTaskDto,
   CloseAffiliateProjectDto,
   CreateAffiliateProjectDto,
+  CreateAffiliateTaskDto,
   ReviewAffiliateTaskDto,
   AffiliateTaskStatusCallbackDto,
 } from './dto/affiliate.dto';
@@ -188,6 +189,21 @@ export class AffiliateInboundController {
   @ApiHeader({ name: 'x-api-key', required: true })
   async managerProjects(@Param('userId') userId: string, @Query() query: AffiliateTaskQueryDto) {
     return this.tasks.listProjectsForManager(userId, query);
+  }
+
+  @Post('account-managers/:userId/projects/:id/tasks')
+  @UseGuards(AffiliateApiKeyGuard)
+  @ApiHeader({ name: 'x-api-key', required: true })
+  @ApiOperation({ summary: 'Account Manager creates a task inside a managed project' })
+  async managerCreateProjectTask(
+    @Param('userId') userId: string,
+    @Param('id') id: string,
+    @Body() dto: CreateAffiliateTaskDto,
+  ) {
+    return {
+      success: true,
+      data: await this.tasks.createProjectTaskForManager(userId, id, dto),
+    };
   }
 
   @Post('account-managers/:userId/projects/:id/close')
