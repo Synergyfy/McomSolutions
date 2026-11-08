@@ -292,7 +292,7 @@ export class AffiliateTaskService {
       Number(dto.businessChargeAmount ?? 0) > 0 ||
       Number(explicitCompensation ?? 0) > 0;
     if (quotaEnforced && !allowance.isFree && effectiveAssignee && !hasExplicitPrice) {
-      if (!opts.asAccountManager) {
+      if (actorRole !== 'ACCOUNT_MANAGER') {
         effectiveAssignee = null;
       }
     }
@@ -351,7 +351,7 @@ export class AffiliateTaskService {
     const task = await this.prisma.affiliateTask.create({
       data: {
         businessId: business.id,
-        createdByUserId: actorUserId,
+        createdByUserId: userId,
         source: taskDefinitionId ? AffiliateTaskSource.PROGRAMME : AffiliateTaskSource.MANUAL,
         taskDefinitionId,
         sourceAssignmentId: assignmentTaskId,
