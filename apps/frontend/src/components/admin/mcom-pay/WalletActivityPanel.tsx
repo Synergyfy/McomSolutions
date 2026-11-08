@@ -313,7 +313,7 @@ function ActivityBadge({ row }: { row: WalletActivity }) {
   );
 }
 
-function WalletRow({ row }: { row: WalletActivity }) {
+function WalletRow({ row }: { row: WalletActivity; key?: string }) {
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatDate(row.createdAt)}</td>
