@@ -137,12 +137,7 @@ export class AffiliateTaskService {
 
   // ─────────────────────────── Business actions ───────────────────────────
 
-  async createBusinessTask(
-    userId: string,
-    businessId: string | null,
-    dto: CreateAffiliateTaskDto,
-    opts: { asAccountManager?: boolean; actorUserId?: string } = {},
-  ) {
+  async createBusinessTask(userId: string, businessId: string | null, dto: CreateAffiliateTaskDto) {
     const business = await this.directory.getBusiness(userId, businessId);
     return this.createTaskForBusiness(business, userId, dto, 'BUSINESS');
   }
@@ -233,13 +228,9 @@ export class AffiliateTaskService {
           .map((platform) => normalizePlatformKey(platform))
           .filter(Boolean);
 
-    // Resolve assignee: explicit pick wins; for business-created tasks, default
-    // to the assigned account manager. Account Manager-created project tasks stay
-    // unassigned when no affiliate is chosen so they can be delegated later.
-    let assigneeId = dto.assigneeUserId?.trim() || null;
-    if (!assigneeId && actorRole !== 'ACCOUNT_MANAGER' && business.accountManagerId) {
-      assigneeId = business.accountManagerId;
-    }
+    // Resolve assignee: explicit pick wins, otherwise the assigned manager.
+    let assigneeId = dto.assigneeUserId ?? null;
+    if (!assigneeId && business.accountManagerId) assigneeId = business.accountManagerId;
 
     let assignee: Awaited<ReturnType<AffiliateDirectoryService['assertAffiliateUser']>> | null =
       null;
@@ -284,17 +275,14 @@ export class AffiliateTaskService {
     const quotaEnforced = allowance.source !== 'NONE';
     const withinFreeAllowance = !quotaEnforced || allowance.isFree;
 
-    // An over-limit task with no price yet stays unassigned when created by
-    // the business so an admin can price it. Account Managers scoping tasks
-    // inside a managed project may assign directly without a per-task charge.
+    // An over-limit task with no price yet stays unassigned so an admin can
+    // price it. Never auto-assign free work past the allowance.
     let effectiveAssignee = assignee;
-    const hasExplicitPrice =
-      Number(dto.businessChargeAmount ?? 0) > 0 ||
-      Number(explicitCompensation ?? 0) > 0;
-    if (quotaEnforced && !allowance.isFree && effectiveAssignee && !hasExplicitPrice) {
-      if (actorRole !== 'ACCOUNT_MANAGER') {
-        effectiveAssignee = null;
-      }
+    if (quotaEnforced && !allowance.isFree && effectiveAssignee) {
+      const hasPrice =
+        Number(dto.businessChargeAmount ?? 0) > 0 ||
+        Number(explicitCompensation ?? 0) > 0;
+      if (!hasPrice) effectiveAssignee = null;
     }
 
     const assigneeIsManager = effectiveAssignee?.role === Role.ACCOUNT_MANAGER;
@@ -313,7 +301,7 @@ export class AffiliateTaskService {
           : AffiliateCompensationModel.NONE);
 
     const billableToBusiness = quotaEnforced
-      ? Boolean(effectiveAssignee) && !allowance.isFree && hasExplicitPrice
+      ? Boolean(effectiveAssignee) && !allowance.isFree
       : dto.billableToBusiness ?? (!paidMembership && explicitCompensation != null);
 
     const businessChargeAmount = quotaEnforced
@@ -403,9 +391,7 @@ export class AffiliateTaskService {
       actorUserId: userId,
       actorRole,
       type: 'TASK_CREATED',
-      message: actorRole === 'ACCOUNT_MANAGER'
-        ? `Task created by Account Manager (${task.category.toLowerCase()})`
-        : `Task created (${task.category.toLowerCase()})`,
+      message: `Task created (${task.category.toLowerCase()})`,
       metadata: {
         projectId: dto.projectId ?? null,
         compensationModel,
@@ -501,7 +487,7 @@ export class AffiliateTaskService {
     dto: CreateAffiliateServiceRequestDto,
   ) {
     const business = await this.directory.getBusiness(userId, businessId);
-    if (!business.accountManagerId) {
+    if (!business.accountManagerId && this.isPaidActiveMembership(business)) {
       try {
         const assigned = await this.accountManagers.assignForBusiness(business.id, {
           notify: false,
@@ -613,7 +599,6 @@ export class AffiliateTaskService {
     const updated = await this.prisma.affiliateServiceRequest.update({
       where: { id: requestId },
       data: {
-        accountManagerId: request.accountManagerId ?? actorUserId,
         estimatedCost: dto.estimatedCost,
         currency: dto.currency ?? request.currency,
         status:
@@ -646,7 +631,6 @@ export class AffiliateTaskService {
     const updated = await this.prisma.affiliateServiceRequest.update({
       where: { id: requestId },
       data: {
-        accountManagerId: request.accountManagerId ?? actorUserId,
         status: AffiliateServiceRequestStatus.CLARIFICATION_REQUIRED,
         clarificationNote: note,
       },
@@ -679,7 +663,7 @@ export class AffiliateTaskService {
         data: {
           businessId: request.businessId,
           serviceRequestId: request.id,
-          accountManagerId: request.accountManagerId ?? actorUserId,
+          accountManagerId: request.accountManagerId,
           createdByUserId: actorUserId,
           title: dto.title.trim(),
           description: dto.description.trim(),
@@ -690,11 +674,7 @@ export class AffiliateTaskService {
       });
       await tx.affiliateServiceRequest.update({
         where: { id: request.id },
-        data: {
-          accountManagerId: request.accountManagerId ?? actorUserId,
-          status: AffiliateServiceRequestStatus.CONVERTED,
-          approvedAt: new Date(),
-        },
+        data: { status: AffiliateServiceRequestStatus.CONVERTED, approvedAt: new Date() },
       });
       return created;
     });
@@ -1333,7 +1313,7 @@ export class AffiliateTaskService {
   }
 
   private assertManager(actualManagerId: string | null, actorUserId: string) {
-    if (actualManagerId && actualManagerId !== actorUserId) {
+    if (!actualManagerId || actualManagerId !== actorUserId) {
       throw new ForbiddenException('You are not the account manager for this request');
     }
   }
@@ -1512,27 +1492,12 @@ export class AffiliateTaskService {
   }
 
   async listRequestsForManager(managerId: string, query: AffiliateTaskQueryDto) {
-    const businesses = await this.prisma.businessProfile.findMany({
-      where: { accountManagerId: managerId, deletedAt: null },
-      select: { id: true },
-    });
-    const businessIds = businesses.map((business) => business.id);
-    const where: Prisma.AffiliateServiceRequestWhereInput = {
-      OR: [
-        { accountManagerId: managerId },
-        { accountManagerId: null },
-        ...(businessIds.length ? [{ businessId: { in: businessIds } }] : []),
-      ],
-    };
+    const where: Prisma.AffiliateServiceRequestWhereInput = { accountManagerId: managerId };
     if (query.status) where.status = query.status as AffiliateServiceRequestStatus;
     if (query.search) {
-      where.AND = [
-        {
-          OR: [
-            { title: { contains: query.search, mode: 'insensitive' } },
-            { description: { contains: query.search, mode: 'insensitive' } },
-          ],
-        },
+      where.OR = [
+        { title: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
       ];
     }
     return this.paginateRequests(where, query);
@@ -1560,12 +1525,7 @@ export class AffiliateTaskService {
         include: {
           business: { select: { id: true, businessName: true } },
           serviceRequest: true,
-          tasks: {
-            orderBy: { createdAt: 'asc' },
-            include: {
-              assignee: { select: { id: true, email: true, firstName: true, lastName: true, role: true } },
-            },
-          },
+          tasks: { orderBy: { createdAt: 'asc' } },
         },
       }),
       this.prisma.affiliateProject.count({ where }),
@@ -1588,8 +1548,9 @@ export class AffiliateTaskService {
 
   /**
    * Create a task inside one of the manager's projects. The project must
-   * belong to a business assigned to this manager. Closed projects reject tasks.
-   * Inherits dueAt and requiresBusinessApproval from the project if omitted.
+   * belong to a business assigned to this manager. The normal task creation
+   * path runs quota/escrow checks and queues the affiliate sync, so the task
+   * appears on the 247GBS board exactly like Central-created work.
    */
   async createProjectTaskForManager(
     managerId: string,
@@ -1602,22 +1563,10 @@ export class AffiliateTaskService {
         accountManagerId: managerId,
         business: { accountManagerId: managerId, deletedAt: null },
       },
-      select: {
-        id: true,
-        businessId: true,
-        status: true,
-        dueAt: true,
-        requiresBusinessApproval: true,
-      },
+      select: { id: true, businessId: true },
     });
     if (!project) {
       throw new NotFoundException('Project not found for your businesses');
-    }
-    if (
-      project.status === AffiliateProjectStatus.COMPLETED ||
-      project.status === AffiliateProjectStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Cannot add tasks to a closed project');
     }
 
     const business = await this.directory.getBusinessById(project.businessId);
@@ -1628,13 +1577,7 @@ export class AffiliateTaskService {
     const created = await this.createTaskForBusiness(
       business,
       managerId,
-      {
-        ...dto,
-        projectId: project.id,
-        dueAt: dto.dueAt ?? (project.dueAt ? project.dueAt.toISOString() : undefined),
-        requiresBusinessApproval:
-          dto.requiresBusinessApproval ?? project.requiresBusinessApproval,
-      },
+      { ...dto, projectId: project.id },
       'ACCOUNT_MANAGER',
     );
     return this.getTaskForManager(managerId, created.id);
@@ -1893,25 +1836,19 @@ export class AffiliateTaskService {
       businessChargeAmount = null;
       businessChargeStatus = AffiliateChargeStatus.NOT_APPLICABLE;
     } else if (quotaEnforced && !freeDelegation) {
-      // Allowance exhausted: the task is chargeable when priced. Account Managers
-      // delegating project tasks without a separate per-task charge can still assign.
+      // Allowance exhausted: the task is chargeable. Refuse to assign without a
+      // price rather than silently giving away paid work.
       const charge = requestedCharge ?? task.businessChargeAmount ?? compensationAmount ?? 0;
       if (!(charge > 0)) {
-        if (!opts.asAccountManager) {
-          throw new BadRequestException(
-            'This business has used its free delegated tasks. Set a business charge before assigning.',
-          );
-        }
-        billableToBusiness = false;
-        businessChargeAmount = null;
-        businessChargeStatus = AffiliateChargeStatus.NOT_APPLICABLE;
-      } else {
-        billableToBusiness = true;
-        businessChargeAmount = charge;
-        businessChargeStatus = task.businessChargeApprovedAt
-          ? AffiliateChargeStatus.APPROVED
-          : AffiliateChargeStatus.PENDING_APPROVAL;
+        throw new BadRequestException(
+          'This business has used its free delegated tasks. Set a business charge before assigning.',
+        );
       }
+      billableToBusiness = true;
+      businessChargeAmount = charge;
+      businessChargeStatus = task.businessChargeApprovedAt
+        ? AffiliateChargeStatus.APPROVED
+        : AffiliateChargeStatus.PENDING_APPROVAL;
     } else {
       // Trial / no plan: keep the existing explicit billable rules.
       billableToBusiness = dto.billableToBusiness ?? task.billableToBusiness;

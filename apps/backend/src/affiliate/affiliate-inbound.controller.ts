@@ -195,7 +195,6 @@ export class AffiliateInboundController {
     return this.tasks.listProjectsForManager(userId, query);
   }
 
-
   @Post('account-managers/:userId/projects/:id/close')
   @UseGuards(AffiliateApiKeyGuard)
   @ApiHeader({ name: 'x-api-key', required: true })
