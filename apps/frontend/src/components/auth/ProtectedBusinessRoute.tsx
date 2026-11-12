@@ -40,8 +40,18 @@ export default function ProtectedBusinessRoute({ children }: Props) {
     return <Navigate to="/customer" replace />;
   }
 
-  // Redirect affiliate roles to 247GBS affiliate portal
+  // Redirect affiliate roles:
+  // If the user arrived with chat/recipient intent (or directly on messages), they need
+  // to sign in with a Business account rather than bouncing back to the affiliate portal.
   if (role === 'AGENT' || role === 'CONSULTANT' || role === 'ACCOUNT_MANAGER') {
+    if (location.pathname.startsWith('/dashboard/messages') || location.search.includes('recipientId')) {
+      return (
+        <Navigate
+          to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}&role=business`}
+          replace
+        />
+      );
+    }
     const affiliateUrl = `${(import.meta.env.VITE_AFFILIATE_PORTAL_URL || 'https://247gbsaffiliates.centralhubsolution.com').replace(/\/$/, '')}/dashboard`;
     window.location.href = affiliateUrl;
     return null;

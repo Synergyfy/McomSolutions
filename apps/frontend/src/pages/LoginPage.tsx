@@ -7,6 +7,7 @@ import { authApi } from '../services/auth';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { setSharedAuthCookies } from '../services/api';
 import { isAuthOrOnboardingRedirect } from '../lib/redirects';
+import { isAffiliateRole } from '../lib/authUser';
 import CHSLogo from '../components/CHSLogo';
 
 export default function LoginPage() {
@@ -477,6 +478,12 @@ export default function LoginPage() {
         navigate(`/getstarted/business${searchStr}`);
         return;
       }
+      // If the current session is an affiliate but the intent is business chat/dashboard,
+      // advise the user to sign in with their business credentials.
+      if (isAffiliateRole((currentUser as any)?.role) && (searchParams.get('role') === 'business' || (redirectParam && redirectParam.startsWith('/dashboard')))) {
+        setError('Your active session is an Affiliate account. To access business messages, please click "Use a different account" below to sign in with your Business account.');
+        return;
+      }
       // Affiliate roles with an existing session and no SSO intent belong on
       // the 247GBS affiliate portal, not the business dashboard.
       if (await redirectAffiliateToPortal((currentUser as any)?.role)) {
@@ -661,6 +668,16 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {isAffiliateRole((currentUser as any)?.role) && (searchParams.get('role') === 'business' || (redirectParam && redirectParam.startsWith('/dashboard'))) && (
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-2xl flex items-start gap-2.5">
+                  <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">Signed in as Affiliate ({getDisplayName(currentUser)})</p>
+                    <p className="mt-0.5 text-xs text-amber-700">To chat with affiliates or manage projects as a business, please click &quot;Use a different account&quot; below to sign in with your Business account.</p>
+                  </div>
+                </div>
+              )}
+
               <div className="mb-8 p-6 bg-white border border-gray-200 rounded-2xl">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-full bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold text-lg shrink-0">
@@ -817,7 +834,16 @@ export default function LoginPage() {
 
               <p className="text-center text-sm text-gray-600 mt-4">
                 Don't have an account?{' '}
-                <Link to={searchParams.toString() ? `/register?${searchParams.toString()}` : "/register"} className="font-semibold text-orange-700 hover:underline">
+                <Link
+                  to={
+                    searchParams.get('role') === 'business'
+                      ? `/getstarted/business?${searchParams.toString()}`
+                      : searchParams.toString()
+                        ? `/register?${searchParams.toString()}`
+                        : '/register'
+                  }
+                  className="font-semibold text-orange-700 hover:underline"
+                >
                   Create Account
                 </Link>
               </p>

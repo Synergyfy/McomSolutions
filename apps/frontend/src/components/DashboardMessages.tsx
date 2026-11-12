@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useChat, useChatConnection } from '../services/chat/hooks';
@@ -16,6 +16,9 @@ export default function DashboardMessages() {
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isGroupInfoOpen, setIsGroupInfoOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
+  const [directChatStatus, setDirectChatStatus] = useState<'idle' | 'opening' | 'error'>('idle');
+  const [directChatRetry, setDirectChatRetry] = useState(0);
+  const openingRecipientRef = useRef<string | null>(null);
 
   const {
     conversations,
@@ -57,6 +60,43 @@ export default function DashboardMessages() {
     }
   }, [searchParams, activeConversationId, setActiveConversationId]);
 
+  // Find Affiliates links here with the selected CHS user ID. Resolve the
+  // existing direct-chat endpoint, then replace recipientId with the resulting
+  // conversationId so refreshes do not create another conversation.
+  useEffect(() => {
+    const recipientId = searchParams.get('recipientId');
+    if (!recipientId) {
+      openingRecipientRef.current = null;
+      setDirectChatStatus('idle');
+      return;
+    }
+    if (isLoadingConversations || openingRecipientRef.current === recipientId) return;
+
+    openingRecipientRef.current = recipientId;
+    let cancelled = false;
+    setDirectChatStatus('opening');
+
+    chatApi.getOrCreateDirect(recipientId)
+      .then((conversation) => {
+        if (cancelled) return;
+        setActiveConversationId(conversation.id);
+        setSearchParams({ conversationId: conversation.id }, { replace: true });
+        void refetchConversations();
+        setDirectChatStatus('idle');
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error('Could not open the requested direct conversation', error);
+        openingRecipientRef.current = null;
+        setDirectChatStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+      if (openingRecipientRef.current === recipientId) openingRecipientRef.current = null;
+    };
+  }, [searchParams, isLoadingConversations, directChatRetry, setActiveConversationId, setSearchParams, refetchConversations]);
+
   // Support real-time window events emitted when toast notifications are clicked
   useEffect(() => {
     const handleOpenConv = (e: any) => {
@@ -79,7 +119,17 @@ export default function DashboardMessages() {
   }, [setActiveConversationId, setSearchParams]);
 
   return (
-    <div className="bg-white rounded-xl md:rounded-3xl border border-gray-100 shadow-sm overflow-hidden h-[calc(100dvh-15rem)] min-h-[320px] max-h-[720px] md:min-h-[420px] lg:h-[calc(100dvh-13rem)] lg:min-h-[460px] flex">
+    <div className="relative bg-white rounded-xl md:rounded-3xl border border-gray-100 shadow-sm overflow-hidden h-[calc(100dvh-15rem)] min-h-[320px] max-h-[720px] md:min-h-[420px] lg:h-[calc(100dvh-13rem)] lg:min-h-[460px] flex">
+      {directChatStatus !== 'idle' && (
+        <div className="absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-md" role={directChatStatus === 'error' ? 'alert' : 'status'}>
+          {directChatStatus === 'opening' ? 'Opening conversation…' : (
+            <span className="flex items-center gap-3">
+              Could not open this conversation. Please try again.
+              <button type="button" className="font-semibold text-blue-700 underline" onClick={() => setDirectChatRetry((attempt) => attempt + 1)}>Retry</button>
+            </span>
+          )}
+        </div>
+      )}
       {/* Sidebar List - responsive: hides on small screens when conversation active */}
       <div
         className={`w-full lg:w-80 xl:w-96 shrink-0 h-full border-r border-gray-100 ${
