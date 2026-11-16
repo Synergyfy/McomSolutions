@@ -1260,6 +1260,7 @@ export class AuthService {
       country: identity.country,
       businessId: identity.businessId,
       businessName: identity.businessName,
+      bannerUrl: identity.bannerUrl,
       referralCode: identity.referralCode,
       referralLink: identity.referralLink,
       businessProfile: businessProfileClaim,

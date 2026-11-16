@@ -450,15 +450,6 @@ export const useAdminPermissions = () => {
   })
 }
 
-export const useUpdatePermissionRole = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ role, data }: { role: string; data: { permissions: Record<string, boolean> } }) =>
-      adminApi.updatePermissionRole(role, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'permissions'] }),
-  })
-}
-
 // ─── Finance ───────────────────────────────────────────
 export const useAdminPayments = (params?: { page?: number; limit?: number; search?: string }) => {
   return useQuery({
@@ -1241,73 +1232,6 @@ export const useProgrammeUserTasks = (userId?: string) => {
     queryFn: () => adminApi.getProgrammeUserTasks(userId!),
     enabled: !!userId,
     staleTime: 1000 * 30,
-  })
-}
-
-// ─── System — API Keys ──────────────────────────────────
-export const useAdminApiKeys = () => {
-  return useQuery({
-    queryKey: ['admin', 'apiKeys'],
-    queryFn: () => adminApi.getApiKeys(),
-    staleTime: 1000 * 60 * 5,
-  })
-}
-
-export const useCreateApiKey = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: { name: string; permissions?: string[] }) => adminApi.createApiKey(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
-  })
-}
-
-export const useUpdateApiKey = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<{ name: string; permissions: string[]; status: string }> }) =>
-      adminApi.updateApiKey(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
-  })
-}
-
-export const useDeleteApiKey = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => adminApi.deleteApiKey(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'apiKeys'] }),
-  })
-}
-
-// ─── System — Integrations ──────────────────────────────
-export const useAdminIntegrations = () => {
-  return useQuery({
-    queryKey: ['admin', 'integrations'],
-    queryFn: () => adminApi.getIntegrations(),
-    staleTime: 1000 * 60 * 5,
-  })
-}
-
-export const useCreateIntegration = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (data: { name: string; type: string; config?: any }) => adminApi.createIntegration(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
-  })
-}
-
-export const useUpdateIntegration = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => adminApi.updateIntegration(id, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
-  })
-}
-
-export const useDeleteIntegration = () => {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => adminApi.deleteIntegration(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] }),
   })
 }
 

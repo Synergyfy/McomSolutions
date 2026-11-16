@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
-import { KeyRound, UserPlus, Store, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { UserPlus, Store, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAdminSettings, useUpdateSettings } from '../../services/admin/hooks';
 import type { SystemSettings } from '../../services/admin/types';
 
 export default function ConfigPanel() {
-  const [tab, setTab] = useState<'auth' | 'registration' | 'profile'>('auth');
+  const [tab, setTab] = useState<'registration' | 'profile'>('registration');
   const { data: settingsRes, isLoading } = useAdminSettings();
   const updateSettings = useUpdateSettings();
   const settings: SystemSettings | undefined = settingsRes?.data;
@@ -22,14 +22,12 @@ export default function ConfigPanel() {
     <div className="space-y-6">
       <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm mb-6 w-fit">
         {[
-          { id: 'auth', label: 'Authentication', icon: KeyRound },
           { id: 'registration', label: 'Registration Flow', icon: UserPlus },
           { id: 'profile', label: 'Business Profile', icon: Store },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)} className={cn("px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2", tab === t.id ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}><t.icon className="w-4 h-4" />{t.label}</button>
         ))}
       </div>
-      {tab === 'auth' && <AuthConfigTab settings={settings} onSave={updateSettings} />}
       {tab === 'registration' && <RegistrationConfigTab settings={settings} onSave={updateSettings} />}
       {tab === 'profile' && <BusinessProfileConfigTab settings={settings} onSave={updateSettings} />}
     </div>
@@ -95,65 +93,6 @@ function SaveBar({ onSave, isSaving }: { onSave: () => void; isSaving: boolean }
         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
         {isSaving ? 'Saving...' : 'Save Changes'}
       </button>
-    </div>
-  );
-}
-
-function AuthConfigTab({ settings, onSave }: { settings: SystemSettings | undefined; onSave: any }) {
-  const authCfg = (settings?.authConfig ?? {}) as Record<string, any>;
-  const [local, setLocal] = useState({
-    allowRegistration: settings?.allowRegistration ?? true,
-    maintenanceMode: settings?.maintenanceMode ?? false,
-    sessionTimeout: settings?.sessionTimeout ?? 30,
-    maxLoginAttempts: settings?.maxLoginAttempts ?? 5,
-    twoFactorEnabled: authCfg.twoFactorEnabled ?? false,
-    passwordMinLength: authCfg.passwordMinLength ?? 8,
-    passwordRequireUppercase: authCfg.passwordRequireUppercase ?? true,
-    passwordRequireNumbers: authCfg.passwordRequireNumbers ?? true,
-    passwordRequireSpecial: authCfg.passwordRequireSpecial ?? true,
-    lockoutDuration: authCfg.lockoutDuration ?? 15,
-  });
-  const [saved, setSaved] = useState(false);
-
-  const handleSave = () => {
-    onSave.mutate({
-      allowRegistration: local.allowRegistration,
-      maintenanceMode: local.maintenanceMode,
-      sessionTimeout: local.sessionTimeout,
-      maxLoginAttempts: local.maxLoginAttempts,
-      authConfig: {
-        twoFactorEnabled: local.twoFactorEnabled,
-        passwordMinLength: local.passwordMinLength,
-        passwordRequireUppercase: local.passwordRequireUppercase,
-        passwordRequireNumbers: local.passwordRequireNumbers,
-        passwordRequireSpecial: local.passwordRequireSpecial,
-        lockoutDuration: local.lockoutDuration,
-      },
-    }, { onSuccess: () => { setSaved(true); setTimeout(() => setSaved(false), 3000); } });
-  };
-
-  const update = <K extends keyof typeof local>(key: K, value: typeof local[K]) => setLocal(prev => ({ ...prev, [key]: value }));
-
-  return (
-    <div className="space-y-6">
-      <ConfigSection title="General">
-        <ToggleRow label="Allow Registration" value={local.allowRegistration} onChange={v => update('allowRegistration', v)} description="Allow new users to register accounts" />
-        <ToggleRow label="Maintenance Mode" value={local.maintenanceMode} onChange={v => update('maintenanceMode', v)} description="Block public access to the platform" />
-        <SliderRow label="Session Timeout (min)" value={local.sessionTimeout} min={5} max={120} onChange={v => update('sessionTimeout', v)} description="Idle time before session expires" />
-        <SliderRow label="Max Login Attempts" value={local.maxLoginAttempts} min={3} max={20} onChange={v => update('maxLoginAttempts', v)} description="Failed attempts before lockout" />
-        <SliderRow label="Lockout Duration (min)" value={local.lockoutDuration} min={5} max={60} onChange={v => update('lockoutDuration', v)} description="Account lockout duration" />
-      </ConfigSection>
-      <ConfigSection title="Password Policy">
-        <SliderRow label="Minimum Length" value={local.passwordMinLength} min={6} max={32} onChange={v => update('passwordMinLength', v)} description="Minimum password characters" />
-        <ToggleRow label="Require Uppercase" value={local.passwordRequireUppercase} onChange={v => update('passwordRequireUppercase', v)} description="At least one uppercase letter" />
-        <ToggleRow label="Require Numbers" value={local.passwordRequireNumbers} onChange={v => update('passwordRequireNumbers', v)} description="At least one number" />
-        <ToggleRow label="Require Special Characters" value={local.passwordRequireSpecial} onChange={v => update('passwordRequireSpecial', v)} description="At least one special character" />
-      </ConfigSection>
-      <ConfigSection title="Two-Factor Authentication">
-        <ToggleRow label="Enable 2FA" value={local.twoFactorEnabled} onChange={v => update('twoFactorEnabled', v)} description="Require two-factor authentication for all users" />
-      </ConfigSection>
-      {saved && <Toast message="Settings saved successfully" type="success" />}
-      <SaveBar onSave={handleSave} isSaving={onSave.isPending} />
     </div>
   );
 }

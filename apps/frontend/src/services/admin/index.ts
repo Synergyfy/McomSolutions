@@ -319,11 +319,6 @@ export const adminApi = {
     return res.data as ApiResponse<PermissionRole[]>
   },
 
-  updatePermissionRole: async (role: string, data: { permissions: Record<string, boolean> }) => {
-    const res = await apiClient.put(`/admin/permissions/${role}`, data)
-    return res.data as ApiResponse<PermissionRole>
-  },
-
   // ─── Finance & Billing ───────────────────────────────
   getPayments: async (params?: { page?: number; limit?: number; search?: string }) => {
     const res = await apiClient.get('/admin/finance/payments', { params })
@@ -877,48 +872,6 @@ export const adminApi = {
   getProgrammeUserTasks: async (userId: string) => {
     const res = await apiClient.get(`/admin/programme/users/${userId}/tasks`)
     return res.data as ApiResponse<any[]> & { summary?: any; user?: any }
-  },
-
-  // ─── System — API Keys ────────────────────────────────
-  getApiKeys: async () => {
-    const res = await apiClient.get('/admin/system/api-keys')
-    return res.data as ApiResponse<any[]>
-  },
-
-  createApiKey: async (data: { name: string; permissions?: string[] }) => {
-    const res = await apiClient.post('/admin/system/api-keys', data)
-    return res.data as ApiResponse<any>
-  },
-
-  updateApiKey: async (id: string, data: Partial<{ name: string; permissions: string[]; status: string }>) => {
-    const res = await apiClient.put(`/admin/system/api-keys/${id}`, data)
-    return res.data as ApiResponse<any>
-  },
-
-  deleteApiKey: async (id: string) => {
-    const res = await apiClient.delete(`/admin/system/api-keys/${id}`)
-    return res.data
-  },
-
-  // ─── System — Integrations ────────────────────────────
-  getIntegrations: async () => {
-    const res = await apiClient.get('/admin/system/integrations')
-    return res.data as ApiResponse<any[]>
-  },
-
-  createIntegration: async (data: { name: string; type: string; config?: any }) => {
-    const res = await apiClient.post('/admin/system/integrations', data)
-    return res.data as ApiResponse<any>
-  },
-
-  updateIntegration: async (id: string, data: any) => {
-    const res = await apiClient.put(`/admin/system/integrations/${id}`, data)
-    return res.data as ApiResponse<any>
-  },
-
-  deleteIntegration: async (id: string) => {
-    const res = await apiClient.delete(`/admin/system/integrations/${id}`)
-    return res.data
   },
 
   // ─── System — Health, Jobs, Error Logs ────────────────

@@ -43,6 +43,8 @@ export interface SsoIdentity {
   name: string;
   jobTitle: string | null;
   avatarUrl: string | null;
+  /** Storefront cover banner (`BusinessProfile.bannerUrl`), null for non-business roles. */
+  bannerUrl: string | null;
 
   // ── Contact details (role-agnostic, resolved from whichever profile exists) ─
   phone: string | null;
@@ -155,6 +157,7 @@ export function buildSsoIdentity(
     name: business?.businessName || fullName || user.email.split('@')[0],
     jobTitle: clean(user.jobTitle),
     avatarUrl: business?.logoUrl ?? null,
+    bannerUrl: business?.bannerUrl ?? null,
 
     phone,
     address: business?.address ?? null,

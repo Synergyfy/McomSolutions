@@ -5,10 +5,8 @@ import UserManagementPanel from '../components/admin/UserManagementPanel';
 import PlanManagementPanel from '../components/admin/PlanManagementPanel';
 import SubscriptionManagementPanel from '../components/admin/SubscriptionManagementPanel';
 import PlatformPanel from '../components/admin/PlatformPanel';
-import PermissionPanel from '../components/admin/PermissionPanel';
 import ConfigPanel from '../components/admin/ConfigPanel';
 import FinancePanel from '../components/admin/FinancePanel';
-import IntegrationPanel from '../components/admin/IntegrationPanel';
 import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import CommunicationPanel from '../components/admin/CommunicationPanel';
 import SystemPanel from '../components/admin/SystemPanel';
@@ -38,9 +36,8 @@ const ADMIN_TABS: AdminTab[] = [
   'memberships', 'access', 'subscriptions',
   'coupons', 'dashboard-access',
   'platform-access',
-  'permissions', 'auth', 'registration-flow', 'business-profile',
+  'registration-flow', 'business-profile',
   'payments', 'billing',
-  'api-keys', 'integrations',
   'analytics', 'reports',
   'notifications', 'support',
   'audit-logs',
@@ -102,14 +99,10 @@ export default function AdminDashboard() {
       coupons: { title: 'Coupon Management', subtitle: 'Create codes, control redemption limits, and audit every discount' },
       'dashboard-access': { title: 'Dashboard Access & Verification', subtitle: 'Configure trial access duration, verification fee, and verification enforcement' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
-      permissions: { title: 'Permission Management', subtitle: 'Role and permission control matrix' },
-      auth: { title: 'Authentication Management', subtitle: 'Manage login, registration, and security policies' },
       'registration-flow': { title: 'Registration Flow Management', subtitle: 'Control the onboarding process' },
       'business-profile': { title: 'Business Profile Management', subtitle: 'Configure business profile structure' },
       payments: { title: 'Payment Management', subtitle: 'Central payment control and reconciliation' },
       billing: { title: 'Billing Management', subtitle: 'Subscription billing and recurring payments' },
-      'api-keys': { title: 'API Management', subtitle: 'Manage platform API keys and permissions' },
-      integrations: { title: 'Integration Management', subtitle: 'Manage ecosystem integrations' },
       analytics: { title: 'Analytics Center', subtitle: 'Ecosystem intelligence and metrics' },
       reports: { title: 'Reporting Center', subtitle: 'Generate and export ecosystem reports' },
       notifications: { title: 'Notification Management', subtitle: 'Create and manage ecosystem notifications' },
@@ -176,18 +169,12 @@ export default function AdminDashboard() {
         return <DashboardAccessPanel />;
       case 'platform-access':
         return <PlatformPanel />;
-      case 'permissions':
-        return <PermissionPanel />;
-      case 'auth':
       case 'registration-flow':
       case 'business-profile':
         return <ConfigPanel />;
       case 'payments':
       case 'billing':
         return <FinancePanel />;
-      case 'api-keys':
-      case 'integrations':
-        return <IntegrationPanel />;
       case 'analytics':
       case 'reports':
         return <AnalyticsPanel />;

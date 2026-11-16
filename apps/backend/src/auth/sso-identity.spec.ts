@@ -42,6 +42,8 @@ describe('buildSsoIdentity', () => {
         description: 'Great coffee',
         website: 'https://acme.co.uk',
         logoUrl: 'https://acme.co.uk/logo.png',
+        bannerUrl: 'https://acme.co.uk/cover.png',
+        media: ['https://acme.co.uk/exterior.png'],
         openingHours: '9-5',
         socialMedia: '{}',
         membershipLevel: 'Gold',
@@ -81,12 +83,14 @@ describe('buildSsoIdentity', () => {
       businessId: 'biz_1',
       businessName: 'Acme Coffee',
       avatarUrl: 'https://acme.co.uk/logo.png',
+      bannerUrl: 'https://acme.co.uk/cover.png',
       membershipLevel: 'Gold',
       membershipPlanName: 'Gold Plan',
       hasPaidVerificationFee: true,
     });
     expect(identity.businessProfile?.description).toBe('Great coffee');
     expect(identity.businessProfile?.website).toBe('https://acme.co.uk');
+    expect(identity.businessProfile?.media).toEqual(['https://acme.co.uk/exterior.png']);
     expect(identity.agentProfile).toBeNull();
   });
 

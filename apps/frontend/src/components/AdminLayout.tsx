@@ -4,7 +4,7 @@ import CHSLogo from './CHSLogo';
 import {
   LayoutDashboard, Users, Building2, Gem, RefreshCw,
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
-  Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
+  BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
   ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift
 } from 'lucide-react';
@@ -16,9 +16,8 @@ export type AdminTab =
   'dashboard' | 'users'
   | 'memberships' | 'access' | 'subscriptions' | 'coupons' | 'dashboard-access'
   | 'platform-access'
-  | 'permissions' | 'auth' | 'registration-flow' | 'business-profile'
+  | 'registration-flow' | 'business-profile'
   | 'payments' | 'billing'
-  | 'api-keys' | 'integrations'
   | 'analytics' | 'reports'
   | 'notifications' | 'support'
   | 'audit-logs'
@@ -75,10 +74,8 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Auth & Registration',
+    label: 'Registration',
     items: [
-      { tab: 'permissions', icon: Shield, label: 'Permissions' },
-      { tab: 'auth', icon: KeyRound, label: 'Authentication' },
       { tab: 'registration-flow', icon: UserPlus, label: 'Registration Flow' },
       { tab: 'business-profile', icon: Store, label: 'Business Profile' },
     ],
@@ -90,13 +87,6 @@ const NAV_GROUPS: NavGroup[] = [
       { tab: 'billing', icon: Receipt, label: 'Billing' },
       { tab: 'wallet', icon: Wallet, label: 'Wallet Management' },
       { tab: 'mcom-pay', icon: BookOpen, label: 'MCOM Pay Ledger' },
-    ],
-  },
-  {
-    label: 'Integrations',
-    items: [
-      { tab: 'api-keys', icon: Code, label: 'API Keys' },
-      { tab: 'integrations', icon: Puzzle, label: 'Integrations' },
     ],
   },
   {

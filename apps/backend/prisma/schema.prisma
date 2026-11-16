@@ -127,6 +127,11 @@ model BusinessProfile {
   description                   String?
   website                       String?
   logoUrl                       String?
+  // Storefront artwork collected during onboarding: the cover banner plus the
+  // storefront exterior/gallery images. Both are surfaced to partner apps
+  // through the SSO identity payload.
+  bannerUrl                     String?                             @map("banner_url")
+  media                         String[]                            @default([]) @map("media")
   openingHours                  String?
   socialMedia                   String?
   membershipLevel               MembershipLevel                     @default(Bronze)
