@@ -33,7 +33,7 @@ describe('Soft deletes (e2e)', () => {
     // Victim customer via public registration.
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: victimEmail, password, role: 'CUSTOMER', firstName: 'Vic', lastName: 'Tim' })
+      .send({ email: victimEmail, password, role: 'CUSTOMER', firstName: 'Vic', lastName: 'Tim', postcode: 'SW1A 1AA' })
       .expect(201);
 
     // Admin via direct insert (no admin seed in test DB).
@@ -99,7 +99,7 @@ describe('Soft deletes (e2e)', () => {
   it('trashed email stays reserved (409, not 500)', async () => {
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: victimEmail, password, role: 'CUSTOMER', firstName: 'Re', lastName: 'Try' })
+      .send({ email: victimEmail, password, role: 'CUSTOMER', firstName: 'Re', lastName: 'Try', postcode: 'SW1A 1AA' })
       .expect(409);
   });
 });

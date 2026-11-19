@@ -692,6 +692,8 @@ describe('BusinessService', () => {
           firstName: 'Jane',
           lastName: 'Doe',
         }),
+        // OAuth cannot collect a postcode; the app prompts for it after sign-in.
+        { requirePostcode: false },
       );
       expect(authService.login).toHaveBeenCalled();
     });

@@ -6,7 +6,8 @@ import {
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
   BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift,
+  Handshake, Tag, Coins, AlertTriangle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -28,7 +29,8 @@ export type AdminTab =
   | 'affiliate-tasks'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
-  | 'sectors-categories' | 'cities' | 'referrals';
+  | 'sectors-categories' | 'cities' | 'referrals'
+  | 'local-affiliates' | 'affiliate-offers' | 'affiliate-rewards' | 'affiliate-reconciliation';
 
 interface NavGroup {
   label: string;
@@ -55,6 +57,15 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { tab: 'users', icon: Users, label: 'All Users' },
       { tab: 'referrals', icon: Gift, label: 'Referral Rewards' },
+    ],
+  },
+  {
+    label: 'Local Affiliates',
+    items: [
+      { tab: 'local-affiliates', icon: Handshake, label: 'Affiliates' },
+      { tab: 'affiliate-offers', icon: Tag, label: 'Offers & Campaigns' },
+      { tab: 'affiliate-rewards', icon: Coins, label: 'Rewards & Redemptions' },
+      { tab: 'affiliate-reconciliation', icon: AlertTriangle, label: 'Reconciliation' },
     ],
   },
   {

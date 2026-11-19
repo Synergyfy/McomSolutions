@@ -5,6 +5,7 @@ import { PostcodeService } from './postcode.service';
 import { LocationAssignmentService } from './location-assignment.service';
 import { LocationAggregationService } from './location-aggregation.service';
 import { UkReferenceDataService } from './uk-reference-data.service';
+import { LocalMallLookupService } from './local-mall-lookup.service';
 
 @Module({
   imports: [PrismaModule],
@@ -14,12 +15,14 @@ import { UkReferenceDataService } from './uk-reference-data.service';
     LocationAssignmentService,
     LocationAggregationService,
     UkReferenceDataService,
+    LocalMallLookupService,
   ],
   exports: [
     PostcodeService,
     LocationAssignmentService,
     LocationAggregationService,
     UkReferenceDataService,
+    LocalMallLookupService,
   ],
 })
 export class GeographyModule {}

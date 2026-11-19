@@ -32,7 +32,7 @@ describe('Auth refresh / revocation (e2e)', () => {
   it('registers a business user with an access + refresh pair', async () => {
     const res = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email, password, businessName: 'Phase3 E2E Biz' })
+      .send({ email, password, businessName: 'Phase3 E2E Biz', postcode: 'SW1A 1AA' })
       .expect(201);
     expect(res.body.accessToken).toBeDefined();
     expect(res.body.refreshToken).toBeDefined();

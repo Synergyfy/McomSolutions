@@ -32,6 +32,7 @@ import { RecurringModule } from './recurring/recurring.module';
 import { PartnerModule } from './partner/partner.module';
 import { GeographyModule } from './geography/geography.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
+import { LocalAffiliateModule } from './local-affiliate/local-affiliate.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 
@@ -115,6 +116,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     PartnerModule,
     GeographyModule,
     AffiliateModule,
+    LocalAffiliateModule,
   ],
   controllers: [],
   // Global throttler: AppThrottlerGuard keys by userId for authenticated

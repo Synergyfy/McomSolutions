@@ -31,6 +31,10 @@ import AffiliateCheckEmail from './pages/AffiliateCheckEmail';
 import AffiliateVerifyEmail from './pages/AffiliateVerifyEmail';
 import ProtectedBusinessRoute from './components/auth/ProtectedBusinessRoute';
 import ProtectedCustomerRoute from './components/auth/ProtectedCustomerRoute';
+import LocalAffiliateDashboard, { OfferDetailRoute } from './pages/local-affiliate/LocalAffiliateDashboard';
+import PublicOffersPage from './pages/local-affiliate/PublicOffersPage';
+import PublicAffiliatePage from './pages/local-affiliate/PublicAffiliatePage';
+import JoinAffiliatePage from './pages/local-affiliate/JoinAffiliatePage';
 import ChatWidget from './components/chat/ChatWidget';
 import ChatToastNotifications from './components/chat/ChatToastNotifications';
 
@@ -224,6 +228,24 @@ function AnimatedRoutes() {
                 </PageWrapper>
               </ProtectedCustomerRoute>
             } 
+          />
+          {/* ── Local Affiliate (consumer affiliate programme) ───────────────
+              Public routes live outside PageWrapper: the affiliate dashboard
+              and the offer pages bring their own chrome, and the redirect /
+              share links must not be wrapped in the marketing nav. */}
+          <Route path="/offers" element={<PageWrapper><PublicOffersPage /></PageWrapper>} />
+          <Route path="/offers/:slug" element={<PageWrapper><OfferDetailRoute /></PageWrapper>} />
+          <Route path="/a/:affiliateCode" element={<PageWrapper><PublicAffiliatePage /></PageWrapper>} />
+          <Route path="/join-affiliate" element={<PageWrapper><JoinAffiliatePage /></PageWrapper>} />
+          <Route
+            path="/affiliate-hub/*"
+            element={
+              <ProtectedCustomerRoute>
+                <PageWrapper>
+                  <LocalAffiliateDashboard />
+                </PageWrapper>
+              </ProtectedCustomerRoute>
+            }
           />
           <Route 
             path="/signup" 

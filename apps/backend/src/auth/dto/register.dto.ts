@@ -74,10 +74,16 @@ export class RegisterDto {
   @IsOptional()
   address?: string;
 
-  @ApiPropertyOptional({ example: 'SW1A 1AA', description: 'Postcode' })
+  @ApiProperty({
+    example: 'SW1A 1AA',
+    description:
+      'UK postcode (required). Used to assign the account to its city, borough, high street and local mall.',
+  })
   @IsString()
-  @IsOptional()
-  postcode?: string;
+  @IsNotEmpty({
+    message: 'A UK postcode is required to assign you to your local area',
+  })
+  postcode: string;
 
   @ApiPropertyOptional({ example: 'Retail', description: 'Industry' })
   @IsString()

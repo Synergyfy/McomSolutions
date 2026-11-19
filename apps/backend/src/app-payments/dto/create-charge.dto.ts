@@ -62,6 +62,29 @@ export class CreateChargeDto {
   @MaxLength(191)
   externalCustomerId?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://mall.example.com/payment/paypal/return',
+    description:
+      'Where PayPal should return the payer after approval. Falls back to the Central success page.',
+  })
+  @IsOptional()
+  @Matches(/^https?:\/\/[^\s]+$/i, {
+    message: 'returnUrl must be an http(s) URL',
+  })
+  @MaxLength(2048)
+  returnUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://mall.example.com/payment/paypal/cancel',
+    description: 'Where PayPal should return the payer after cancelling.',
+  })
+  @IsOptional()
+  @Matches(/^https?:\/\/[^\s]+$/i, {
+    message: 'cancelUrl must be an http(s) URL',
+  })
+  @MaxLength(2048)
+  cancelUrl?: string;
+
   @ApiPropertyOptional({ example: { cartId: 'c_1' }, description: 'Arbitrary structured metadata' })
   @IsOptional()
   @IsObject()

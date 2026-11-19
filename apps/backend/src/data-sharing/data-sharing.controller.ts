@@ -4,6 +4,7 @@ import { HmacAuthGuard } from './guards/hmac-auth.guard';
 import { ApiTags, ApiOperation, ApiQuery, ApiBody, ApiOkResponse, ApiHeader } from '@nestjs/swagger';
 import { QueryUserDto } from './dto/query-user.dto';
 import { BulkUserDto } from './dto/bulk-user.dto';
+import { LocalMallLookupService } from '../geography/local-mall-lookup.service';
 
 @ApiTags('Data Sharing API (Server-to-Server)')
 @ApiHeader({ name: 'X-Service-Id', description: 'Calling MCOM service identifier (e.g. mcom-rewards)', required: true })
@@ -12,7 +13,41 @@ import { BulkUserDto } from './dto/bulk-user.dto';
 @Controller('data')
 @UseGuards(HmacAuthGuard)
 export class DataSharingController {
-  constructor(private readonly dataSharingService: DataSharingService) {}
+  constructor(
+    private readonly dataSharingService: DataSharingService,
+    private readonly localMallLookupService: LocalMallLookupService,
+  ) {}
+
+  @Get('local-mall')
+  @ApiOperation({
+    summary:
+      'Resolve the local mall assigned to a user, or the closest mall to a UK postcode',
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'Central user id. Prefers the mall already assigned to the profile.',
+  })
+  @ApiQuery({
+    name: 'postcode',
+    required: false,
+    description: 'UK postcode used to resolve the local mall when no assignment exists.',
+  })
+  async getLocalMall(
+    @Query('userId') userId?: string,
+    @Query('postcode') postcode?: string,
+  ) {
+    if (!userId && !postcode) {
+      throw new BadRequestException(
+        'Either userId or postcode query parameter is required',
+      );
+    }
+    const data = await this.localMallLookupService.resolve({
+      userId: userId?.trim() || null,
+      postcode: postcode?.trim() || null,
+    });
+    return { success: true, data };
+  }
 
   @Get('user')
   @ApiOperation({ summary: 'Query single user profile and packages context by email or userId' })

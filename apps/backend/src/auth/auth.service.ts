@@ -315,6 +315,7 @@ export class AuthService {
         lastName: true,
         tokenVersion: true,
         businessProfile: { select: { id: true, businessName: true } },
+        customerProfile: { select: { postcode: true } },
       },
     });
     if (!user) {
@@ -646,6 +647,7 @@ export class AuthService {
         referralCode: true,
         tokenVersion: true,
         businessProfile: { select: { id: true, businessName: true } },
+        customerProfile: { select: { postcode: true } },
       },
     });
 
@@ -668,6 +670,22 @@ export class AuthService {
       businessProfile = await this.prisma.businessProfile.findFirst({
         where: { userId: user.id, deletedAt: null },
       });
+    }
+
+    // Customers must have a postcode so they can be placed in their local
+    // hierarchy. Callers (e.g. OAuth provisioning) that could not collect one
+    // yet get `needsPostcode: true` so the app can prompt for it.
+    let customerPostcode: string | null = user.customerProfile?.postcode ?? null;
+    if (
+      user.role === Role.CUSTOMER &&
+      user.customerProfile === undefined &&
+      user.id
+    ) {
+      const customerProfile = await this.prisma.customerProfile.findFirst({
+        where: { userId: user.id, deletedAt: null },
+        select: { postcode: true },
+      });
+      customerPostcode = customerProfile?.postcode ?? null;
     }
 
     const businessId = businessProfile?.id || null;
@@ -738,6 +756,13 @@ export class AuthService {
         businessId,
         referralCode: user.referralCode ?? null,
         isOnboarded: !!businessId,
+        // Location placement: customers are located by postcode; the app uses
+        // `needsPostcode` to force postcode capture when it is missing.
+        postcode:
+          user.role === Role.CUSTOMER
+            ? customerPostcode
+            : businessProfile?.postcode ?? null,
+        needsPostcode: user.role === Role.CUSTOMER && !customerPostcode,
         activePlans,
       },
     };
@@ -902,7 +927,10 @@ export class AuthService {
     return this.login(newUser);
   }
 
-  async registerCustomer(data: any) {
+  async registerCustomer(
+    data: any,
+    options: { requirePostcode?: boolean } = {},
+  ) {
     const email = data.email ? data.email.toLowerCase().trim() : '';
     const existing = await this.prisma.user.findUnique({
       where: { email },
@@ -912,14 +940,23 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    // Customer postcode is optional, but when supplied it must be a valid UK
-    // postcode. Customers are assigned to the same City → Borough → High
-    // Street → Local Mall hierarchy as businesses and affiliates.
+    // A UK postcode is mandatory for every customer signup (it is what places
+    // the customer in their City → Borough → High Street → Local Mall).
+    // OAuth provisioning (Google) happens before we can ask for it, so that
+    // caller opts out and the app prompts for the postcode afterwards.
+    const requirePostcode = options.requirePostcode ?? true;
+    const submittedPostcode = String(data.postcode ?? '').trim();
+    if (!submittedPostcode && requirePostcode) {
+      throw new BadRequestException(
+        'A UK postcode is required for customer registration.',
+      );
+    }
+
     let customerPostcode: string | null = null;
     let resolvedCustomerPostcode: ResolvedPostcode | null = null;
-    if (data.postcode && String(data.postcode).trim()) {
+    if (submittedPostcode) {
       resolvedCustomerPostcode = await this.locationAssignment.resolvePostcode(
-        String(data.postcode),
+        submittedPostcode,
       );
       customerPostcode = resolvedCustomerPostcode.postcode;
     }

@@ -4,7 +4,7 @@ import {
   Check, CheckCheck, ChevronDown, ChevronLeft, Compass, Copy, ExternalLink, Eye, EyeOff,
   Filter, Gamepad2, Gift, Globe2, Grid2X2, Headphones, Home, KeyRound, Link2, LogOut,
   Mail, MapPin, MessageCircle, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PiggyBank,
-  Plus, Search, Send, Settings, ShieldCheck, SlidersHorizontal, Smile, Ticket, UserRound, WalletCards, X,
+  Plus, Search, Send, Settings, Share2, ShieldCheck, SlidersHorizontal, Smile, Ticket, UserRound, WalletCards, X,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CHSLogo from '../components/CHSLogo';
@@ -182,6 +182,16 @@ export default function CustomerDashboard() {
                 {id === 'notifications' && unreadNotificationCount > 0 && <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${page === id ? 'bg-white text-orange-700' : 'bg-orange-600 text-white'}`}>{unreadNotificationCount}</span>}
               </button>
             ))}
+            {/* Local Affiliate is a separate destination, not another tab: it
+                has its own dashboard, offer pages and reward ledger. It lives
+                outside /customer so the affiliate routes stay shareable. */}
+            <button
+              onClick={() => navigate('/affiliate-hub')}
+              className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950"
+            >
+              <Share2 className="h-[18px] w-[18px] shrink-0" />
+              Local Affiliate
+            </button>
           </nav>
           <button onClick={() => logout()} className="mt-auto flex min-h-11 items-center gap-3 border-t border-slate-200 px-3 pt-4 text-sm font-medium text-slate-600 hover:text-orange-700">
             <LogOut className="h-[18px] w-[18px]" />Sign Out

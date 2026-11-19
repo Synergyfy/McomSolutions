@@ -30,6 +30,12 @@ import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
 import AdminTaskComposer from '../components/admin/task-composer/AdminTaskComposer';
 import ReferralAdminPanel from '../components/admin/ReferralAdminPanel';
+import {
+  LocalAffiliatesAdminPanel,
+  AffiliateOffersAdminPanel,
+  AffiliateRewardsAdminPanel,
+  AffiliateReconciliationAdminPanel,
+} from '../components/admin/local-affiliate/LocalAffiliateAdminPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
@@ -51,6 +57,7 @@ const ADMIN_TABS: AdminTab[] = [
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories', 'cities',
   'referrals',
+  'local-affiliates', 'affiliate-offers', 'affiliate-rewards', 'affiliate-reconciliation',
 ];
 
 export default function AdminDashboard() {
@@ -123,6 +130,10 @@ export default function AdminDashboard() {
       'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
       cities: { title: 'City Management', subtitle: 'Top-level geographic hierarchy with assigned business totals' },
       referrals: { title: 'Referral Rewards', subtitle: 'Configure commissions by role, qualifying plans and recurrence; audit every referrer' },
+      'local-affiliates': { title: 'Local Affiliates', subtitle: 'Consumer affiliate profiles, CHS identity links, status and activity' },
+      'affiliate-offers': { title: 'Offers & Campaigns', subtitle: 'Provider offers, tracking level, approval and campaign caps' },
+      'affiliate-rewards': { title: 'Rewards & Redemptions', subtitle: 'Versioned reward rules, conversions, vouchers and ledger actions' },
+      'affiliate-reconciliation': { title: 'Affiliate Reconciliation', subtitle: 'Unmatched conversions, duplicates, failed syncs, negative balances' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -187,6 +198,14 @@ export default function AdminDashboard() {
         return <WalletPanel />;
       case 'referrals':
         return <ReferralAdminPanel />;
+      case 'local-affiliates':
+        return <LocalAffiliatesAdminPanel />;
+      case 'affiliate-offers':
+        return <AffiliateOffersAdminPanel />;
+      case 'affiliate-rewards':
+        return <AffiliateRewardsAdminPanel />;
+      case 'affiliate-reconciliation':
+        return <AffiliateReconciliationAdminPanel />;
       case 'mcom-pay':
         return <McomPayPanel />;
       case 'programme':

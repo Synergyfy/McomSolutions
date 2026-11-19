@@ -615,14 +615,19 @@ export class BusinessService {
           const firstName = googleProfile?.firstName || payload.firstName || email.split('@')[0];
           const lastName = googleProfile?.lastName || payload.lastName || '';
           const randomPassword = crypto.randomBytes(16).toString('hex');
-          await this.authService.registerCustomer({
-            email,
-            firstName,
-            lastName,
-            password: randomPassword,
-            confirmPassword: randomPassword,
-            referredByCode: payload.ref,
-          });
+          await this.authService.registerCustomer(
+            {
+              email,
+              firstName,
+              lastName,
+              password: randomPassword,
+              confirmPassword: randomPassword,
+              referredByCode: payload.ref,
+            },
+            // Google has not collected a postcode yet; the app prompts the new
+            // customer for one right after sign-in and assigns their location.
+            { requirePostcode: false },
+          );
 
           user = await this.prisma.user.findUnique({
             where: { email },

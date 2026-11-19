@@ -4,9 +4,10 @@ import { DataSharingService } from './data-sharing.service';
 import { HmacAuthGuard } from './guards/hmac-auth.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { GeographyModule } from '../geography/geography.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, GeographyModule],
   controllers: [DataSharingController],
   providers: [DataSharingService, HmacAuthGuard],
   exports: [DataSharingService],

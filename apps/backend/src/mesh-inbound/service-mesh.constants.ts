@@ -44,6 +44,8 @@ export enum PartnerFeature {
   GRANTS = 'CENTRAL_PARTNER_GRANTS_ENABLED',
   COUPONS = 'CENTRAL_PARTNER_COUPONS_ENABLED',
   EVENTS = 'CENTRAL_PARTNER_EVENTS_ENABLED',
+  /** Local Affiliate conversion ingest + attribution pre-check. */
+  AFFILIATE = 'CENTRAL_AFFILIATE_API_ENABLED',
 }
 
 /** Error code returned when a feature flag is off. */

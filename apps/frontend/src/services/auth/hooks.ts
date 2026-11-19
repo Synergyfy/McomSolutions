@@ -117,6 +117,8 @@ export interface RegisterData {
   lastName?: string;
   isOnGoogle?: boolean;
   address?: string;
+  /** Required for every account (customer, business, affiliate) at signup. */
+  postcode?: string;
   industry?: string;
   category?: string;
   description?: string;
