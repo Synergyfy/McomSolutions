@@ -206,6 +206,14 @@ export default function CustomerRegistration() {
   const [isErrorDialogOpen, setIsErrorDialogOpen] = useState(false);
   const [dialogMessage, setDialogMessage] = useState('');
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  // Google signup cannot collect a postcode during the OAuth hand-off. When
+  // the backend reports `needsPostcode`, we block the redirect until it is
+  // captured so every customer is still placed in their local hierarchy.
+  const [isPostcodePromptOpen, setIsPostcodePromptOpen] = useState(false);
+  const [postcodePromptValue, setPostcodePromptValue] = useState('');
+  const [postcodePromptError, setPostcodePromptError] = useState('');
+  const [postcodePromptBusy, setPostcodePromptBusy] = useState(false);
+  const [postcodePromptName, setPostcodePromptName] = useState('Customer');
   const [errors, setErrors] = useState({
     firstName: '',
     lastName: '',
@@ -371,6 +379,15 @@ export default function CustomerRegistration() {
         setSharedAuthCookies(auth.accessToken, auth.refreshToken, user);
 
         const welcomeName = user?.name || user?.firstName || 'Customer';
+        if (user?.needsPostcode) {
+          setPostcodePromptName(welcomeName);
+          setPostcodePromptValue('');
+          setPostcodePromptError('');
+          setIsPostcodePromptOpen(true);
+          setIsGoogleLoading(false);
+          return;
+        }
+
         setDialogMessage(`Welcome, ${welcomeName}! Signed in successfully.`);
         setIsSuccessDialogOpen(true);
 
@@ -406,6 +423,60 @@ export default function CustomerRegistration() {
       try { if (!popup.closed) popup.close(); } catch { /* noop */ }
       setIsGoogleLoading(false);
     }, 180000);
+  };
+
+  // Completes Google signup: saves the postcode (which assigns the customer to
+  // their city, borough, high street and local mall) before letting them in.
+  const handleGooglePostcodeSubmit = async () => {
+    const postcodeErr = validatePostcode(postcodePromptValue, true);
+    if (postcodeErr) {
+      setPostcodePromptError(postcodeErr);
+      return;
+    }
+
+    setPostcodePromptBusy(true);
+    setPostcodePromptError('');
+    try {
+      const normalizedPostcode = normalizeUkPostcode(postcodePromptValue);
+      await apiClient.patch('/customer/profile', {
+        postcode: normalizedPostcode,
+      });
+
+      // Keep the cached auth user in sync so the dashboard does not prompt
+      // again on this session.
+      try {
+        const stored = localStorage.getItem('business_user');
+        if (stored) {
+          localStorage.setItem(
+            'business_user',
+            JSON.stringify({
+              ...JSON.parse(stored),
+              postcode: normalizedPostcode,
+              needsPostcode: false,
+            }),
+          );
+        }
+      } catch {
+        /* non-fatal: cache refresh is best-effort */
+      }
+
+      setIsPostcodePromptOpen(false);
+      setPostcodePromptValue('');
+      setDialogMessage(`Welcome, ${postcodePromptName}! Your local area is set.`);
+      setIsSuccessDialogOpen(true);
+
+      setTimeout(async () => {
+        setIsSuccessDialogOpen(false);
+        await performRedirect();
+      }, 1500);
+    } catch (error: any) {
+      setPostcodePromptError(
+        error?.response?.data?.message ||
+          'We could not save your postcode. Please check it and try again.',
+      );
+    } finally {
+      setPostcodePromptBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -515,7 +586,7 @@ export default function CustomerRegistration() {
           isValid = false;
         }
 
-        const requiresPostcode = selectedRole !== UserRole.CUSTOMER;
+        const requiresPostcode = true;
         const postcodeErr = validatePostcode(formData.postcode, requiresPostcode);
         if (postcodeErr) {
           newErrors.postcode = postcodeErr;
@@ -589,7 +660,7 @@ export default function CustomerRegistration() {
       password: formData.password,
       confirm_password: formData.confirmPassword,
       role: selectedRole!,
-      postcode: formData.postcode ? normalizeUkPostcode(formData.postcode) : undefined,
+      postcode: normalizeUkPostcode(formData.postcode),
     };
 
     try {
@@ -843,7 +914,7 @@ export default function CustomerRegistration() {
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                       Postcode
-                      <FieldRequirementHint kind={selectedRole !== UserRole.CUSTOMER ? 'required' : 'important'} />
+                      <FieldRequirementHint kind="required" />
                     </label>
                     <input
                       name="postcode"
@@ -855,9 +926,8 @@ export default function CustomerRegistration() {
                     />
                     {errors.postcode && <p className="text-red-500 text-xs mt-1 font-semibold">{errors.postcode}</p>}
                     <p className="text-[11px] text-gray-400 font-medium">
-                      {selectedRole !== UserRole.CUSTOMER
-                        ? 'Required for business and affiliate accounts.'
-                        : 'Optional for customer accounts.'}
+                      Required — we use your postcode to connect you to your city,
+                      borough, high street and local mall.
                     </p>
                   </div>
 
@@ -972,6 +1042,66 @@ export default function CustomerRegistration() {
           </div>
         </section>
       </main>
+
+      {/* Postcode required after Google signup */}
+      <AnimatePresence>
+        {isPostcodePromptOpen && (
+          <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-5">
+                <MapPin className="w-8 h-8 text-orange-600" />
+              </div>
+              <h2 className="text-xl font-black text-gray-900 text-center mb-2">One last step</h2>
+              <p className="text-sm font-semibold text-gray-500 text-center leading-relaxed mb-5">
+                Welcome, {postcodePromptName}! Add your UK postcode so we can connect you to your
+                city, borough, high street and local mall.
+              </p>
+              <label htmlFor="google-postcode" className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                Postcode
+                <FieldRequirementHint kind="required" />
+              </label>
+              <input
+                id="google-postcode"
+                value={postcodePromptValue}
+                onChange={(e) => {
+                  setPostcodePromptValue(e.target.value);
+                  setPostcodePromptError('');
+                }}
+                placeholder="e.g. SW1A 1AA"
+                autoComplete="postal-code"
+                autoFocus
+                className={`mt-1 w-full px-4 py-3 bg-gray-50 border rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm font-medium ${postcodePromptError ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200'}`}
+              />
+              {postcodePromptError && (
+                <p className="text-red-500 text-xs mt-1 font-semibold">{postcodePromptError}</p>
+              )}
+              <button
+                type="button"
+                onClick={handleGooglePostcodeSubmit}
+                disabled={postcodePromptBusy}
+                className="mt-5 w-full py-3.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-orange-600/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {postcodePromptBusy ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Success Dialog Overlay */}
       <AnimatePresence>

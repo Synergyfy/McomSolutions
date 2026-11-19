@@ -24,7 +24,7 @@ Authorization: Bearer <accessToken>
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/auth/register` | Register. Send `role: "CUSTOMER"` for a customer account. |
+| `POST` | `/auth/register` | Register. Send `role: "CUSTOMER"` for a customer account. `postcode` is required for every signup. |
 | `POST` | `/auth/login` | Login with email/password. |
 | `POST` | `/auth/refresh` | Rotate refresh token. |
 | `POST` | `/auth/logout` | Revoke session(s) and clear cookies. No body = revoke all sessions. |
@@ -150,30 +150,41 @@ No membership tier, verification state, country, region, preferred currency, or 
 
 ### `PATCH /customer/profile`
 
-Currently updates **phone only**.
+Updates **phone and/or postcode**.
 
 Request:
 
 ```json
 {
-  "phone": "+447700900123"
+  "phone": "+447700900123",
+  "postcode": "SW1A 1AA"
 }
 ```
 
-An empty/whitespace phone clears it (`null`).
+- An empty/whitespace phone clears it (`null`).
+- `postcode` is validated with the same UK resolver used at signup. Saving it
+  (re)assigns the customer to their City → Borough → High Street → Local Mall
+  hierarchy, so it is also how Google signups (which cannot collect a postcode
+  during OAuth) complete their location.
 
-Response:
+Response (location ids are `null` until a postcode has been assigned):
 
 ```json
 {
   "success": true,
   "phone": "+447700900123",
+  "postcode": "SW1A 1AA",
+  "cityId": "city_01J8Z9K2Q3",
+  "boroughId": "bor_01J8Z9K2Q3",
+  "highStreetId": "hs_01J8Z9K2Q3",
+  "localMallId": "mall_01J8Z9K2Q3",
   "loyaltyPoints": 1200,
   "status": "Active",
   "customerProfile": {
     "id": "cp_01J8Z9K2Q3",
     "userId": "b3f0c7d2-6e2a-4d1d-9c3f-7a1e2b4c5d6e",
     "phone": "+447700900123",
+    "postcode": "SW1A 1AA",
     "loyaltyPoints": 1200,
     "status": "Active",
     "createdAt": "2026-01-05T00:00:00.000Z",

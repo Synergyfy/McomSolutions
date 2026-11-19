@@ -54,6 +54,8 @@ const businessDirectorySelect = {
   category: true,
   subCategory: true,
   logoUrl: true,
+  bannerUrl: true,
+  media: true,
   membershipLevel: true,
   membershipTier: true,
   membershipStatus: true,
@@ -79,6 +81,8 @@ const businessDetailSelect = {
   description: true,
   website: true,
   logoUrl: true,
+  bannerUrl: true,
+  media: true,
   openingHours: true,
   socialMedia: true,
   membershipLevel: true,
@@ -143,6 +147,10 @@ export interface UpdateProfileInput {
   postcode?: string;
   website?: string;
   logoUrl?: string;
+  /** Cover banner uploaded during onboarding (`payload.bannerUrl`). */
+  bannerUrl?: string;
+  /** Storefront exterior + gallery images (`payload.media`). */
+  media?: string[];
   openingHours?: string;
   socialMedia?: string;
   description?: string;
@@ -607,14 +615,19 @@ export class BusinessService {
           const firstName = googleProfile?.firstName || payload.firstName || email.split('@')[0];
           const lastName = googleProfile?.lastName || payload.lastName || '';
           const randomPassword = crypto.randomBytes(16).toString('hex');
-          await this.authService.registerCustomer({
-            email,
-            firstName,
-            lastName,
-            password: randomPassword,
-            confirmPassword: randomPassword,
-            referredByCode: payload.ref,
-          });
+          await this.authService.registerCustomer(
+            {
+              email,
+              firstName,
+              lastName,
+              password: randomPassword,
+              confirmPassword: randomPassword,
+              referredByCode: payload.ref,
+            },
+            // Google has not collected a postcode yet; the app prompts the new
+            // customer for one right after sign-in and assigns their location.
+            { requirePostcode: false },
+          );
 
           user = await this.prisma.user.findUnique({
             where: { email },
@@ -1289,6 +1302,14 @@ export class BusinessService {
         postcode,
         website: updates.website,
         logoUrl: updates.logoUrl,
+        // `undefined` leaves the column untouched, so partial profile edits
+        // never wipe an existing banner or gallery.
+        bannerUrl: updates.bannerUrl,
+        media: Array.isArray(updates.media)
+          ? updates.media.filter(
+              (url): url is string => typeof url === 'string' && url.trim().length > 0,
+            )
+          : undefined,
         openingHours,
         socialMedia: updates.socialMedia,
         description,

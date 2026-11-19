@@ -25,7 +25,11 @@ export class CustomerController {
   }
 
   @Patch('profile')
-  @ApiOperation({ summary: 'Update the authenticated customer profile (phone only for now)' })
+  @ApiOperation({
+    summary: 'Update the authenticated customer profile (phone and postcode)',
+    description:
+      'Saving a postcode (re)assigns the customer to their City → Borough → High Street → Local Mall hierarchy.',
+  })
   @ApiOkResponse({ description: 'Updated customer profile' })
   updateProfile(@Req() req: any, @Body() dto: UpdateCustomerProfileDto) {
     return this.customerService.updateProfile(req.user.userId, dto);

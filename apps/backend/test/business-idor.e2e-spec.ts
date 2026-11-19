@@ -38,14 +38,14 @@ describe('Business IDOR + hash leak (e2e)', () => {
 
     const owner = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: ownerEmail, password, businessName: 'Phase7 E2E Biz' })
+      .send({ email: ownerEmail, password, businessName: 'Phase7 E2E Biz', postcode: 'SW1A 1AA' })
       .expect(201);
     ownerToken = owner.body.accessToken;
     ownerBusinessId = owner.body.user.businessId;
 
     const intruder = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email: intruderEmail, password, role: 'CUSTOMER', firstName: 'In', lastName: 'Truder' })
+      .send({ email: intruderEmail, password, role: 'CUSTOMER', firstName: 'In', lastName: 'Truder', postcode: 'SW1A 1AA' })
       .expect(201);
     intruderToken = intruder.body.accessToken;
 

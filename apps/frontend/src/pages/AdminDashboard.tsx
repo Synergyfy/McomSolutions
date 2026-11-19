@@ -5,10 +5,8 @@ import UserManagementPanel from '../components/admin/UserManagementPanel';
 import PlanManagementPanel from '../components/admin/PlanManagementPanel';
 import SubscriptionManagementPanel from '../components/admin/SubscriptionManagementPanel';
 import PlatformPanel from '../components/admin/PlatformPanel';
-import PermissionPanel from '../components/admin/PermissionPanel';
 import ConfigPanel from '../components/admin/ConfigPanel';
 import FinancePanel from '../components/admin/FinancePanel';
-import IntegrationPanel from '../components/admin/IntegrationPanel';
 import AnalyticsPanel from '../components/admin/AnalyticsPanel';
 import CommunicationPanel from '../components/admin/CommunicationPanel';
 import SystemPanel from '../components/admin/SystemPanel';
@@ -32,15 +30,20 @@ import DashboardAccessPanel from '../components/admin/DashboardAccessPanel';
 import AffiliateTaskAdminPanel from '../components/admin/AffiliateTaskAdminPanel';
 import AdminTaskComposer from '../components/admin/task-composer/AdminTaskComposer';
 import ReferralAdminPanel from '../components/admin/ReferralAdminPanel';
+import {
+  LocalAffiliatesAdminPanel,
+  AffiliateOffersAdminPanel,
+  AffiliateRewardsAdminPanel,
+  AffiliateReconciliationAdminPanel,
+} from '../components/admin/local-affiliate/LocalAffiliateAdminPanel';
 
 const ADMIN_TABS: AdminTab[] = [
   'dashboard', 'users',
   'memberships', 'access', 'subscriptions',
   'coupons', 'dashboard-access',
   'platform-access',
-  'permissions', 'auth', 'registration-flow', 'business-profile',
+  'registration-flow', 'business-profile',
   'payments', 'billing',
-  'api-keys', 'integrations',
   'analytics', 'reports',
   'notifications', 'support',
   'audit-logs',
@@ -54,6 +57,7 @@ const ADMIN_TABS: AdminTab[] = [
   'high-streets', 'boroughs', 'local-malls',
   'sectors-categories', 'cities',
   'referrals',
+  'local-affiliates', 'affiliate-offers', 'affiliate-rewards', 'affiliate-reconciliation',
 ];
 
 export default function AdminDashboard() {
@@ -102,14 +106,10 @@ export default function AdminDashboard() {
       coupons: { title: 'Coupon Management', subtitle: 'Create codes, control redemption limits, and audit every discount' },
       'dashboard-access': { title: 'Dashboard Access & Verification', subtitle: 'Configure trial access duration, verification fee, and verification enforcement' },
       'platform-access': { title: 'Platform Access Control', subtitle: 'Control platform availability and status' },
-      permissions: { title: 'Permission Management', subtitle: 'Role and permission control matrix' },
-      auth: { title: 'Authentication Management', subtitle: 'Manage login, registration, and security policies' },
       'registration-flow': { title: 'Registration Flow Management', subtitle: 'Control the onboarding process' },
       'business-profile': { title: 'Business Profile Management', subtitle: 'Configure business profile structure' },
       payments: { title: 'Payment Management', subtitle: 'Central payment control and reconciliation' },
       billing: { title: 'Billing Management', subtitle: 'Subscription billing and recurring payments' },
-      'api-keys': { title: 'API Management', subtitle: 'Manage platform API keys and permissions' },
-      integrations: { title: 'Integration Management', subtitle: 'Manage ecosystem integrations' },
       analytics: { title: 'Analytics Center', subtitle: 'Ecosystem intelligence and metrics' },
       reports: { title: 'Reporting Center', subtitle: 'Generate and export ecosystem reports' },
       notifications: { title: 'Notification Management', subtitle: 'Create and manage ecosystem notifications' },
@@ -130,6 +130,10 @@ export default function AdminDashboard() {
       'sectors-categories': { title: 'Sector & Category Management', subtitle: 'Manage ecosystem business sectors, categories, and subcategories' },
       cities: { title: 'City Management', subtitle: 'Top-level geographic hierarchy with assigned business totals' },
       referrals: { title: 'Referral Rewards', subtitle: 'Configure commissions by role, qualifying plans and recurrence; audit every referrer' },
+      'local-affiliates': { title: 'Local Affiliates', subtitle: 'Consumer affiliate profiles, CHS identity links, status and activity' },
+      'affiliate-offers': { title: 'Offers & Campaigns', subtitle: 'Provider offers, tracking level, approval and campaign caps' },
+      'affiliate-rewards': { title: 'Rewards & Redemptions', subtitle: 'Versioned reward rules, conversions, vouchers and ledger actions' },
+      'affiliate-reconciliation': { title: 'Affiliate Reconciliation', subtitle: 'Unmatched conversions, duplicates, failed syncs, negative balances' },
     };
     return map[tab] || { title: tab, subtitle: '' };
   };
@@ -176,18 +180,12 @@ export default function AdminDashboard() {
         return <DashboardAccessPanel />;
       case 'platform-access':
         return <PlatformPanel />;
-      case 'permissions':
-        return <PermissionPanel />;
-      case 'auth':
       case 'registration-flow':
       case 'business-profile':
         return <ConfigPanel />;
       case 'payments':
       case 'billing':
         return <FinancePanel />;
-      case 'api-keys':
-      case 'integrations':
-        return <IntegrationPanel />;
       case 'analytics':
       case 'reports':
         return <AnalyticsPanel />;
@@ -200,6 +198,14 @@ export default function AdminDashboard() {
         return <WalletPanel />;
       case 'referrals':
         return <ReferralAdminPanel />;
+      case 'local-affiliates':
+        return <LocalAffiliatesAdminPanel />;
+      case 'affiliate-offers':
+        return <AffiliateOffersAdminPanel />;
+      case 'affiliate-rewards':
+        return <AffiliateRewardsAdminPanel />;
+      case 'affiliate-reconciliation':
+        return <AffiliateReconciliationAdminPanel />;
       case 'mcom-pay':
         return <McomPayPanel />;
       case 'programme':

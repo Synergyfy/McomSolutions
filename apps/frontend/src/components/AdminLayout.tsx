@@ -4,9 +4,10 @@ import CHSLogo from './CHSLogo';
 import {
   LayoutDashboard, Users, Building2, Gem, RefreshCw,
   Shield, KeyRound, UserPlus, Store, Rocket, DollarSign, Receipt,
-  Code, Puzzle, BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
+  BarChart3, FileText, Bell, LifeBuoy, ClipboardList, Settings,
   Terminal, Crown, LogOut, Menu, X, ChevronDown, Search,
-  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift
+  ChevronRight, ShoppingBag, AppWindow, Wallet, Layers, BookOpen, Ticket, UserCog, Gift,
+  Handshake, Tag, Coins, AlertTriangle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -16,9 +17,8 @@ export type AdminTab =
   'dashboard' | 'users'
   | 'memberships' | 'access' | 'subscriptions' | 'coupons' | 'dashboard-access'
   | 'platform-access'
-  | 'permissions' | 'auth' | 'registration-flow' | 'business-profile'
+  | 'registration-flow' | 'business-profile'
   | 'payments' | 'billing'
-  | 'api-keys' | 'integrations'
   | 'analytics' | 'reports'
   | 'notifications' | 'support'
   | 'audit-logs'
@@ -29,7 +29,8 @@ export type AdminTab =
   | 'affiliate-tasks'
   | 'system-settings' | 'developer-center' | 'super-admin'
   | 'high-streets' | 'boroughs' | 'local-malls'
-  | 'sectors-categories' | 'cities' | 'referrals';
+  | 'sectors-categories' | 'cities' | 'referrals'
+  | 'local-affiliates' | 'affiliate-offers' | 'affiliate-rewards' | 'affiliate-reconciliation';
 
 interface NavGroup {
   label: string;
@@ -59,6 +60,15 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: 'Local Affiliates',
+    items: [
+      { tab: 'local-affiliates', icon: Handshake, label: 'Affiliates' },
+      { tab: 'affiliate-offers', icon: Tag, label: 'Offers & Campaigns' },
+      { tab: 'affiliate-rewards', icon: Coins, label: 'Rewards & Redemptions' },
+      { tab: 'affiliate-reconciliation', icon: AlertTriangle, label: 'Reconciliation' },
+    ],
+  },
+  {
     label: 'Plans & Billing',
     items: [
       { tab: 'memberships', icon: Gem, label: 'Plans & Billing' },
@@ -75,10 +85,8 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: 'Auth & Registration',
+    label: 'Registration',
     items: [
-      { tab: 'permissions', icon: Shield, label: 'Permissions' },
-      { tab: 'auth', icon: KeyRound, label: 'Authentication' },
       { tab: 'registration-flow', icon: UserPlus, label: 'Registration Flow' },
       { tab: 'business-profile', icon: Store, label: 'Business Profile' },
     ],
@@ -90,13 +98,6 @@ const NAV_GROUPS: NavGroup[] = [
       { tab: 'billing', icon: Receipt, label: 'Billing' },
       { tab: 'wallet', icon: Wallet, label: 'Wallet Management' },
       { tab: 'mcom-pay', icon: BookOpen, label: 'MCOM Pay Ledger' },
-    ],
-  },
-  {
-    label: 'Integrations',
-    items: [
-      { tab: 'api-keys', icon: Code, label: 'API Keys' },
-      { tab: 'integrations', icon: Puzzle, label: 'Integrations' },
     ],
   },
   {

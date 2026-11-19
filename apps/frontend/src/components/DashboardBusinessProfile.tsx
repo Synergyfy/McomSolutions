@@ -17,11 +17,14 @@ export default function DashboardBusinessProfile() {
   const { mutateAsync: generateApiKey } = useGenerateApiKey();
   const uploadLogoMutation = useUploadBusinessFile();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [logoSuccess, setLogoSuccess] = useState(false);
+  const [bannerSuccess, setBannerSuccess] = useState(false);
   const [logoDisplayUrl, setLogoDisplayUrl] = useState('');
+  const [bannerDisplayUrl, setBannerDisplayUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     businessName: '',
@@ -40,6 +43,7 @@ export default function DashboardBusinessProfile() {
     isOnGoogle: false,
     apiKey: '',
     logoUrl: '',
+    bannerUrl: '',
   });
 
   useEffect(() => {
@@ -61,6 +65,7 @@ export default function DashboardBusinessProfile() {
         isOnGoogle: profile.isOnGoogle || false,
         apiKey: profile.apiKey || '',
         logoUrl: profile.logoUrl || '',
+        bannerUrl: profile.bannerUrl || '',
       });
     }
   }, [profile]);
@@ -100,6 +105,39 @@ export default function DashboardBusinessProfile() {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [formData.logoUrl]);
+
+  // Same authenticated-fetch treatment for the cover banner (local /uploads).
+  useEffect(() => {
+    const bannerUrl = formData.bannerUrl;
+    if (!bannerUrl) {
+      setBannerDisplayUrl('');
+      return;
+    }
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    if (!/\/uploads\//.test(bannerUrl)) {
+      setBannerDisplayUrl(bannerUrl);
+      return;
+    }
+
+    setBannerDisplayUrl('');
+    apiClient.get(bannerUrl, { responseType: 'blob' })
+      .then(({ data }) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(data);
+        setBannerDisplayUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setBannerDisplayUrl('');
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [formData.bannerUrl]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -144,6 +182,38 @@ export default function DashboardBusinessProfile() {
     } finally {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleBannerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (PNG, JPG, WebP)');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image file size must be less than 5MB');
+      return;
+    }
+
+    setError(null);
+    try {
+      const res = await uploadLogoMutation.mutateAsync(file);
+      const newBannerUrl = res.secure_url;
+      setFormData(prev => ({ ...prev, bannerUrl: newBannerUrl }));
+      // Persist immediately so the cover survives a refresh and reaches SSO.
+      await updateProfile({ ...formData, bannerUrl: newBannerUrl });
+      setBannerSuccess(true);
+      setTimeout(() => setBannerSuccess(false), 5000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to upload cover image.');
+    } finally {
+      if (bannerInputRef.current) {
+        bannerInputRef.current.value = '';
       }
     }
   };
@@ -220,6 +290,13 @@ export default function DashboardBusinessProfile() {
         </div>
       )}
 
+      {bannerSuccess && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-bold rounded-2xl flex items-center gap-2.5 animate-in fade-in">
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
+          <span>Cover image updated!</span>
+        </div>
+      )}
+
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-2xl flex items-start gap-2.5">
           <AlertCircle className="w-5 h-5 shrink-0" />
@@ -229,6 +306,47 @@ export default function DashboardBusinessProfile() {
 
       {/* Profile Hero */}
       <div className="bg-white rounded-[2rem] border border-gray-200 shadow-sm p-5 md:p-10">
+        {/* Cover banner (uploaded during onboarding as the "Cover Image") */}
+        <div className="relative mb-8">
+          <div className="relative w-full aspect-[16/6] rounded-2xl border-2 border-gray-100 bg-gray-50 overflow-hidden">
+            {bannerDisplayUrl ? (
+              <img
+                src={bannerDisplayUrl}
+                alt="Business cover"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-gray-400">
+                <Camera className="w-6 h-6" />
+                <span className="text-xs font-semibold">No cover image yet</span>
+              </div>
+            )}
+
+            {uploadLogoMutation.isPending && (
+              <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center text-white">
+                <Loader2 className="w-6 h-6 animate-spin text-orange-400" />
+              </div>
+            )}
+          </div>
+
+          <input
+            type="file"
+            ref={bannerInputRef}
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={handleBannerChange}
+          />
+          <button
+            type="button"
+            disabled={uploadLogoMutation.isPending}
+            onClick={() => bannerInputRef.current?.click()}
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3.5 py-2 bg-white/90 hover:bg-white text-gray-700 rounded-full shadow-md border border-gray-200 text-xs font-bold transition disabled:opacity-50"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>{formData.bannerUrl ? 'Change Cover' : 'Upload Cover'}</span>
+          </button>
+        </div>
+
         <div className="flex flex-col md:flex-row items-start gap-8">
           {/* Logo container */}
           <div className="flex flex-col items-center flex-shrink-0">

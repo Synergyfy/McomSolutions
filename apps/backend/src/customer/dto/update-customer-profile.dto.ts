@@ -15,4 +15,14 @@ export class UpdateCustomerProfileDto {
   @IsString()
   @MaxLength(30)
   phone?: string;
+
+  @ApiPropertyOptional({
+    example: 'SW1A 1AA',
+    description:
+      'UK postcode. Saving it (re)assigns the customer to their city, borough, high street and local mall.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  postcode?: string;
 }

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp,
   Gift,
+  LayoutDashboard,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -83,6 +84,45 @@ function toneForStatus(status?: string | null) {
   return 'gray';
 }
 
+// ─── Section availability (shared by the tab bar and the sections themselves) ─
+
+const hasMembershipSummary = (profile: AdminFullUserProfile) =>
+  Boolean(profile.membership.level || profile.membership.status);
+
+const hasSubscriptionData = (profile: AdminFullUserProfile) => {
+  const { membership } = profile;
+  return (
+    membership.ecosystemSubscriptions.length > 0 ||
+    membership.recurringSubscriptions.length > 0 ||
+    membership.installmentSubscriptions.length > 0 ||
+    membership.platformPackages.length > 0 ||
+    membership.accessPurchases.length > 0 ||
+    membership.whitelabelGrants.length > 0
+  );
+};
+
+const hasProgrammeData = (profile: AdminFullUserProfile) =>
+  profile.programme.programmes.length > 0 || profile.programme.taskAssignments.length > 0;
+
+const hasSupportData = (profile: AdminFullUserProfile) =>
+  profile.support.tickets.length > 0 || profile.support.notifications.length > 0;
+
+function getAffiliateVisibility(profile: AdminFullUserProfile) {
+  const role = String(profile.account.role || '').toUpperCase();
+  const isAffiliate = ['AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'].includes(role);
+  const isBusinessViewer = ['BUSINESS', 'CUSTOMER'].includes(role);
+  if (!isAffiliate && !isBusinessViewer) return { visible: false, isAffiliate };
+
+  const { affiliate } = profile;
+  const hasActivity =
+    affiliate.tasks.length > 0 ||
+    affiliate.reputationEvents.length > 0 ||
+    affiliate.ratingsReceived.length > 0 ||
+    affiliate.reports.length > 0;
+
+  return { visible: hasActivity || !isAffiliate, isAffiliate };
+}
+
 export default function AdminUserDetail({ userId }: { userId: string }) {
   const navigate = useNavigate();
   const { data: res, isLoading, isError, error } = useAdminUserFullProfile(userId);
@@ -117,13 +157,83 @@ export default function AdminUserDetail({ userId }: { userId: string }) {
   return <UserProfileBody profile={profile} onBack={() => navigate('/admin/users')} />;
 }
 
+type TabKey =
+  | 'overview'
+  | 'account'
+  | 'profile'
+  | 'membership'
+  | 'payments'
+  | 'programme'
+  | 'affiliate'
+  | 'referrals'
+  | 'support';
+
+interface TabItem {
+  key: TabKey;
+  label: string;
+  icon: LucideIcon;
+  count?: number;
+}
+
 function UserProfileBody({ profile, onBack }: { profile: AdminFullUserProfile; onBack: () => void }) {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const tabBarRef = useRef<HTMLDivElement>(null);
   const { account, businessProfile, customerProfile, agentProfile, consultantProfile, accountManagerProfile } = profile;
   const role = account.role;
   const roleProfile = businessProfile || customerProfile || agentProfile || consultantProfile || accountManagerProfile;
   const status = businessProfile?.membershipStatus || customerProfile?.status || agentProfile?.status || consultantProfile?.status || accountManagerProfile?.status;
   const initial = (account.name || account.email || '?').charAt(0).toUpperCase();
+
+  const roleProfileTab: TabItem | null = businessProfile
+    ? { key: 'profile', label: 'Business', icon: Building2 }
+    : customerProfile
+      ? { key: 'profile', label: 'Customer', icon: UserCircle }
+      : agentProfile
+        ? { key: 'profile', label: 'Agent', icon: Briefcase }
+        : consultantProfile
+          ? { key: 'profile', label: 'Consultant', icon: Briefcase }
+          : accountManagerProfile
+            ? { key: 'profile', label: 'Account manager', icon: Briefcase }
+            : null;
+
+  const showMembershipTab = hasMembershipSummary(profile) || hasSubscriptionData(profile);
+  const showProgrammeTab = hasProgrammeData(profile);
+  const showSupportTab = hasSupportData(profile);
+  const affiliateVisibility = getAffiliateVisibility(profile);
+
+  const tabs: TabItem[] = [
+    { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { key: 'account', label: 'Account', icon: UserCircle },
+    ...(roleProfileTab ? [roleProfileTab] : []),
+    ...(showMembershipTab ? [{ key: 'membership' as TabKey, label: 'Membership', icon: Gem }] : []),
+    { key: 'payments', label: 'Payments', icon: Wallet },
+    ...(showProgrammeTab
+      ? [{ key: 'programme' as TabKey, label: 'Programme', icon: ClipboardList, count: profile.programme.taskSummary.total }]
+      : []),
+    ...(affiliateVisibility.visible
+      ? [
+          {
+            key: 'affiliate' as TabKey,
+            label: affiliateVisibility.isAffiliate ? 'Affiliate' : 'Delegated',
+            icon: Star,
+            count: profile.affiliate.tasks.length,
+          },
+        ]
+      : []),
+    { key: 'referrals', label: 'Referrals', icon: Users },
+    ...(showSupportTab
+      ? [{ key: 'support' as TabKey, label: 'Support', icon: LifeBuoy, count: profile.support.tickets.length }]
+      : []),
+  ];
+
+  const handleTabChange = (key: TabKey) => {
+    setActiveTab(key);
+    const el = tabBarRef.current;
+    if (el && el.getBoundingClientRect().top < 0) {
+      el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -134,7 +244,7 @@ function UserProfileBody({ profile, onBack }: { profile: AdminFullUserProfile; o
         <ArrowLeft className="w-4 h-4" /> Back to all users
       </button>
 
-      {/* Header */}
+      {/* Header — always visible */}
       <div className="relative overflow-hidden bg-white rounded-3xl border border-gray-100 shadow-sm">
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-brand-blue/10 via-blue-50 to-emerald-50" />
         <div className="relative p-6 sm:p-8">
@@ -170,89 +280,179 @@ function UserProfileBody({ profile, onBack }: { profile: AdminFullUserProfile; o
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
-          <Section title="Account details" icon={UserCircle} subtitle="Identity, contact and registration information">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
-              <Field label="Full name" value={account.fullName || account.name} />
-              <Field label="Email address" value={account.email} />
-              <Field label="Role" value={ROLE_LABELS[role] || humanize(role)} />
-              <Field label="Job title" value={account.jobTitle} />
-              <Field label="Registration source" value={humanize(account.registrationSource)} />
-              <Field label="Referral code" value={account.referralCode} mono />
-              <Field
-                label="Referred by"
-                value={account.referredBy ? account.referredBy.email : '—'}
-              />
-              <Field label="Account ID" value={account.id} mono />
-              <Field label="Created at" value={fmtDateTime(account.createdAt)} />
-              <Field label="Last updated" value={fmtDateTime(account.updatedAt)} />
-              <Field label="Deleted at" value={fmtDateTime(account.deletedAt)} />
-              <Field label="Admin role" value={account.adminRole} />
-            </div>
-          </Section>
+      {/* Tabs */}
+      <div ref={tabBarRef} className="scroll-mt-24">
+        <TabBar tabs={tabs} active={activeTab} onChange={handleTabChange} />
+      </div>
 
-          <Section title="Security & preferences" icon={ShieldCheck} subtitle="Authentication and notification settings">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <ToggleFact label="Two-factor auth" enabled={account.twoFactorEnabled} />
-              <ToggleFact label="Email notifications" enabled={account.emailNotifications} />
-              <ToggleFact label="SMS notifications" enabled={account.smsNotifications} />
-              <Field label="Token version" value={String(account.tokenVersion ?? 0)} mono />
-            </div>
-          </Section>
+      {/* Tab panels */}
+      <div>
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+            <Section title="At a glance" icon={BadgeCheck} subtitle="Key account metrics">
+              <div className="space-y-3">
+                <StatRow label="Membership" value={profile.membership.level && profile.membership.tier ? `${profile.membership.level} ${profile.membership.tier}` : profile.membership.status || '—'} />
+                <StatRow label="Revenue" value={fmtMoney(profile.financials.totalRevenue)} />
+                <StatRow label="Programme tasks" value={`${profile.programme.taskSummary.completed}/${profile.programme.taskSummary.total}`} />
+                <StatRow label="Task progress" value={`${profile.programme.taskSummary.progress}%`} />
+                <StatRow label="Outstanding tasks" value={String(profile.programme.taskSummary.outstanding)} />
+                <StatRow label="Affiliate reputation" value={String(profile.affiliate.reputationScore)} />
+                <StatRow label="Wallet balance" value={profile.financials.wallet ? `${profile.financials.wallet.balance} ${profile.financials.wallet.currency}` : '—'} />
+                <StatRow label="Open tickets" value={String(profile.support.tickets.filter((t) => t.status === 'Open').length)} />
+              </div>
+            </Section>
 
-          {businessProfile && <BusinessProfileSection profile={businessProfile} />}
-          {customerProfile && <CustomerProfileSection profile={customerProfile} />}
-          {agentProfile && <AgentProfileSection profile={agentProfile} kind="agent" />}
-          {consultantProfile && <AgentProfileSection profile={consultantProfile} kind="consultant" />}
-          {accountManagerProfile && <AgentProfileSection profile={accountManagerProfile} kind="account-manager" />}
+            <Section title="Programme progress" icon={Activity} subtitle="Task completion across the journey">
+              <ProgressRing value={profile.programme.taskSummary.progress} />
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                <MiniStat label="Completed" value={profile.programme.taskSummary.completed} tone="green" />
+                <MiniStat label="In progress" value={profile.programme.taskSummary.inProgress} tone="blue" />
+                <MiniStat label="Pending" value={profile.programme.taskSummary.pending} tone="amber" />
+                <MiniStat label="Expired" value={profile.programme.taskSummary.expired} tone="red" />
+              </div>
+            </Section>
 
-          <MembershipSection profile={profile} />
-          <SubscriptionsSection profile={profile} />
-          <FinancialSection profile={profile} />
-          <ProgrammeSection profile={profile} />
-          <AffiliateSection profile={profile} />
-          <ReferralHistorySection userId={account.id} />
-          <SupportSection profile={profile} />
-        </div>
-
-        <div className="space-y-6">
-          <Section title="At a glance" icon={BadgeCheck} subtitle="Key account metrics">
-            <div className="space-y-3">
-              <StatRow label="Membership" value={profile.membership.level && profile.membership.tier ? `${profile.membership.level} ${profile.membership.tier}` : profile.membership.status || '—'} />
-              <StatRow label="Revenue" value={fmtMoney(profile.financials.totalRevenue)} />
-              <StatRow label="Programme tasks" value={`${profile.programme.taskSummary.completed}/${profile.programme.taskSummary.total}`} />
-              <StatRow label="Task progress" value={`${profile.programme.taskSummary.progress}%`} />
-              <StatRow label="Outstanding tasks" value={String(profile.programme.taskSummary.outstanding)} />
-              <StatRow label="Affiliate reputation" value={String(profile.affiliate.reputationScore)} />
-              <StatRow label="Wallet balance" value={profile.financials.wallet ? `${profile.financials.wallet.balance} ${profile.financials.wallet.currency}` : '—'} />
-              <StatRow label="Open tickets" value={String(profile.support.tickets.filter((t) => t.status === 'Open').length)} />
-            </div>
-          </Section>
-
-          <Section title="Programme progress" icon={Activity} subtitle="Task completion across the journey">
-            <ProgressRing value={profile.programme.taskSummary.progress} />
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              <MiniStat label="Completed" value={profile.programme.taskSummary.completed} tone="green" />
-              <MiniStat label="In progress" value={profile.programme.taskSummary.inProgress} tone="blue" />
-              <MiniStat label="Pending" value={profile.programme.taskSummary.pending} tone="amber" />
-              <MiniStat label="Expired" value={profile.programme.taskSummary.expired} tone="red" />
-            </div>
-          </Section>
-
-          <Section title="Quick links" icon={ExternalLink} subtitle="Jump to related admin areas">
-            <div className="space-y-2">
-              <QuickLink label="Subscription management" onClick={() => navigate('/admin/subscriptions')} />
-              <QuickLink label="Programme progress" onClick={() => navigate('/admin/programme-progress')} />
-              <QuickLink label="Affiliate tasks" onClick={() => navigate('/admin/affiliate-tasks')} />
-              <QuickLink label="Payments & billing" onClick={() => navigate('/admin/payments')} />
-            </div>
-          </Section>
-
-          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">
-            Generated {fmtDateTime(profile.meta.generatedAt)}
+            <Section title="Quick links" icon={ExternalLink} subtitle="Jump to related admin areas">
+              <div className="space-y-2">
+                <QuickLink label="Subscription management" onClick={() => navigate('/admin/subscriptions')} />
+                <QuickLink label="Programme progress" onClick={() => navigate('/admin/programme-progress')} />
+                <QuickLink label="Affiliate tasks" onClick={() => navigate('/admin/affiliate-tasks')} />
+                <QuickLink label="Payments & billing" onClick={() => navigate('/admin/payments')} />
+              </div>
+            </Section>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'account' && (
+          <div className="space-y-6">
+            <Section title="Account details" icon={UserCircle} subtitle="Identity, contact and registration information">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                <Field label="Full name" value={account.fullName || account.name} />
+                <Field label="Email address" value={account.email} />
+                <Field label="Role" value={ROLE_LABELS[role] || humanize(role)} />
+                <Field label="Job title" value={account.jobTitle} />
+                <Field label="Registration source" value={humanize(account.registrationSource)} />
+                <Field label="Referral code" value={account.referralCode} mono />
+                <Field
+                  label="Referred by"
+                  value={account.referredBy ? account.referredBy.email : '—'}
+                />
+                <Field label="Account ID" value={account.id} mono />
+                <Field label="Created at" value={fmtDateTime(account.createdAt)} />
+                <Field label="Last updated" value={fmtDateTime(account.updatedAt)} />
+                <Field label="Deleted at" value={fmtDateTime(account.deletedAt)} />
+                <Field label="Admin role" value={account.adminRole} />
+              </div>
+            </Section>
+
+            <Section title="Security & preferences" icon={ShieldCheck} subtitle="Authentication and notification settings">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <ToggleFact label="Two-factor auth" enabled={account.twoFactorEnabled} />
+                <ToggleFact label="Email notifications" enabled={account.emailNotifications} />
+                <ToggleFact label="SMS notifications" enabled={account.smsNotifications} />
+                <Field label="Token version" value={String(account.tokenVersion ?? 0)} mono />
+              </div>
+            </Section>
+          </div>
+        )}
+
+        {activeTab === 'profile' && (
+          <div className="space-y-6">
+            {businessProfile && <BusinessProfileSection profile={businessProfile} />}
+            {customerProfile && <CustomerProfileSection profile={customerProfile} />}
+            {agentProfile && <AgentProfileSection profile={agentProfile} kind="agent" />}
+            {consultantProfile && <AgentProfileSection profile={consultantProfile} kind="consultant" />}
+            {accountManagerProfile && <AgentProfileSection profile={accountManagerProfile} kind="account-manager" />}
+          </div>
+        )}
+
+        {activeTab === 'membership' && (
+          <div className="space-y-6">
+            <MembershipSection profile={profile} />
+            <SubscriptionsSection profile={profile} />
+          </div>
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="space-y-6">
+            <FinancialSection profile={profile} />
+          </div>
+        )}
+
+        {activeTab === 'programme' && (
+          <div className="space-y-6">
+            <ProgrammeSection profile={profile} />
+          </div>
+        )}
+
+        {activeTab === 'affiliate' && (
+          <div className="space-y-6">
+            <AffiliateSection profile={profile} />
+          </div>
+        )}
+
+        {activeTab === 'referrals' && (
+          <div className="space-y-6">
+            <ReferralHistorySection userId={account.id} />
+          </div>
+        )}
+
+        {activeTab === 'support' && (
+          <div className="space-y-6">
+            <SupportSection profile={profile} />
+          </div>
+        )}
+      </div>
+
+      <div className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">
+        Generated {fmtDateTime(profile.meta.generatedAt)}
+      </div>
+    </div>
+  );
+}
+
+function TabBar({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: TabItem[];
+  active: TabKey;
+  onChange: (key: TabKey) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white p-1.5 shadow-sm scrollbar-hide">
+      <div className="flex min-w-max items-center gap-1">
+        {tabs.map(({ key, label, icon: Icon, count }) => {
+          const isActive = key === active;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(key)}
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2.5 text-xs font-bold transition-all',
+                isActive
+                  ? 'bg-brand-blue text-white shadow-sm shadow-blue-200'
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-800',
+              )}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              {label}
+              {count != null && count > 0 && (
+                <span
+                  className={cn(
+                    'rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none',
+                    isActive ? 'bg-white/25 text-white' : 'bg-gray-100 text-gray-500',
+                  )}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -409,7 +609,7 @@ function AgentProfileSection({
 
 function MembershipSection({ profile }: { profile: AdminFullUserProfile }) {
   const { membership } = profile;
-  if (!membership.level && !membership.status) return null;
+  if (!hasMembershipSummary(profile)) return null;
   return (
     <Section title="Membership summary" icon={Gem} subtitle="Active plan and verification">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -427,14 +627,7 @@ function MembershipSection({ profile }: { profile: AdminFullUserProfile }) {
 
 function SubscriptionsSection({ profile }: { profile: AdminFullUserProfile }) {
   const { membership } = profile;
-  const hasAny =
-    membership.ecosystemSubscriptions.length > 0 ||
-    membership.recurringSubscriptions.length > 0 ||
-    membership.installmentSubscriptions.length > 0 ||
-    membership.platformPackages.length > 0 ||
-    membership.accessPurchases.length > 0 ||
-    membership.whitelabelGrants.length > 0;
-  if (!hasAny) return null;
+  if (!hasSubscriptionData(profile)) return null;
 
   return (
     <Section title="Subscriptions & platform access" icon={CreditCard} subtitle="Everything this user is subscribed to">
@@ -660,7 +853,7 @@ function FinancialSection({ profile }: { profile: AdminFullUserProfile }) {
 
 function ProgrammeSection({ profile }: { profile: AdminFullUserProfile }) {
   const { programme } = profile;
-  if (programme.programmes.length === 0 && programme.taskAssignments.length === 0) return null;
+  if (!hasProgrammeData(profile)) return null;
 
   return (
     <Section title="Programme & task journey" icon={ClipboardList} subtitle="Enrolments, missions and assigned tasks">
@@ -738,18 +931,9 @@ function ProgrammeCard({ programme }: { key?: string; programme: AdminBusinessPr
 }
 
 function AffiliateSection({ profile }: { profile: AdminFullUserProfile }) {
-  const { affiliate, account } = profile;
-  const role = String(account.role || '').toUpperCase();
-  const isAffiliate = ['AGENT', 'CONSULTANT', 'ACCOUNT_MANAGER'].includes(role);
-  const isBusinessViewer = ['BUSINESS', 'CUSTOMER'].includes(role);
-  if (!isAffiliate && !isBusinessViewer) return null;
-
-  const hasAffiliateActivity =
-    affiliate.tasks.length > 0 ||
-    affiliate.reputationEvents.length > 0 ||
-    affiliate.ratingsReceived.length > 0 ||
-    affiliate.reports.length > 0;
-  if (isAffiliate && !hasAffiliateActivity) return null;
+  const { affiliate } = profile;
+  const { visible, isAffiliate } = getAffiliateVisibility(profile);
+  if (!visible) return null;
 
   const completedTasks = affiliate.tasks.filter((t) => String(t.status).toUpperCase() === 'COMPLETED');
   const openTasks = affiliate.tasks.filter((t) => !['COMPLETED', 'CANCELLED'].includes(String(t.status).toUpperCase()));
@@ -1038,7 +1222,7 @@ function ReferralHistorySection({ userId }: { userId: string }) {
 
 function SupportSection({ profile }: { profile: AdminFullUserProfile }) {
   const { support } = profile;
-  if (support.tickets.length === 0 && support.notifications.length === 0) return null;
+  if (!hasSupportData(profile)) return null;
 
   return (
     <Section title="Support & notifications" icon={LifeBuoy} subtitle="Tickets raised and messages delivered">

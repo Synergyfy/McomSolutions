@@ -1,12 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 import { ensureUserReferralCode } from '../common/referral/referral.util';
+import { LocationAssignmentService } from '../geography/location-assignment.service';
+import type { ResolvedPostcode } from '../geography/postcode.service';
 
 const customerProfileSelect = {
   id: true,
   userId: true,
   phone: true,
+  postcode: true,
+  cityId: true,
+  boroughId: true,
+  highStreetId: true,
+  localMallId: true,
+  locationAssignedAt: true,
   loyaltyPoints: true,
   status: true,
   createdAt: true,
@@ -26,7 +34,12 @@ const customerProfileSelect = {
  */
 @Injectable()
 export class CustomerService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(CustomerService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly locationAssignment: LocationAssignmentService,
+  ) {}
 
   async getProfile(userId: string) {
     const user = await this.requireCustomerUser(userId);
@@ -47,6 +60,7 @@ export class CustomerService {
       referralCode,
       memberSince: user.createdAt,
       phone: customerProfile.phone,
+      postcode: customerProfile.postcode,
       loyaltyPoints: customerProfile.loyaltyPoints,
       status: customerProfile.status,
       customerProfile,
@@ -56,24 +70,72 @@ export class CustomerService {
   async updateProfile(userId: string, dto: UpdateCustomerProfileDto) {
     await this.requireCustomerUser(userId);
 
-    const data: { phone?: string | null } = {};
+    // Validate + normalise the postcode before writing anything: an invalid
+    // postcode must not be persisted.
+    let resolvedPostcode: ResolvedPostcode | null = null;
+    if (dto.postcode !== undefined) {
+      if (dto.postcode.trim() === '') {
+        // Postcode is compulsory for customers — it is how they are placed in
+        // their local area — so it cannot be cleared once set.
+        throw new BadRequestException(
+          'A UK postcode is required for customer accounts.',
+        );
+      }
+      resolvedPostcode = await this.locationAssignment.resolvePostcode(
+        dto.postcode,
+      );
+    }
+
+    const data: { phone?: string | null; postcode?: string | null } = {};
     if (dto.phone !== undefined) {
       data.phone = dto.phone.trim() === '' ? null : dto.phone.trim();
     }
+    if (resolvedPostcode) {
+      data.postcode = resolvedPostcode.postcode;
+    }
 
-    const customerProfile = await this.prisma.customerProfile.upsert({
+    let customerProfile = await this.prisma.customerProfile.upsert({
       where: { userId },
       create: {
         userId,
         phone: data.phone ?? null,
+        postcode: data.postcode ?? null,
       },
       update: data,
       select: customerProfileSelect,
     });
 
+    // Same City → Borough → High Street → Local Mall hierarchy as signup.
+    // Assignment is best-effort: the postcode is already saved, so a resolver
+    // outage should not fail the profile update.
+    if (resolvedPostcode) {
+      try {
+        await this.locationAssignment.assignCustomer(
+          customerProfile.id,
+          resolvedPostcode.postcode,
+          resolvedPostcode,
+        );
+        customerProfile = await this.prisma.customerProfile.findUniqueOrThrow({
+          where: { id: customerProfile.id },
+          select: customerProfileSelect,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Customer ${customerProfile.id} could not be located from postcode ${resolvedPostcode.postcode}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     return {
       success: true,
       phone: customerProfile.phone,
+      postcode: customerProfile.postcode,
+      cityId: customerProfile.cityId,
+      boroughId: customerProfile.boroughId,
+      highStreetId: customerProfile.highStreetId,
+      localMallId: customerProfile.localMallId,
       loyaltyPoints: customerProfile.loyaltyPoints,
       status: customerProfile.status,
       customerProfile,

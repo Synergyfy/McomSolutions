@@ -64,6 +64,7 @@ describe('MCOM Backend (e2e)', () => {
       password: 'TestPass123!',
       role: 'BUSINESS',
       businessName: 'E2E Test Business',
+      postcode: 'SW1A 1AA',
     };
     // Uses global accessToken variable
 

@@ -731,13 +731,39 @@ export class LocationAssignmentService {
     if (resolved.outwardCode) {
       const candidates = await tx.localMall.findMany({
         where: { postcodes: { has: resolved.outwardCode } },
+        include: { highStreetRef: { select: { lat: true, lng: true } } },
       });
+      const distanceOf = (mall: (typeof candidates)[number]) => {
+        if (resolved.latitude == null || resolved.longitude == null) {
+          return null;
+        }
+        const lat = mall.highStreetRef?.lat;
+        const lng = mall.highStreetRef?.lng;
+        if (lat == null || lng == null) return null;
+        return this.distanceKm(
+          resolved.latitude,
+          resolved.longitude,
+          lat,
+          lng,
+        );
+      };
       localMall =
         [...candidates].sort((a, b) => {
           const scoreDiff =
             this.localMallMatchScore(b, boroughName) -
             this.localMallMatchScore(a, boroughName);
           if (scoreDiff !== 0) return scoreDiff;
+          // Among equally-strong matches — e.g. two curated malls sharing an
+          // outcode — assign the business to the physically closest mall.
+          const aDistance = distanceOf(a);
+          const bDistance = distanceOf(b);
+          if (
+            aDistance != null &&
+            bDistance != null &&
+            aDistance !== bDistance
+          ) {
+            return aDistance - bDistance;
+          }
           // Deterministic tie-breaker: oldest OSM mall wins, then name.
           const createdDiff =
             (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0);
@@ -844,6 +870,26 @@ export class LocationAssignmentService {
     // mall for the area; prefer it over a single-street OSM entry.
     score += Math.min((mall.postcodes || []).length, 10) * 10;
     return score;
+  }
+
+  /** Great-circle distance in kilometres (Haversine). */
+  private distanceKm(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const earthRadiusKm = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   private async uniqueMallSlug(

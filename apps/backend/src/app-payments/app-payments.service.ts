@@ -250,8 +250,8 @@ export class AppPaymentsService {
         application_context: {
           brand_name: client.name,
           user_action: 'PAY_NOW',
-          return_url: `${appUrl}/payment/success`,
-          cancel_url: `${appUrl}/payment/cancel`,
+          return_url: dto.returnUrl || `${appUrl}/payment/success`,
+          cancel_url: dto.cancelUrl || `${appUrl}/payment/cancel`,
         },
       },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },

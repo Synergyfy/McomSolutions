@@ -102,6 +102,8 @@ model User {
   affiliateServiceRequestsOwned   AffiliateServiceRequest[]  @relation("AffiliateServiceRequestManager")
   affiliateServiceRequestsCreated AffiliateServiceRequest[]  @relation("AffiliateServiceRequestCreator")
   affiliateTaskEvents             AffiliateTaskEvent[]       @relation("AffiliateTaskEventActor")
+  // ── Local Affiliate (consumer affiliate programme) ──
+  localAffiliateProfile           LocalAffiliateProfile?
 
   @@index([deletedAt])
   @@index([role])
@@ -127,6 +129,11 @@ model BusinessProfile {
   description                   String?
   website                       String?
   logoUrl                       String?
+  // Storefront artwork collected during onboarding: the cover banner plus the
+  // storefront exterior/gallery images. Both are surfaced to partner apps
+  // through the SSO identity payload.
+  bannerUrl                     String?                             @map("banner_url")
+  media                         String[]                            @default([]) @map("media")
   openingHours                  String?
   socialMedia                   String?
   membershipLevel               MembershipLevel                     @default(Bronze)
@@ -3464,4 +3471,831 @@ model ReferralCommission {
   @@index([status])
   @@index([sourceType, sourceId])
   @@map("referral_commissions")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCAL AFFILIATE PROGRAMME
+// ───────────────────────────────────────────────────────────────────────────
+// Consumer-facing affiliate system. NOT the agency "Affiliate" domain above
+// (affiliate_tasks / affiliate_projects / settlements) — that is the 247GBS
+// Affiliates recruitment programme for AGENT / CONSULTANT / ACCOUNT_MANAGER.
+//
+// Design rules enforced here:
+//   • One LocalAffiliateProfile per User. An affiliate is always an existing
+//     CHS identity — never a second user row.
+//   • Attribution is per (affiliate, offer, campaign) in affiliate_tracking_links.
+//     A product NEVER carries an affiliate id.
+//   • The reward ledger is append-only: units are never mutated, only status
+//     transitions. Balances are derived by aggregation.
+//   • Pending rewards never touch Wallet balance.
+//   • Provider transaction ids are unique per provider account, so duplicate
+//     webhooks cannot credit twice.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum LocalAffiliateStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum LocalAffiliateCardStatus {
+  NOT_LINKED
+  PENDING
+  LINKED
+  FAILED
+}
+
+enum AffiliateProviderType {
+  INTERNAL_PLATFORM
+  EXTERNAL_CHECKOUT
+  AFFILIATE_NETWORK
+  EXTERNAL_BUSINESS
+}
+
+enum AffiliateIntegrationLevel {
+  LINK_ONLY
+  REDEMPTION_CODE
+  MANUAL_CONFIRMATION
+  PROVIDER_API
+  PROVIDER_WEBHOOK
+}
+
+enum AffiliateProviderStatus {
+  DRAFT
+  CONNECTED
+  DEGRADED
+  DISCONNECTED
+}
+
+enum AffiliateOfferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  PAUSED
+  ENDED
+  ARCHIVED
+}
+
+enum AffiliateCampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum AffiliateTrackingMethod {
+  INTERNAL_REDIRECT
+  BUILT_AT_CLICK
+  STATIC_PROVIDER_LINK
+}
+
+enum AffiliateQualifyingEvent {
+  LINK_CLICK
+  QUALIFIED_VISIT
+  VERIFIED_LEAD
+  COMPLETED_BOOKING
+  APPROVED_PURCHASE
+  VERIFIED_REDEMPTION
+  CANCELLED_REFUNDED
+}
+
+enum AffiliateRewardType {
+  POINTS
+  CREDIT
+  VOUCHER
+  DISCOUNT
+  LOYALTY_STAMP
+  CAMPAIGN_BENEFIT
+}
+
+enum AffiliateRewardCalculation {
+  FIXED
+  PERCENTAGE
+  TIERED
+}
+
+enum AffiliateRewardUnit {
+  POINTS
+  CREDIT
+}
+
+enum AffiliateApprovalMode {
+  AUTOMATIC
+  PROVIDER_CONFIRMATION
+  ADMIN_CONFIRMATION
+  REDEMPTION_VALIDATION
+}
+
+enum AffiliateReversalPolicy {
+  REVERSE_ON_REFUND
+  NO_REVERSAL
+  MANUAL_REVIEW
+}
+
+enum AffiliateConversionStatus {
+  RECEIVED
+  MATCHED
+  UNMATCHED
+  ATTRIBUTED
+  REJECTED
+  DUPLICATE
+  EXPIRED_UNATTRIBUTED
+}
+
+enum AffiliateAttributionMethod {
+  INTERNAL_LAST_CLICK
+  PROVIDER_LAST_CLICK
+  PROVIDER_DECISION
+  MANUAL
+}
+
+enum AffiliateRewardStatus {
+  PENDING
+  APPROVED
+  AVAILABLE
+  REDEEMED
+  REJECTED
+  CANCELLED
+  REVERSED
+  EXPIRED
+}
+
+enum AffiliateLedgerEntryType {
+  CREDIT
+  DEBIT
+  EXPIRY
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum AffiliateVoucherStatus {
+  ISSUED
+  PARTIALLY_REDEEMED
+  REDEEMED
+  EXPIRED
+  REVOKED
+}
+
+enum AffiliateRedemptionStatus {
+  VALIDATED
+  REJECTED
+  REVERSED
+}
+
+enum AffiliateEligibilityScope {
+  GLOBAL
+  CITY
+  BOROUGH
+  HIGH_STREET
+  LOCAL_MALL
+  MEMBERSHIP_TIER
+  AFFILIATE_STATUS
+}
+
+enum AffiliateSyncStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum AffiliateProviderEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum AffiliateTransactionStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  DELETED
+  REFUNDED
+  AMENDED
+}
+
+/// The affiliate identity. One per User — never a second CHS account.
+model LocalAffiliateProfile {
+  id                String               @id @default(cuid())
+  userId            String               @unique @map("user_id")
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Human-shareable, permanent, never reissued: "LAF-000125".
+  affiliateCode     String               @unique @map("affiliate_code")
+  status            LocalAffiliateStatus @default(PENDING)
+  displayName       String?              @map("display_name")
+  termsVersion      String               @map("terms_version")
+  termsAcceptedAt   DateTime             @map("terms_accepted_at")
+  /// EXISTING_CHS | NEW_CHS — how this affiliate arrived (reporting only).
+  activatedFrom     String               @map("activated_from")
+  /// Optional acquisition provenance (?invite=, QR, EV card link).
+  acquisitionSource String?              @map("acquisition_source")
+  acquisitionRef    String?              @map("acquisition_ref")
+  approvedByUserId  String?              @map("approved_by_user_id")
+  approvedAt        DateTime?            @map("approved_at")
+  suspendedReason   String?              @map("suspended_reason")
+  firstClickAt      DateTime?            @map("first_click_at")
+  firstRewardAt     DateTime?            @map("first_reward_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  cards             LocalAffiliateCard[]
+  trackingLinks     AffiliateTrackingLink[]
+  rewardLedger      AffiliateRewardLedger[]
+  rewardRedemptions AffiliateRewardRedemption[]
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("local_affiliate_profiles")
+}
+
+/// Linked external card (MCOM VCard / EV Card). Optional at every step.
+model LocalAffiliateCard {
+  id               String                   @id @default(cuid())
+  localAffiliateId String                   @map("local_affiliate_id")
+  localAffiliate   LocalAffiliateProfile    @relation(fields: [localAffiliateId], references: [id], onDelete: Cascade)
+  provider         String                   @map("provider") // vcard | evcard
+  externalCardId   String?                  @map("external_card_id")
+  status           LocalAffiliateCardStatus @default(NOT_LINKED)
+  linkedAt         DateTime?                @map("linked_at")
+  lastCheckedAt    DateTime?                @map("last_checked_at")
+  metadata         Json?
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([localAffiliateId, provider])
+  @@map("local_affiliate_cards")
+}
+
+/// A product/service/offer source. Mall, ThriveCart, Awin, external business.
+model AffiliateProvider {
+  id                     String                     @id @default(cuid())
+  code                   String                     @unique // mcom_mall | thrivecart | awin | external_*
+  name                   String
+  type                   AffiliateProviderType
+  integrationLevel       AffiliateIntegrationLevel  @map("integration_level")
+  status                 AffiliateProviderStatus    @default(DRAFT)
+  supportedEvents        AffiliateQualifyingEvent[] @default([]) @map("supported_events")
+  supportedRewardTypes   AffiliateRewardType[]      @default([]) @map("supported_reward_types")
+  requiresManualApproval Boolean                    @default(false) @map("requires_manual_approval")
+  featureFlag            String?                    @map("feature_flag")
+  notes                  String?                    @db.Text
+  lastSuccessfulSyncAt   DateTime?                  @map("last_successful_sync_at")
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
+
+  accounts AffiliateProviderAccount[]
+  products AffiliateProduct[]
+  offers   AffiliateOffer[]
+  events   AffiliateProviderEvent[]
+
+  @@index([type])
+  @@index([status])
+  @@map("affiliate_providers")
+}
+
+/// Credentials and sync cursor for one provider account. Secrets are
+/// AES-256-GCM encrypted via console/crypto.util and never returned by an API.
+model AffiliateProviderAccount {
+  id                   String                  @id @default(cuid())
+  providerId           String                  @map("provider_id")
+  provider             AffiliateProvider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  label                String
+  externalAccountId    String                  @map("external_account_id")
+  credentialsEncrypted String?                 @map("credentials_encrypted") @db.Text
+  config               Json?
+  status               AffiliateProviderStatus @default(DRAFT)
+  lastSyncedAt         DateTime?               @map("last_synced_at")
+  syncCursor           Json?                   @map("sync_cursor")
+  lastSyncError        String?                 @map("last_sync_error") @db.Text
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+
+  transactions AffiliateProviderTransaction[]
+  syncLogs     AffiliateSyncLog[]
+
+  @@unique([providerId, externalAccountId])
+  @@index([status])
+  @@map("affiliate_provider_accounts")
+}
+
+/// A business that is not on MCOM Mall and not a 247GBS platform.
+model ExternalBusiness {
+  id                 String    @id @default(cuid())
+  name               String
+  website            String?
+  contactName        String?   @map("contact_name")
+  contactEmail       String?   @map("contact_email")
+  contactPhone       String?   @map("contact_phone")
+  address            String?
+  postcode           String?
+  country            String    @default("United Kingdom")
+  cityId             String?   @map("city_id")
+  boroughId          String?   @map("borough_id")
+  highStreetId       String?   @map("high_street_id")
+  localMallId        String?   @map("local_mall_id")
+  category           String?
+  verificationStatus String    @default("UNVERIFIED") @map("verification_status") // UNVERIFIED | PENDING | VERIFIED | REJECTED
+  verifiedAt         DateTime? @map("verified_at")
+  verifiedByUserId   String?   @map("verified_by_user_id")
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  offers AffiliateOffer[]
+
+  @@index([verificationStatus])
+  @@index([cityId])
+  @@index([boroughId])
+  @@index([localMallId])
+  @@map("external_businesses")
+}
+
+/// Marketplace category reference data (Admin-editable, no migration needed).
+model AffiliateOfferCategory {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  offers AffiliateOffer[]
+
+  @@map("affiliate_offer_categories")
+}
+
+/// Read-through cache of a provider's product. The provider stays authoritative.
+model AffiliateProduct {
+  id                 String            @id @default(cuid())
+  providerId         String            @map("provider_id")
+  provider           AffiliateProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  externalProductId  String            @map("external_product_id")
+  businessId         String?           @map("business_id") // MCOM BusinessProfile id (no FK on purpose)
+  externalBusinessId String?           @map("external_business_id")
+  title              String
+  description        String?           @db.Text
+  media              String[]          @default([])
+  priceMinor         Int?              @map("price_minor")
+  currency           String            @default("GBP")
+  category           String?
+  subCategory        String?           @map("sub_category")
+  productType        String            @default("PRODUCT") @map("product_type")
+  destinationUrl     String            @map("destination_url") @db.Text
+  availability       Json?
+  sourcePayload      Json?             @map("source_payload")
+  isActive           Boolean           @default(true) @map("is_active")
+  lastSyncedAt       DateTime?         @map("last_synced_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  offers AffiliateOffer[]
+
+  @@unique([providerId, externalProductId])
+  @@index([providerId, isActive])
+  @@index([businessId])
+  @@map("affiliate_products")
+}
+
+/// A promotable offer. Owned by a provider, promoted by us.
+model AffiliateOffer {
+  id                 String                  @id @default(cuid())
+  slug               String                  @unique
+  providerId         String                  @map("provider_id")
+  provider           AffiliateProvider       @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  productId          String?                 @map("product_id")
+  product            AffiliateProduct?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  businessId         String?                 @map("business_id") // MCOM BusinessProfile (no FK on purpose)
+  externalBusinessId String?                 @map("external_business_id")
+  externalBusiness   ExternalBusiness?       @relation(fields: [externalBusinessId], references: [id], onDelete: SetNull)
+  categoryId         String?                 @map("category_id")
+  category           AffiliateOfferCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  title       String
+  subtitle    String?
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url")
+  media       String[] @default([])
+
+  /// Where the visitor ultimately lands. Resolved server-side; never client-supplied.
+  destinationUrl   String                    @map("destination_url") @db.Text
+  integrationLevel AffiliateIntegrationLevel @map("integration_level")
+  trackingMethod   AffiliateTrackingMethod   @default(INTERNAL_REDIRECT) @map("tracking_method")
+
+  eligibilityScope AffiliateEligibilityScope @default(GLOBAL) @map("eligibility_scope")
+  eligibility      Json?
+
+  /// What the REFERRED CUSTOMER gets. Separate from the affiliate reward (FR-10.1).
+  customerBenefit  Json?   @map("customer_benefit")
+  /// The affiliate reward: AffiliateRewardRule.id (no FK — rules are versioned).
+  rewardRuleId     String? @map("reward_rule_id")
+  redemptionMethod String  @default("NONE") @map("redemption_method") // NONE | PLATFORM_CODE | PROVIDER_CODE | MANUAL
+  holdDays         Int     @default(0) @map("hold_days")
+
+  status               AffiliateOfferStatus @default(DRAFT)
+  startsAt             DateTime?            @map("starts_at")
+  endsAt               DateTime?            @map("ends_at")
+  /// True when the buyer's identity cannot be verified (Level 1–3 externals),
+  /// so self-referral cannot be detected. Surfaced in reconciliation.
+  identityUnverifiable Boolean              @default(false) @map("identity_unverifiable")
+  allowOwnerPromotion  Boolean              @default(false) @map("allow_owner_promotion")
+  approvedByUserId     String?              @map("approved_by_user_id")
+  approvedAt           DateTime?            @map("approved_at")
+  createdByUserId      String?              @map("created_by_user_id")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  campaignLinks AffiliateCampaignOffer[]
+  trackingLinks AffiliateTrackingLink[]
+  vouchers      AffiliateVoucher[]
+
+  @@index([status, startsAt, endsAt])
+  @@index([providerId])
+  @@index([categoryId])
+  @@index([businessId])
+  @@map("affiliate_offers")
+}
+
+/// Time-boxed grouping of offers with shared rules, budget and eligibility.
+/// Named `local_affiliate_campaigns` — `campaigns` is the geographic marketing model.
+model AffiliateCampaign {
+  id                           String                    @id @default(cuid())
+  code                         String                    @unique
+  name                         String
+  description                  String?                   @db.Text
+  status                       AffiliateCampaignStatus   @default(DRAFT)
+  startsAt                     DateTime?                 @map("starts_at")
+  endsAt                       DateTime?                 @map("ends_at")
+  eligibilityScope             AffiliateEligibilityScope @default(GLOBAL) @map("eligibility_scope")
+  eligibility                  Json?
+  rewardCapUnits               Decimal?                  @map("reward_cap_units") @db.Decimal(18, 4)
+  rewardCapUnit                AffiliateRewardUnit?      @map("reward_cap_unit")
+  budgetUnitsIssued            Decimal                   @default(0) @map("budget_units_issued") @db.Decimal(18, 4)
+  promotionMaterials           Json?                     @map("promotion_materials")
+  defaultRewardRuleId          String?                   @map("default_reward_rule_id")
+  defaultAttributionWindowDays Int?                      @map("default_attribution_window_days")
+  createdByUserId              String?                   @map("created_by_user_id")
+  createdAt                    DateTime                  @default(now()) @map("created_at")
+  updatedAt                    DateTime                  @updatedAt @map("updated_at")
+
+  offers AffiliateCampaignOffer[]
+
+  @@index([status, startsAt, endsAt])
+  @@map("local_affiliate_campaigns")
+}
+
+model AffiliateCampaignOffer {
+  campaignId   String            @map("campaign_id")
+  campaign     AffiliateCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  offerId      String            @map("offer_id")
+  offer        AffiliateOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  rewardRuleId String?           @map("reward_rule_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@id([campaignId, offerId])
+  @@index([offerId])
+  @@map("affiliate_campaign_offers")
+}
+
+/// Versioned, immutable reward configuration (mirrors ReferralConfig).
+/// Evaluation always uses the version current at conversion.occurredAt.
+model AffiliateRewardRule {
+  id                    String                     @id @default(cuid())
+  version               Int                        @unique
+  isCurrent             Boolean                    @default(true) @map("is_current")
+  name                  String
+  qualifyingEvent       AffiliateQualifyingEvent   @map("qualifying_event")
+  rewardType            AffiliateRewardType        @map("reward_type")
+  calculation           AffiliateRewardCalculation @default(FIXED)
+  unit                  AffiliateRewardUnit        @default(POINTS)
+  fixedUnits            Decimal?                   @map("fixed_units") @db.Decimal(18, 4)
+  percentage            Decimal?                   @db.Decimal(7, 4)
+  /// Required when calculation=PERCENTAGE and unit=POINTS.
+  pointsPerCurrencyUnit Decimal?                   @map("points_per_currency_unit") @db.Decimal(18, 6)
+  tiers                 Json?
+  maxRewardUnits        Decimal?                   @map("max_reward_units") @db.Decimal(18, 4)
+  minPurchaseMinor      Int?                       @map("min_purchase_minor")
+  approvalMode          AffiliateApprovalMode      @default(ADMIN_CONFIRMATION) @map("approval_mode")
+  reversalPolicy        AffiliateReversalPolicy    @default(REVERSE_ON_REFUND) @map("reversal_policy")
+  expiryDays            Int?                       @map("expiry_days")
+  capPerAffiliateUnits  Decimal?                   @map("cap_per_affiliate_units") @db.Decimal(18, 4)
+  capPerCampaignUnits   Decimal?                   @map("cap_per_campaign_units") @db.Decimal(18, 4)
+  effectiveFrom         DateTime                   @default(now()) @map("effective_from")
+  createdByUserId       String?                    @map("created_by_user_id")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+
+  @@index([isCurrent])
+  @@map("affiliate_reward_rules")
+}
+
+/// The unit of attribution: one row per (affiliate, offer, campaign).
+/// `code` is the ONLY value that crosses an external boundary.
+model AffiliateTrackingLink {
+  id               String                @id @default(cuid())
+  code             String                @unique
+  localAffiliateId String                @map("local_affiliate_id")
+  localAffiliate   LocalAffiliateProfile @relation(fields: [localAffiliateId], references: [id], onDelete: Cascade)
+  offerId          String                @map("offer_id")
+  offer            AffiliateOffer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  campaignId       String?               @map("campaign_id")
+  /// `campaignId ?? ''` — PostgreSQL treats NULLs as distinct, so a nullable
+  /// column in a unique constraint would allow duplicate non-campaign links.
+  campaignKey      String                @default("") @map("campaign_key")
+  providerId       String                @map("provider_id")
+  providerLinkUrl  String?               @map("provider_link_url") @db.Text
+  providerClickRef String?               @map("provider_click_ref")
+  destinationUrl   String                @map("destination_url") @db.Text
+  isActive         Boolean               @default(true) @map("is_active")
+  clickCount       Int                   @default(0) @map("click_count")
+  lastClickAt      DateTime?             @map("last_click_at")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  clicks       AffiliateClick[]
+  conversions  AffiliateConversion[]
+  attributions AffiliateAttribution[]
+
+  @@unique([localAffiliateId, offerId, campaignKey])
+  @@index([localAffiliateId, createdAt(sort: Desc)])
+  @@index([offerId])
+  @@index([code])
+  @@map("affiliate_tracking_links")
+}
+
+/// One row per visit through a tracking link.
+model AffiliateClick {
+  id                 String                @id @default(cuid())
+  trackingLinkId     String                @map("tracking_link_id")
+  trackingLink       AffiliateTrackingLink @relation(fields: [trackingLinkId], references: [id], onDelete: Cascade)
+  occurredAt         DateTime              @default(now()) @map("occurred_at")
+  ipHash             String?               @map("ip_hash")
+  userAgent          String?               @map("user_agent") @db.Text
+  referrer           String?               @db.Text
+  visitorFingerprint String?               @map("visitor_fingerprint")
+  source             String                @default("INTERNAL_REDIRECT")
+  convertedAt        DateTime?             @map("converted_at")
+  metadata           Json?
+
+  @@index([trackingLinkId, occurredAt(sort: Desc)])
+  @@index([occurredAt])
+  @@map("affiliate_clicks")
+}
+
+/// Raw provider event, persisted BEFORE mapping so a mapping bug is recoverable.
+model AffiliateProviderEvent {
+  id               String                       @id @default(cuid())
+  providerId       String                       @map("provider_id")
+  provider         AffiliateProvider            @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  externalEventId  String                       @map("external_event_id")
+  eventType        String                       @map("event_type")
+  signatureValid   Boolean                      @default(false) @map("signature_valid")
+  rawBody          Json                         @map("raw_body")
+  receivedAt       DateTime                     @default(now()) @map("received_at")
+  processedAt      DateTime?                    @map("processed_at")
+  processingStatus AffiliateProviderEventStatus @default(RECEIVED) @map("processing_status")
+  error            String?                      @db.Text
+
+  @@unique([providerId, externalEventId])
+  @@index([processingStatus, receivedAt])
+  @@map("affiliate_provider_events")
+}
+
+/// Provider-reported transaction (the provider's truth, unmodified).
+model AffiliateProviderTransaction {
+  id                    String                     @id @default(cuid())
+  providerAccountId     String                     @map("provider_account_id")
+  providerAccount       AffiliateProviderAccount   @relation(fields: [providerAccountId], references: [id], onDelete: Cascade)
+  providerId            String                     @map("provider_id")
+  providerTransactionId String                     @map("provider_transaction_id")
+  providerOrderRef      String?                    @map("provider_order_ref")
+  status                AffiliateTransactionStatus @default(PENDING)
+  amountMinor           Int?                       @map("amount_minor")
+  currency              String                     @default("GBP")
+  commissionAmountMinor Int?                       @map("commission_amount_minor")
+  commissionGroups      Json?                      @map("commission_groups")
+  clickRef              String?                    @map("click_ref")
+  validationDate        DateTime?                  @map("validation_date")
+  transactionDate       DateTime                   @map("transaction_date")
+  firstSeenAt           DateTime                   @default(now()) @map("first_seen_at")
+  lastSyncedAt          DateTime                   @default(now()) @map("last_synced_at")
+  raw                   Json?
+
+  @@unique([providerAccountId, providerTransactionId])
+  @@index([providerId, status, transactionDate])
+  @@index([clickRef])
+  @@map("affiliate_provider_transactions")
+}
+
+/// A qualifying event, before and after attribution.
+model AffiliateConversion {
+  id                    String                      @id @default(cuid())
+  providerId            String                      @map("provider_id")
+  trackingLinkId        String?                     @map("tracking_link_id")
+  trackingLink          AffiliateTrackingLink?      @relation(fields: [trackingLinkId], references: [id], onDelete: SetNull)
+  localAffiliateId      String?                     @map("local_affiliate_id")
+  offerId               String?                     @map("offer_id")
+  campaignId            String?                     @map("campaign_id")
+  providerTransactionId String?                     @map("provider_transaction_id")
+  providerOrderRef      String?                     @map("provider_order_ref")
+  eventType             AffiliateQualifyingEvent    @map("event_type")
+  amountMinor           Int?                        @map("amount_minor")
+  currency              String                      @default("GBP")
+  occurredAt            DateTime                    @map("occurred_at")
+  status                AffiliateConversionStatus   @default(RECEIVED)
+  attributionMethod     AffiliateAttributionMethod? @map("attribution_method")
+  attributionWindowDays Int?                        @map("attribution_window_days")
+  customerUserId        String?                     @map("customer_user_id")
+  customerEmailHash     String?                     @map("customer_email_hash")
+  rawEventId            String?                     @map("raw_event_id")
+  rejectionReason       String?                     @map("rejection_reason")
+  explanationText       String?                     @map("explanation_text") @db.Text
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+
+  attribution AffiliateAttribution?
+  ledger      AffiliateRewardLedger[]
+
+  @@unique([providerId, providerTransactionId, eventType])
+  @@index([localAffiliateId, occurredAt(sort: Desc)])
+  @@index([status, occurredAt])
+  @@index([offerId])
+  @@map("affiliate_conversions")
+}
+
+/// The attribution DECISION. Immutable; a re-decision supersedes, never overwrites.
+model AffiliateAttribution {
+  id                        String                     @id @default(cuid())
+  conversionId              String                     @unique @map("conversion_id")
+  conversion                AffiliateConversion        @relation(fields: [conversionId], references: [id], onDelete: Cascade)
+  trackingLinkId            String                     @map("tracking_link_id")
+  trackingLink              AffiliateTrackingLink      @relation(fields: [trackingLinkId], references: [id], onDelete: Restrict)
+  localAffiliateId          String                     @map("local_affiliate_id")
+  attributionMethod         AffiliateAttributionMethod @map("attribution_method")
+  windowDays                Int                        @map("window_days")
+  clickedAt                 DateTime?                  @map("clicked_at")
+  convertedAt               DateTime                   @map("converted_at")
+  confidence                String                     @default("HIGH")
+  reason                    String                     @db.Text
+  decidedAt                 DateTime                   @default(now()) @map("decided_at")
+  decidedByUserId           String?                    @map("decided_by_user_id")
+  supersededByAttributionId String?                    @map("superseded_by_attribution_id")
+
+  @@index([localAffiliateId, decidedAt(sort: Desc)])
+  @@map("affiliate_attributions")
+}
+
+/// Append-only reward ledger. Units are never mutated; only status transitions.
+model AffiliateRewardLedger {
+  id                String                   @id @default(cuid())
+  localAffiliateId  String                   @map("local_affiliate_id")
+  localAffiliate    LocalAffiliateProfile    @relation(fields: [localAffiliateId], references: [id], onDelete: Cascade)
+  conversionId      String?                  @map("conversion_id")
+  conversion        AffiliateConversion?     @relation(fields: [conversionId], references: [id], onDelete: SetNull)
+  rewardRuleId      String?                  @map("reward_rule_id")
+  rewardRuleVersion Int?                     @map("reward_rule_version")
+  campaignId        String?                  @map("campaign_id")
+  offerId           String?                  @map("offer_id")
+  entryType         AffiliateLedgerEntryType @map("entry_type")
+  unit              AffiliateRewardUnit      @default(POINTS)
+  units             Decimal                  @db.Decimal(18, 4)
+  status            AffiliateRewardStatus    @default(PENDING)
+  idempotencyKey    String                   @unique @map("idempotency_key")
+  description       String
+  explanationCode   String?                  @map("explanation_code")
+  explanationText   String?                  @map("explanation_text") @db.Text
+  metadata          Json?
+  expiresAt         DateTime?                @map("expires_at")
+  approvedAt        DateTime?                @map("approved_at")
+  availableAt       DateTime?                @map("available_at")
+  closedAt          DateTime?                @map("closed_at")
+  reversesLedgerId  String?                  @map("reverses_ledger_id")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+
+  events AffiliateLedgerEvent[]
+
+  @@index([localAffiliateId, status])
+  @@index([status, expiresAt])
+  @@index([conversionId])
+  @@index([campaignId, status])
+  @@map("affiliate_reward_ledger")
+}
+
+/// Every status transition on a ledger row.
+model AffiliateLedgerEvent {
+  id          String                 @id @default(cuid())
+  ledgerId    String                 @map("ledger_id")
+  ledger      AffiliateRewardLedger  @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  fromStatus  AffiliateRewardStatus? @map("from_status")
+  toStatus    AffiliateRewardStatus  @map("to_status")
+  actorType   String                 @default("SYSTEM") @map("actor_type")
+  actorUserId String?                @map("actor_user_id")
+  reason      String?                @db.Text
+  createdAt   DateTime               @default(now()) @map("created_at")
+
+  @@index([ledgerId, createdAt])
+  @@map("affiliate_ledger_events")
+}
+
+/// The affiliate spending their reward.
+model AffiliateRewardRedemption {
+  id                  String                @id @default(cuid())
+  localAffiliateId    String                @map("local_affiliate_id")
+  localAffiliate      LocalAffiliateProfile @relation(fields: [localAffiliateId], references: [id], onDelete: Cascade)
+  rewardType          AffiliateRewardType   @map("reward_type")
+  unit                AffiliateRewardUnit   @default(POINTS)
+  unitsSpent          Decimal               @map("units_spent") @db.Decimal(18, 4)
+  status              String                @default("PENDING")
+  voucherId           String?               @map("voucher_id")
+  walletTransactionId String?               @map("wallet_transaction_id")
+  allocation          Json?
+  createdAt           DateTime              @default(now()) @map("created_at")
+  fulfilledAt         DateTime?             @map("fulfilled_at")
+
+  @@index([localAffiliateId, createdAt(sort: Desc)])
+  @@map("affiliate_reward_redemptions")
+}
+
+/// A code the REFERRED CUSTOMER presents. Distinct from the affiliate reward.
+model AffiliateVoucher {
+  id                 String                 @id @default(cuid())
+  code               String                 @unique
+  offerId            String?                @map("offer_id")
+  offer              AffiliateOffer?        @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  campaignId         String?                @map("campaign_id")
+  issuedToUserId     String?                @map("issued_to_user_id")
+  /// The affiliate who earns the reward when this voucher is redeemed.
+  /// Recorded at issue time because the presenter (the referred customer) is a
+  /// different person entirely — the two-beneficiary rule (FR-10.1).
+  localAffiliateId   String?                @map("local_affiliate_id")
+  /// Tracking code that produced the voucher, so attribution needs no click.
+  trackingLinkCode   String?                @map("tracking_link_code")
+  benefit            Json                   @default("{}")
+  maxUses            Int                    @default(1) @map("max_uses")
+  usedCount          Int                    @default(0) @map("used_count")
+  maxUsesPerCustomer Int                    @default(1) @map("max_uses_per_customer")
+  status             AffiliateVoucherStatus @default(ISSUED)
+  expiresAt          DateTime?              @map("expires_at")
+  issuedAt           DateTime               @default(now()) @map("issued_at")
+  revokedAt          DateTime?              @map("revoked_at")
+  revokeReason       String?                @map("revoke_reason")
+  createdAt          DateTime               @default(now()) @map("created_at")
+
+  redemptions AffiliateRedemption[]
+
+  @@index([status, expiresAt])
+  @@index([offerId])
+  @@index([localAffiliateId])
+  @@map("affiliate_vouchers")
+}
+
+/// One validated presentation of a voucher.
+model AffiliateRedemption {
+  id                    String                    @id @default(cuid())
+  voucherId             String                    @map("voucher_id")
+  voucher               AffiliateVoucher          @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  customerUserId        String?                   @map("customer_user_id")
+  /// customerUserId when known, else a stable hash — because PostgreSQL treats
+  /// NULLs as distinct and a nullable unique column would not enforce the rule.
+  customerKey           String                    @map("customer_key")
+  status                AffiliateRedemptionStatus @default(VALIDATED)
+  channel               String                    @default("API") // ONLINE | POS | MANUAL | API
+  validatedAt           DateTime                  @default(now()) @map("validated_at")
+  validatedByUserId     String?                   @map("validated_by_user_id")
+  validatedByBusinessId String?                   @map("validated_by_business_id")
+  amountMinor           Int?                      @map("amount_minor")
+  posReference          String?                   @map("pos_reference")
+  ipHash                String?                   @map("ip_hash")
+  rejectionReason       String?                   @map("rejection_reason")
+  reversedAt            DateTime?                 @map("reversed_at")
+
+  @@unique([voucherId, customerKey])
+  @@index([voucherId, status])
+  @@index([validatedAt])
+  @@map("affiliate_redemptions")
+}
+
+model AffiliateSyncLog {
+  id                String                   @id @default(cuid())
+  providerAccountId String                   @map("provider_account_id")
+  providerAccount   AffiliateProviderAccount @relation(fields: [providerAccountId], references: [id], onDelete: Cascade)
+  syncType          String                   @map("sync_type")
+  windowStart       DateTime?                @map("window_start")
+  windowEnd         DateTime?                @map("window_end")
+  fetched           Int                      @default(0)
+  created           Int                      @default(0)
+  updated           Int                      @default(0)
+  skipped           Int                      @default(0)
+  errored           Int                      @default(0)
+  durationMs        Int                      @default(0) @map("duration_ms")
+  status            AffiliateSyncStatus      @default(SUCCESS)
+  error             String?                  @db.Text
+  startedAt         DateTime                 @default(now()) @map("started_at")
+  finishedAt        DateTime?                @map("finished_at")
+
+  @@index([providerAccountId, startedAt(sort: Desc)])
+  @@map("affiliate_sync_logs")
 }

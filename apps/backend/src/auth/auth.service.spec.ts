@@ -3,7 +3,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { ConflictException, ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, UnauthorizedException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
@@ -44,6 +44,10 @@ describe('AuthService', () => {
     businessProfile: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+    },
+    customerProfile: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -441,6 +445,7 @@ describe('AuthService', () => {
         password: 'hashed',
         role: Role.CUSTOMER,
         businessProfile: null,
+        customerProfile: { id: 'cust-2', postcode: 'SW1A 1AA' },
       };
       mockPrisma.user.create.mockResolvedValue(newUser);
 
@@ -448,6 +453,7 @@ describe('AuthService', () => {
         email: 'customer@test.com',
         firstName: 'John',
         lastName: 'Doe',
+        postcode: 'SW1A 1AA',
       });
 
       expect(mockPrisma.user.create).toHaveBeenCalledWith(
@@ -456,10 +462,50 @@ describe('AuthService', () => {
             email: 'customer@test.com',
             firstName: 'John',
             lastName: 'Doe',
+            customerProfile: { create: { postcode: 'SW1A 1AA' } },
           }),
         }),
       );
       expect(result.accessToken).toBe('mock-token');
+    });
+
+    it('rejects a customer signup without a postcode', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.registerCustomer({
+          email: 'nopostcode@test.com',
+          firstName: 'No',
+          lastName: 'Postcode',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockLocationAssignment.resolvePostcode).not.toHaveBeenCalled();
+    });
+
+    it('allows OAuth provisioning without a postcode when opted out', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.create.mockResolvedValue({
+        id: '4',
+        email: 'oauth@test.com',
+        password: 'hashed',
+        role: Role.CUSTOMER,
+        businessProfile: null,
+        customerProfile: { id: 'cust-4', postcode: null },
+      });
+
+      const result = await service.registerCustomer(
+        {
+          email: 'oauth@test.com',
+          firstName: 'OAuth',
+          lastName: 'Customer',
+        },
+        { requirePostcode: false },
+      );
+
+      expect(result.accessToken).toBe('mock-token');
+      expect(mockLocationAssignment.assignCustomer).not.toHaveBeenCalled();
     });
 
     it('assigns a customer with a postcode to the geographic hierarchy', async () => {
