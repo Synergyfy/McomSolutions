@@ -693,7 +693,7 @@ function BusinessOnboardingInner() {
   // current onboarding path as a ?redirect target.
   const loginHref = (() => {
     const params = new URLSearchParams();
-    for (const key of ['client_id', 'redirect_uri', 'state', 'scope', 'source', 'redirect', 'callbackUrl', 'affiliateInvite']) {
+    for (const key of ['client_id', 'redirect_uri', 'state', 'scope', 'source', 'redirect', 'callbackUrl', 'affiliateInvite', 'role', 'entry']) {
       const value = searchParams.get(key);
       if (!value) continue;
       if ((key === 'redirect' || key === 'callbackUrl') && isAuthOrOnboardingRedirect(value)) continue;
@@ -1647,17 +1647,23 @@ function BusinessOnboardingInner() {
       // ?redirect=/getstarted/business behind after login.
       (redirectParam && !isAuthOrOnboardingRedirect(redirectParam))
     );
-    if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
-    if (searchParams.get('resume') === 'plan') return;
-    if (showProgrammeIntro || showChoosePlan || showVerificationModal) return;
-    
     const businessId = currentUser?.businessId || (currentUser as any)?.businessProfile?.id;
     const hasPaidVerif = Boolean((currentUser as any)?.hasPaidVerificationFee || (currentUser as any)?.businessProfile?.hasPaidVerificationFee);
     const hasMembership = Boolean((currentUser as any)?.businessProfile?.membershipStatus === 'active' && (currentUser as any)?.businessProfile?.membershipLevel !== 'Bronze');
-    
+
     if (currentUser?.role === 'BUSINESS' && businessId && (hasPaidVerif || hasMembership || (accessPolicyLoaded && !verificationRequired))) {
+      if (redirectParam && !isAuthOrOnboardingRedirect(redirectParam)) {
+        router.replace(redirectParam);
+        return;
+      }
+      if (hasExternalIntent) return;
       router.replace('/dashboard');
+      return;
     }
+
+    if (isClaimReturn || isGoogleOnboarding || hasExternalIntent) return;
+    if (searchParams.get('resume') === 'plan') return;
+    if (showProgrammeIntro || showChoosePlan || showVerificationModal) return;
   }, [currentUser, isClaimReturn, isGoogleOnboarding, searchParams, showProgrammeIntro, showChoosePlan, showVerificationModal, accessPolicyLoaded, verificationRequired]);
 
   // ─── Platform Plans (from external services) ──────────
