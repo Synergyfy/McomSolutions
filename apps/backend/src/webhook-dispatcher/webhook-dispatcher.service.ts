@@ -46,12 +46,22 @@ export class WebhookDispatcherService {
   /**
    * Enqueues a webhook into BullMQ for durable delivery with exponential backoff.
    */
-  async enqueueWebhook(platformIdentifier: string, event: string, data: Record<string, unknown>): Promise<void> {
+  async enqueueWebhook(
+    platformIdentifier: string,
+    event: string,
+    data: Record<string, unknown>,
+    options?: { targetUrl?: string },
+  ): Promise<void> {
     if (this.webhookQueue) {
       try {
         await this.webhookQueue.add(
           'dispatch',
-          { platformIdentifier, event, data },
+          {
+            platformIdentifier,
+            event,
+            data,
+            ...(options?.targetUrl ? { targetUrl: options.targetUrl } : {}),
+          },
           {
             attempts: 5,
             backoff: {
@@ -71,7 +81,12 @@ export class WebhookDispatcherService {
     }
 
     setImmediate(() => {
-      this.dispatch(platformIdentifier, event, data).catch((err) => {
+      const promise = options?.targetUrl
+        ? this.dispatch(platformIdentifier, event, data, {
+            targetUrl: options.targetUrl,
+          })
+        : this.dispatch(platformIdentifier, event, data);
+      promise.catch((err) => {
         this.logger.error(
           `Unhandled error dispatching ${event} to ${platformIdentifier}: ${err.message}`,
           err.stack,
@@ -83,8 +98,13 @@ export class WebhookDispatcherService {
   /**
    * Asynchronously dispatches a webhook in the background without blocking the caller.
    */
-  dispatchAsync(platformIdentifier: string, event: string, data: Record<string, unknown>): void {
-    this.enqueueWebhook(platformIdentifier, event, data).catch((err) => {
+  dispatchAsync(
+    platformIdentifier: string,
+    event: string,
+    data: Record<string, unknown>,
+    options?: { targetUrl?: string },
+  ): void {
+    this.enqueueWebhook(platformIdentifier, event, data, options).catch((err) => {
       this.logger.error(`Error in dispatchAsync: ${err.message}`);
     });
   }
@@ -137,7 +157,7 @@ export class WebhookDispatcherService {
     platformIdentifier: string,
     event: string,
     data: Record<string, unknown>,
-    metadata?: { jobId?: string; retryCount?: number },
+    metadata?: { jobId?: string; retryCount?: number; targetUrl?: string },
   ): Promise<WebhookDispatchResult> {
     const client = await this.prisma.ssoClient.findFirst({
       where: {
@@ -154,7 +174,11 @@ export class WebhookDispatcherService {
       return { dispatched: false, reason: 'APP_NOT_FOUND' };
     }
 
-    if (!client.webhookUrl) {
+    // Profile synchronization registers a dedicated endpoint per role; all
+    // other events keep using the app-wide webhook URL.
+    const targetUrl = metadata?.targetUrl?.trim() || client.webhookUrl;
+
+    if (!targetUrl) {
       this.logger.log(`No webhookUrl configured for app "${client.clientId}" — skipping ${event}`);
       return { dispatched: false, reason: 'NO_WEBHOOK_URL_CONFIGURED' };
     }
@@ -176,7 +200,7 @@ export class WebhookDispatcherService {
     let lastError: Error | null = null;
 
     try {
-      const response = await axios.post(client.webhookUrl, rawBody, {
+      const response = await axios.post(targetUrl, rawBody, {
         headers: {
           'Content-Type': 'application/json',
           'X-Mcom-Webhook-Signature': signature,
@@ -234,7 +258,7 @@ export class WebhookDispatcherService {
     }
 
     if (delivered) {
-      this.logger.log(`Successfully delivered ${event} webhook to "${client.clientId}" (${client.webhookUrl})`);
+      this.logger.log(`Successfully delivered ${event} webhook to "${client.clientId}" (${targetUrl})`);
       return { dispatched: true, statusCode: responseStatus, logId };
     } else {
       this.logger.warn(

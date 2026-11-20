@@ -1,7 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsIn,
   IsInt,
   IsNumber,
@@ -178,4 +181,31 @@ export class RegisterAppDto {
   @IsString({ each: true })
   @ArrayMaxSize(30)
   allowedCallers?: string[];
+
+  // ─── Profile-update synchronization ─────────────────────────────────────────
+
+  @ApiPropertyOptional({
+    enum: Role,
+    isArray: true,
+    example: [Role.BUSINESS, Role.CUSTOMER],
+    description:
+      'Roles that may use this app. Drives profile.updated fan-out — a BUSINESS change is never sent to an AGENT-only app. Empty = all roles.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(Role, { each: true, message: 'supportedRoles must contain valid roles' })
+  @ArrayMaxSize(20)
+  supportedRoles?: Role[];
+
+  @ApiPropertyOptional({
+    example: 'https://api.mcom-mall.com/webhooks/profile-updated',
+    description:
+      'Single endpoint that receives signed profile.updated events for every role this app supports. The payload carries only the central userId; the app fetches the profile via the B2B service-mesh endpoint. Empty = no profile synchronization.',
+  })
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? null : value,
+  )
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  profileSyncEndpoint?: string | null;
 }

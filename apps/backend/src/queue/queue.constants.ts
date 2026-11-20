@@ -24,6 +24,12 @@ export interface WebhookJobData {
   platformIdentifier: string;
   event: string;
   data: Record<string, unknown>;
+  /**
+   * Optional per-event destination. Used by profile synchronization where an
+   * app registers a dedicated endpoint per role instead of the global
+   * app webhook URL.
+   */
+  targetUrl?: string;
 }
 
 export interface TaskEventJobData {

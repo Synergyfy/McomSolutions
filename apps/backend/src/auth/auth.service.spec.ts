@@ -7,6 +7,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Role } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 
 describe('AuthService', () => {
@@ -135,6 +136,7 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProfileSyncService, useValue: { emitProfileUpdated: jest.fn().mockResolvedValue(undefined) } },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: RedisService, useValue: mockRedis },

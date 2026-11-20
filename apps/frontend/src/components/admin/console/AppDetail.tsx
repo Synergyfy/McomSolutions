@@ -57,7 +57,7 @@ import AppHealthBadge from './AppHealthBadge';
 import DeleteAppModal from './DeleteAppModal';
 import AppPeerSelect from './AppPeerSelect';
 import TagInput from './TagInput';
-import { CONSOLE_ALLOWED_SCOPES, type SsoClientDetail, type UpdateAppInput } from '../../../services/admin/types';
+import { CONSOLE_ALLOWED_SCOPES, CONSOLE_PROFILE_ROLES, CONSOLE_PROFILE_ROLE_LABELS, type SsoClientDetail, type UpdateAppInput } from '../../../services/admin/types';
 
 interface AppDetailProps {
   clientId: string;
@@ -546,6 +546,14 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [serviceScopes, setServiceScopes] = useState<string[]>(detail.serviceScopes ?? []);
   const [allowedAudiences, setAllowedAudiences] = useState<string[]>(detail.allowedAudiences ?? []);
   const [allowedCallers, setAllowedCallers] = useState<string[]>(detail.allowedCallers ?? []);
+  const [supportedRoles, setSupportedRoles] = useState<string[]>(
+    detail.supportedRoles && detail.supportedRoles.length > 0
+      ? detail.supportedRoles
+      : [...CONSOLE_PROFILE_ROLES],
+  );
+  const [profileSyncEndpoint, setProfileSyncEndpoint] = useState(
+    detail.profileSyncEndpoint ?? '',
+  );
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -559,12 +567,27 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
     setScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
   };
 
+  const toggleRole = (role: string) => {
+    setSupportedRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+    );
+  };
+
   const setItem = (setter: Dispatch<SetStateAction<string[]>>, index: number, value: string) => {
     setter((prev) => prev.map((item, i) => (i === index ? value : item)));
   };
 
   const handleSave = async () => {
     setError(null);
+    if (supportedRoles.length === 0) {
+      setError('Select at least one role this application serves.');
+      return;
+    }
+    const invalidEndpoint = profileSyncEndpoint.trim() && !/^https?:\/\//i.test(profileSyncEndpoint.trim());
+    if (invalidEndpoint) {
+      setError('Profile-update endpoint must be a valid http(s) URL.');
+      return;
+    }
     const payload: UpdateAppInput = {
       name: name.trim(),
       description: description.trim() || undefined,
@@ -585,15 +608,26 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       allowedAudiences,
       allowedCallers,
       allowWhitelabel,
+      supportedRoles,
+      profileSyncEndpoint: profileSyncEndpoint.trim(),
     };
     try {
       await updateApp.mutateAsync({ clientId: detail.clientId, data: payload });
       setSaved(true);
     } catch (err: any) {
       const status = err?.response?.status;
-      if (status === 409) setError('Platform slug is already in use by another application.');
-      else if (status === 403) setError('You need ADMIN access to update application specifications.');
-      else setError('Failed to save configuration changes. Please try again.');
+      const apiMessage = err?.response?.data?.message;
+      if (status === 409) {
+        setError('Platform slug is already in use by another application.');
+      } else if (status === 403) {
+        setError('You need ADMIN access to update application specifications.');
+      } else if (status === 400 && apiMessage) {
+        setError(
+          Array.isArray(apiMessage) ? apiMessage.join(', ') : String(apiMessage),
+        );
+      } else {
+        setError('Failed to save configuration changes. Please try again.');
+      }
     }
   };
 
@@ -602,7 +636,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       <div className="flex items-center justify-between pb-4 border-b border-gray-100">
         <div>
           <h4 className="font-bold text-gray-900 text-sm font-display">Application Settings</h4>
-          <p className="text-xs text-gray-400">Update endpoints, CORS origins, and OAuth scopes dynamically.</p>
+          <p className="text-xs text-gray-400">Update endpoints, CORS origins, OAuth scopes, roles, and profile sync dynamically.</p>
         </div>
         {saved && (
           <span className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold animate-in fade-in">
@@ -771,6 +805,63 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
         <p className="text-[10px] text-gray-400 mt-1">Lifecycle events are dispatched to this endpoint.</p>
       </div>
 
+      {/* ── Profile update synchronization ───────────────────────────────── */}
+      <div className="pt-4 border-t border-gray-100 space-y-3">
+        <div>
+          <h5 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+            <UserCheck className="w-3.5 h-3.5 text-brand-blue" />
+            Roles &amp; Profile Synchronization
+          </h5>
+          <p className="text-[10px] text-gray-400 mt-1 max-w-lg">
+            Choose which roles this app serves. When a matching profile changes in Central, a signed{' '}
+            <code>profile.updated</code> event is POSTed to the single profile endpoint below with the
+            central <code>userId</code>. Other roles are never sent to this app.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {CONSOLE_PROFILE_ROLES.map((role) => {
+            const selected = supportedRoles.includes(role);
+            return (
+              <button
+                key={role}
+                type="button"
+                onClick={() => toggleRole(role)}
+                className={cn(
+                  'px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all',
+                  selected
+                    ? 'bg-brand-blue text-white border-brand-blue shadow-xs'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                )}
+              >
+                {CONSOLE_PROFILE_ROLE_LABELS[role]}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="space-y-2 pt-1">
+          {supportedRoles.length === 0 && (
+            <p className="text-[11px] text-amber-600">
+              Select at least one role this application serves.
+            </p>
+          )}
+          <label className={labelCls}>Profile Update Endpoint</label>
+          <input
+            value={profileSyncEndpoint}
+            onChange={(e) => setProfileSyncEndpoint(e.target.value)}
+            className={cn(inputCls, 'font-mono text-xs')}
+            placeholder="https://api.your-app.com/webhooks/profile-updated (blank = no sync)"
+          />
+          <p className="text-[10px] text-gray-400">
+            One endpoint for all roles. The event carries only <code>userId</code>; your backend fetches
+            the profile via <code>GET /api/v1/ecosystem/profiles/:userId</code> using a B2B service token
+            (<code>central:read</code>). Saving here automatically grants that scope, the{' '}
+            <code>mcom-central</code> audience, and Central ingress access.
+          </p>
+        </div>
+      </div>
+
       {/* ── White-label access ───────────────────────────────────────────── */}
       <div className="pt-4 border-t border-gray-100 space-y-3">
         <div className="flex items-start justify-between gap-4">
@@ -915,14 +1006,28 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       )}
 
       {/* Save Button Bar */}
-      <div className="flex items-center justify-end pt-4 border-t border-gray-100">
+      <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+        {saved && (
+          <span className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold animate-in fade-in">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Configuration saved
+          </span>
+        )}
+        {updateApp.isPending && !saved && (
+          <span className="text-xs font-bold text-gray-400">Saving…</span>
+        )}
         <button
           onClick={handleSave}
           disabled={updateApp.isPending}
           className="flex items-center gap-2 px-6 py-2.5 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-brand-dark transition-all shadow-glow disabled:opacity-50"
         >
-          {updateApp.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save Changes
+          {updateApp.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : saved ? (
+            <CheckCircle2 className="w-3.5 h-3.5" />
+          ) : (
+            <Save className="w-3.5 h-3.5" />
+          )}
+          {updateApp.isPending ? 'Saving…' : saved ? 'Saved' : 'Save Changes'}
         </button>
       </div>
     </div>

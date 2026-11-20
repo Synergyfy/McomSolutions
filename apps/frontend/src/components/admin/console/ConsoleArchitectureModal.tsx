@@ -227,6 +227,8 @@ function AiSkillTab() {
     allowedAudiences: ['mcom-rewards', 'mcom-mall', 'mcom-central'],
     allowedCallers: ['mcom-rewards', 'mcom-mall'],
     allowWhitelabel: true,
+    supportedRoles: ['BUSINESS', 'CUSTOMER'],
+    profileSyncEndpoint: 'https://api.sample.mcom.com/webhooks/profile-updated',
   });
 
   const handleCopy = () => {

@@ -30,6 +30,7 @@ import { RedisService } from '../redis/redis.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import type { ResolvedPostcode } from '../geography/postcode.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import {
   OTP_COOLDOWN_SECONDS,
   OTP_MAX_ATTEMPTS,
@@ -55,6 +56,7 @@ export class AuthService {
     private redis: RedisService,
     private locationAssignment: LocationAssignmentService,
     private businessAcquisition: BusinessAcquisitionService,
+    private profileSync: ProfileSyncService,
   ) {}
 
   private getSmtpTransporter(): nodemailer.Transporter | null {
@@ -1150,7 +1152,7 @@ export class AuthService {
   }
 
   async updateSettings(userId: string, updates: any) {
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         firstName: updates.firstName !== undefined ? updates.firstName : undefined,
@@ -1166,11 +1168,24 @@ export class AuthService {
         firstName: true,
         lastName: true,
         jobTitle: true,
+        role: true,
         twoFactorEnabled: true,
         emailNotifications: true,
         smsNotifications: true,
       }
     });
+
+    // Account-level identity fields apply to every role (including agents,
+    // consultants and account managers, which have no dedicated profile
+    // endpoint). Only apps that consume this role receive the event.
+    const { role } = updated;
+    void this.profileSync.emitProfileUpdated({
+      userId: updated.id,
+      role,
+      changedFields: Object.keys(updates ?? {}),
+    });
+
+    return updated;
   }
 
   async generateSsoToken(userId: string, targetClientId?: string) {

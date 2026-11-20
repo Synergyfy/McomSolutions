@@ -12,11 +12,13 @@ import { GoogleOAuthService } from './google-oauth.service';
 import { SsoUserGuard } from './guards/sso-user.guard';
 import { GeographyModule } from '../geography/geography.module';
 import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
+import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
 
 @Module({
   imports: [
     GeographyModule,
     BusinessAcquisitionModule,
+    ProfileSyncModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

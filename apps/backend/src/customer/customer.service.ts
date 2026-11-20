@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 import { ensureUserReferralCode } from '../common/referral/referral.util';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import type { ResolvedPostcode } from '../geography/postcode.service';
 
 const customerProfileSelect = {
@@ -39,6 +41,7 @@ export class CustomerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly locationAssignment: LocationAssignmentService,
+    private readonly profileSync: ProfileSyncService,
   ) {}
 
   async getProfile(userId: string) {
@@ -127,6 +130,15 @@ export class CustomerService {
         );
       }
     }
+
+    // Fan out to apps that consume the CUSTOMER role. Fire-and-forget: the
+    // profile and location assignment have already committed.
+    void this.profileSync.emitProfileUpdated({
+      userId,
+      role: Role.CUSTOMER,
+      profileId: customerProfile.id,
+      changedFields: Object.keys(dto ?? {}),
+    });
 
     return {
       success: true,

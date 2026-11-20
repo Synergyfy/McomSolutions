@@ -99,10 +99,6 @@ async function bootstrap() {
   // Route-level filters (e.g. MulterExceptionFilter) still run first.
   app.useGlobalFilters(new AllExceptionsFilter());
   app.use(cookieParser());
-  // Phase 1C: user uploads require a valid Bearer token and are served with
-  // sandboxing headers — never open express.static.
-  const uploadsGuard = new UploadsAuthMiddleware(app.get(ConfigService));
-  app.use('/uploads', uploadsGuard.use.bind(uploadsGuard), express.static(join(process.cwd(), 'uploads')));
 
   // ─── Dynamic CORS ──────────────────────────────────────────────────────────
   // Static + env origins are seeded at boot; DB-registered app origins are
@@ -127,6 +123,14 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mcom-Client-ID', 'X-Mcom-Signature', 'X-Idempotency-Key', 'Idempotency-Key', 'ngrok-skip-browser-warning'],
   });
+
+  // Phase 1C: user uploads require a valid Bearer token and are served with
+  // sandboxing headers — never open express.static.
+  // Mounted AFTER enableCors so the browser's preflight OPTIONS is answered by
+  // the CORS middleware instead of being rejected by the auth guard (which
+  // would strip CORS headers and block the authenticated image fetch).
+  const uploadsGuard = new UploadsAuthMiddleware(app.get(ConfigService));
+  app.use('/uploads', uploadsGuard.use.bind(uploadsGuard), express.static(join(process.cwd(), 'uploads')));
 
   // Global prefix. The JWKS discovery endpoint is deliberately served at the
   // root (/.well-known/jwks.json) — standard OIDC location — so it is excluded

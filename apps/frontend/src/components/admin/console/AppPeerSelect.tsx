@@ -74,10 +74,21 @@ export default function AppPeerSelect({
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+      <div
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
+        aria-expanded={open}
+        onClick={() => {
+          if (!disabled) setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
         className={cn(
           'w-full flex items-center justify-between gap-2 px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-left min-h-[42px] transition-all focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue',
           disabled && 'opacity-60 cursor-not-allowed',
@@ -111,6 +122,7 @@ export default function AppPeerSelect({
                     remove(v);
                   }}
                   className="hover:text-red-500"
+                  aria-label={`Remove ${v}`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -121,7 +133,7 @@ export default function AppPeerSelect({
         <ChevronDown
           className={cn('w-4 h-4 text-gray-400 flex-shrink-0 transition-transform', open && 'rotate-180')}
         />
-      </button>
+      </div>
 
       {open && (
         <div className="absolute z-40 mt-1 w-full bg-white border border-gray-200 rounded-2xl shadow-2xl p-2 space-y-1">
