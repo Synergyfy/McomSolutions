@@ -32,6 +32,7 @@ import type {
   IncludedAppPlan,
   MembershipPlan,
   PlatformInfo,
+  TierEntitlementInput,
   TierEntitlementResource,
   TierName,
   WhitelabelPlatformGrant,
@@ -99,6 +100,91 @@ function normalizeTierLabel(value?: string | null): TierName | null {
   if (normalized === 'pro') return 'Pro';
   if (normalized === 'pro+' || normalized === 'proplus') return 'Pro+';
   return null;
+}
+
+const EMPTY_TIER_ENTITLEMENTS: Record<TierKey, TierEntitlementInput[]> = {
+  Standard: [],
+  Pro: [],
+  'Pro+': [],
+};
+
+/**
+ * Entitlements are edited elsewhere, so the editor only carries them through
+ * on save. Relational tier rows are the source of truth; older plans may still
+ * only have the legacy `tierEntitlements` JSON, which came in two shapes:
+ *   - [{ tier: 'Standard', quotas: { rewards: 2000 } }]
+ *   - [{ resourceKey: 'rewards', standard: 2000, pro: 5000, proPlus: 10000 }]
+ * Both are converted to the per-tier { resourceKey, quotaValue } rows the API
+ * expects, so a save can never send entries without a resource key.
+ */
+function collectTierEntitlements(
+  rawTiers: unknown,
+  legacy: TierEntitlementResource[] | undefined,
+): Record<TierKey, TierEntitlementInput[]> {
+  const result: Record<TierKey, TierEntitlementInput[]> = {
+    Standard: [],
+    Pro: [],
+    'Pro+': [],
+  };
+
+  if (Array.isArray(rawTiers)) {
+    for (const row of rawTiers as any[]) {
+      const tier = normalizeTierLabel(row?.tier);
+      if (!tier) continue;
+      const list = Array.isArray(row?.entitlements) ? (row.entitlements as any[]) : [];
+      result[tier] = list
+        .filter(
+          (entry) =>
+            entry &&
+            typeof entry.resourceKey === 'string' &&
+            entry.resourceKey.trim() &&
+            String(entry.quotaValue ?? '').trim(),
+        )
+        .map((entry) => ({
+          resourceKey: String(entry.resourceKey).trim(),
+          quotaValue: String(entry.quotaValue).trim(),
+        }));
+    }
+  }
+
+  if (!Array.isArray(legacy)) return result;
+
+  // Only fall back for tiers that have no relational entitlements at all, so
+  // a partially migrated plan cannot resurrect quotas that were removed.
+  const relationalTiers = new Set(TIER_KEYS.filter((tier) => result[tier].length > 0));
+
+  for (const entry of legacy as any[]) {
+    if (!entry || typeof entry !== 'object') continue;
+
+    if (entry.tier && entry.quotas && typeof entry.quotas === 'object') {
+      const tier = normalizeTierLabel(entry.tier);
+      if (!tier || relationalTiers.has(tier)) continue;
+      for (const [resourceKey, quotaValue] of Object.entries(entry.quotas)) {
+        const value = String(quotaValue ?? '').trim();
+        if (!resourceKey || !value) continue;
+        if (result[tier].some((item) => item.resourceKey === resourceKey)) continue;
+        result[tier].push({ resourceKey, quotaValue: value });
+      }
+      continue;
+    }
+
+    const resourceKey = entry.resourceKey ?? entry.name;
+    if (!resourceKey) continue;
+    for (const tier of TIER_KEYS) {
+      if (relationalTiers.has(tier)) continue;
+      const quotaValue =
+        tier === 'Standard'
+          ? entry.standard ?? entry.Normal
+          : tier === 'Pro'
+            ? entry.pro ?? entry.Pro ?? entry.standard ?? entry.Normal
+            : entry.proPlus ?? entry.proplus ?? entry.pro ?? entry.standard ?? entry.Normal;
+      const value = String(quotaValue ?? '').trim();
+      if (!value) continue;
+      result[tier].push({ resourceKey: String(resourceKey).trim(), quotaValue: value });
+    }
+  }
+
+  return result;
 }
 
 function friendlyError(err: unknown): string {
@@ -170,7 +256,8 @@ export default function AdminMembershipEditor() {
   const [newFeatureText, setNewFeatureText] = useState<Record<TierKey, string>>({ Standard: '', Pro: '', 'Pro+': '' });
   // Entitlements are no longer editable here, but existing quotas are carried
   // through on edit so saving the plan does not wipe them.
-  const [preservedEntitlements, setPreservedEntitlements] = useState<TierEntitlementResource[]>([]);
+  const [preservedEntitlements, setPreservedEntitlements] =
+    useState<Record<TierKey, TierEntitlementInput[]>>(EMPTY_TIER_ENTITLEMENTS);
   const [includedApps, setIncludedApps] = useState<IncludedAppPlan[]>([]);
   const [selectedBundlePlatform, setSelectedBundlePlatform] = useState('');
   const [selectedBundlePlanId, setSelectedBundlePlanId] = useState('');
@@ -255,11 +342,9 @@ export default function AdminMembershipEditor() {
       });
     setTierOptions({ Standard: build('Standard'), Pro: build('Pro'), 'Pro+': build('Pro+') });
 
-    if (Array.isArray(src.tierEntitlements) && src.tierEntitlements.length > 0) {
-      setPreservedEntitlements(src.tierEntitlements as TierEntitlementResource[]);
-    }
-    setIncludedApps(src.includedApps || []);
     const rawTiers = Array.isArray((src as any).tiers) ? ((src as any).tiers as any[]) : [];
+    setPreservedEntitlements(collectTierEntitlements(rawTiers, src.tierEntitlements));
+    setIncludedApps(src.includedApps || []);
     const legacyFree = Number((src as any).freeDelegatedTasks ?? 0);
     const legacyUnlimited = Boolean((src as any).unlimitedFreeDelegatedTasks);
     setTierDelegation(
@@ -399,10 +484,7 @@ export default function AdminMembershipEditor() {
         : Math.max(0, Math.round(tierDelegation[tier].freeDelegatedTasks || 0)),
       unlimitedFreeDelegatedTasks: tierDelegation[tier].unlimitedFreeDelegatedTasks,
       features: tierFeatures[tier],
-      entitlements: preservedEntitlements.map((e) => ({
-        resourceKey: e.resourceKey,
-        quotaValue: String(tier === 'Standard' ? e.standard : tier === 'Pro' ? e.pro : e.proPlus),
-      })),
+      entitlements: preservedEntitlements[tier],
       paymentOptions: [
         { paymentPlan: 'full' as const, mode: 'manual' as const, manualPrice: tierPrices[tier] },
         ...tierOptions[tier].map((o) => ({
@@ -438,7 +520,6 @@ export default function AdminMembershipEditor() {
       includedApps,
       tierPrices: { ...tierPrices },
       tierFeatures: { ...tierFeatures },
-      tierEntitlements: preservedEntitlements,
       tierDurations: { ...TIER_DURATIONS },
       tiers,
     };

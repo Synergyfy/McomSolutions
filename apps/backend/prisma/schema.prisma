@@ -926,7 +926,7 @@ model AccountManagerProfile {
 // ─── ADMIN DASHBOARD CONFIG & ENTITY TABLES ──────────────────────────────────
 
 model MembershipPlan {
-  id                          String    @id @default(cuid())
+  id                          String    @id @default(uuid())
   name                        String    @map("name")
   description                 String    @map("description")
   price                       Float     @map("price")

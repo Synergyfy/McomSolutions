@@ -232,7 +232,6 @@ async function main() {
   console.log('Seeding membership plans...');
   const plans = [
     {
-      id: 'bronze',
       name: 'Bronze',
       description: 'Perfect for local brands and new startups.',
       price: 10,
@@ -253,7 +252,6 @@ async function main() {
       ],
     },
     {
-      id: 'silver',
       name: 'Silver',
       description: 'Advanced tools for growing teams.',
       price: 75,
@@ -275,7 +273,6 @@ async function main() {
       ],
     },
     {
-      id: 'gold',
       name: 'Gold',
       description: 'Scale your operations with priority access.',
       price: 350,
@@ -298,7 +295,6 @@ async function main() {
       ],
     },
     {
-      id: 'platinum',
       name: 'Platinum',
       description: 'Tailored solutions for market leaders.',
       price: 1200,
@@ -322,25 +318,35 @@ async function main() {
       ],
     },
   ];
+  // Canonical plans are identified by their generated primary key, never by
+  // name. Look them up by name so re-seeding updates the existing row instead
+  // of inserting a duplicate, while brand-new installs get real UUID IDs.
+  const seededPlans: Array<(typeof plans)[number] & { id: string }> = [];
   for (const plan of plans) {
-    await prisma.membershipPlan.upsert({
-      where: { id: plan.id },
-      update: {
-        name: plan.name,
-        description: plan.description,
-        price: plan.price,
-        monthlyPrice: plan.monthlyPrice,
-        quarterlyPrice: plan.quarterlyPrice,
-        annualPrice: plan.annualPrice,
-        billingCycle: plan.billingCycle,
-        features: plan.features,
-        includedApps: plan.includedApps,
-        whoItIsFor: plan.whoItIsFor,
-        badge: plan.badge,
-        color: plan.color,
-      },
-      create: plan,
+    const existing = await prisma.membershipPlan.findFirst({
+      where: { name: plan.name },
+      orderBy: { createdAt: 'asc' },
     });
+    const saved = existing
+      ? await prisma.membershipPlan.update({
+          where: { id: existing.id },
+          data: {
+            name: plan.name,
+            description: plan.description,
+            price: plan.price,
+            monthlyPrice: plan.monthlyPrice,
+            quarterlyPrice: plan.quarterlyPrice,
+            annualPrice: plan.annualPrice,
+            billingCycle: plan.billingCycle,
+            features: plan.features,
+            includedApps: plan.includedApps,
+            whoItIsFor: plan.whoItIsFor,
+            badge: plan.badge,
+            color: plan.color,
+          },
+        })
+      : await prisma.membershipPlan.create({ data: plan });
+    seededPlans.push({ ...plan, id: saved.id });
   }
 
   // 2b. Relational tiers + payment options (idempotent backfill).
@@ -349,7 +355,7 @@ async function main() {
   // update:{} = first-wins: re-seeding never overwrites admin edits.
   console.log('Seeding membership tiers + payment options...');
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  for (const plan of plans) {
+  for (const plan of seededPlans) {
     const base = plan.monthlyPrice ?? plan.price;
     const tiers = [
       { key: 'Standard' as const, full: base, dur: 90, sort: 0 },
@@ -357,12 +363,22 @@ async function main() {
       { key: 'ProPlus' as const, full: plan.annualPrice ?? Math.floor(base * 0.8) * 12, dur: 365, sort: 2 },
     ];
     for (const t of tiers) {
-      const tierId = `${plan.id}__${t.key.toLowerCase()}`;
-      await prisma.membershipPlanTier.upsert({
+      // Always use the persisted tier id: existing tiers keep their original
+      // ids (e.g. after the membership id migration), so options/features must
+      // not be attached to a freshly computed id.
+      const tierRow = await prisma.membershipPlanTier.upsert({
         where: { planId_tier: { planId: plan.id, tier: t.key } },
         update: {},
-        create: { id: tierId, planId: plan.id, tier: t.key, durationDays: t.dur, fullPrice: t.full, sortOrder: t.sort },
+        create: {
+          id: `${plan.id}__${t.key.toLowerCase()}`,
+          planId: plan.id,
+          tier: t.key,
+          durationDays: t.dur,
+          fullPrice: t.full,
+          sortOrder: t.sort,
+        },
       });
+      const tierId = tierRow.id;
       const splits =
         t.key === 'Standard'
           ? [{ pp: 'monthly' as const, n: 3, slice: 30, sort: 1 }]
@@ -407,14 +423,19 @@ async function main() {
     }
     for (let i = 0; i < plan.includedApps.length; i++) {
       const app = plan.includedApps[i] as { platform: string; planId: string; planName: string };
-      await prisma.membershipPlanAppBundle.upsert({
-        where: { id: `${plan.id}__app__${i + 1}` },
-        update: {},
-        create: {
-          id: `${plan.id}__app__${i + 1}`, planId: plan.id, platform: app.platform,
-          externalPlanId: app.planId ?? null, packageName: app.planName ?? app.platform,
-        },
+      // Match on the platform rather than a computed bundle id so re-seeding
+      // does not duplicate bundles when the membership id changed.
+      const existingBundle = await prisma.membershipPlanAppBundle.findFirst({
+        where: { planId: plan.id, platform: app.platform },
       });
+      if (!existingBundle) {
+        await prisma.membershipPlanAppBundle.create({
+          data: {
+            id: `${plan.id}__app__${i + 1}`, planId: plan.id, platform: app.platform,
+            externalPlanId: app.planId ?? null, packageName: app.planName ?? app.platform,
+          },
+        });
+      }
     }
   }
 
