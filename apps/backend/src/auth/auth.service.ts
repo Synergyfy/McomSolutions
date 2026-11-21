@@ -871,7 +871,7 @@ export class AuthService {
             },
           },
           wallet: {
-            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+            create: { balance: 0, currency: 'GBP', status: 'ACTIVE' },
           },
         },
         include: {
@@ -982,7 +982,7 @@ export class AuthService {
           firstName: data.firstName || '',
           lastName: data.lastName || '',
           wallet: {
-            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+            create: { balance: 0, currency: 'GBP', status: 'ACTIVE' },
           },
           customerProfile: {
             create: customerPostcode ? { postcode: customerPostcode } : {},
@@ -1068,7 +1068,7 @@ export class AuthService {
           lastName: data.lastName || '',
           registrationSource: 'affiliate-portal',
           wallet: {
-            create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+            create: { balance: 0, currency: 'GBP', status: 'ACTIVE' },
           },
           ...(targetRole === Role.AGENT
             ? {

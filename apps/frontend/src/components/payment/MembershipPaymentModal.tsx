@@ -614,12 +614,12 @@ export default function MembershipPaymentModal({
                       <p className="font-black text-emerald-700">
                         {walletLoading
                           ? 'Loading…'
-                          : `${wallet?.currency || 'MCOM'} ${Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}`}
+                          : `£${Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}`}
                       </p>
                     </div>
                     <p className="text-emerald-800 text-[11px] sm:text-xs leading-relaxed mt-1.5">
-                      £{modalDueToday} will be debited from your MCOM Wallet in credits at the current
-                      MCOM rate and your membership activates instantly — no card details needed.
+                      £{modalDueToday} will be debited from your MCOM Wallet and your membership activates
+                      instantly — no card details needed.
                     </p>
                     {!walletLoading && Number(wallet?.availableBalance ?? wallet?.balance ?? 0) <= 0 && (
                       <a

@@ -54,9 +54,15 @@ export class WalletLedgerService {
       }),
     ]);
 
+    const counterparties = await this.loadCounterparties(
+      data.map((row) => row.counterpartyWalletId).filter(Boolean) as string[],
+    );
+
     return {
       success: true,
-      data: data.map(this.toDto),
+      data: data.map((row) =>
+        this.toDto(row, row.counterpartyWalletId ? counterparties.get(row.counterpartyWalletId) ?? null : null),
+      ),
       total,
       page,
       limit,
@@ -77,7 +83,11 @@ export class WalletLedgerService {
     if (walletId && txn.walletId !== walletId) {
       throw new NotFoundException('Transaction not found');
     }
-    return this.toDto(txn);
+
+    const counterparty = txn.counterpartyWalletId
+      ? (await this.loadCounterparties([txn.counterpartyWalletId])).get(txn.counterpartyWalletId) ?? null
+      : null;
+    return this.toDto(txn, counterparty);
   }
 
   /** Look up by idempotencyKey (partner reconciliation convenience). */
@@ -158,7 +168,46 @@ export class WalletLedgerService {
     };
   }
 
-  toDto(txn: any): WalletTransactionDto {
+  /**
+   * Resolve the other party's display name for wallet-to-wallet movements.
+   * Only the name and broad type are exposed — never their balance or history.
+   */
+  private async loadCounterparties(
+    walletIds: string[],
+  ): Promise<Map<string, { type: 'business' | 'user'; displayName: string }>> {
+    const unique = [...new Set(walletIds)];
+    if (unique.length === 0) return new Map();
+
+    const wallets = await this.prisma.wallet.findMany({
+      where: { id: { in: unique } },
+      select: {
+        id: true,
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            businessProfile: { select: { businessName: true } },
+          },
+        },
+      },
+    });
+
+    const result = new Map<string, { type: 'business' | 'user'; displayName: string }>();
+    for (const wallet of wallets) {
+      const businessName = wallet.user?.businessProfile?.businessName;
+      const personName = [wallet.user?.firstName, wallet.user?.lastName].filter(Boolean).join(' ');
+      result.set(wallet.id, {
+        type: businessName ? 'business' : 'user',
+        displayName: businessName || personName || 'MCOM user',
+      });
+    }
+    return result;
+  }
+
+  toDto(
+    txn: any,
+    counterparty?: { type: 'business' | 'user'; displayName: string } | null,
+  ): WalletTransactionDto {
     return {
       id: txn.id,
       type: txn.type,
@@ -175,6 +224,8 @@ export class WalletLedgerService {
       status: txn.status,
       initiatedBy: txn.initiatedBy ?? null,
       createdAt: txn.createdAt.toISOString(),
+      intent: txn.intent ?? null,
+      counterparty: counterparty ?? null,
     };
   }
 }

@@ -13,7 +13,7 @@ export class WalletDto {
   @ApiProperty({ example: 1200.0, description: 'Balance minus active holds' })
   availableBalance: number;
 
-  @ApiProperty({ example: 'MCOM' })
+  @ApiProperty({ example: 'GBP' })
   currency: string;
 
   @ApiProperty({ example: 'ACTIVE', enum: ['ACTIVE', 'FROZEN', 'SUSPENDED', 'CLOSED'] })
@@ -51,7 +51,7 @@ export class TransactionReceiptDto {
   @ApiProperty({ example: 100.0 })
   balanceAfter: number;
 
-  @ApiProperty({ example: 'MCOM' })
+  @ApiProperty({ example: 'GBP' })
   currency: string;
 
   @ApiPropertyOptional({ example: 'sub_inv_0042' })
@@ -80,7 +80,7 @@ export class WalletTransactionDto {
   @ApiProperty({ example: 100.0 })
   balanceAfter: number;
 
-  @ApiProperty({ example: 'MCOM' })
+  @ApiProperty({ example: 'GBP' })
   currency: string;
 
   @ApiPropertyOptional({ example: 'mcom-mall' })
@@ -109,6 +109,18 @@ export class WalletTransactionDto {
 
   @ApiProperty({ example: '2026-08-26T11:15:00.000Z' })
   createdAt: string;
+
+  @ApiPropertyOptional({
+    example: 'ORDER',
+    description: 'Business intent behind the movement (order, delegation, referral, …)',
+  })
+  intent?: string | null;
+
+  @ApiPropertyOptional({
+    example: { type: 'business', displayName: 'Acme Ltd' },
+    description: 'The other party, when the movement was between two wallets',
+  })
+  counterparty?: { type: 'business' | 'user'; displayName: string } | null;
 }
 
 export class PaginatedWalletTransactionsDto {
@@ -221,7 +233,7 @@ export class TopUpRequestDto {
   @ApiProperty({ example: 'GBP' })
   currency: string;
 
-  @ApiProperty({ example: 'MCOM' })
+  @ApiProperty({ example: 'GBP' })
   walletCurrency: string;
 
   @ApiProperty({ example: 'stripe' })
@@ -250,7 +262,7 @@ export class WalletBalanceDto {
   @ApiProperty({ example: 'ACTIVE' })
   status: string;
 
-  @ApiProperty({ example: 'MCOM' })
+  @ApiProperty({ example: 'GBP' })
   currency: string;
 }
 

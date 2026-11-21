@@ -73,7 +73,7 @@ async function ensureUser(
       registrationSource: 'local-affiliate',
       firstName,
       lastName,
-      wallet: { create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' } },
+      wallet: { create: { balance: 0, currency: 'GBP', status: 'ACTIVE' } },
       customerProfile: { create: {} },
     },
   });

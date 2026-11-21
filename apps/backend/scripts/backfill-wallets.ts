@@ -18,7 +18,7 @@ async function backfillWallets() {
   for (const user of users) {
     await prisma.wallet.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+      create: { userId: user.id, balance: 0, currency: 'GBP', status: 'ACTIVE' },
       update: {},
     });
     process.stdout.write('.');

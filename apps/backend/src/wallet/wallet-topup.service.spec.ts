@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import axios from 'axios';
+import { GlPostingService } from '../ledger/gl-posting.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
@@ -24,7 +25,7 @@ describe('WalletTopUpService', () => {
     id: 'wallet-1',
     userId: 'cust-1',
     balance: new Decimal(100),
-    currency: 'MCOM',
+    currency: 'GBP',
     status: 'ACTIVE',
   };
 
@@ -34,7 +35,7 @@ describe('WalletTopUpService', () => {
     userId: 'cust-1',
     amount: new Decimal(50),
     currency: 'GBP',
-    walletCurrency: 'MCOM',
+    walletCurrency: 'GBP',
     exchangeRate: new Decimal(1),
     provider: 'paypal',
     providerRef: 'ORDER-1',
@@ -60,11 +61,17 @@ describe('WalletTopUpService', () => {
       },
       walletTransaction: {
         create: jest.fn(),
+        update: jest.fn(),
+      },
+      glEntry: {
+        findFirst: jest.fn(),
       },
       fxRate: {
         findUnique: jest.fn().mockResolvedValue(null),
       },
-      $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+      $transaction: jest.fn(async (arg: any) =>
+        typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
+      ),
     };
 
     walletService = {
@@ -101,6 +108,7 @@ describe('WalletTopUpService', () => {
         { provide: WalletLedgerService, useValue: { getTransactions: jest.fn() } },
         { provide: WalletLockUtil, useValue: lockUtil },
         { provide: RedisService, useValue: redis },
+        { provide: GlPostingService, useValue: { post: jest.fn().mockResolvedValue({ transferId: 'tr_1', replayed: false }) } },
       ],
     }).compile();
 

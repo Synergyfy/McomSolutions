@@ -15,7 +15,7 @@ describe('WalletLedgerService', () => {
     amount: new Decimal(12.5),
     balanceBefore: new Decimal(100),
     balanceAfter: new Decimal(87.5),
-    currency: 'MCOM',
+    currency: 'GBP',
     platformClientId: 'mcom-mall',
     platformName: 'MCOM Mall',
     platformSlug: 'mall',
@@ -34,6 +34,7 @@ describe('WalletLedgerService', () => {
         count: jest.fn(),
         findMany: jest.fn(),
       },
+      wallet: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
 
@@ -80,5 +81,43 @@ describe('WalletLedgerService', () => {
 
       expect(result.id).toBe('txn-1');
     });
+  });
+
+  it('labels the movement with its intent and the other party', async () => {
+    prisma.$transaction.mockResolvedValue([
+      1,
+      [
+        {
+          ...txn,
+          intent: 'ORDER',
+          counterpartyWalletId: 'wallet-seller',
+        },
+      ],
+    ]);
+    prisma.wallet.findMany.mockResolvedValue([
+      {
+        id: 'wallet-seller',
+        user: {
+          firstName: 'Ada',
+          lastName: 'Seller',
+          businessProfile: { businessName: 'Acme Retail' },
+        },
+      },
+    ]);
+
+    const result = await service.getTransactions('wallet-1', { page: 1, limit: 20 });
+
+    expect(result.data[0].intent).toBe('ORDER');
+    expect(result.data[0].counterparty).toEqual({ type: 'business', displayName: 'Acme Retail' });
+  });
+
+  it('leaves the counterparty empty for a movement that is not wallet-to-wallet', async () => {
+    prisma.$transaction.mockResolvedValue([1, [{ ...txn, intent: 'TOP_UP' }]]);
+
+    const result = await service.getTransactions('wallet-1', { page: 1, limit: 20 });
+
+    expect(result.data[0].intent).toBe('TOP_UP');
+    expect(result.data[0].counterparty).toBeNull();
+    expect(prisma.wallet.findMany).not.toHaveBeenCalled();
   });
 });

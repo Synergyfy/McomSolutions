@@ -22,7 +22,8 @@
     "test:all": "npm run test:unit && npm run test:e2e",
     "test:migrate": "dotenv -e .env.test -- prisma migrate deploy",
     "postinstall": "prisma generate",
-    "seed:local-affiliate": "ts-node prisma/seed-local-affiliate.ts"
+    "seed:local-affiliate": "ts-node prisma/seed-local-affiliate.ts",
+    "ledger:backfill": "ts-node scripts/ledger-backfill.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.5",

@@ -16,7 +16,9 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import Stripe from 'stripe';
 import axios from 'axios';
-import { Role, Prisma, MembershipPaymentPlan, CouponProductType, RecurringScope, MembershipStatus } from '@prisma/client';
+import { Role, Prisma, MembershipPaymentPlan, CouponProductType, RecurringScope, MembershipStatus, GlIntent } from '@prisma/client';
+import { PlatformSalesService } from '../ledger/platform-sales.service';
+import { toMinorUnits } from '../ledger/money';
 import { PricingService } from '../pricing/pricing.service';
 import { CouponService } from '../coupon/coupon.service';
 import { AccessService, type AccessEntitlementChoice } from '../access/access.service';
@@ -151,6 +153,7 @@ export class PaymentService {
     private recurringService: RecurringService,
     @Optional() private redis?: RedisService,
     @Optional() private businessAcquisition?: BusinessAcquisitionService,
+    @Optional() private readonly platformSales?: PlatformSalesService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -1061,7 +1064,8 @@ export class PaymentService {
       couponCode,
       userId,
     );
-    const walletCredits = await this.walletService.convertGbpToCredits(quote.finalAmount);
+    // The wallet is GBP, so the amount charged is the quoted GBP amount.
+    const walletCredits = quote.finalAmount;
     if (!(walletCredits > 0)) {
       throw new BadRequestException('This plan has no payable amount.');
     }
@@ -2790,8 +2794,8 @@ export class PaymentService {
 
     let package_: any;
     try {
-      const [pkg] = await this.prisma.$transaction([
-        this.prisma.platformPackage.upsert({
+      package_ = await this.prisma.$transaction(async (tx) => {
+        const pkg = await tx.platformPackage.upsert({
           where: { businessId_platform: { businessId, platform } },
           update: packageData,
           create: {
@@ -2799,8 +2803,9 @@ export class PaymentService {
             platform,
             ...packageData,
           },
-        }),
-        this.prisma.billingTransaction.create({
+        });
+
+        const billing = await tx.billingTransaction.create({
           data: {
             businessId,
             amount: amountGBP,
@@ -2809,9 +2814,20 @@ export class PaymentService {
             provider,
             providerPaymentId,
           },
-        }),
-      ]);
-      package_ = pkg;
+        });
+
+        await this.platformSales?.recordSale(tx, {
+          provider,
+          amountMinor: toMinorUnits(amountGBP),
+          idempotencyKey: `billing:${billing.id}`,
+          reference: providerPaymentId,
+          description: billing.description ?? undefined,
+          intent: GlIntent.PURCHASE,
+          metadata: { billingTransactionId: billing.id, businessId },
+        });
+
+        return pkg;
+      });
     } catch (err) {
       // Lost a race with a concurrent activation on the same reference.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -3285,15 +3301,26 @@ export class PaymentService {
 
     // Record billing transaction
     try {
-      await this.prisma.billingTransaction.create({
-        data: {
-          businessId,
-          amount: amountGBP,
-          description: `Business Verification Fee (${provider.toUpperCase()}) - ${days} Days Access Granted`,
+      await this.prisma.$transaction(async (tx) => {
+        const billing = await tx.billingTransaction.create({
+          data: {
+            businessId,
+            amount: amountGBP,
+            description: `Business Verification Fee (${provider.toUpperCase()}) - ${days} Days Access Granted`,
+            provider,
+            providerPaymentId,
+            status: 'paid',
+          },
+        });
+        await this.platformSales?.recordSale(tx, {
           provider,
-          providerPaymentId,
-          status: 'paid',
-        },
+          amountMinor: toMinorUnits(amountGBP),
+          idempotencyKey: `billing:${billing.id}`,
+          reference: providerPaymentId,
+          description: billing.description ?? undefined,
+          intent: GlIntent.PURCHASE,
+          metadata: { billingTransactionId: billing.id, businessId },
+        });
       });
     } catch (txErr) {
       this.logger.warn(`Failed to record verification fee billing transaction: ${txErr}`);

@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, TransactionCategory, TransactionStatus, TransactionType, Wallet, WalletTransaction } from '@prisma/client';
+import { GlIntent, Prisma, TransactionCategory, TransactionStatus, TransactionType, Wallet, WalletTransaction } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -17,6 +17,9 @@ import { DebitWalletDto } from './dto/debit-wallet.dto';
 import { CreditWalletDto } from './dto/credit-wallet.dto';
 import { WalletBalanceDto, WalletDto, TransactionReceiptDto } from './dto/responses.dto';
 import { ConfigService } from '@nestjs/config';
+import { GlPostingService } from '../ledger/gl-posting.service';
+import { appPayableAccountCode, PLATFORM_WALLET_CODE, walletAccountCode } from '../ledger/account-code';
+import { INTERNAL_PLATFORM_CLIENT_ID, intentForCategory, toMinorUnits } from '../ledger/money';
 
 interface PartnerContext {
   clientId: string;
@@ -27,6 +30,27 @@ interface PartnerContext {
 const IDEMPOTENCY_TTL_SECONDS = 86400; // 24h
 const BALANCE_CACHE_TTL_SECONDS = 30;
 
+/**
+ * Overrides for how a wallet movement is reflected in the central ledger.
+ *
+ * The default is safe: a partner app's movement is booked against that app's
+ * payable, and a platform-internal movement against the platform wallet. Flows
+ * that know their business purpose (referral, delegation, order) pass an intent.
+ */
+export interface WalletLedgerOptions {
+  intent?: GlIntent;
+  /** Account code to use as the counterparty instead of the default. */
+  counterparty?: string;
+  /** Skip the ledger write — only for flows that post their own transfer. */
+  skipLedger?: boolean;
+  /**
+   * The MCOM Pay charge this movement belongs to. Recorded on the ledger entry
+   * so every leg of one payment is traceable by charge id — a partner reference
+   * is reused across attempts and cannot identify a payment on its own.
+   */
+  appChargeId?: string;
+}
+
 @Injectable()
 export class WalletService {
   constructor(
@@ -36,6 +60,7 @@ export class WalletService {
     private readonly ssoService: SsoService,
     private readonly config: ConfigService,
     private readonly walletEvents: WalletEventsService,
+    private readonly glPosting: GlPostingService,
   ) {}
 
   // ─── WALLET ACCESS ─────────────────────────────────────────────────────────
@@ -49,7 +74,7 @@ export class WalletService {
     if (existing) return existing;
     try {
       return await this.prisma.wallet.create({
-        data: { userId, balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+        data: { userId, balance: 0, currency: 'GBP', status: 'ACTIVE' },
       });
     } catch (err) {
       // Race: two requests created it simultaneously → return the winner
@@ -86,27 +111,11 @@ export class WalletService {
     return result;
   }
 
-  // ─── FX ────────────────────────────────────────────────────────────────────
-
-  /** GBP → MCOM wallet credits. Mirrors wallet top-up FX lookup/fallback. */
-  async getGbpToMcomRate(): Promise<number> {
-    try {
-      const fx = await this.prisma.fxRate.findUnique({
-        where: { base_quote: { base: 'GBP', quote: 'MCOM' } },
-      });
-      if (fx) return new Decimal(fx.rate.toString()).toNumber();
-    } catch {
-      // Table may be unavailable in a fresh environment — fall through to env.
-    }
-    const parsed = parseFloat(this.config.get<string>('MCOM_GBP_RATE') ?? '');
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  }
-
-  /** Convert a GBP amount into the MCOM credits a wallet debit would charge. */
-  async convertGbpToCredits(amountGbp: number): Promise<number> {
-    const rate = await this.getGbpToMcomRate();
-    return new Decimal(amountGbp).times(rate).toDecimalPlaces(4).toNumber();
-  }
+  // ─── CURRENCY ──────────────────────────────────────────────────────────────
+  //
+  // The wallet is GBP-only. MCOM credits were retired: every amount handled by
+  // this service is pounds sterling and there is no conversion layer. Balance
+  // amounts are stored as Decimal(18,4); the central ledger books pence.
 
   // ─── DEBIT ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +124,7 @@ export class WalletService {
     dto: DebitWalletDto,
     idempotencyKey: string,
     ipAddress?: string,
+    opts?: WalletLedgerOptions,
   ): Promise<TransactionReceiptDto> {
     const amount = toDecimal(dto.amount);
     this.assertSingleTxnLimit(amount);
@@ -141,7 +151,7 @@ export class WalletService {
             throw new UnprocessableEntityException({
               error: 'INSUFFICIENT_BALANCE',
               availableBalance: available.toNumber(),
-              message: `Wallet balance (${available.toNumber()} MCOM) is insufficient for debit of ${amount.toNumber()} MCOM`,
+              message: `Wallet balance (${available.toNumber()} GBP) is insufficient for debit of ${amount.toNumber()} GBP`,
             });
           }
 
@@ -163,7 +173,7 @@ export class WalletService {
             });
           }
 
-          return this.insertTransaction(tx, fresh, {
+          const txn = await this.insertTransaction(tx, fresh, {
             type: 'DEBIT',
             amount,
             balanceBefore,
@@ -176,6 +186,8 @@ export class WalletService {
             partner,
             ipAddress,
           });
+          await this.postWalletLedger(tx, fresh, txn, partner, opts);
+          return txn;
         }),
       );
 
@@ -197,6 +209,7 @@ export class WalletService {
     dto: CreditWalletDto,
     idempotencyKey: string,
     ipAddress?: string,
+    opts?: WalletLedgerOptions,
   ): Promise<TransactionReceiptDto> {
     const amount = toDecimal(dto.amount);
     this.assertSingleTxnLimit(amount);
@@ -220,7 +233,7 @@ export class WalletService {
             if (projected.greaterThan(fresh.maxBalance)) {
               throw new UnprocessableEntityException({
                 error: 'MAX_BALANCE_EXCEEDED',
-                message: `Credit of ${amount.toNumber()} MCOM would exceed the wallet maximum balance`,
+                message: `Credit of ${amount.toNumber()} GBP would exceed the wallet maximum balance`,
               });
             }
           }
@@ -233,7 +246,7 @@ export class WalletService {
             data: { balance: { increment: amount }, lastTransactionAt: new Date() },
           });
 
-          return this.insertTransaction(tx, fresh, {
+          const txn = await this.insertTransaction(tx, fresh, {
             type: 'CREDIT',
             amount,
             balanceBefore,
@@ -246,6 +259,8 @@ export class WalletService {
             partner,
             ipAddress,
           });
+          await this.postWalletLedger(tx, fresh, txn, partner, opts);
+          return txn;
         }),
       );
 
@@ -290,7 +305,7 @@ export class WalletService {
           throw new UnprocessableEntityException({
             error: 'INSUFFICIENT_BALANCE',
             availableBalance: available.toNumber(),
-            message: `Wallet balance (${available.toNumber()} MCOM) is insufficient to reserve ${amount.toNumber()} MCOM`,
+            message: `Wallet balance (${available.toNumber()} GBP) is insufficient to reserve ${amount.toNumber()} GBP`,
           });
         }
 
@@ -322,6 +337,7 @@ export class WalletService {
     category: TransactionCategory,
     idempotencyKey?: string,
     ipAddress?: string,
+    opts?: WalletLedgerOptions,
   ): Promise<TransactionReceiptDto> {
     if (idempotencyKey) {
       const existing = await this.checkIdempotency(idempotencyKey, partner.clientId);
@@ -374,7 +390,7 @@ export class WalletService {
           data: { balance: { decrement: amount }, lastTransactionAt: new Date() },
         });
 
-        return this.insertTransaction(tx, fresh, {
+        const txn = await this.insertTransaction(tx, fresh, {
           type: 'DEBIT',
           amount,
           balanceBefore,
@@ -388,6 +404,8 @@ export class WalletService {
           ipAddress,
           holdId,
         });
+        await this.postWalletLedger(tx, fresh, txn, partner, opts);
+        return txn;
       });
 
       await this.afterTransaction(wallet.userId, txn.balanceAfter, idempotencyKey, txn);
@@ -504,6 +522,77 @@ export class WalletService {
         ipAddress: data.ipAddress,
         holdId: data.holdId,
       },
+    });
+  }
+
+  /**
+   * Mirror a wallet movement into the central ledger, inside the same
+   * transaction that moved the balance.
+   *
+   * The default counterparty is the economic truth: a partner app's movement is
+   * booked against that app's payable (money we owe them), and a platform
+   * movement against the platform wallet. Flows that know their business
+   * purpose pass an explicit intent.
+   */
+  private async postWalletLedger(
+    tx: Prisma.TransactionClient,
+    wallet: Wallet,
+    txn: WalletTransaction,
+    partner: PartnerContext,
+    opts?: WalletLedgerOptions,
+  ): Promise<void> {
+    if (opts?.skipLedger) return;
+
+    const amountMinor = toMinorUnits(txn.amount);
+    if (amountMinor <= 0n) return;
+
+    const counterparty =
+      opts?.counterparty ??
+      (partner.clientId === INTERNAL_PLATFORM_CLIENT_ID
+        ? PLATFORM_WALLET_CODE
+        : appPayableAccountCode(partner.clientId));
+
+    const isCredit = txn.type === 'CREDIT';
+    const intent = opts?.intent ?? intentForCategory(txn.category);
+
+    const { transferId } = await this.glPosting.post(tx, {
+      intent,
+      platformId: partner.clientId,
+      reference: txn.reference,
+      description: txn.description ?? undefined,
+      initiatorType: 'app',
+      idempotencyKey: `wallet-txn:${txn.id}`,
+      transactions: [
+        {
+          legs: [
+            {
+              account: walletAccountCode(wallet.id),
+              direction: isCredit ? 'credit' : 'debit',
+              amountMinor,
+            },
+            {
+              account: counterparty,
+              direction: isCredit ? 'debit' : 'credit',
+              amountMinor,
+            },
+          ],
+        },
+      ],
+      provenance: {
+        walletTransactionId: txn.id,
+        appChargeId: opts?.appChargeId ?? null,
+      },
+      metadata: { category: txn.category, source: 'wallet' },
+    });
+
+    const entry = await tx.glEntry.findFirst({
+      where: { walletTransactionId: txn.id },
+      select: { id: true },
+    });
+
+    await tx.walletTransaction.update({
+      where: { id: txn.id },
+      data: { transferId, intent, ledgerEntryId: entry?.id ?? null },
     });
   }
 
@@ -668,7 +757,7 @@ export class WalletService {
       if (used.greaterThan(wallet.dailyDebitLimit)) {
         throw new UnprocessableEntityException({
           error: 'DAILY_LIMIT_EXCEEDED',
-          message: `Daily debit limit (${wallet.dailyDebitLimit.toNumber()} MCOM) exceeded`,
+          message: `Daily debit limit (${wallet.dailyDebitLimit.toNumber()} GBP) exceeded`,
         });
       }
     }
@@ -677,7 +766,7 @@ export class WalletService {
       if (used.greaterThan(wallet.monthlyDebitLimit)) {
         throw new UnprocessableEntityException({
           error: 'MONTHLY_LIMIT_EXCEEDED',
-          message: `Monthly debit limit (${wallet.monthlyDebitLimit.toNumber()} MCOM) exceeded`,
+          message: `Monthly debit limit (${wallet.monthlyDebitLimit.toNumber()} GBP) exceeded`,
         });
       }
     }
@@ -707,7 +796,7 @@ export class WalletService {
     if (amount.greaterThan(maxSingle)) {
       throw new UnprocessableEntityException({
         error: 'AMOUNT_LIMIT_EXCEEDED',
-        message: `Single transaction limit is ${maxSingle} MCOM`,
+        message: `Single transaction limit is ${maxSingle} GBP`,
       });
     }
   }

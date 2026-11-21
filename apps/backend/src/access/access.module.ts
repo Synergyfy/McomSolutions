@@ -1,3 +1,4 @@
+import { LedgerModule } from '../ledger/ledger.module';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { CouponModule } from '../coupon/coupon.module';
@@ -11,7 +12,7 @@ import { AccessController } from './access.controller';
 import { AccessService } from './access.service';
 
 @Module({
-  imports: [AuthModule, CouponModule, EcosystemEventsModule, PrismaModule, WalletModule, MailModule, BusinessAcquisitionModule, ReferralsModule],
+  imports: [LedgerModule, AuthModule, CouponModule, EcosystemEventsModule, PrismaModule, WalletModule, MailModule, BusinessAcquisitionModule, ReferralsModule],
   controllers: [AccessController],
   providers: [AccessService],
   exports: [AccessService],

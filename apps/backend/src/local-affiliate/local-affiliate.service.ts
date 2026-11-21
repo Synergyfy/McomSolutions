@@ -258,7 +258,7 @@ export class LocalAffiliateService {
             referralCode,
             firstName: dto.firstName ?? '',
             lastName: dto.lastName ?? '',
-            wallet: { create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' } },
+            wallet: { create: { balance: 0, currency: 'GBP', status: 'ACTIVE' } },
             customerProfile: { create: {} },
           },
           include: { customerProfile: true },

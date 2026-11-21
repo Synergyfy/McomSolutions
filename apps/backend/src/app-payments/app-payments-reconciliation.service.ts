@@ -46,6 +46,48 @@ export class AppPaymentsReconciliationService {
   }
 
   /**
+   * Re-drive charges whose payee allocation did not complete. `settleCharge`
+   * is idempotent and increments `settlementAttempts`, so this can run on every
+   * instance without paying anyone twice.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async handleSettlementRetries(): Promise<void> {
+    if (!this.enabled()) return;
+    await this.withLock('cron:app-payments:settlements', 600, () => this.retryUnsettledCharges());
+  }
+
+  async retryUnsettledCharges(): Promise<number> {
+    const charges = await this.prisma.appCharge.findMany({
+      where: {
+        status: 'paid',
+        settlementState: { in: ['PENDING', 'FAILED'] },
+        settlementAttempts: { lt: 10 },
+        // Leave freshly paid charges alone: their first settlement may still be
+        // in flight in the request that created them.
+        updatedAt: { lte: new Date(Date.now() - 2 * 60_000) },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: this.batchSize,
+      select: { id: true, settlementState: true, settlementAttempts: true },
+    });
+
+    let retried = 0;
+    for (const charge of charges) {
+      try {
+        await this.payments.settleCharge(charge.id);
+        retried += 1;
+      } catch (err: any) {
+        this.logger.warn(`Settlement retry failed for ${charge.id}: ${err?.message ?? err}`);
+      }
+    }
+
+    if (retried > 0) {
+      this.logger.log(`Re-drove settlement for ${retried} charge(s).`);
+    }
+    return retried;
+  }
+
+  /**
    * Process every due outbox row once.
    *
    * A row is claimed by moving it `PENDING → PROCESSING` with the exact attempt

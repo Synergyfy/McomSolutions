@@ -21,6 +21,7 @@ import { ServiceIdentityModule } from './service-identity/service-identity.modul
 import { EcosystemProfilesModule } from './ecosystem-profiles/ecosystem-profiles.module';
 import { EcosystemMediaModule } from './ecosystem-media/ecosystem-media.module';
 import { WalletModule } from './wallet/wallet.module';
+import { LedgerModule } from './ledger/ledger.module';
 import { AppPaymentsModule } from './app-payments/app-payments.module';
 import { WebhookDispatcherModule } from './webhook-dispatcher/webhook-dispatcher.module';
 import { QueueModule } from './queue/queue.module';
@@ -107,6 +108,7 @@ function validateEnv(config: Record<string, unknown>): Record<string, unknown> {
     EcosystemProfilesModule,
     EcosystemMediaModule,
     WalletModule,
+    LedgerModule,
     AppPaymentsModule,
     WebhookDispatcherModule,
     QueueModule,

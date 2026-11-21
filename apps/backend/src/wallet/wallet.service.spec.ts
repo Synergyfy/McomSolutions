@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { WalletService } from './wallet.service';
 import { WalletLockUtil } from './utils/wallet-lock.util';
 import { WalletEventsService } from './wallet-events.service';
+import { GlPostingService } from '../ledger/gl-posting.service';
 
 const PARTNER = { clientId: 'mcom-mall', name: 'MCOM Mall', platformSlug: 'mall' };
 
@@ -22,7 +23,7 @@ describe('WalletService', () => {
     id: 'w1',
     userId: 'u1',
     balance: new Decimal(100),
-    currency: 'MCOM',
+    currency: 'GBP',
     status: 'ACTIVE',
     dailyDebitLimit: null,
     monthlyDebitLimit: null,
@@ -38,7 +39,7 @@ describe('WalletService', () => {
     amount: new Decimal(50),
     balanceBefore: new Decimal(100),
     balanceAfter: new Decimal(50),
-    currency: 'MCOM',
+    currency: 'GBP',
     platformClientId: 'mcom-mall',
     reference: 'ref-1',
     idempotencyKey: 'key-1',
@@ -55,10 +56,12 @@ describe('WalletService', () => {
     },
     walletTransaction: {
       create: jest.fn(),
+      update: jest.fn(),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       aggregate: jest.fn(),
     },
+    glEntry: { findFirst: jest.fn() },
     walletHold: {
       aggregate: jest.fn(),
       create: jest.fn(),
@@ -109,6 +112,7 @@ describe('WalletService', () => {
         { provide: SsoService, useValue: mockSso },
         { provide: ConfigService, useValue: mockConfig },
         { provide: WalletEventsService, useValue: mockWalletEvents },
+        { provide: GlPostingService, useValue: { post: jest.fn().mockResolvedValue({ transferId: 'tr_1', replayed: false }) } },
       ],
     }).compile();
 
@@ -133,6 +137,112 @@ describe('WalletService', () => {
     mockRedis.setNx.mockResolvedValue(true);
     mockRedis.compareAndDelete.mockResolvedValue(true);
     mockSso.getClientByClientId.mockResolvedValue({ name: 'MCOM Mall', platformSlug: 'mall' });
+  });
+
+  describe('central ledger projection', () => {
+    let glPosting: any;
+
+    beforeEach(() => {
+      glPosting = service['glPosting'] as any;
+    });
+
+    it('books a partner debit against that app payable', async () => {
+      mockPrisma.walletTransaction.create.mockResolvedValue({
+        ...txn,
+        amount: new Decimal(90),
+        reference: 'order-1',
+      });
+      await service.debitWallet(
+        PARTNER,
+        { userId: 'u1', amount: 90, category: 'PURCHASE', description: 'Order', reference: 'order-1' },
+        'key-ledger-1',
+      );
+
+      expect(glPosting.post).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          platformId: 'mcom-mall',
+          idempotencyKey: 'wallet-txn:t1',
+          transactions: [
+            {
+              legs: [
+                { account: 'wallet:w1', direction: 'debit', amountMinor: 9000n },
+                { account: 'payable:app:mcom-mall', direction: 'credit', amountMinor: 9000n },
+              ],
+            },
+          ],
+          provenance: { walletTransactionId: 't1', appChargeId: null },
+        }),
+      );
+    });
+
+    it('books a platform-internal debit against the platform wallet', async () => {
+      mockPrisma.walletTransaction.create.mockResolvedValue({ ...txn, amount: new Decimal(29) });
+      const platform = { clientId: 'mcom-central', name: 'MCOM Central', platformSlug: 'system' };
+      await service.debitWallet(
+        platform,
+        { userId: 'u1', amount: 29, category: 'SUBSCRIPTION', description: 'Plan' },
+        'key-ledger-2',
+      );
+
+      expect(glPosting.post).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          transactions: [
+            {
+              legs: [
+                { account: 'wallet:w1', direction: 'debit', amountMinor: 2900n },
+                { account: 'platform:wallet:GBP', direction: 'credit', amountMinor: 2900n },
+              ],
+            },
+          ],
+        }),
+      );
+    });
+
+    it('books a credit as the mirror image (referral payout funds from the platform)', async () => {
+      mockPrisma.walletTransaction.create.mockResolvedValue({
+        ...txn,
+        type: 'CREDIT',
+        amount: new Decimal(5),
+        category: 'REWARD',
+      });
+      const platform = { clientId: 'mcom-central', name: 'MCOM Central', platformSlug: 'system' };
+      await service.creditWallet(
+        platform,
+        { userId: 'u1', amount: 5, category: 'REWARD' as any, description: 'Referral' },
+        'key-ledger-3',
+        undefined,
+        { intent: 'REFERRAL_COMMISSION' as any },
+      );
+
+      expect(glPosting.post).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          intent: 'REFERRAL_COMMISSION',
+          transactions: [
+            {
+              legs: [
+                { account: 'wallet:w1', direction: 'credit', amountMinor: 500n },
+                { account: 'platform:wallet:GBP', direction: 'debit', amountMinor: 500n },
+              ],
+            },
+          ],
+        }),
+      );
+    });
+
+    it('honours skipLedger for flows that post their own transfer', async () => {
+      await service.debitWallet(
+        PARTNER,
+        { userId: 'u1', amount: 10, category: 'PURCHASE', description: 'Skip' },
+        'key-ledger-4',
+        undefined,
+        { skipLedger: true },
+      );
+
+      expect(glPosting.post).not.toHaveBeenCalled();
+    });
   });
 
   describe('debitWallet', () => {
@@ -198,7 +308,7 @@ describe('WalletService', () => {
           amount: 50,
           balanceBefore: 100,
           balanceAfter: 50,
-          currency: 'MCOM',
+          currency: 'GBP',
           reference: 'ref-1',
           idempotencyKey: 'key-1',
           processedAt: '2026-08-26T11:15:00.000Z',
@@ -242,7 +352,7 @@ describe('WalletService', () => {
           amount: 50,
           balanceBefore: 100,
           balanceAfter: 50,
-          currency: 'MCOM',
+          currency: 'GBP',
           idempotencyKey: 'key-7',
           processedAt: '2026-08-26T11:15:00.000Z',
         },
@@ -282,7 +392,7 @@ describe('WalletService', () => {
           amount: 50,
           balanceBefore: 100,
           balanceAfter: 50,
-          currency: 'MCOM',
+          currency: 'GBP',
           reference: 'ref-1',
           idempotencyKey: 'key-1',
           processedAt: '2026-08-26T11:15:00.000Z',
@@ -487,7 +597,7 @@ describe('WalletService', () => {
 
       const result = await service.ensureWallet('u-new');
       expect(mockPrisma.wallet.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ userId: 'u-new', balance: 0, currency: 'MCOM', status: 'ACTIVE' }),
+        data: expect.objectContaining({ userId: 'u-new', balance: 0, currency: 'GBP', status: 'ACTIVE' }),
       });
       expect(result.userId).toBe('u-new');
     });

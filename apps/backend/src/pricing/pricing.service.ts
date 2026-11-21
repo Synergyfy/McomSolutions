@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, ConflictException, Logger, Optional, Bad
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TASK_EVENT_QUEUE, TaskEventJobData } from '../queue/queue.constants';
+import { PlatformSalesService } from '../ledger/platform-sales.service';
+import { toMinorUnits } from '../ledger/money';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
@@ -9,7 +11,7 @@ import { AccountManagerAssignmentService } from '../affiliate/account-manager-as
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import { ReferralCommissionService } from '../referrals/referral-commission.service';
 import { ReferralCommissionSourceType } from '@prisma/client';
-import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode } from '@prisma/client';
+import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode, GlIntent } from '@prisma/client';
 import {
   addDaysUtc,
   calculateTierExpiry,
@@ -96,6 +98,8 @@ export class PricingService {
     private readonly businessAcquisition?: BusinessAcquisitionService,
     @Optional()
     private readonly referralCommission?: ReferralCommissionService,
+    @Optional()
+    private readonly platformSales?: PlatformSalesService,
   ) {}
 
   private tierMultiplier(tier: string): number {
@@ -567,6 +571,15 @@ export class PricingService {
             metadata: (opts.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           },
         });
+        await this.platformSales?.recordSale(tx, {
+          provider: opts.provider ?? '',
+          amountMinor: toMinorUnits(price),
+          idempotencyKey: `billing:${billing.id}`,
+          reference: opts.providerPaymentId ?? null,
+          description: billing.description ?? undefined,
+          intent: GlIntent.SUBSCRIPTION,
+          metadata: { billingTransactionId: billing.id, businessId },
+        });
         if (opts.couponRedemptionId) {
           await this.couponService.completeRedemption(
             tx,
@@ -945,6 +958,15 @@ export class PricingService {
           provider: opts.provider ?? null,
           providerPaymentId: opts.providerPaymentId ?? null,
         },
+      });
+      await this.platformSales?.recordSale(tx, {
+        provider: opts.provider ?? '',
+        amountMinor: toMinorUnits(price),
+        idempotencyKey: `billing:${billing.id}`,
+        reference: opts.providerPaymentId ?? null,
+        description: billing.description ?? undefined,
+        intent: GlIntent.SUBSCRIPTION,
+        metadata: { billingTransactionId: billing.id, businessId: business.id },
       });
       if (opts.couponRedemptionId) {
         await this.couponService.completeRedemption(tx, opts.couponRedemptionId, billing.id, {

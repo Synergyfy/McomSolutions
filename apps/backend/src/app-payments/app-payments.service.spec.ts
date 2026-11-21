@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { AppChargeMethod, AppChargeStatus, Prisma } from '@prisma/client';
+import { GlPostingService } from '../ledger/gl-posting.service';
 import { AppPaymentsService } from './app-payments.service';
 import { AppPaymentsLedgerService } from './app-payments-ledger.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -156,6 +157,7 @@ describe('AppPaymentsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: WalletService, useValue: wallet },
         { provide: WebhookDispatcherService, useValue: dispatcher },
+        { provide: GlPostingService, useValue: { post: jest.fn().mockResolvedValue({ transferId: 'tr_1', replayed: false }) } },
       ],
     }).compile();
 

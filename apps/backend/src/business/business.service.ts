@@ -1162,7 +1162,7 @@ export class BusinessService {
           },
         },
         wallet: {
-          create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+          create: { balance: 0, currency: 'GBP', status: 'ACTIVE' },
         },
       },
       include: { businessProfile: true },

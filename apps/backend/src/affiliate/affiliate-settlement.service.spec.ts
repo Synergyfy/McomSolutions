@@ -61,7 +61,6 @@ function buildHarness(task = buildTask()) {
   };
 
   const wallet = {
-    getGbpToMcomRate: jest.fn().mockResolvedValue(2),
     resolvePartner: jest.fn().mockResolvedValue({
       clientId: 'mcom-central',
       name: 'MCOM Central',
@@ -69,7 +68,7 @@ function buildHarness(task = buildTask()) {
     }),
     placeHold: jest.fn().mockResolvedValue({
       holdId: 'hold-1',
-      reserved: 240,
+      reserved: 120,
       expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
     }),
     captureHold: jest.fn().mockResolvedValue({ transactionId: 'business-txn' }),
@@ -103,7 +102,7 @@ describe('AffiliateSettlementService', () => {
         expect.objectContaining({ clientId: 'mcom-central' }),
         expect.objectContaining({
           userId: 'business-user-1',
-          amount: 240,
+          amount: 120,
           reference: 'affiliate-task:task-1:hold',
         }),
       );
@@ -111,12 +110,12 @@ describe('AffiliateSettlementService', () => {
       const create = prisma.affiliateTaskSettlement.upsert.mock.calls[0][0].create;
       expect(create.status).toBe('HELD');
       expect(create.fundingSource).toBe('BUSINESS_WALLET');
-      expect(create.businessChargeCredits.toString()).toBe('240');
-      expect(create.compensationCredits.toString()).toBe('150');
-      // 10% of 240 = 24, capped only by the 90 spread.
-      expect(create.platformFeeCredits.toString()).toBe('24');
-      expect(create.platformMarginCredits.toString()).toBe('66');
-      expect(create.affiliatePayoutCredits.toString()).toBe('150');
+      expect(create.businessChargeCredits.toString()).toBe('120');
+      expect(create.compensationCredits.toString()).toBe('75');
+      // 10% of 120 = 12, capped only by the 45 spread.
+      expect(create.platformFeeCredits.toString()).toBe('12');
+      expect(create.platformMarginCredits.toString()).toBe('33');
+      expect(create.affiliatePayoutCredits.toString()).toBe('75');
       expect(create.holdId).toBe('hold-1');
     });
 
@@ -140,12 +139,12 @@ describe('AffiliateSettlementService', () => {
       expect(create.fundingSource).toBe('PLATFORM');
       expect(create.businessChargeCredits.toString()).toBe('0');
       expect(create.platformFeeCredits.toString()).toBe('0');
-      expect(create.affiliatePayoutCredits.toString()).toBe('150');
+      expect(create.affiliatePayoutCredits.toString()).toBe('75');
       expect(create.status).toBe('HELD');
     });
 
     it('caps the fee at the spread so the affiliate payout is never reduced', async () => {
-      const task = buildTask({ businessChargePence: 8000 }); // 160 credits vs 150 payout
+      const task = buildTask({ businessChargePence: 8000 }); // £80 vs £75 payout
       const { service, prisma } = buildHarness(task);
       prisma.affiliateTaskSettlement.upsert.mockImplementation(async ({ create }: any) => ({
         id: 'settlement-3',
@@ -155,9 +154,9 @@ describe('AffiliateSettlementService', () => {
       await service.ensureForTask('task-1', { platformFeePercent: 50 });
 
       const create = prisma.affiliateTaskSettlement.upsert.mock.calls[0][0].create;
-      expect(create.businessChargeCredits.toString()).toBe('160');
-      expect(create.affiliatePayoutCredits.toString()).toBe('150');
-      expect(create.platformFeeCredits.toString()).toBe('10');
+      expect(create.businessChargeCredits.toString()).toBe('80');
+      expect(create.affiliatePayoutCredits.toString()).toBe('75');
+      expect(create.platformFeeCredits.toString()).toBe('5');
       expect(create.platformMarginCredits.toString()).toBe('0');
     });
 
@@ -180,7 +179,7 @@ describe('AffiliateSettlementService', () => {
       const create = prisma.affiliateTaskSettlement.upsert.mock.calls[0][0].create;
       expect(create.fundingSource).toBe('PLATFORM');
       expect(create.businessChargeCredits.toString()).toBe('0');
-      expect(create.affiliatePayoutCredits.toString()).toBe('150');
+      expect(create.affiliatePayoutCredits.toString()).toBe('75');
     });
 
     it('charges a paid membership once the free allowance is exhausted', async () => {
@@ -200,15 +199,15 @@ describe('AffiliateSettlementService', () => {
 
       expect(wallet.placeHold).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ amount: 240 }),
+        expect.objectContaining({ amount: 120 }),
       );
       const create = prisma.affiliateTaskSettlement.upsert.mock.calls[0][0].create;
       expect(create.fundingSource).toBe('BUSINESS_WALLET');
-      expect(create.businessChargeCredits.toString()).toBe('240');
+      expect(create.businessChargeCredits.toString()).toBe('120');
     });
 
     it('refuses affiliate pay above the business charge', async () => {
-      const task = buildTask({ businessChargePence: 2000 }); // 40 credits < 150 payout
+      const task = buildTask({ businessChargePence: 2000 }); // £20 < £75 payout
       const { service } = buildHarness(task);
 
       await expect(service.ensureForTask('task-1')).rejects.toThrow(
@@ -220,7 +219,7 @@ describe('AffiliateSettlementService', () => {
       const { service, prisma, wallet } = buildHarness();
       wallet.placeHold.mockRejectedValue({
         response: { error: 'INSUFFICIENT_BALANCE', availableBalance: 12 },
-        message: 'Wallet balance (12 MCOM) is insufficient',
+        message: 'Wallet balance (£12) is insufficient',
       });
       prisma.affiliateTaskSettlement.upsert.mockImplementation(async ({ create }: any) => ({
         id: 'settlement-4',
@@ -233,7 +232,7 @@ describe('AffiliateSettlementService', () => {
 
       const create = prisma.affiliateTaskSettlement.upsert.mock.calls[0][0].create;
       expect(create.status).toBe('FAILED');
-      expect(create.failureReason).toMatch(/does not have enough MCOM credits/i);
+      expect(create.failureReason).toMatch(/does not have enough wallet balance/i);
       expect(create.holdId).toBeNull();
     });
   });
@@ -248,12 +247,12 @@ describe('AffiliateSettlementService', () => {
         settlementReference: null,
         affiliateUserId: 'affiliate-1',
         businessId: 'business-1',
-        businessChargeCredits: new Decimal('240'),
-        affiliatePayoutCredits: new Decimal('150'),
-        platformFeeCredits: new Decimal('24'),
-        platformMarginCredits: new Decimal('66'),
+        businessChargeCredits: new Decimal('120'),
+        affiliatePayoutCredits: new Decimal('75'),
+        platformFeeCredits: new Decimal('12'),
+        platformMarginCredits: new Decimal('33'),
         platformFeePercent: new Decimal('10'),
-        fxRate: new Decimal('2'),
+        fxRate: new Decimal('1'),
         fundingSource: 'BUSINESS_WALLET',
         businessTransactionId: null,
         affiliateTransactionId: null,
@@ -281,11 +280,11 @@ describe('AffiliateSettlementService', () => {
       );
       expect(wallet.creditWallet).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ userId: 'affiliate-1', amount: 150 }),
+        expect.objectContaining({ userId: 'affiliate-1', amount: 75 }),
         'affiliate-task:task-1:settle:affiliate:credit',
       );
       expect(prisma.revenueRecord.create).toHaveBeenCalledTimes(1);
-      expect(prisma.revenueRecord.create.mock.calls[0][0].data.amount).toBe(45); // (24 fee + 66 margin) / 2
+      expect(prisma.revenueRecord.create.mock.calls[0][0].data.amount).toBe(45); // (12 fee + 33 margin) / 1
     });
 
     it('short-circuits an already settled task without moving money again', async () => {
@@ -320,11 +319,11 @@ describe('AffiliateSettlementService', () => {
       expect(wallet.captureHold).not.toHaveBeenCalled();
       expect(wallet.creditWallet).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ userId: 'affiliate-1', amount: 150 }),
+        expect.objectContaining({ userId: 'affiliate-1', amount: 75 }),
         'affiliate-task:task-1:settle:affiliate:credit',
       );
       expect(prisma.revenueRecord.create).toHaveBeenCalledTimes(1);
-      expect(prisma.revenueRecord.create.mock.calls[0][0].data.amount).toBe(-75); // 150 credits / 2
+      expect(prisma.revenueRecord.create.mock.calls[0][0].data.amount).toBe(-75); // £75 payout
     });
   });
 

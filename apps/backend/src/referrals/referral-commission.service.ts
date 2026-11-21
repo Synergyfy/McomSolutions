@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
+  GlIntent,
   Prisma,
   ReferralCommission,
   ReferralCommissionSourceType,
@@ -174,8 +176,9 @@ export class ReferralCommissionService {
         );
       }
 
-      const fxRate = await this.wallet.getGbpToMcomRate();
-      const commissionCredits = round(commissionGbp * fxRate);
+      // Commission is denominated in GBP. The wallet no longer holds a separate
+      // credit currency, so the payable amount is the GBP commission itself.
+      const commissionCredits = commissionGbp;
       if (!Number.isFinite(commissionCredits) || commissionCredits <= 0) {
         return this.createSkipped(
           {
@@ -196,7 +199,6 @@ export class ReferralCommissionService {
             rewardType: reward.rewardType,
             rewardValue: new Prisma.Decimal(reward.value),
             commissionAmountGbp: new Prisma.Decimal(commissionGbp),
-            fxRate: new Prisma.Decimal(fxRate),
             commissionCredits: new Prisma.Decimal(commissionCredits),
             status: ReferralCommissionStatus.PENDING,
             configVersion: config.version,
@@ -232,6 +234,8 @@ export class ReferralCommissionService {
             },
           },
           `referral-payout:${commission.id}`,
+          undefined,
+          { intent: GlIntent.REFERRAL_COMMISSION },
         );
 
         return this.prisma.referralCommission.update({
@@ -244,6 +248,26 @@ export class ReferralCommissionService {
       } catch (error) {
         const failureReason =
           error instanceof Error ? error.message : String(error);
+
+        // The platform funds commission from its own wallet. If that wallet
+        // cannot cover it we keep the row PENDING for a retry — we never mint
+        // money and never drive the platform balance negative.
+        const insufficientPlatform =
+          (error as any)?.response?.error === 'INSUFFICIENT_PLATFORM_BALANCE';
+
+        if (insufficientPlatform) {
+          this.logger.warn(
+            `Referral commission ${commission.id} is waiting for platform funds: ${failureReason}`,
+          );
+          return this.prisma.referralCommission.update({
+            where: { id: commission.id },
+            data: {
+              status: ReferralCommissionStatus.PENDING,
+              failureReason,
+            },
+          });
+        }
+
         this.logger.warn(
           `Referral payout failed for commission ${commission.id}: ${failureReason}`,
         );
@@ -518,6 +542,93 @@ export class ReferralCommissionService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  /**
+   * Re-drive commissions the platform could not fund at the time.
+   *
+   * Idempotent by construction: the wallet credit key is `referral-payout:<id>`,
+   * so a duplicate attempt returns the original receipt instead of paying twice.
+   * Runs without a distributed lock — the idempotency key is the real guard.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async retryPendingPayouts(limit = 25): Promise<{ attempted: number; credited: number; stillPending: number }> {
+    const rows = await this.prisma.referralCommission.findMany({
+      where: {
+        status: ReferralCommissionStatus.PENDING,
+        failureReason: { not: null },
+        updatedAt: { lte: new Date(Date.now() - 5 * 60_000) },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit,
+    });
+
+    let credited = 0;
+    let stillPending = 0;
+
+    for (const row of rows) {
+      try {
+        const receipt = await this.wallet.creditWallet(
+          MCOM_CENTRAL_PARTNER,
+          {
+            userId: row.referrerUserId,
+            amount: Number(row.commissionAmountGbp),
+            category: TransactionCategory.REWARD,
+            description: `Referral commission — ${
+              row.referredName ?? row.referredEmail ?? 'referred business'
+            } (${row.sourceName ?? String(row.sourceType).replaceAll('_', ' ').toLowerCase()})`,
+            reference: `referral-commission:${row.id}`,
+            metadata: {
+              referralCommissionId: row.id,
+              referredUserId: row.referredUserId,
+              sourceType: row.sourceType,
+              sourceId: row.sourceId,
+              configVersion: row.configVersion,
+              retried: true,
+            },
+          },
+          `referral-payout:${row.id}`,
+          undefined,
+          { intent: GlIntent.REFERRAL_COMMISSION },
+        );
+
+        await this.prisma.referralCommission.update({
+          where: { id: row.id },
+          data: {
+            status: ReferralCommissionStatus.CREDITED,
+            walletTransactionId: receipt.transactionId,
+            failureReason: null,
+          },
+        });
+        credited += 1;
+      } catch (error: any) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const insufficientPlatform =
+          error?.response?.error === 'INSUFFICIENT_PLATFORM_BALANCE';
+
+        if (insufficientPlatform) {
+          // Still unfunded: leave it pending and touch `updatedAt` so we back off.
+          await this.prisma.referralCommission.update({
+            where: { id: row.id },
+            data: { failureReason: reason },
+          });
+          stillPending += 1;
+        } else {
+          await this.prisma.referralCommission.update({
+            where: { id: row.id },
+            data: { status: ReferralCommissionStatus.FAILED, failureReason: reason },
+          });
+        }
+      }
+    }
+
+    if (credited > 0 || stillPending > 0) {
+      this.logger.log(
+        `Referral retry: ${credited} credited, ${stillPending} still awaiting platform funds.`,
+      );
+    }
+
+    return { attempted: rows.length, credited, stillPending };
   }
 
   serializeCommission(row: ReferralCommission) {

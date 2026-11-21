@@ -29,6 +29,20 @@ import ReferralEarningsCard from './ReferralEarningsCard';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
+const INTENT_LABELS: Record<string, string> = {
+  ORDER: 'Order',
+  BOOKING: 'Booking',
+  DELEGATION: 'Delegation',
+  PURCHASE: 'Purchase',
+  SUBSCRIPTION: 'Subscription',
+  REFERRAL_COMMISSION: 'Referral',
+  TOP_UP: 'Top-up',
+  REFUND: 'Refund',
+  PAYOUT: 'Payout',
+  TRANSFER: 'Transfer',
+  ADJUSTMENT: 'Adjustment',
+};
+
 export default function DashboardWallet() {
   const navigate = useNavigate();
   const { data: wallet, isLoading: walletLoading } = useMyWallet();
@@ -87,7 +101,7 @@ export default function DashboardWallet() {
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-5 py-4 rounded-2xl flex items-center justify-between animate-in fade-in">
           <div className="flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-            <p className="text-sm font-bold">Wallet top-up successful! Your credits have been updated.</p>
+            <p className="text-sm font-bold">Wallet top-up successful! Your balance has been updated.</p>
           </div>
           <button onClick={() => setUrlNotice(null)} className="text-emerald-700 hover:text-emerald-900 p-1">
             <X className="w-4 h-4" />
@@ -187,9 +201,20 @@ export default function DashboardWallet() {
                   {t.type === 'CREDIT' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-gray-900 truncate">{t.description || t.reference || t.id}</div>
-                  <div className="text-[11px] text-gray-400 font-bold mt-0.5">
-                    {t.platformName || t.platformClientId || 'MCOM Central'} · {new Date(t.createdAt).toLocaleDateString()} · {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="text-sm font-bold text-gray-900 truncate">{t.description || t.reference || t.id}</div>
+                    {t.intent && (
+                      <span className="shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                        {INTENT_LABELS[t.intent] ?? t.intent}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-gray-400 font-bold mt-0.5 truncate">
+                    {t.counterparty
+                      ? `${t.type === 'CREDIT' ? 'from' : 'to'} ${t.counterparty.displayName}`
+                      : t.platformName || t.platformClientId || 'MCOM Central'}
+                    {' · '}
+                    {new Date(t.createdAt).toLocaleDateString()} · {new Date(t.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
                 <div className={cn('max-w-[38%] shrink-0 break-words text-right text-xs font-black sm:max-w-none sm:text-sm', t.type === 'CREDIT' ? 'text-emerald-600' : 'text-red-500')}>
@@ -396,7 +421,7 @@ function TopUpModal({
               </div>
               <div>
                 <h3 className="font-black text-gray-900 font-display text-base">Top Up Wallet</h3>
-                <p className="text-xs text-gray-400 font-medium">Add spendable credits to your MCOM balance</p>
+                <p className="text-xs text-gray-400 font-medium">Add funds to your MCOM wallet</p>
               </div>
             </div>
 
@@ -436,7 +461,7 @@ function TopUpModal({
 
               <div className="mt-4 p-3 rounded-xl bg-gray-50 border border-gray-100 flex items-center gap-2 text-[11px] font-bold text-gray-500">
                 <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                <span>1 GBP = 1.00 MCOM credit. Instant settlement across all apps.</span>
+                <span>Your wallet is held in GBP. Instant settlement across all apps.</span>
               </div>
 
               {error && <p className="mt-3 text-xs font-bold text-red-500">{error}</p>}
@@ -496,7 +521,7 @@ function TopUpModal({
             </div>
             <h3 className="text-lg font-black text-gray-900 font-display">Top-Up Successful!</h3>
             <p className="text-xs text-gray-500 mt-1.5 max-w-xs">
-              £{Number(amount).toFixed(2)} MCOM credits have been added to your wallet and are ready to spend.
+              £{Number(amount).toFixed(2)} has been added to your wallet and is ready to spend.
             </p>
             <button
               onClick={onClose}
