@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -68,10 +69,24 @@ export class WalletService {
   /**
    * Lazy get-or-create. Guarantees every user has a wallet regardless of how
    * their user row was created (registration, Google callback, admin import).
+   *
+   * Creating a wallet is also where an unknown id is caught: partner APIs must
+   * send the Central Hub Solution user id (from SSO), never their own customer
+   * id, so a missing user row is a caller bug and deserves a clear 400 rather
+   * than a foreign-key 500.
    */
   async ensureWallet(userId: string) {
     const existing = await this.prisma.wallet.findUnique({ where: { userId } });
     if (existing) return existing;
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new BadRequestException(
+        'userId does not belong to an active Central Hub user. Send the Central Hub Solution user id (from SSO), not your app\'s own customer id.',
+      );
+    }
     try {
       return await this.prisma.wallet.create({
         data: { userId, balance: 0, currency: 'GBP', status: 'ACTIVE' },

@@ -1051,15 +1051,16 @@ export class LedgerQueryService {
     const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
 
     // Only a Central Hub Solution user is a payer we can name. A platform's own
-    // customer id is not a CHS identity — buyers can pay on a platform without
-    // ever registering here — so an anonymous buyer is shown as a guest rather
-    // than mislabelled with the app's internal id.
+    // customer id is not a CHS identity, so an unidentified payer is never
+    // mislabelled with the app's internal id. New charges always carry an
+    // mcomUserId (guest payments are rejected); this branch only covers
+    // historical charges created before that rule.
     if (payer.identified && payer.name) {
       gateway.label = `${payer.name} · paid by ${providerLabel}`;
     } else if (payer.mcomUserId) {
       gateway.label = `MCOM user ${payer.mcomUserId.slice(0, 8)}… · paid by ${providerLabel}`;
     } else {
-      gateway.label = `Guest buyer (no MCOM account) · ${providerLabel}`;
+      gateway.label = `Unidentified buyer (legacy charge) · ${providerLabel}`;
     }
   }
 

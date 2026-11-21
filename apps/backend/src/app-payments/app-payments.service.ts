@@ -110,12 +110,24 @@ export class AppPaymentsService {
     if (amountMinor <= 0n) {
       throw new BadRequestException('amountMinor must be greater than zero.');
     }
+
+    // No guest payments. Every charge must be attributable to a real Central
+    // Hub user, otherwise the ledger cannot say who the buyer was.
+    const mcomUserId = dto.mcomUserId?.trim();
+    if (!mcomUserId) {
+      throw new BadRequestException(
+        'mcomUserId is required. Guest payments are not accepted — the buyer must be identified by a Central Hub user id.',
+      );
+    }
+    await this.assertActiveMcomUser(mcomUserId, 'Buyer');
+    dto.mcomUserId = mcomUserId;
+
     const currency = (dto.currency || 'GBP').toUpperCase();
     const requestHash = this.hashChargeRequest(dto, currency);
 
     const existing = await this.findByKey(client.clientId, idempotencyKey);
     if (existing) {
-      return this.replayCreate(client, existing, requestHash);
+      return this.replayCreate(client, existing, requestHash, mcomUserId);
     }
 
     const feeConfig = await this.ledger.resolveFeeConfig(client);
@@ -124,7 +136,7 @@ export class AppPaymentsService {
 
     // Where the money goes. Validated here, before any provider call, so a
     // split that does not reconcile can never take a payment.
-    const allocations = this.allocateChargeSplits(amountMinor, feeMinor, dto);
+    const allocations = await this.allocateChargeSplits(amountMinor, feeMinor, dto);
     const intent = dto.intent ?? GlIntent.ORDER;
 
     if (dto.method === AppChargeMethod.wallet) {
@@ -173,7 +185,7 @@ export class AppPaymentsService {
 
     if (!charge) {
       const winner = await this.findByKey(client.clientId, idempotencyKey);
-      if (winner) return this.replayCreate(client, winner, requestHash);
+      if (winner) return this.replayCreate(client, winner, requestHash, dto.mcomUserId ?? undefined);
       throw new ConflictException(
         'A concurrent request is using this idempotency key. Retry with the same X-Idempotency-Key.',
       );
@@ -246,6 +258,9 @@ export class AppPaymentsService {
    * Fingerprint of the economic intent behind an idempotency key. A replay with
    * the same key but a different amount/method/reference is a client bug, not a
    * retry — it must fail loudly instead of silently returning the old charge.
+   *
+   * The payer is checked separately in `replayCreate` so that hashes written by
+   * older deployments still replay for their original requests.
    */
   private hashChargeRequest(dto: CreateChargeDto, currency: string): string {
     // Intent and splits are part of the economic payload: replaying a key with
@@ -264,12 +279,40 @@ export class AppPaymentsService {
       .digest('hex');
   }
 
+  /**
+   * A CHS id is only meaningful if it belongs to an active Central Hub user.
+   * Validate it before any money moves so the ledger can always name the payer
+   * and every payee. Partner platforms must map their own ids to CHS ids
+   * (issued by SSO) before calling MCOM — MCOM never trusts an app-local id.
+   */
+  private async assertActiveMcomUser(userId: string, role: string): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new BadRequestException(
+        `${role} mcomUserId does not belong to an active Central Hub user. Send the Central Hub Solution user id (from SSO), not your app's own customer id.`,
+      );
+    }
+  }
+
   /** Validate and apportion the caller's splits. Throws before any provider call. */
-  private allocateChargeSplits(
+  private async allocateChargeSplits(
     amountMinor: bigint,
     feeMinor: bigint,
     dto: CreateChargeDto,
-  ): AllocatedSplit[] {
+  ): Promise<AllocatedSplit[]> {
+    // Every mcom_user payee must be a real Central Hub user. External payees
+    // (for example a platform wallet) remain payable references, not people.
+    await Promise.all(
+      (dto.splits ?? [])
+        .filter((split) => split.payeeType === 'mcom_user' && split.payeeUserId)
+        .map((split) =>
+          this.assertActiveMcomUser(String(split.payeeUserId), 'Payee'),
+        ),
+    );
+
     const splits = (dto.splits ?? []).map((split) => ({
       payeeType: split.payeeType,
       payeeUserId: split.payeeUserId ?? null,
@@ -288,7 +331,14 @@ export class AppPaymentsService {
       currency: charge.currency.toLowerCase(),
       automatic_payment_methods: { enabled: true },
       description: dto.description || `MCOM Pay — ${client.name}`,
-      metadata: { chargeId: charge.id, appClientId: client.clientId, reference: dto.reference },
+      metadata: {
+        chargeId: charge.id,
+        appClientId: client.clientId,
+        reference: dto.reference,
+        // The payer identity travels with the intent, so confirmation can
+        // prove it is the same Central Hub user the charge was created for.
+        mcomUserId: charge.mcomUserId,
+      },
     });
 
     try {
@@ -358,9 +408,6 @@ export class AppPaymentsService {
     allocations: AllocatedSplit[],
     feeConfig: { feePercent: Prisma.Decimal; feeFixedMinor: bigint },
   ) {
-    if (!dto.mcomUserId) {
-      throw new BadRequestException('mcomUserId is required for the wallet payment method.');
-    }
     if (currency !== 'GBP') {
       throw new BadRequestException('Wallet payments are currently only supported for GBP charges.');
     }
@@ -392,7 +439,7 @@ export class AppPaymentsService {
 
     if (!charge) {
       const winner = await this.findByKey(client.clientId, idempotencyKey);
-      if (winner) return this.replayCreate(client, winner, requestHash);
+      if (winner) return this.replayCreate(client, winner, requestHash, dto.mcomUserId ?? undefined);
       throw new ConflictException(
         'A concurrent request is using this idempotency key. Retry with the same X-Idempotency-Key.',
       );
@@ -440,7 +487,12 @@ export class AppPaymentsService {
    * - Terminal-failure charges → 409: the key is consumed and cannot be re-driven.
    * - Paid / refunding / refunded → return the current state.
    */
-  private async replayCreate(client: SsoClient, charge: AppCharge, requestHash?: string) {
+  private async replayCreate(
+    client: SsoClient,
+    charge: AppCharge,
+    requestHash?: string,
+    payerId?: string,
+  ) {
     // Defence in depth: keys are scoped per app, so this should be unreachable.
     if (charge.appClientId !== client.clientId) {
       throw new ConflictException('This idempotency key has already been used.');
@@ -448,6 +500,14 @@ export class AppPaymentsService {
     if (requestHash && charge.requestHash && requestHash !== charge.requestHash) {
       throw new ConflictException(
         'This X-Idempotency-Key was already used with a different payload (amount, currency, method or reference).',
+      );
+    }
+    // The payer is part of the economic identity of a payment. Replaying a key
+    // for someone else must never hand back the original charge (and its
+    // client secret) — that would attribute one person's payment to another.
+    if (payerId && charge.mcomUserId && charge.mcomUserId !== payerId) {
+      throw new ConflictException(
+        'This X-Idempotency-Key was already used for a different payer. Use a new key for a different person\'s payment.',
       );
     }
     if (charge.status === AppChargeStatus.failed || charge.status === AppChargeStatus.cancelled) {
@@ -482,6 +542,26 @@ export class AppPaymentsService {
 
   async confirmCharge(client: SsoClient, chargeId: string, dto: ConfirmChargeDto) {
     const charge = await this.getOwnedCharge(client, chargeId);
+
+    // The payer asserted at confirmation must be the payer the charge was
+    // created for. This is what stops a payment intent being completed by (or
+    // attributed to) a different Central Hub user.
+    const confirmedPayer = dto.mcomUserId?.trim();
+    if (!confirmedPayer) {
+      throw new BadRequestException(
+        'mcomUserId is required to confirm a charge.',
+      );
+    }
+    if (!charge.mcomUserId) {
+      throw new ConflictException(
+        'This charge has no Central Hub payer identity and cannot be confirmed.',
+      );
+    }
+    if (charge.mcomUserId !== confirmedPayer) {
+      throw new ForbiddenException(
+        'The confirmed mcomUserId does not match the payer this charge was created for.',
+      );
+    }
 
     if (charge.status === AppChargeStatus.paid) {
       return { charge: this.toChargeDto(charge), replayed: true };
@@ -518,6 +598,14 @@ export class AppPaymentsService {
     }
     if (intent.metadata?.chargeId && intent.metadata.chargeId !== charge.id) {
       throw new ForbiddenException('This payment belongs to a different charge.');
+    }
+    if (
+      intent.metadata?.mcomUserId &&
+      String(intent.metadata.mcomUserId) !== String(charge.mcomUserId)
+    ) {
+      throw new ForbiddenException(
+        'This payment intent was created for a different Central Hub user.',
+      );
     }
     if (intent.currency?.toLowerCase() !== charge.currency.toLowerCase() || BigInt(intent.amount) !== charge.amountMinor) {
       throw new BadRequestException('Paid amount does not match the charge amount.');
@@ -559,10 +647,21 @@ export class AppPaymentsService {
     }
 
     const captureInfo = capture?.purchase_units?.[0]?.payments?.captures?.[0];
+    // The order must be the one MCOM created for this charge. `custom_id` is
+    // stamped at creation, so a captured order belonging to another charge can
+    // never be used to settle this one — even if the app sends a valid order id.
+    const capturedCustomId = capture?.purchase_units?.[0]?.custom_id;
+    if (capturedCustomId && capturedCustomId !== charge.id) {
+      throw new ForbiddenException('This PayPal order was created for a different charge.');
+    }
     const capturedValue = Number(captureInfo?.amount?.value);
     const expectedValue = Number(new Decimal(charge.amountMinor.toString()).dividedBy(100).toFixed(2));
     if (!Number.isFinite(capturedValue) || Math.abs(capturedValue - expectedValue) > 0.005) {
       throw new BadRequestException('Captured amount does not match the charge amount.');
+    }
+    const capturedCurrency = captureInfo?.amount?.currency_code;
+    if (capturedCurrency && String(capturedCurrency).toUpperCase() !== charge.currency.toUpperCase()) {
+      throw new BadRequestException('Captured currency does not match the charge currency.');
     }
 
     const paid = await this.markPaid(charge, {
@@ -2500,6 +2599,22 @@ export class AppPaymentsService {
     if (BigInt(intent.amount) !== charge.amountMinor) {
       this.logger.error(
         `Stripe webhook amount mismatch for charge ${chargeId}: ${intent.amount} vs ${charge.amountMinor}`,
+      );
+      return;
+    }
+    if (String(intent.currency ?? '').toLowerCase() !== charge.currency.toLowerCase()) {
+      this.logger.error(
+        `Stripe webhook currency mismatch for charge ${chargeId}: ${intent.currency} vs ${charge.currency}`,
+      );
+      return;
+    }
+    // The payer stamped on the intent at creation must still be the payer on
+    // the charge. A mismatch means the intent details were altered out-of-band;
+    // refuse to settle rather than attribute the money to the wrong person.
+    const intentPayer = intent.metadata?.mcomUserId;
+    if (intentPayer && charge.mcomUserId && String(intentPayer) !== String(charge.mcomUserId)) {
+      this.logger.error(
+        `Stripe webhook payer mismatch for charge ${chargeId}: intent ${intentPayer} vs charge ${charge.mcomUserId}`,
       );
       return;
     }

@@ -278,7 +278,7 @@ describe('LedgerQueryService.getEvent — full detail', () => {
     await expect(service.getEvent('nope')).rejects.toThrow(/not found/i);
   });
 
-  it('names a guest buyer when the app supplied no Central Hub user', async () => {
+  it('names a legacy unidentified buyer when the app supplied no Central Hub user', async () => {
     const { service } = buildHarness(
       [
         {
@@ -314,7 +314,7 @@ describe('LedgerQueryService.getEvent — full detail', () => {
 
     const result = await service.listEvents({ page: 1, limit: 20 });
 
-    expect(result.data[0].debits[0].label).toBe('Guest buyer (no MCOM account) · Stripe');
+    expect(result.data[0].debits[0].label).toBe('Unidentified buyer (legacy charge) · Stripe');
     expect(result.data[0].payer).toMatchObject({
       identified: false,
       mcomUserId: null,

@@ -629,21 +629,31 @@ For a card payment the debit is the **gateway**, not a person, and the only plac
 payer can be recorded is the charge. The ledger now resolves it:
 
 - **Wallet charges** → the wallet holder's name (always known; `mcomUserId` is required).
-- **Card charges** → `AppCharge.mcomUserId`, then `metadata.userId`, then
-  `externalCustomerId`, looked up against the user table.
-- If the app sent none of those, the row says `Customer <id>… · paid by Stripe` and the
-  drawer states plainly that the app did not send `mcomUserId`.
+- **Card / PayPal charges** → `AppCharge.mcomUserId` — required on every new charge — then
+  `metadata.userId`, then `externalCustomerId`, looked up against the user table.
 
-Only a **Central Hub Solution** user is a payer the ledger can name. A platform's own
-customer id is not an identity: a buyer can pay on any platform without ever registering
-here. So:
+Only a **Central Hub Solution** user is a payer the ledger can name, and new charges must
+carry one: `POST /app-payments/charges` rejects a missing/unknown `mcomUserId` (400) before
+any provider intent is created. Every `payeeUserId` on a split is validated the same way.
+A platform's own customer id is not an identity; it is stored as `appCustomerRef` and shown
+in the detail as "the app's own customer reference (not a CHS identity)" — never as the payer.
 
 - CHS user supplied and found → `Ada Lovelace · paid by Stripe` (+ email in the detail).
 - CHS user supplied but unknown → `MCOM user <id> · paid by Stripe`, flagged.
-- No CHS user → `Guest buyer (no MCOM account) · Stripe`.
+- No CHS user → only possible on **historical** charges created before the rule:
+  `Unidentified buyer (legacy charge) · Stripe`.
 
-Mall's UUID (`5fcbfbe7-…`) is stored as `appCustomerRef` and shown in the detail as
-"the app's own customer reference (not a CHS identity)" — never as the payer.
+### Payer matching at confirmation
+
+Confirming a charge now re-asserts the payer and the intent:
+
+- `POST /app-payments/charges/:id/confirm` requires `mcomUserId`; it must equal the charge's
+  payer or the request is refused with **403**.
+- Stripe: the intent's `metadata.mcomUserId`, `metadata.chargeId`, amount and currency must
+  all match the charge — both on partner confirm and on the webhook/reconcile path.
+- PayPal: the captured order's `custom_id` must be this charge, and amount/currency must match.
+- The payer is part of the idempotency fingerprint, so replaying a key with a different
+  `mcomUserId` is a **409**, not a charge attributed to someone else.
 
 ### Why the app was credited and how the fee is computed
 

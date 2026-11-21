@@ -84,8 +84,13 @@ export class AppPaymentsController {
 
   @Post('charges/:id/confirm')
   @Throttle({ default: { limit: 60, ttl: 60000 } })
-  @ApiOperation({ summary: 'Confirm a charge after the customer completes payment' })
+  @ApiOperation({
+    summary: 'Confirm a charge after the customer completes payment',
+    description:
+      'mcomUserId is required and must match the payer the charge/intent was created for. The intent/order (payer, charge id, amount, currency) is re-checked before settlement; any mismatch is refused with 403.',
+  })
   @ApiOkResponse({ type: AppChargeDto })
+  @ApiBadRequestResponse({ description: 'mcomUserId missing or payment not completed' })
   async confirm(
     @Req() req: any,
     @Param('id') id: string,

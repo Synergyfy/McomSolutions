@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Server,
   ShieldAlert,
+  ShieldCheck,
   TerminalSquare,
   Users,
   Wallet as WalletIcon,
@@ -20,9 +21,20 @@ import {
 import { cn } from '../../../lib/utils';
 import { generateWalletIntegrationGuide, walletEnvBlock } from './utils/walletIntegrationGuide';
 
-type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'splits' | 'recurring' | 'hmac' | 'errors' | 'code';
+type Tab =
+  | 'identity'
+  | 'overview'
+  | 'credentials'
+  | 'endpoints'
+  | 'mcompay'
+  | 'splits'
+  | 'recurring'
+  | 'hmac'
+  | 'errors'
+  | 'code';
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
+  { id: 'identity', label: 'Start Here', icon: ShieldCheck },
   { id: 'overview', label: 'Overview', icon: Network },
   { id: 'credentials', label: 'Credentials', icon: KeyRound },
   { id: 'endpoints', label: 'Wallet API', icon: Server },
@@ -35,7 +47,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
 ];
 
 export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [activeTab, setActiveTab] = useState<Tab>('identity');
   const [copiedGuide, setCopiedGuide] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
@@ -82,7 +94,8 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400">
-                How any registered app integrates MCOM Wallet (prepaid balance), MCOM Pay (charge customers), payee splits (pay another user/business) and recurring billing.
+                Start with <b className="text-gray-200">Start Here</b>: every user id must be a Central Hub Solution id.
+                Then: Wallet, MCOM Pay, splits, recurring billing and drop-in code.
               </p>
             </div>
           </div>
@@ -135,6 +148,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
 
         {/* Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
+          {activeTab === 'identity' && <IdentityTab />}
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'credentials' && <CredentialsTab />}
           {activeTab === 'endpoints' && <EndpointsTab />}
@@ -290,6 +304,160 @@ function ErrorTable({ rows }: { rows: Array<[string, string, string, string]> })
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 
+function IdentityTab() {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border-2 border-rose-300 bg-rose-50/70 p-5 space-y-2">
+        <p className="text-sm font-black text-rose-950 flex items-center gap-2">
+          <ShieldCheck className="w-5 h-5 text-rose-600" />
+          READ THIS FIRST — the one rule you cannot break
+        </p>
+        <p className="text-xs text-rose-900 leading-relaxed">
+          <b>Every user id you send to MCOM must be a Central Hub Solution (CHS) user id.</b> A CHS user id is
+          the UUID MCOM gives a person when they sign in through <b>MCOM SSO</b>. It is the only identity MCOM
+          accepts. There are <b>no guest payments</b> and no exceptions.
+        </p>
+      </div>
+
+      <Section title="The fields and what they must contain">
+        <div className="rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-[10px] font-black uppercase tracking-widest text-gray-400 bg-gray-50 border-b border-gray-200">
+                <th className="px-4 py-2.5">You send</th>
+                <th className="px-4 py-2.5">Field</th>
+                <th className="px-4 py-2.5">Must contain</th>
+                <th className="px-4 py-2.5">Never send this</th>
+              </tr>
+            </thead>
+            <tbody className="text-[11px] text-gray-600">
+              {[
+                ['MCOM Pay — the buyer', 'mcomUserId', "the buyer's CHS user id", 'an email, cust_987, your own users.id, undefined'],
+                ['MCOM Pay split — the seller', 'payeeUserId', "the seller's CHS user id", 'your seller id, store id or SKU'],
+                ['Wallet API — the wallet owner', 'userId', "that person's CHS user id", 'your local user id'],
+                ['Your own reference (optional)', 'externalCustomerId', 'your id — never an MCOM identity', '—'],
+              ].map(([what, field, must, never]) => (
+                <tr key={field} className="border-b border-gray-100 last:border-0">
+                  <td className="px-4 py-2.5">{what}</td>
+                  <td className="px-4 py-2.5 font-mono font-bold text-gray-800">{field}</td>
+                  <td className="px-4 py-2.5 text-emerald-700 font-semibold">{must}</td>
+                  <td className="px-4 py-2.5 text-rose-600">{never}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Section title="Where do I get the CHS id? (do this once, before any payment)">
+        <ol className="text-xs text-gray-600 space-y-1.5 list-decimal pl-5">
+          <li>The person signs in to your app through <b>MCOM SSO</b>.</li>
+          <li>
+            Read the CHS user id from the SSO response / JWT — it is <code className="font-mono">sub</code> (also
+            exposed as <code className="font-mono">user.id</code>).
+          </li>
+          <li>
+            <b>Save it</b> on your own user row (for example a column named{' '}
+            <code className="font-mono">mcom_user_id</code>).
+          </li>
+          <li>
+            Send that saved value as <code className="font-mono">mcomUserId</code> (buyer),{' '}
+            <code className="font-mono">payeeUserId</code> (seller) or <code className="font-mono">userId</code>{' '}
+            (wallet) on every call.
+          </li>
+        </ol>
+        <p className="text-[11px] text-gray-500 mt-2">
+          If your platform never calls SSO, you cannot use MCOM Pay or the wallet API. There is no fallback and no
+          way to invent an id.
+        </p>
+      </Section>
+
+      <Section title="Correct vs wrong">
+        <CodeBlock
+          label="✅ Correct — both ids are CHS ids saved after SSO login"
+          code={`{
+  "amountMinor": "9000",
+  "method": "wallet",
+  "reference": "order_12345",
+  "mcomUserId": "3f2a9c1e-8b4d-4a61-9f0e-7c2d5b1a6e33",
+  "splits": [
+    {
+      "payeeType": "mcom_user",
+      "payeeUserId": "b71d4e0a-2c9f-4d38-a6b5-0e1f2d3c4b5a",
+      "amountMinor": "9000"
+    }
+  ]
+}`}
+        />
+        <CodeBlock
+          label="❌ Wrong — every one of these fails with 400 and no money moves"
+          code={`{ "mcomUserId": "buyer@example.com" }    // email — not a CHS id
+{ "mcomUserId": "cust_987" }             // your customer id — not a CHS id
+{ "mcomUserId": "mcom-mall-user-42" }    // an app-local id — not a CHS id
+{ "mcomUserId": "" }                     // blank
+{ /* mcomUserId omitted */ }             // guest payment — rejected`}
+        />
+        <p className="text-[11px] text-gray-500">
+          A real CHS user id is a UUID (like the two in the correct example). Wherever this guide writes{' '}
+          <code className="font-mono">user_abc123</code> it is a placeholder for that UUID — not a literal value to
+          send.
+        </p>
+      </Section>
+
+      <Section title="The only correct order (MCOM Pay)">
+        <ol className="text-xs text-gray-600 space-y-1.5 list-decimal pl-5">
+          <li>You already stored the buyer's <b>CHS user id</b> from SSO.</li>
+          <li>
+            Your <b>backend</b> calls <code className="font-mono">POST /app-payments/charges</code> with{' '}
+            <code className="font-mono">mcomUserId</code>. MCOM creates the charge <b>and</b> the Stripe
+            PaymentIntent / PayPal order. Nothing is paid yet.
+          </li>
+          <li>
+            Your backend hands the browser the provider handle (<code className="font-mono">clientSecret</code> for
+            Stripe, <code className="font-mono">approvalUrl</code> for PayPal).
+          </li>
+          <li>The customer pays on Stripe / PayPal (or the MCOM wallet is debited immediately).</li>
+          <li>
+            Your <b>backend</b> calls <code className="font-mono">POST /app-payments/charges/:id/confirm</code> with
+            the <b>same</b> <code className="font-mono">mcomUserId</code> plus the provider id. MCOM re-checks payer +
+            charge + intent (amount and currency). Any mismatch → <b>403</b>, not paid.
+          </li>
+          <li>
+            MCOM sends <code className="font-mono">payment.succeeded</code> to your webhook. Credit the buyer using{' '}
+            <code className="font-mono">data.mcomUserId</code> — <b>never</b>{' '}
+            <code className="font-mono">externalCustomerId</code>.
+          </li>
+        </ol>
+        <div className="rounded-xl border border-amber-300 bg-amber-50/70 p-3.5 text-[11px] text-amber-900 mt-2">
+          <b>Do not</b> create the charge in the browser. <b>Do not</b> create the charge after the payment.{' '}
+          <b>Do not</b> confirm with a different user id. Each of those is a rejected request.
+        </div>
+      </Section>
+
+      <Section title="Common mistakes (all of these fail)">
+        <ErrorTable
+          rows={[
+            ['400', 'Buyer not found', 'mcomUserId is an email / your own id / unknown id', 'Send the CHS id from SSO'],
+            ['400', 'mcomUserId missing', 'No mcomUserId on create — guest payment', 'Always send the buyer\'s CHS id'],
+            ['400', 'mcomUserId required', 'Confirm called without mcomUserId', 'Send the same CHS id used at creation'],
+            ['403', 'payer mismatch', 'Confirm used a different user id', 'Use the exact id the charge was created for'],
+            ['409', 'different payer', 'Idempotency key reused for another person', 'Use a new key per person/order'],
+            ['400', 'amountMinor invalid', 'Sent 90.00 or a number', 'Send an integer string of minor units: "9000"'],
+          ]}
+        />
+      </Section>
+
+      <div className="rounded-2xl bg-gray-900 p-5 text-white space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">If you remember one sentence</p>
+        <p className="text-sm font-semibold leading-relaxed">
+          Send the <b>Central Hub Solution user id from SSO</b> as <code className="font-mono text-emerald-300">mcomUserId</code>{' '}
+          when you <b>create</b> the charge, and send the <b>same id</b> again when you <b>confirm</b> it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OverviewTab() {
   return (
     <div className="space-y-6">
@@ -431,7 +599,7 @@ X-Idempotency-Key: mcom-mall-sub-inv_0042_aug2026
 Content-Type: application/json
 
 {
-  "userId": "user_abc123",
+  "userId": "user_abc123",          // Central Hub Solution user id — never your app's own id
   "amount": 50,
   "category": "SUBSCRIPTION",
   "description": "MCOM Mall Gold Package - August 2026",
@@ -496,6 +664,22 @@ function McomPayTab() {
           <b>MCOM Wallet</b>, then records it in an immutable, double-entry ledger. You also get a fee/net split and
           lifecycle webhooks.
         </p>
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 text-xs text-indigo-900 space-y-2">
+          <p className="font-bold text-indigo-950">Who is paying? — every user id must be a Central Hub id</p>
+          <p className="leading-relaxed">
+            Every transaction must name the people involved with their <b>Central Hub Solution (CHS) user id</b> — the
+            id issued by SSO. That is the payer's <code className="font-mono">mcomUserId</code>, each split payee's{' '}
+            <code className="font-mono">payeeUserId</code>, and the <code className="font-mono">userId</code> on wallet
+            endpoints. Never send your app's own customer id as an MCOM identity; map it to the CHS id first.
+          </p>
+          <p className="leading-relaxed">
+            <b>Intent first, then payment.</b> MCOM creates the provider payment intent/order at charge creation — before
+            the buyer can pay — and stamps it with the charge id and the payer's CHS id. At{' '}
+            <code className="font-mono">confirm</code> you send the same <code className="font-mono">mcomUserId</code>;
+            MCOM compares the confirmed payer, the charge and the intent/order (payer, charge id, amount, currency) and
+            refuses with <b>403</b> if anything differs. Guest payments (no CHS id) are rejected with <b>400</b>.
+          </p>
+        </div>
       </Section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -530,7 +714,7 @@ Content-Type: application/json
   "method": "stripe",               // "stripe" | "paypal" | "wallet"
   "reference": "ORDER_123",         // your order/invoice id (required)
   "description": "Pro plan renewal",
-  "mcomUserId": "user_abc123",      // required only for method = "wallet"
+  "mcomUserId": "user_abc123",      // REQUIRED for every method — buyer's CHS id; guest charges are rejected
   "externalCustomerId": "cust_987", // your own customer id (optional)
   "metadata": { "cartId": "c_1" }
 }
@@ -666,8 +850,13 @@ X-Mcom-Client-ID: mcom-mall
 X-Mcom-Signature: sha256=<...>
 Content-Type: application/json
 
-{ "paymentIntentId": "pi_3Pabc..." }   // stripe — or { "orderId": "5O1..." } for paypal
+{
+  "mcomUserId": "user_abc123",        // same CHS payer id used at creation — required
+  "paymentIntentId": "pi_3Pabc..."    // stripe — or "orderId": "5O1..." for paypal
+}
 // → charge.status = "paid"  (confirm is idempotent; MCOM webhooks are the backstop)
+// → 403 if the payer or the intent/order does not match the charge
+// → 400 if mcomUserId is missing or the payment has not succeeded
 
 // 2) Refund (omit amountMinor for a full refund; fee is prorated for partials).
 POST ${base}/app-payments/charges/clx8p2qr.../refund
@@ -729,11 +918,15 @@ credit <payee account>      netMinor      (app payable, or the seller's wallet)
           rows={[
             ['400', 'VALIDATION_ERROR', 'Bad body / bad amountMinor', 'Fix request — don\'t retry'],
             ['400', '—', 'X-Idempotency-Key missing on create', 'Add the header'],
+            ['400', 'payer not found', 'mcomUserId is not an active Central Hub user', 'Send the CHS id from SSO — not your own customer id'],
+            ['400', 'payee not found', 'A split payeeUserId is not an active Central Hub user', 'Send the seller\'s CHS id, or use payeeType "external"'],
             ['400', 'amount mismatch', 'Confirmed amount ≠ charge amount', 'Do not activate; investigate'],
             ['401', 'INVALID_SIGNATURE', 'Bad HMAC / unknown client', 'Check hmacSecret; rotate in Console'],
             ['403', 'forbidden', 'Charge belongs to another app', 'Only read/confirm your own charges'],
+            ['403', 'payer mismatch', 'Confirmed mcomUserId ≠ the charge\'s payer', 'Confirm with the same CHS id used at creation'],
+            ['403', 'intent mismatch', 'The intent/order was created for another charge or CHS user', 'Create a new charge; never force the confirmation'],
             ['404', 'not found', 'Unknown charge id', 'Check the id'],
-            ['409', 'conflict', 'Idempotency key reused by another app', 'Use a platform-scoped key'],
+            ['409', 'conflict', 'Idempotency key reused (another app, or a different payer/amount/splits)', 'Use a platform-scoped, per-order key'],
             ['409', 'conflict', 'Charge not in a confirmable/refundable state', 'Re-read the charge'],
             ['422', 'INSUFFICIENT_BALANCE', 'Wallet method — not enough balance', 'Offer top-up or card'],
             ['429', 'RATE_LIMITED', 'Too many requests', 'Exponential backoff'],
@@ -746,22 +939,28 @@ credit <payee account>      netMinor      (app payable, or the seller's wallet)
         <CodeBlock
           label="MCOM Pay usage"
           code={`// Your backend creates the charge; hand the handle to your frontend.
+// mcomUserId is the buyer's Central Hub id (from SSO) — required.
 const { charge, clientSecret } = await mcom.createCharge({
   amountMinor: '10270',        // £102.70
   method: 'stripe',
   reference: order.id,
   description: 'Pro plan renewal',
+  mcomUserId: buyer.mcomId,    // CHS id, not order.customerId
   externalCustomerId: order.customerId,
   idempotencyKey: \`\${CLIENT_ID}-pay-\${order.id}\`,
 });
 
-// Stripe.js on the client: confirm with clientSecret, then:
-await mcom.confirmCharge(charge.id, { paymentIntentId });
+// Stripe.js on the client: confirm with clientSecret, then confirm server-side
+// with the SAME payer id:
+await mcom.confirmCharge(charge.id, {
+  mcomUserId: buyer.mcomId,
+  paymentIntentId,
+});
 
-// Or collect into the user's MCOM wallet instead:
+// Or collect into the user's MCOM wallet instead (also requires the CHS id):
 await mcom.createCharge({
   amountMinor: '10270', method: 'wallet', reference: order.id,
-  mcomUserId: user.mcomId, idempotencyKey: \`\${CLIENT_ID}-pay-\${order.id}\`,
+  mcomUserId: buyer.mcomId, idempotencyKey: \`\${CLIENT_ID}-pay-\${order.id}\`,
 });`}
         />
       </Section>
@@ -838,11 +1037,11 @@ Content-Type: application/json
   "method": "wallet",
   "intent": "ORDER",              // "BOOKING" for a service
   "reference": "order_12345",
-  "mcomUserId": "<buyer MCOM user id>",
+  "mcomUserId": "<buyer CHS user id>",    // Central Hub id from SSO — required
   "splits": [
     {
       "payeeType": "mcom_user",   // or "external"
-      "payeeUserId": "<seller MCOM user id>",
+      "payeeUserId": "<seller CHS user id>",   // validated as an active CHS user
       "amountMinor": "9000"       // must sum to amountMinor across all splits
     }
   ]
@@ -858,23 +1057,25 @@ Content-Type: application/json
   "method": "stripe",             // or "paypal"
   "intent": "ORDER",
   "reference": "order_12345",
-  "mcomUserId": "<buyer MCOM user id>",
+  "mcomUserId": "<buyer CHS user id>",
   "splits": [
-    { "payeeType": "mcom_user", "payeeUserId": "<seller MCOM user id>", "amountMinor": "9000" }
+    { "payeeType": "mcom_user", "payeeUserId": "<seller CHS user id>", "amountMinor": "9000" }
   ]
 }
 
 // Response: { charge, clientSecret }   (Stripe)
 //           { charge, approvalUrl }    (PayPal)
-// The seller is credited when the payment settles, not when you create the charge.`}
+// The seller is credited when the payment settles, not when you create the charge.
+// Confirm later with the same buyer CHS id: { "mcomUserId": "...", "paymentIntentId": "..." }`}
         />
       </Section>
 
       <Section title="Rules">
         <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
           <li><b>sum(splits.amountMinor) must equal amountMinor</b> — otherwise 422 before any money moves.</li>
-          <li><b>mcom_user</b> requires <code className="text-emerald-600 font-mono">payeeUserId</code> (an existing MCOM user; you get it from SSO).</li>
-          <li><b>external</b> requires <code className="text-emerald-600 font-mono">payeeExternalId</code>; the money parks on that payee's payable until paid out.</li>
+          <li><b>Every id is a Central Hub Solution user id.</b> The buyer's <code className="text-emerald-600 font-mono">mcomUserId</code> and every <code className="text-emerald-600 font-mono">payeeUserId</code> are validated against active CHS users before the intent is created — an app-local id fails with 400.</li>
+          <li><b>mcom_user</b> requires <code className="text-emerald-600 font-mono">payeeUserId</code> (an existing CHS user; you get it from SSO).</li>
+          <li><b>external</b> requires <code className="text-emerald-600 font-mono">payeeExternalId</code>; the money parks on that payee's payable until paid out (use this for sellers with no CHS account).</li>
           <li><b>One split per payee</b>, 50 maximum. For a multi-seller cart, add one split per seller.</li>
           <li><b>intent</b> should be <code className="text-emerald-600 font-mono">ORDER</code> or <code className="text-emerald-600 font-mono">BOOKING</code> — it drives analytics and the payer's wallet history.</li>
           <li>The fee is apportioned with <b>largest-remainder rounding</b>, so splits always sum exactly to the fee.</li>
@@ -1036,7 +1237,7 @@ X-Idempotency-Key: mcom-mall-sub-sub_42-2026-11-01
 Content-Type: application/json
 
 {
-  "userId": "user_abc123",
+  "userId": "user_abc123",          // subscriber's CHS user id (from SSO)
   "amount": 50,
   "category": "SUBSCRIPTION",
   "description": "MCOM Mall Gold - November 2026",
@@ -1264,6 +1465,8 @@ export class McomWalletService {
     };
   }
 
+  // userId is ALWAYS the Central Hub Solution user id (from SSO) —
+  // never your own customer/user id.
   async getBalance(userId: string) {
     const res = await fetch(\`\${this.base}/api/v1/wallet/partner/balance/\${userId}\`, {
       headers: this.headers(''), // GET → sign empty string
@@ -1313,6 +1516,7 @@ export class McomWalletService {
         <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
           <li>App registered in the MCOM Console with a per-app <code className="text-emerald-600 font-mono">hmacSecret</code></li>
           <li><code className="text-emerald-600 font-mono">MCOM_SOLUTIONS_URL</code>, <code className="text-emerald-600 font-mono">MCOM_CLIENT_ID</code>, <code className="text-emerald-600 font-mono">MCOM_HMAC_SECRET</code> in env</li>
+          <li>Your user table stores the <b>CHS user id</b> from SSO; every <code className="text-emerald-600 font-mono">mcomUserId</code>/<code className="text-emerald-600 font-mono">payeeUserId</code>/<code className="text-emerald-600 font-mono">userId</code> you send is that id</li>
           <li><code className="text-emerald-600 font-mono">getBalance</code> returns <code className="text-emerald-600 font-mono">ACTIVE</code> before charging</li>
           <li>Every debit/credit uses a deterministic idempotency key</li>
           <li><code className="text-emerald-600 font-mono">INSUFFICIENT_BALANCE</code> handled (top-up prompt)</li>
@@ -1323,10 +1527,12 @@ export class McomWalletService {
           <li><b>Recurring:</b> wallet renewals use <code className="text-emerald-600 font-mono">category: "SUBSCRIPTION"</code>; card/PayPal renewals create a new charge</li>
           <li><b>Recurring:</b> dunning (+1d / +3d / +7d) and a grace period are configured; failures eventually revoke access</li>
           <li><b>MCOM Pay:</b> charges created server-side only (amount never from the browser), sent as integer minor-unit strings</li>
+          <li><b>MCOM Pay:</b> the buyer's <b>CHS user id</b> is sent as <code className="text-emerald-600 font-mono">mcomUserId</code> on every charge — guest payments are rejected</li>
+          <li><b>MCOM Pay:</b> the intent/order is created before payment, and <code className="text-emerald-600 font-mono">confirm</code> sends the <b>same</b> <code className="text-emerald-600 font-mono">mcomUserId</code> (mismatch → 403)</li>
           <li><b>MCOM Pay:</b> mount official <b>Stripe Elements</b> (<code className="text-emerald-600 font-mono">&lt;PaymentElement /&gt;</code>) with <code className="text-emerald-600 font-mono">clientSecret</code> — <b>no custom mock card forms</b></li>
           <li><b>MCOM Pay:</b> redirect to authentic <b>PayPal Sandbox</b> (<code className="text-emerald-600 font-mono">approvalUrl</code>) or use official PayPal Buttons SDK — <b>no mock login forms</b></li>
           <li><b>MCOM Pay:</b> wallet method displays user balance and gracefully handles 422 <code className="text-emerald-600 font-mono">INSUFFICIENT_BALANCE</code> with top-up link</li>
-          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">confirm</code> called after payment completion</li>
+          <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">confirm</code> called after payment completion with the payer&apos;s CHS id</li>
           <li><b>MCOM Pay:</b> <code className="text-emerald-600 font-mono">payment.succeeded</code>/<code className="text-emerald-600 font-mono">payment.refunded</code> webhooks verified (signature + idempotent)</li>
           <li><b>MCOM Pay:</b> refunds go through <code className="text-emerald-600 font-mono">/refund</code>; fee config reviewed in the Console (default 2.9% + 20p)</li>
           <li><b>Sandbox Testing:</b> verify with Stripe test cards (<code className="text-emerald-600 font-mono">4242 4242 4242 4242</code>) in Elements and sandbox buyer accounts in PayPal</li>
