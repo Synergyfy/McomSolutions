@@ -286,14 +286,17 @@ export class LedgerReconciliationService {
       return { repaired: 0, remainingDrift: 0 };
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const drift of before.accountDrift) {
-        await tx.glAccount.update({
-          where: { code: drift.code },
-          data: { balanceMinor: BigInt(drift.expectedMinor) },
-        });
-      }
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        for (const drift of before.accountDrift) {
+          await tx.glAccount.update({
+            where: { code: drift.code },
+            data: { balanceMinor: BigInt(drift.expectedMinor) },
+          });
+        }
+      },
+      { timeout: 120_000 },
+    );
 
     const after = await this.getReport();
     this.logger.warn(
