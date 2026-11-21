@@ -4,13 +4,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import { Request } from 'express';
 import axios from 'axios';
 import * as bcrypt from 'bcryptjs';
@@ -27,6 +28,14 @@ import { encrypt } from './crypto.util';
 import { ECOSYSTEM_SERVICES_CACHE_KEY } from '../service-identity/constants';
 import { normalizePeerList, SERVICE_PEER_WILDCARD } from '../service-identity/policy.util';
 import { SetServicePolicyDto } from './dto/service-policy.dto';
+import {
+  PROFILE_SYNC_ROLES,
+  isProfileSyncRole,
+} from '../common/profile-sync/profile-sync.constants';
+import {
+  MCOM_CENTRAL_CLIENT_ID,
+  SERVICE_SCOPE_CENTRAL_READ,
+} from '../mesh-inbound/service-mesh.constants';
 
 const MASK = '••••••••••••••••';
 
@@ -39,6 +48,8 @@ export interface AppSecretSet {
 
 @Injectable()
 export class ConsoleService {
+  private readonly logger = new Logger(ConsoleService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -65,6 +76,10 @@ export class ConsoleService {
     this.validateCorsOrigins(dto.corsOrigins);
 
     const secrets = this.generateSecrets();
+    const supportedRoles = this.resolveSupportedRoles(dto.supportedRoles);
+    const profileSyncEndpoint = this.normalizeProfileSyncEndpoint(
+      dto.profileSyncEndpoint,
+    );
 
     const created = await this.prisma.ssoClient.create({
       data: {
@@ -82,20 +97,32 @@ export class ConsoleService {
         platformSlug: dto.platformSlug ?? null,
         corsOrigins: dto.corsOrigins,
         webhookUrl: dto.webhookUrl ?? null,
-        webhookSecret: dto.webhookUrl ? encrypt(secrets.webhookSecret, this.encryptionKey()) : null,
+        // Always provision a webhook signing secret: lifecycle events and
+        // per-role profile sync endpoints both verify against it.
+        webhookSecret: encrypt(secrets.webhookSecret, this.encryptionKey()),
         hmacSecret: encrypt(secrets.hmacSecret, this.encryptionKey()),
         isSystemApp: dto.isSystemApp ?? false,
         allowWhitelabel: dto.allowWhitelabel ?? false,
         feePercent: dto.feePercent ?? null,
         feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
         metadata: this.buildMetadata(dto.planSchemaEndpoint, dto.accessPassPlansEndpoint),
-        serviceEnabled: dto.serviceEnabled ?? true,
+        serviceEnabled: profileSyncEndpoint ? true : dto.serviceEnabled ?? true,
         serviceBaseUrl: dto.serviceBaseUrl ?? null,
-        serviceScopes: dto.serviceScopes ?? [],
-        allowedAudiences: dto.allowedAudiences ?? [],
+        serviceScopes: profileSyncEndpoint
+          ? this.withRequiredServiceScope(dto.serviceScopes)
+          : dto.serviceScopes ?? [],
+        allowedAudiences: profileSyncEndpoint
+          ? this.withCentralAudience(dto.allowedAudiences)
+          : dto.allowedAudiences ?? [],
         allowedCallers: dto.allowedCallers ?? [],
+        supportedRoles,
+        profileSyncEndpoint,
       },
     });
+
+    if (profileSyncEndpoint) {
+      await this.ensureCentralCallerAccess(dto.clientId);
+    }
 
     await this.redis.del(`sso_client:${dto.clientId}`);
     await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
@@ -163,6 +190,34 @@ export class ConsoleService {
     if (dto.serviceScopes !== undefined) data.serviceScopes = dto.serviceScopes;
     if (dto.allowedAudiences !== undefined) data.allowedAudiences = dto.allowedAudiences;
     if (dto.allowedCallers !== undefined) data.allowedCallers = dto.allowedCallers;
+    if (dto.supportedRoles !== undefined) {
+      data.supportedRoles = this.resolveSupportedRoles(dto.supportedRoles);
+    }
+
+    const nextProfileSyncEndpoint =
+      dto.profileSyncEndpoint !== undefined
+        ? this.normalizeProfileSyncEndpoint(dto.profileSyncEndpoint)
+        : existing.profileSyncEndpoint ?? null;
+    if (dto.profileSyncEndpoint !== undefined) {
+      data.profileSyncEndpoint = nextProfileSyncEndpoint;
+    }
+
+    // Enabling profile sync needs the B2B read path: `central:read`, the
+    // `mcom-central` audience, and service access. Grant them automatically so
+    // the integration works without a second manual policy edit.
+    if (nextProfileSyncEndpoint) {
+      const scopes =
+        (data.serviceScopes as string[] | undefined) ??
+        existing.serviceScopes ??
+        [];
+      const audiences =
+        (data.allowedAudiences as string[] | undefined) ??
+        existing.allowedAudiences ??
+        [];
+      data.serviceScopes = this.withRequiredServiceScope(scopes);
+      data.allowedAudiences = this.withCentralAudience(audiences);
+      data.serviceEnabled = true;
+    }
     if (dto.allowWhitelabel !== undefined) data.allowWhitelabel = dto.allowWhitelabel;
 
     const updated = await this.prisma.ssoClient.update({
@@ -177,6 +232,10 @@ export class ConsoleService {
         this.prisma.whitelabelAccess.deleteMany({ where: { clientId } }),
         this.prisma.ssoSession.deleteMany({ where: { clientId: existing.id } }),
       ]);
+    }
+
+    if (nextProfileSyncEndpoint) {
+      await this.ensureCentralCallerAccess(clientId);
     }
 
     await this.redis.del(`sso_client:${clientId}`);
@@ -688,6 +747,7 @@ export class ConsoleService {
       isSystemApp: client.isSystemApp,
       allowWhitelabel: client.allowWhitelabel ?? false,
       serviceScopes: client.serviceScopes ?? [],
+      supportedRoles: client.supportedRoles ?? [],
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
     };
@@ -724,11 +784,119 @@ export class ConsoleService {
       serviceScopes: client.serviceScopes ?? [],
       allowedAudiences: client.allowedAudiences ?? [],
       allowedCallers: client.allowedCallers ?? [],
+      supportedRoles: client.supportedRoles ?? [],
+      profileSyncEndpoint: client.profileSyncEndpoint ?? null,
       webhookFailCount: client.webhookFailCount,
       lastWebhookAt: client.lastWebhookAt,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
     };
+  }
+
+  // ─── Profile synchronization helpers ──────────────────
+
+  /**
+   * Empty selection = every syncable role. This is the Console default so a
+   * newly registered app keeps working for all account types until an admin
+   * narrows it.
+   */
+  private resolveSupportedRoles(roles?: Role[] | null): Role[] {
+    if (!roles || roles.length === 0) return [...PROFILE_SYNC_ROLES];
+
+    const invalid = roles.filter((role) => !isProfileSyncRole(role));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `supportedRoles contains unsupported role(s): ${invalid.join(', ')}`,
+      );
+    }
+    return Array.from(new Set(roles));
+  }
+
+  /**
+   * Normalizes the profile-sync endpoint. Blank values clear synchronization;
+   * otherwise the URL must be a valid http(s) destination.
+   */
+  private normalizeProfileSyncEndpoint(
+    endpoint?: string | null,
+  ): string | null {
+    const url = typeof endpoint === 'string' ? endpoint.trim() : '';
+    if (!url) return null;
+
+    this.assertValidEndpointUrl(url, 'profileSyncEndpoint');
+    return url;
+  }
+
+  /** Ensures the B2B profile-read scope is present. */
+  private withRequiredServiceScope(scopes?: string[] | null): string[] {
+    const next = new Set(
+      (scopes ?? []).map((scope) => scope.trim()).filter(Boolean),
+    );
+    next.add(SERVICE_SCOPE_CENTRAL_READ);
+    return Array.from(next);
+  }
+
+  /** Ensures the app may mint service tokens for Central's B2B endpoint. */
+  private withCentralAudience(audiences?: string[] | null): string[] {
+    const next = new Set(
+      (audiences ?? []).map((audience) => audience.trim()).filter(Boolean),
+    );
+    next.add(MCOM_CENTRAL_CLIENT_ID);
+    return Array.from(next);
+  }
+
+  /**
+   * Adds the app to `mcom-central`'s inbound allow-list. The B2B profile
+   * endpoint is deny-by-default, so without this grant the app could receive
+   * events but never read the profile. Best-effort: never fail the save.
+   */
+  private async ensureCentralCallerAccess(clientId: string): Promise<void> {
+    try {
+      const central = await this.prisma.ssoClient.findFirst({
+        where: {
+          OR: [
+            { clientId: MCOM_CENTRAL_CLIENT_ID },
+            { platformSlug: MCOM_CENTRAL_CLIENT_ID },
+          ],
+        },
+        select: { id: true, clientId: true, allowedCallers: true },
+      });
+      if (!central) return;
+
+      const callers = central.allowedCallers ?? [];
+      if (
+        callers.includes(SERVICE_PEER_WILDCARD) ||
+        callers.includes(clientId)
+      ) {
+        return;
+      }
+
+      await this.prisma.ssoClient.update({
+        where: { id: central.id },
+        data: { allowedCallers: [...callers, clientId] },
+      });
+      await this.redis.del(`sso_client:${central.clientId}`);
+      await this.redis.del(ECOSYSTEM_SERVICES_CACHE_KEY);
+    } catch (error) {
+      this.logger.warn(
+        `Could not grant "${clientId}" access to Central's B2B profile endpoint: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  private assertValidEndpointUrl(url: string, field: string): void {
+    try {
+      const parsed = new URL(url);
+      if (
+        (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+        !parsed.hostname
+      ) {
+        throw new Error('invalid protocol');
+      }
+    } catch {
+      throw new BadRequestException(`${field} must be a valid http(s) URL`);
+    }
   }
 
   // ─── Webhook DLQ Management ───────────────────────────

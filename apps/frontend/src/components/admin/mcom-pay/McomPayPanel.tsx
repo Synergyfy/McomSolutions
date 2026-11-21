@@ -7,15 +7,12 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  ShieldAlert,
   Wallet,
   X,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { useAdminAuth } from '../../../context/AdminAuthContext';
 import { useConsoleApps } from '../console/hooks/useConsoleApps';
 import { useAdminAppCharges, useAdminAppCharge, useAdminAppChargeLedger } from './hooks/useMcomPayAdmin';
-import { WalletActivityPanel } from './WalletActivityPanel';
 import type { AppCharge, AppChargeFilters, AppChargeMethod, AppChargeStatus } from './api/mcom-pay-admin.api';
 
 const inputCls =
@@ -80,9 +77,7 @@ const buildParams = (filters: AppChargeFilters): AppChargeFilters => {
   return out;
 };
 
-export function McomPayPanel() {
-  const { admin } = useAdminAuth();
-  const [view, setView] = useState<'charges' | 'wallet'>('charges');
+export function ChargeLedgerPanel() {
   const [filters, setFilters] = useState<AppChargeFilters>({ page: 1, limit: 20 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -98,81 +93,9 @@ export function McomPayPanel() {
   const setFilter = (patch: Partial<AppChargeFilters>) =>
     setFilters((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
 
-  if (admin?.role !== 'ADMIN') {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 px-4 bg-white rounded-3xl border border-gray-100 text-center shadow-sm">
-        <div className="w-16 h-16 rounded-3xl bg-red-50 border border-red-100 flex items-center justify-center text-red-500 mb-4 shadow-sm">
-          <ShieldAlert className="w-8 h-8" />
-        </div>
-        <h3 className="font-bold text-gray-900 text-lg font-display">ADMIN Access Required</h3>
-        <p className="text-xs text-gray-500 mt-1 max-w-sm leading-relaxed">
-          The MCOM Pay ledger is restricted to authorized administrators only.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 text-white rounded-3xl p-6 shadow-sm border border-gray-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-brand-blue/20 border border-brand-blue/30 flex items-center justify-center text-brand-blue shadow-inner flex-shrink-0">
-            <BookOpen className="w-6 h-6 text-brand-blue" />
-          </div>
-          <div>
-            <h2 className="text-lg font-black tracking-tight text-white font-display">MCOM Pay Ledger</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Immutable, read-only view of every charge processed through MCOM Pay — partner apps and
-              MCOM Central direct sales (memberships, access passes, platform plans).
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="px-3 py-1.5 bg-gray-800/90 border border-gray-700 rounded-xl text-xs font-bold text-gray-200">
-            {total.toLocaleString()} charges
-          </span>
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            title="Refresh"
-            className="p-2 bg-gray-800/90 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs transition-colors border border-gray-700"
-          >
-            <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin text-brand-blue')} />
-          </button>
-        </div>
-      </div>
-
-      {/* View switcher */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setView('charges')}
-          className={cn(
-            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
-            view === 'charges'
-              ? 'bg-brand-blue text-white'
-              : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50',
-          )}
-        >
-          <CreditCard className="w-4 h-4" /> Charge ledger
-        </button>
-        <button
-          onClick={() => setView('wallet')}
-          className={cn(
-            'inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold',
-            view === 'wallet'
-              ? 'bg-brand-blue text-white'
-              : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50',
-          )}
-        >
-          <Wallet className="w-4 h-4" /> Wallet activity
-        </button>
-      </div>
-
-      {view === 'wallet' ? (
-        <WalletActivityPanel />
-      ) : (
-        <>
+      <>
       {/* Filters */}
       <div className="bg-white rounded-3xl border border-gray-100 p-4 sm:p-5 shadow-sm">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
@@ -353,8 +276,7 @@ export function McomPayPanel() {
           </div>
         </div>
       )}
-        </>
-      )}
+      </>
 
       {selectedId && <ChargeDetailModal chargeId={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
@@ -474,7 +396,7 @@ function ChargeDetailModal({ chargeId, onClose }: { chargeId: string; onClose: (
                 <Field label="Provider" value={charge.provider || '—'} />
                 <Field label="Provider Ref" value={charge.providerRef || '—'} mono />
                 <Field label="Description" value={charge.description || '—'} />
-                <Field label="Wallet Debit" value={charge.walletDebitAmount ? `${charge.walletDebitAmount} MCOM` : '—'} />
+                <Field label="Wallet Debit" value={charge.walletDebitAmount ? `${charge.walletDebitAmount} GBP` : '—'} />
                 <Field label="Created" value={formatDate(charge.createdAt)} />
                 <Field label="Paid" value={charge.paidAt ? formatDate(charge.paidAt) : '—'} />
               </div>

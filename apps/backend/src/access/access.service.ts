@@ -17,8 +17,10 @@ import {
   type AccessPlanAppBundle,
   type AccessPurchase,
 } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
 import * as crypto from 'crypto';
+import { PlatformSalesService } from '../ledger/platform-sales.service';
+import { toMinorUnits } from '../ledger/money';
+import { GlIntent } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponService, type CouponChargeQuote } from '../coupon/coupon.service';
 import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.service';
@@ -84,7 +86,7 @@ export interface AccessQuote {
   finalAmount: number;
   currency: 'GBP';
   walletCredits: number;
-  walletCurrency: 'MCOM';
+  walletCurrency: 'GBP';
   coupon: CouponChargeQuote['coupon'] | null;
 }
 
@@ -104,6 +106,8 @@ export class AccessService {
     private readonly businessAcquisition?: BusinessAcquisitionService,
     @Optional()
     private readonly referralCommission?: ReferralCommissionService,
+    @Optional()
+    private readonly platformSales?: PlatformSalesService,
   ) {}
 
   private addDaysUtc(date: Date, days: number): Date {
@@ -412,21 +416,6 @@ export class AccessService {
     }
   }
 
-  /** GBP → MCOM wallet credits. Mirrors wallet top-up FX lookup/fallback. */
-  private async getGbptoMcomRate(): Promise<number> {
-    try {
-      const fx = await this.prisma.fxRate.findUnique({
-        where: { base_quote: { base: 'GBP', quote: 'MCOM' } },
-      });
-      if (fx) return new Decimal(fx.rate.toString()).toNumber();
-    } catch (err: any) {
-      this.logger.warn(`FX lookup failed for GBP→MCOM: ${err?.message}`);
-    }
-    const envRate = this.config.get<string>('MCOM_GBP_RATE');
-    const parsed = envRate ? parseFloat(envRate) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  }
-
   async getPlans() {
     const plans = await this.prisma.accessPlan.findMany({
       where: { archived: false },
@@ -481,8 +470,6 @@ export class AccessService {
     const originalAmount = coupon?.originalAmount ?? amount;
     const discountAmount = coupon?.discountAmount ?? 0;
     const finalAmount = coupon?.finalAmount ?? amount;
-    const rate = await this.getGbptoMcomRate();
-    const walletCredits = new Decimal(finalAmount).times(rate).toDecimalPlaces(4).toNumber();
 
     return {
       accessPlan: plan,
@@ -490,8 +477,10 @@ export class AccessService {
       discountAmount: this.roundMoney(discountAmount),
       finalAmount: this.roundMoney(finalAmount),
       currency: 'GBP',
-      walletCredits,
-      walletCurrency: 'MCOM',
+      // Retained for one release so older clients keep working; equal to the
+      // GBP amount now that the wallet no longer holds a separate currency.
+      walletCredits: this.roundMoney(finalAmount),
+      walletCurrency: 'GBP',
       coupon: coupon?.coupon ?? null,
     };
   }
@@ -1285,6 +1274,15 @@ export class AccessService {
             provider: opts.provider === 'manual' ? 'manual' : opts.provider,
             providerPaymentId: opts.providerPaymentId,
           },
+        });
+        await this.platformSales?.recordSale(tx, {
+          provider: opts.provider,
+          amountMinor: toMinorUnits(chargedAmount),
+          idempotencyKey: `billing:${billing.id}`,
+          reference: opts.providerPaymentId ?? null,
+          description: billing.description ?? undefined,
+          intent: GlIntent.PURCHASE,
+          metadata: { billingTransactionId: billing.id, businessId },
         });
 
         if (opts.couponRedemptionId) {

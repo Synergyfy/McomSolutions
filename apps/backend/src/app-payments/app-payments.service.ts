@@ -17,6 +17,7 @@ import {
   AppChargeMethod,
   AppChargeStatus,
   AppRefund,
+  GlIntent,
   LedgerAccount,
   Prisma,
   SsoClient,
@@ -28,6 +29,9 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletService } from '../wallet/wallet.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
+import { GlPostingService } from '../ledger/gl-posting.service';
+import { appPayableAccountCode, gatewayAccountCode, payeeAccountCode, PLATFORM_WALLET_CODE } from '../ledger/account-code';
+import { allocateSplits, type AllocatedSplit } from './split-allocation';
 import { AppPaymentsLedgerService } from './app-payments-ledger.service';
 import { CreateChargeDto } from './dto/create-charge.dto';
 import { ConfirmChargeDto } from './dto/confirm-charge.dto';
@@ -78,6 +82,7 @@ export class AppPaymentsService {
     private readonly walletService: WalletService,
     private readonly ledger: AppPaymentsLedgerService,
     private readonly webhookDispatcher: WebhookDispatcherService,
+    private readonly glPosting: GlPostingService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -117,6 +122,11 @@ export class AppPaymentsService {
     const feeMinor = this.ledger.computeFee(amountMinor, feeConfig);
     const netMinor = amountMinor - feeMinor;
 
+    // Where the money goes. Validated here, before any provider call, so a
+    // split that does not reconcile can never take a payment.
+    const allocations = this.allocateChargeSplits(amountMinor, feeMinor, dto);
+    const intent = dto.intent ?? GlIntent.ORDER;
+
     if (dto.method === AppChargeMethod.wallet) {
       return this.createWalletCharge(
         client,
@@ -128,27 +138,38 @@ export class AppPaymentsService {
         netMinor,
         currency,
         ipAddress,
+        intent,
+        allocations,
+        feeConfig,
       );
     }
 
     // The insert is the idempotency claim. A concurrent duplicate loses on the
     // unique key and must REPLAY the winner — never surface P2002 as a 500.
-    const charge = await this.insertCharge({
-      appClientId: client.clientId,
-      amountMinor,
-      currency,
-      feeMinor,
-      netMinor,
-      method: dto.method,
-      status: AppChargeStatus.pending,
-      reference: dto.reference,
-      description: dto.description ?? null,
-      mcomUserId: dto.mcomUserId ?? null,
-      externalCustomerId: dto.externalCustomerId ?? null,
-      idempotencyKey,
-      requestHash,
-      metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
-    });
+    const charge = await this.insertCharge(
+      {
+        appClientId: client.clientId,
+        amountMinor,
+        currency,
+        feeMinor,
+        netMinor,
+        method: dto.method,
+        status: AppChargeStatus.pending,
+        reference: dto.reference,
+        description: dto.description ?? null,
+        mcomUserId: dto.mcomUserId ?? null,
+        externalCustomerId: dto.externalCustomerId ?? null,
+        idempotencyKey,
+        requestHash,
+        intent,
+        feePercentApplied: feeConfig.feePercent,
+        feeFixedMinorApplied: feeConfig.feeFixedMinor,
+        payeeType: allocations[0]?.payeeType ?? null,
+        payeeRef: allocations[0]?.payeeUserId ?? allocations[0]?.payeeExternalId ?? null,
+        metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+      allocations,
+    );
 
     if (!charge) {
       const winner = await this.findByKey(client.clientId, idempotencyKey);
@@ -173,12 +194,40 @@ export class AppPaymentsService {
   }
 
   /**
-   * Insert the charge row, tolerating a duplicate idempotency key.
-   * Returns null when another request won the race — the caller replays it.
+   * Insert the charge row (and its payee splits) as one unit, tolerating a
+   * duplicate idempotency key. Returns null when another request won the race —
+   * the caller replays it.
    */
-  private async insertCharge(data: Prisma.AppChargeUncheckedCreateInput): Promise<AppCharge | null> {
+  private async insertCharge(
+    data: Prisma.AppChargeUncheckedCreateInput,
+    splits: AllocatedSplit[] = [],
+  ): Promise<AppCharge | null> {
     try {
-      return await this.prisma.appCharge.create({ data });
+      return await this.prisma.$transaction(async (tx) => {
+        const charge = await tx.appCharge.create({
+          data: {
+            ...data,
+            // Nothing to allocate yet; settlement flips this once paid.
+            settlementState: data.netMinor > 0n ? 'PENDING' : 'SETTLED',
+          },
+        });
+
+        if (splits.length > 0) {
+          await tx.appChargeSplit.createMany({
+            data: splits.map((split) => ({
+              chargeId: charge.id,
+              payeeType: split.payeeType,
+              payeeUserId: split.payeeUserId ?? null,
+              payeeExternalId: split.payeeExternalId ?? null,
+              amountMinor: split.amountMinor,
+              feeMinor: split.feeMinor,
+              netMinor: split.netMinor,
+            })),
+          });
+        }
+
+        return charge;
+      });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         return null;
@@ -199,10 +248,35 @@ export class AppPaymentsService {
    * retry — it must fail loudly instead of silently returning the old charge.
    */
   private hashChargeRequest(dto: CreateChargeDto, currency: string): string {
+    // Intent and splits are part of the economic payload: replaying a key with
+    // different payees must fail loudly, not silently return the old charge.
+    const splitFingerprint = JSON.stringify(
+      (dto.splits ?? []).map((split) => [
+        split.payeeType,
+        split.payeeUserId ?? null,
+        split.payeeExternalId ?? null,
+        split.amountMinor,
+      ]),
+    );
     return crypto
       .createHash('sha256')
-      .update([dto.amountMinor, currency, dto.method, dto.reference].join('|'))
+      .update([dto.amountMinor, currency, dto.method, dto.reference, dto.intent ?? '', splitFingerprint].join('|'))
       .digest('hex');
+  }
+
+  /** Validate and apportion the caller's splits. Throws before any provider call. */
+  private allocateChargeSplits(
+    amountMinor: bigint,
+    feeMinor: bigint,
+    dto: CreateChargeDto,
+  ): AllocatedSplit[] {
+    const splits = (dto.splits ?? []).map((split) => ({
+      payeeType: split.payeeType,
+      payeeUserId: split.payeeUserId ?? null,
+      payeeExternalId: split.payeeExternalId ?? null,
+      amountMinor: BigInt(split.amountMinor),
+    }));
+    return allocateSplits(amountMinor, feeMinor, splits);
   }
 
   private async initiateStripe(client: SsoClient, charge: AppCharge, dto: CreateChargeDto) {
@@ -279,7 +353,10 @@ export class AppPaymentsService {
     feeMinor: bigint,
     netMinor: bigint,
     currency: string,
-    ipAddress?: string,
+    ipAddress: string | undefined,
+    intent: GlIntent,
+    allocations: AllocatedSplit[],
+    feeConfig: { feePercent: Prisma.Decimal; feeFixedMinor: bigint },
   ) {
     if (!dto.mcomUserId) {
       throw new BadRequestException('mcomUserId is required for the wallet payment method.');
@@ -288,22 +365,30 @@ export class AppPaymentsService {
       throw new BadRequestException('Wallet payments are currently only supported for GBP charges.');
     }
 
-    const charge = await this.insertCharge({
-      appClientId: client.clientId,
-      amountMinor,
-      currency,
-      feeMinor,
-      netMinor,
-      method: AppChargeMethod.wallet,
-      status: AppChargeStatus.pending,
-      reference: dto.reference,
-      description: dto.description ?? null,
-      mcomUserId: dto.mcomUserId,
-      externalCustomerId: dto.externalCustomerId ?? null,
-      idempotencyKey,
-      requestHash,
-      metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
-    });
+    const charge = await this.insertCharge(
+      {
+        appClientId: client.clientId,
+        amountMinor,
+        currency,
+        feeMinor,
+        netMinor,
+        method: AppChargeMethod.wallet,
+        status: AppChargeStatus.pending,
+        reference: dto.reference,
+        description: dto.description ?? null,
+        mcomUserId: dto.mcomUserId,
+        externalCustomerId: dto.externalCustomerId ?? null,
+        idempotencyKey,
+        requestHash,
+        intent,
+        feePercentApplied: feeConfig.feePercent,
+        feeFixedMinorApplied: feeConfig.feeFixedMinor,
+        payeeType: allocations[0]?.payeeType ?? null,
+        payeeRef: allocations[0]?.payeeUserId ?? allocations[0]?.payeeExternalId ?? null,
+        metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+      allocations,
+    );
 
     if (!charge) {
       const winner = await this.findByKey(client.clientId, idempotencyKey);
@@ -329,6 +414,10 @@ export class AppPaymentsService {
         },
         `appcharge:${charge.id}:wallet`,
         ipAddress,
+        // The payer's money lands in the platform wallet first; the settlement
+        // below then allocates the net to the app and keeps the fee. The intent
+        // travels with it so both halves of one order read the same everywhere.
+        { intent, counterparty: PLATFORM_WALLET_CODE, appChargeId: charge.id },
       );
     } catch (err) {
       await this.markFailed(charge, err);
@@ -717,6 +806,8 @@ export class AppPaymentsService {
         } as Prisma.InputJsonValue,
       });
 
+      await this.postRefundSettlementLedger(tx, charge, refund, refundMinor, feeRefundMinor, netRefundMinor);
+
       const updatedRefund = await tx.appRefund.update({
         where: { id: refund.id },
         data: { status: 'succeeded', providerRef, failureReason: null },
@@ -947,6 +1038,8 @@ export class AppPaymentsService {
         metadata: { chargeId: charge.id, refundId: refund.id, appClientId: charge.appClientId },
       },
       `apprefund:${refund.id}`,
+      undefined,
+      { intent: GlIntent.REFUND, appChargeId: charge.id },
     );
   }
 
@@ -1048,6 +1141,35 @@ export class AppPaymentsService {
   async getCharge(client: SsoClient, chargeId: string) {
     const charge = await this.getOwnedCharge(client, chargeId);
     return this.toChargeDto(charge);
+  }
+
+  /** Payee splits for one charge (partner view). */
+  async getSplits(client: SsoClient, chargeId: string) {
+    const charge = await this.getOwnedCharge(client, chargeId);
+    const splits = await this.prisma.appChargeSplit.findMany({
+      where: { chargeId: charge.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      success: true as const,
+      data: {
+        chargeId: charge.id,
+        settlementState: charge.settlementState,
+        splits: splits.map((split) => ({
+          id: split.id,
+          payeeType: split.payeeType,
+          payeeUserId: split.payeeUserId,
+          payeeExternalId: split.payeeExternalId,
+          amountMinor: split.amountMinor.toString(),
+          feeMinor: split.feeMinor.toString(),
+          netMinor: split.netMinor.toString(),
+          status: split.status,
+          walletTransactionId: split.walletTransactionId,
+          failureReason: split.failureReason,
+        })),
+      },
+    };
   }
 
   async listCharges(client: SsoClient, filters: FilterChargesDto) {
@@ -1454,6 +1576,7 @@ export class AppPaymentsService {
           ...(opts.providerRef ? { providerRef: opts.providerRef } : {}),
           ...(opts.walletDebitAmount ? { walletDebitAmount: opts.walletDebitAmount } : {}),
           reconciliationNeeded: false,
+          settlementState: charge.netMinor > 0n ? 'PENDING' : 'SETTLED',
           ...(opts.metadataPatch
             ? {
                 metadata: {
@@ -1485,6 +1608,10 @@ export class AppPaymentsService {
         metadata: (charge.metadata as Prisma.InputJsonValue) ?? undefined,
       });
 
+      // Central ledger: money in. Allocation to payees happens after commit so
+      // each payee's credit is its own atomic wallet operation.
+      await this.postChargeFundingLedger(tx, charge, opts.provider);
+
       const updated = await tx.appCharge.findUniqueOrThrow({ where: { id: charge.id } });
       return { charge: updated, transitioned: true };
     });
@@ -1497,7 +1624,301 @@ export class AppPaymentsService {
     }
 
     this.dispatchWebhook(result.charge, 'payment.succeeded', {});
+
+    // Allocate to payees. A failure here never fails the payment: the money is
+    // already taken, splits stay pending and the reconciler retries them.
+    await this.settleCharge(charge.id).catch((err: any) =>
+      this.logger.error(`Charge ${charge.id} settlement failed: ${this.errMessage(err)}`),
+    );
+
     return result.charge;
+  }
+
+  /**
+   * Money in for a paid charge.
+   *
+   * Card: the gateway holds the gross, which lands in the platform wallet.
+   * Wallet charges are already funded — the payer's debit credited the platform
+   * via `createWalletCharge`, so there is nothing to post here.
+   */
+  private async postChargeFundingLedger(
+    tx: Prisma.TransactionClient,
+    charge: AppCharge,
+    provider: string,
+  ): Promise<void> {
+    if (charge.method === AppChargeMethod.wallet) return;
+
+    await this.glPosting.post(tx, {
+      intent: charge.intent ?? GlIntent.ORDER,
+      platformId: charge.appClientId,
+      reference: charge.reference,
+      description: charge.description ?? `MCOM Pay charge ${charge.id}`,
+      initiatorType: 'app',
+      idempotencyKey: `appcharge:${charge.id}:funding`,
+      transactions: [
+        {
+          legs: [
+            { account: gatewayAccountCode(provider), direction: 'debit', amountMinor: charge.amountMinor },
+            { account: PLATFORM_WALLET_CODE, direction: 'credit', amountMinor: charge.amountMinor },
+          ],
+        },
+      ],
+      provenance: { appChargeId: charge.id },
+      metadata: { chargeId: charge.id, method: charge.method },
+    });
+  }
+
+  /**
+   * Allocate a paid charge to its payees, from the platform wallet.
+   *
+   * Each split is settled independently — one unreachable payee cannot block
+   * another's money. A missing splits list means legacy behaviour: the whole net
+   * accrues to the calling app's payable.
+   *
+   * Idempotent: re-running settles only what is still pending.
+   */
+  async settleCharge(chargeId: string): Promise<void> {
+    const charge = await this.prisma.appCharge.findUnique({
+      where: { id: chargeId },
+      include: { splits: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!charge) return;
+    if (charge.status !== AppChargeStatus.paid) return;
+    if (charge.settlementState === 'SETTLED') return;
+
+    type PendingSplit = {
+      id: string | null;
+      payeeType: string;
+      payeeUserId: string | null;
+      payeeExternalId: string | null;
+      netMinor: bigint;
+      status: string;
+    };
+
+    const splits: PendingSplit[] =
+      charge.splits.length > 0
+        ? charge.splits.map((split) => ({
+            id: split.id,
+            payeeType: split.payeeType,
+            payeeUserId: split.payeeUserId,
+            payeeExternalId: split.payeeExternalId,
+            netMinor: split.netMinor,
+            status: split.status,
+          }))
+        : charge.netMinor > 0n
+          ? [
+              {
+                id: null,
+                payeeType: 'app',
+                payeeUserId: null,
+                payeeExternalId: null,
+                netMinor: charge.netMinor,
+                status: 'pending',
+              },
+            ]
+          : [];
+
+    if (splits.length === 0) {
+      await this.prisma.appCharge.update({
+        where: { id: charge.id },
+        data: { settlementState: 'SETTLED' },
+      });
+      return;
+    }
+
+    const platformPartner = {
+      clientId: 'mcom-central',
+      name: 'MCOM Central',
+      platformSlug: 'system',
+    };
+
+    for (const split of splits) {
+      if (split.status === 'credited') continue;
+      if (split.netMinor <= 0n) {
+        await this.markSplitSettled(charge.id, split.id, 'credited', null, null);
+        continue;
+      }
+
+      const key = split.id
+        ? `appcharge:${charge.id}:split:${split.id}`
+        : `appcharge:${charge.id}:settle`;
+
+      try {
+        if (split.payeeType === 'mcom_user' && split.payeeUserId) {
+          const receipt = await this.walletService.creditWallet(
+            platformPartner as any,
+            {
+              userId: split.payeeUserId,
+              amount: Number(split.netMinor) / 100,
+              category: 'TRANSFER_IN' as any,
+              description:
+                charge.description ??
+                `MCOM Pay — ${charge.reference ?? charge.id}`,
+              reference: charge.reference ?? charge.id,
+              metadata: {
+                chargeId: charge.id,
+                splitId: split.id,
+                appClientId: charge.appClientId,
+              },
+            },
+            key,
+            undefined,
+            // Seller payout: funded by the platform wallet that received the money.
+            {
+              intent: charge.intent ?? GlIntent.ORDER,
+              counterparty: PLATFORM_WALLET_CODE,
+              appChargeId: charge.id,
+            },
+          );
+
+          await this.markSplitSettled(charge.id, split.id, 'credited', receipt.transactionId, null);
+        } else {
+          // External payee (or legacy app payable): park it until payout.
+          const account =
+            split.payeeType === 'app'
+              ? appPayableAccountCode(charge.appClientId)
+              : payeeAccountCode(`${charge.appClientId}:${split.payeeExternalId ?? split.id}`);
+
+          const transfer = await this.prisma.$transaction((tx) =>
+            this.glPosting.post(tx, {
+              intent: charge.intent ?? GlIntent.ORDER,
+              platformId: charge.appClientId,
+              reference: charge.reference,
+              description: charge.description ?? `MCOM Pay charge ${charge.id}`,
+              initiatorType: 'app',
+              idempotencyKey: key,
+              transactions: [
+                {
+                  legs: [
+                    { account: PLATFORM_WALLET_CODE, direction: 'debit', amountMinor: split.netMinor },
+                    { account, direction: 'credit', amountMinor: split.netMinor },
+                  ],
+                },
+              ],
+              provenance: { appChargeId: charge.id },
+              metadata: { chargeId: charge.id, splitId: split.id, payeeType: split.payeeType },
+            }),
+          );
+
+          await this.markSplitSettled(charge.id, split.id, 'credited', null, transfer.transferId);
+        }
+      } catch (err: any) {
+        const reason = this.errMessage(err);
+        this.logger.warn(`Split ${split.id ?? 'app'} for charge ${charge.id} failed: ${reason}`);
+        await this.markSplitSettled(charge.id, split.id, 'failed', null, null, reason);
+      }
+    }
+
+    const remaining = await this.prisma.appChargeSplit.count({
+      where: { chargeId: charge.id, status: { not: 'credited' } },
+    });
+    const failed = await this.prisma.appChargeSplit.count({
+      where: { chargeId: charge.id, status: 'failed' },
+    });
+
+    await this.prisma.appCharge.update({
+      where: { id: charge.id },
+      data: {
+        settlementState: remaining === 0 ? 'SETTLED' : failed > 0 ? 'FAILED' : 'PENDING',
+        settlementAttempts: { increment: 1 },
+      },
+    });
+  }
+
+  private async markSplitSettled(
+    chargeId: string,
+    splitId: string | null,
+    status: 'credited' | 'failed',
+    walletTransactionId: string | null,
+    transferId: string | null,
+    failureReason?: string,
+  ): Promise<void> {
+    if (!splitId) {
+      // Legacy single-payable charge: the transfer id lives on the charge.
+      if (transferId) {
+        await this.prisma.appCharge.update({
+          where: { id: chargeId },
+          data: { transferId },
+        });
+      }
+      return;
+    }
+
+    await this.prisma.appChargeSplit.update({
+      where: { id: splitId },
+      data: {
+        status,
+        walletTransactionId,
+        failureReason: failureReason ?? null,
+      },
+    });
+
+    if (transferId) {
+      await this.prisma.appCharge.update({
+        where: { id: chargeId },
+        data: { transferId },
+      });
+    }
+  }
+
+  /**
+   * Mirror a refund into the central ledger.
+   *
+   * Wallet refunds already moved payable → wallet through the wallet layer
+   * (gross). The fee share is then handed back to the app from the platform, so
+   * the app's net debit matches what it earned.
+   *
+   * Card refunds move money out of the gateway: payable (net) + platform (fee)
+   * → gateway (gross).
+   */
+  private async postRefundSettlementLedger(
+    tx: Prisma.TransactionClient,
+    charge: AppCharge,
+    refund: AppRefund,
+    refundMinor: bigint,
+    feeRefundMinor: bigint,
+    netRefundMinor: bigint,
+  ): Promise<void> {
+    const payable = appPayableAccountCode(charge.appClientId);
+    const legs: Array<{ account: string; direction: 'debit' | 'credit'; amountMinor: bigint }> = [];
+
+    if (charge.method === AppChargeMethod.wallet) {
+      if (feeRefundMinor > 0n) {
+        legs.push({ account: PLATFORM_WALLET_CODE, direction: 'debit', amountMinor: feeRefundMinor });
+        legs.push({ account: payable, direction: 'credit', amountMinor: feeRefundMinor });
+      }
+    } else {
+      if (netRefundMinor > 0n) {
+        legs.push({ account: payable, direction: 'debit', amountMinor: netRefundMinor });
+      }
+      if (feeRefundMinor > 0n) {
+        legs.push({ account: PLATFORM_WALLET_CODE, direction: 'debit', amountMinor: feeRefundMinor });
+      }
+      if (legs.length < 2 && refundMinor > 0n) {
+        // Defensive: split data that does not reconcile still has to balance.
+        legs.length = 0;
+        legs.push({ account: payable, direction: 'debit', amountMinor: refundMinor });
+      }
+      legs.push({
+        account: gatewayAccountCode(charge.provider ?? charge.method),
+        direction: 'credit',
+        amountMinor: refundMinor,
+      });
+    }
+
+    if (legs.length < 2) return;
+
+    await this.glPosting.post(tx, {
+      intent: GlIntent.REFUND,
+      platformId: charge.appClientId,
+      reference: charge.reference,
+      description: `Refund ${refund.id} for charge ${charge.id}`,
+      initiatorType: 'app',
+      idempotencyKey: `apprefund:${refund.id}:settle`,
+      transactions: [{ legs }],
+      provenance: { appRefundId: refund.id, appChargeId: charge.id },
+      metadata: { chargeId: charge.id, refundId: refund.id },
+    });
   }
 
   /** Mark a pending charge failed without clobbering a concurrent settlement. */
@@ -2179,18 +2600,18 @@ export class AppPaymentsService {
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
+  /**
+   * Wallet amounts are GBP, so pence → pounds is the entire conversion. Wallet
+   * charges are restricted to GBP at the call sites; anything else is a bug we
+   * want to hear about rather than silently convert at 1:1.
+   */
   private async resolveWalletCredits(amountMinor: bigint, currency: string): Promise<Decimal> {
-    const major = new Decimal(amountMinor.toString()).dividedBy(100);
-    let rate = new Decimal(1);
-    try {
-      const fx = await this.prisma.fxRate.findUnique({
-        where: { base_quote: { base: currency.toUpperCase(), quote: 'MCOM' } },
-      });
-      if (fx) rate = new Decimal(fx.rate.toString());
-    } catch (err: any) {
-      this.logger.warn(`FX lookup failed for ${currency}→MCOM: ${err?.message}`);
+    if (currency.toUpperCase() !== 'GBP') {
+      throw new BadRequestException(
+        `Wallet payments are only supported for GBP charges (received ${currency}).`,
+      );
     }
-    return major.times(rate);
+    return new Decimal(amountMinor.toString()).dividedBy(100);
   }
 
   private async getPayPalAccessToken(): Promise<string> {

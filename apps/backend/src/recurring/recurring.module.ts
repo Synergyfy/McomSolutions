@@ -1,3 +1,4 @@
+import { LedgerModule } from '../ledger/ledger.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -15,7 +16,7 @@ import { RecurringController } from './recurring.controller';
 import { RecurringAdminController } from './recurring-admin.controller';
 
 @Module({
-  imports: [
+  imports: [LedgerModule, 
     ConfigModule,
     PrismaModule,
     RedisModule,

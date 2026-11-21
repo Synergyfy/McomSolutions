@@ -375,12 +375,27 @@ model AppCharge {
   // The reconciler (and admins) key off this flag instead of guessing.
   reconciliationNeeded Boolean         @default(false) @map("reconciliation_needed")
   settlementAttempts   Int             @default(0) @map("settlement_attempts")
+  // Fee rate used at the time of the charge. Rates change; an old fee must
+  // remain explainable, so the applied config is snapshotted, not looked up.
+  feePercentApplied    Decimal?        @map("fee_percent_applied") @db.Decimal(5, 4)
+  feeFixedMinorApplied BigInt?         @map("fee_fixed_minor_applied")
   paidAt               DateTime?       @map("paid_at")
   createdAt            DateTime        @default(now()) @map("created_at")
   updatedAt            DateTime        @updatedAt @map("updated_at")
 
+  // ── Payee splits (Phase 4) ──────────────────────────────────────────
+  // What the charge was *for*, and where the money goes. Without splits the
+  // whole net accrues to the app's payable (legacy behaviour).
+  intent          GlIntent @default(ORDER)
+  payeeType       String?  @map("payee_type")   // mcom_user | external
+  payeeRef        String?  @map("payee_ref")
+  transferId      String?  @map("transfer_id")
+  // NA | PENDING | SETTLED | FAILED — the allocation to payees.
+  settlementState String   @default("NA") @map("settlement_state")
+
   ledgerEntries AppPaymentLedgerEntry[]
   refunds       AppRefund[]
+  splits        AppChargeSplit[]
 
   // Idempotency keys are scoped to the owning app: one partner can no longer
   // burn (or probe) another partner's keys.
@@ -390,7 +405,60 @@ model AppCharge {
   @@index([mcomUserId])
   @@index([reference])
   @@index([reconciliationNeeded])
+  @@index([settlementState])
   @@map("app_charges")
+}
+
+/// One payee's share of a charge. `amountMinor` is the gross share; the fee is
+/// apportioned with largest-remainder rounding so the parts always sum exactly.
+/// A split is settled independently, so one unreachable payee cannot block
+/// another's money.
+model AppChargeSplit {
+  id                  String    @id @default(cuid())
+  chargeId            String    @map("charge_id")
+  charge              AppCharge @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  /// mcom_user -> credit that user's wallet; external -> park on a payee payable.
+  payeeType           String    @map("payee_type")
+  payeeUserId         String?   @map("payee_user_id")
+  payeeExternalId     String?   @map("payee_external_id")
+  amountMinor         BigInt    @map("amount_minor")
+  feeMinor            BigInt    @default(0) @map("fee_minor")
+  netMinor            BigInt    @map("net_minor")
+  /// pending | credited | failed
+  status              String    @default("pending")
+  walletTransactionId String?   @map("wallet_transaction_id")
+  failureReason       String?   @map("failure_reason")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([chargeId])
+  @@index([payeeUserId])
+  @@index([status])
+  @@map("app_charge_splits")
+}
+
+/// A request to move an app's payable balance out to the bank. Money only
+/// leaves once an admin approves it, and the payout post is idempotent.
+model AppPayout {
+  id             String   @id @default(cuid())
+  appClientId    String   @map("app_client_id")
+  amountMinor    BigInt   @map("amount_minor")
+  currency       String   @default("GBP")
+  /// pending | approved | paid | rejected | failed
+  status         String   @default("pending")
+  transferId     String?  @map("transfer_id")
+  provider       String?  // bank_transfer | manual
+  providerRef    String?  @map("provider_ref")
+  requestedBy    String?  @map("requested_by")
+  approvedBy     String?  @map("approved_by")
+  idempotencyKey String   @unique @map("idempotency_key")
+  failureReason  String?  @map("failure_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([appClientId, status])
+  @@index([status, createdAt])
+  @@map("app_payouts")
 }
 
 // One row per refund attempt. This is the idempotency record for refunds and
@@ -527,6 +595,18 @@ model SsoClient {
   serviceScopes    String[] @default([]) @map("service_scopes")
   allowedAudiences String[] @default([]) @map("allowed_audiences")
   allowedCallers   String[] @default([]) @map("allowed_callers")
+
+  // ── Profile-update synchronization (additive) ───────────────────────────
+  // Roles that may use this app. Empty array = every profile-sync role
+  // (backwards-compatible default for apps registered before this field).
+  // Central uses this as a routing filter: a BUSINESS profile change is never
+  // fanned out to an app that only serves AGENT accounts.
+  supportedRoles String[] @default([]) @map("supported_roles")
+
+  // Single endpoint that receives `profile.updated` events for every role
+  // this app supports. The payload carries only the central user id; the app
+  // fetches the canonical profile through the B2B service-mesh endpoint.
+  profileSyncEndpoint String? @map("profile_sync_endpoint")
 
   // ── White-label access (additive) ───────────────────────────────────────
   // When true, this platform only admits businesses that an admin has
@@ -2351,7 +2431,7 @@ model Wallet {
   id       String       @id @default(cuid())
   userId   String       @unique @map("user_id")
   balance  Decimal      @default(0) @map("balance") @db.Decimal(18, 4)
-  currency String       @default("MCOM") @map("currency")
+  currency String       @default("GBP") @map("currency")
   status   WalletStatus @default(ACTIVE) @map("status")
 
   dailyDebitLimit   Decimal? @map("daily_debit_limit") @db.Decimal(18, 4)
@@ -2381,7 +2461,7 @@ model WalletTransaction {
   amount        Decimal         @map("amount") @db.Decimal(18, 4)
   balanceBefore Decimal         @map("balance_before") @db.Decimal(18, 4)
   balanceAfter  Decimal         @map("balance_after") @db.Decimal(18, 4)
-  currency      String          @default("MCOM") @map("currency")
+  currency      String          @default("GBP") @map("currency")
 
   platformClientId String? @map("platform_client_id")
   platformName     String? @map("platform_name")
@@ -2402,6 +2482,15 @@ model WalletTransaction {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  // ── Central ledger projection ──────────────────────────────────────────
+  // The receipt row above is unchanged; these link it to the journal so a
+  // user's history can show the business intent and the other party without
+  // ever exposing another user's balance.
+  intent               GlIntent? @map("intent")
+  transferId           String?   @map("transfer_id")
+  counterpartyWalletId String?   @map("counterparty_wallet_id")
+  ledgerEntryId        String?   @unique @map("ledger_entry_id")
+
   wallet Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
   hold   WalletHold? @relation(fields: [holdId], references: [id], onDelete: SetNull)
 
@@ -2415,6 +2504,8 @@ model WalletTransaction {
   @@index([idempotencyKey])
   @@index([reference])
   @@index([status])
+  @@index([intent])
+  @@index([transferId])
   @@index([walletId, platformSlug, createdAt(sort: Desc)])
   @@map("wallet_transactions")
 }
@@ -2470,7 +2561,7 @@ model WalletTopUpRequest {
   userId         String  @map("user_id")
   amount         Decimal @map("amount") @db.Decimal(18, 4)
   currency       String  @default("GBP") @map("currency")
-  walletCurrency String  @default("MCOM") @map("wallet_currency")
+  walletCurrency String  @default("GBP") @map("wallet_currency")
   exchangeRate   Decimal @default(1) @map("exchange_rate") @db.Decimal(10, 6)
 
   provider       String  @map("provider")
@@ -2904,7 +2995,7 @@ model AffiliateTaskSettlement {
   // actually moves in the MCOM wallet.
   currency String  @default("GBP") @map("currency")
   fxBase   String  @default("GBP") @map("fx_base")
-  fxQuote  String  @default("MCOM") @map("fx_quote")
+  fxQuote  String  @default("GBP") @map("fx_quote")
   fxRate   Decimal @default(1) @map("fx_rate") @db.Decimal(18, 6)
 
   // Exact integer source amounts in pence (GBP minor units).
@@ -4298,4 +4389,186 @@ model AffiliateSyncLog {
 
   @@index([providerAccountId, startedAt(sort: Desc)])
   @@map("affiliate_sync_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CENTRAL LEDGER (MCOM Pay)
+// ═══════════════════════════════════════════════════════════════════════════
+// Double-entry journal that every money movement in the ecosystem posts to.
+//
+//   GlTransfer  = one business event (an order, a plan purchase, a commission)
+//   GlTransaction = one balanced step inside that event (GBP only)
+//   GlEntry     = one debit or credit against one account
+//   GlAccount   = an account instance (a wallet, the platform wallet, a gateway)
+//
+// Invariants enforced in code and by a deferred constraint trigger:
+//   • per transaction, Σ debits == Σ credits
+//   • entries are append-only; corrections are reversing transfers
+//   • GlAccount.balanceMinor is materialised and reconciled from entries
+//
+// `WalletTransaction` stays the user-facing receipt; it links back through
+// `transferId` and `ledgerEntryId`.
+
+enum GlAccountType {
+  ASSET_GATEWAY_CLEARING
+  ASSET_BANK
+  PLATFORM_WALLET
+  LIABILITY_USER_WALLET
+  LIABILITY_APP_PAYABLE
+  LIABILITY_PAYABLE
+  SUSPENSE
+  EQUITY_OPENING
+}
+
+enum GlIntent {
+  ORDER
+  BOOKING
+  DELEGATION
+  PURCHASE
+  SUBSCRIPTION
+  REFERRAL_COMMISSION
+  TOP_UP
+  REFUND
+  PAYOUT
+  TRANSFER
+  ADJUSTMENT
+  FEE
+  CHARGEBACK
+  OPENING_BALANCE
+}
+
+enum GlEntryDirection {
+  debit
+  credit
+}
+
+enum GlTransactionStatus {
+  pending
+  posted
+  reversed
+}
+
+enum GlAccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+model GlAccount {
+  id           String          @id @default(cuid())
+  /// Stable, human-readable identity: 'platform:wallet:GBP', 'wallet:<id>',
+  /// 'gateway:stripe:GBP', 'payable:app:<clientId>'.
+  code         String          @unique
+  type         GlAccountType
+  currency     String          @default("GBP")
+  /// 'platform' | 'wallet' | 'app' | 'payee' | 'gateway'
+  scope        String
+  ownerRef     String?         @map("owner_ref")
+  /// Materialised balance in minor units. Must always equal Σ entries for this
+  /// account; the reconciliation job re-derives it and reports any drift.
+  balanceMinor BigInt          @default(0) @map("balance_minor")
+  status       GlAccountStatus @default(ACTIVE)
+  isSystem     Boolean         @default(false) @map("is_system")
+  metadata     Json?
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  entries GlEntry[]
+
+  @@index([type, currency])
+  @@index([scope, ownerRef])
+  @@index([status])
+  @@map("gl_accounts")
+}
+
+model GlTransfer {
+  id             String   @id @default(cuid())
+  intent         GlIntent
+  /// SsoClient.clientId that originated the money movement. Null for
+  /// platform-internal movements (top-ups, commissions funded by us).
+  platformId     String?  @map("platform_id")
+  /// Business key: order id, charge id, task id, billing transaction id.
+  reference      String?
+  description    String?
+  /// 'user' | 'app' | 'admin' | 'system'
+  initiatorType  String   @map("initiator_type")
+  initiatorId    String?  @map("initiator_id")
+  /// Idempotency of the whole event. A replay returns this transfer untouched.
+  idempotencyKey String   @unique @map("idempotency_key")
+  /// Set when this transfer reverses another one (never edit the original).
+  reversalOfId   String?  @unique @map("reversal_of_id")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  transactions GlTransaction[]
+
+  @@index([platformId, createdAt(sort: Desc)])
+  @@index([intent, createdAt(sort: Desc)])
+  @@index([reference])
+  @@index([createdAt(sort: Desc)])
+  @@map("gl_transfers")
+}
+
+model GlTransaction {
+  id                    String              @id @default(cuid())
+  transferId            String              @map("transfer_id")
+  transfer              GlTransfer          @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  currency              String              @default("GBP")
+  /// Σ debit legs. Equal to Σ credit legs, always.
+  amountMinor           BigInt              @map("amount_minor")
+  status                GlTransactionStatus @default(posted)
+  reversesTransactionId String?             @unique @map("reverses_transaction_id")
+  postedAt              DateTime            @default(now()) @map("posted_at")
+
+  entries GlEntry[]
+
+  @@index([transferId])
+  @@index([postedAt])
+  @@map("gl_transactions")
+}
+
+model GlEntry {
+  id            String           @id @default(cuid())
+  transactionId String           @map("transaction_id")
+  transaction   GlTransaction    @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  accountId     String           @map("account_id")
+  account       GlAccount        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  direction     GlEntryDirection
+  amountMinor   BigInt           @map("amount_minor")
+  currency      String           @default("GBP")
+
+  // Provenance — at most one is set.
+  walletTransactionId  String? @unique @map("wallet_transaction_id")
+  appChargeId          String? @map("app_charge_id")
+  appRefundId          String? @map("app_refund_id")
+  settlementId         String? @map("settlement_id")
+  referralCommissionId String? @map("referral_commission_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@index([transactionId])
+  @@index([appChargeId])
+  @@index([referralCommissionId])
+  @@index([createdAt(sort: Desc)])
+  @@map("gl_entries")
+}
+
+/// Derived daily aggregates for charts. Rebuildable from gl_entries at any
+/// time, so a bad rollup can never be the source of truth.
+model GlDailyRollup {
+  id          String   @id @default(cuid())
+  /// YYYY-MM-DD in UTC
+  date        String
+  platformId  String   @default("mcom-central") @map("platform_id")
+  intent      GlIntent
+  currency    String   @default("GBP")
+  debitMinor  BigInt   @default(0) @map("debit_minor")
+  creditMinor BigInt   @default(0) @map("credit_minor")
+  txnCount    Int      @default(0) @map("txn_count")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([date, platformId, intent, currency])
+  @@index([date])
+  @@map("gl_daily_rollups")
 }

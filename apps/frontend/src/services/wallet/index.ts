@@ -29,6 +29,10 @@ export interface WalletTransaction {
   status: string;
   initiatedBy?: string | null;
   createdAt: string;
+  /** Business purpose of the movement (order, delegation, referral, top-up…). */
+  intent?: string | null;
+  /** The other party when money moved between two wallets. */
+  counterparty?: { type: 'business' | 'user'; displayName: string } | null;
 }
 
 export interface Paginated<T> {

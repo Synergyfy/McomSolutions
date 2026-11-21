@@ -380,6 +380,124 @@ export async function getDelegatedServiceToken(
 
 ---
 
+## 🔄 EVENT-DRIVEN PROFILE SYNC (CENTRAL → APP → B2B PULL)
+
+Central is the **source of truth** for every user profile. When a business, customer, agent,
+consultant, account manager or partner edits their profile in Central, Central does **not** push
+the data. It pushes a tiny signal, and the app pulls the canonical profile through the service
+mesh using the same RS256 token protocol described above.
+
+### Concrete example: MCOM Mall
+
+MCOM Mall is registered in Console with roles **BUSINESS** and **CUSTOMER**.
+
+\`\`\`
+1. A business edits "Acme Coffee" in Central.
+2. Central selects only apps that serve BUSINESS (Mall qualifies; 247GBS Affiliate does not).
+3. Central POSTs to Mall's single profile endpoint:
+      { "event": "profile.updated", "data": { "userId": "usr_123", ... } }
+4. Mall verifies the webhook signature, dedupes on data.eventId.
+5. Mall mints an RS256 service token (audience mcom-central, scope central:read).
+6. Mall calls: GET {MCOM_SOLUTIONS_URL}/api/v1/ecosystem/profiles/usr_123
+7. Central returns the canonical identity + full businessProfile.
+8. Mall upserts its local copy keyed on the central userId.
+\`\`\`
+
+Because the central **user id never changes**, email/name/address updates always update the same
+local row. Never key your copy on email — key it on \`userId\`.
+
+### Event contract (Central → Mall)
+
+\`\`\`http
+POST https://api.mcom-mall.com/webhooks/profile-updated
+Content-Type: application/json
+X-Mcom-Webhook-Signature: sha256=<hex>
+\`\`\`
+
+\`\`\`json
+{
+  "event": "profile.updated",
+  "platform": "mcom-mall",
+  "timestamp": "2026-11-20T10:15:00.000Z",
+  "data": {
+    "eventId": "4f1c2e8a-8f2b-4a1e-9c3d-2b7e6a1d9f40",
+    "occurredAt": "2026-11-20T10:15:00.000Z",
+    "userId": "usr_123"
+  }
+}
+\`\`\`
+
+- Verify the HMAC with the app's **webhook secret** (or HMAC secret if no webhook secret exists).
+- Delivery is at-least-once — ignore duplicate \`data.eventId\` values.
+- Respond \`2xx\` fast; Central retries with exponential backoff, then dead-letters.
+
+### Pull the canonical profile (Mall → Central, B2B)
+
+\`\`\`typescript
+const MCOM_URL = process.env.MCOM_SOLUTIONS_URL!;
+const basic = Buffer.from(
+  \`\${process.env.MCOM_CLIENT_ID}:\${process.env.MCOM_CLIENT_SECRET}\`,
+).toString('base64');
+
+// 1. Mint a short-lived RS256 service token for Central
+const tokenRes = await fetch(\`\${MCOM_URL}/api/v1/auth/service-token\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: \`Basic \${basic}\` },
+  body: JSON.stringify({
+    grant_type: 'client_credentials',
+    audience: 'mcom-central',
+    scope: 'central:read',
+  }),
+});
+const { access_token } = await tokenRes.json();
+
+// 2. Pull the canonical profile for the user id from the event
+const res = await fetch(\`\${MCOM_URL}/api/v1/ecosystem/profiles/\${data.userId}\`, {
+  headers: { Authorization: \`Bearer \${access_token}\` },
+});
+const { user } = await res.json();
+
+// 3. Upsert the local copy — the immutable central id is the key
+await db.profile.upsert({
+  where: { mcomUserId: user.id },
+  create: {
+    mcomUserId: user.id,
+    email: user.email,
+    role: user.role,
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? null,
+    companyName: user.businessProfile?.businessName ?? null,
+  },
+  update: {
+    email: user.email,
+    role: user.role,
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? null,
+    companyName: user.businessProfile?.businessName ?? null,
+  },
+});
+\`\`\`
+
+Central verifies the token offline via JWKS (issuer \`mcom-solutions\`, audience
+\`mcom-central\`), requires \`central:read\`, and rejects reads for roles the app does not serve.
+
+### Console settings
+
+| Setting | Value |
+|:--|:--|
+| Roles | Roles this app serves (e.g. Mall = BUSINESS + CUSTOMER) |
+| Profile Update Endpoint | One HTTPS endpoint for **all** roles |
+| Service Access | Enabled (auto) |
+| Service Scopes | includes \`central:read\` (auto) |
+| Allowed Audiences | includes \`mcom-central\` (auto) |
+| Service Mesh Policy | Central allows this app as a caller (auto) |
+
+Saving the endpoint in Console provisions the B2B scope, audience and ingress grant automatically.
+
+---
+
 ## 🛠️ TROUBLESHOOTING & POLICY MATRIX
 
 | HTTP Status | Cause | Diagnostic / Resolution |

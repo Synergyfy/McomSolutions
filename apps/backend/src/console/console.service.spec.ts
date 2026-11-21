@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { ConsoleService } from './console.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +7,7 @@ import { RedisService } from '../redis/redis.service';
 import { ConfigService } from '@nestjs/config';
 import { SsoService } from '../auth/sso.service';
 import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatcher.service';
+import { PROFILE_SYNC_ROLES } from '../common/profile-sync/profile-sync.constants';
 import { decrypt } from './crypto.util';
 
 const ENCRYPTION_KEY = '86d3b8c8ad1519806cd90234050daebe4d2dc95f1ea9d83d780cc73ebed00a3b';
@@ -169,6 +170,76 @@ describe('ConsoleService', () => {
       expect(ssoService.invalidateCorsCache).toHaveBeenCalled();
       expect(prisma.consoleAuditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: 'register_app', adminId: 'admin-1' }) }),
+      );
+    });
+
+    it('defaults supportedRoles to every syncable role and leaves the profile endpoint empty', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      mockPrisma.ssoClient.findFirst.mockResolvedValue(null);
+      mockPrisma.ssoClient.create.mockImplementation(async (args: any) => ({
+        id: 'cl_1',
+        ...args.data,
+      }));
+
+      await service.registerApp(baseDto as any, 'admin-1');
+
+      const createdData = prisma.ssoClient.create.mock.calls[0][0].data;
+      expect(createdData.supportedRoles).toEqual(PROFILE_SYNC_ROLES);
+      expect(createdData.profileSyncEndpoint).toBeNull();
+    });
+
+    it('rejects an invalid profile-sync endpoint URL', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      mockPrisma.ssoClient.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.registerApp(
+          {
+            ...baseDto,
+            profileSyncEndpoint: 'not-a-url',
+          } as any,
+          'admin-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('auto-provisions B2B access when a profile endpoint is configured', async () => {
+      mockPrisma.ssoClient.findUnique.mockResolvedValue(null);
+      mockPrisma.ssoClient.findFirst
+        .mockResolvedValueOnce(null) // platform slug availability
+        .mockResolvedValueOnce({
+          id: 'central-id',
+          clientId: 'mcom-central',
+          allowedCallers: ['mcom-rewards'],
+        });
+      mockPrisma.ssoClient.create.mockImplementation(async (args: any) => ({
+        id: 'cl_1',
+        ...args.data,
+      }));
+      mockPrisma.ssoClient.update.mockResolvedValue({ id: 'central-id' });
+
+      await service.registerApp(
+        {
+          ...baseDto,
+          profileSyncEndpoint: 'https://api.mcom-mall.com/webhooks/profile-updated',
+        } as any,
+        'admin-1',
+      );
+
+      const createdData = prisma.ssoClient.create.mock.calls[0][0].data;
+      expect(createdData.profileSyncEndpoint).toBe(
+        'https://api.mcom-mall.com/webhooks/profile-updated',
+      );
+      expect(createdData.serviceEnabled).toBe(true);
+      expect(createdData.serviceScopes).toContain('central:read');
+      expect(createdData.allowedAudiences).toContain('mcom-central');
+      expect(prisma.ssoClient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'central-id' },
+          data: {
+            allowedCallers: expect.arrayContaining(['mcom-rewards', 'mcom-vcard']),
+          },
+        }),
       );
     });
 

@@ -7,12 +7,14 @@ import { AuthModule } from '../auth/auth.module';
 import { TASK_EVENT_QUEUE } from '../queue/queue.constants';
 import { GeographyModule } from '../geography/geography.module';
 import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
+import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
 
 @Module({
   imports: [
     AuthModule,
     GeographyModule,
     BusinessAcquisitionModule,
+    ProfileSyncModule,
     BullModule.registerQueue({
       name: TASK_EVENT_QUEUE,
     }),

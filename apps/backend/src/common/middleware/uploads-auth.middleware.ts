@@ -53,6 +53,10 @@ export class UploadsAuthMiddleware implements NestMiddleware {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Content-Disposition', 'attachment');
+    // Helmet's default CORP is `same-origin`, which blocks authenticated
+    // cross-origin image fetches (frontend :3000 -> API :3010 in dev).
+    // The bytes are still gated by the Bearer check above.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     next();
   }
 }

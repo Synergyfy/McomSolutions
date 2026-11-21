@@ -18,7 +18,7 @@ import LocalMallsPanel from '../components/admin/LocalMallsPanel';
 import CitiesPanel from '../components/admin/CitiesPanel';
 import ConsolePanel from '../components/admin/console/ConsolePanel';
 import { WalletPanel } from '../components/admin/wallet/WalletPanel';
-import { McomPayPanel } from '../components/admin/mcom-pay/McomPayPanel';
+import { McomPayConsole } from '../components/admin/mcom-pay/McomPayConsole';
 import SectorsCategoriesPanel from '../components/admin/SectorsCategoriesPanel';
 import CouponsPanel from '../components/admin/CouponsPanel';
 import AdminMembershipEditor from './AdminMembershipEditor';
@@ -207,7 +207,7 @@ export default function AdminDashboard() {
       case 'affiliate-reconciliation':
         return <AffiliateReconciliationAdminPanel />;
       case 'mcom-pay':
-        return <McomPayPanel />;
+        return <McomPayConsole />;
       case 'programme':
         return <ProgrammeManagementPanel />;
       case 'programme-progress':

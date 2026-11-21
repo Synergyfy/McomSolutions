@@ -22,6 +22,9 @@ import {
   RecurringStatus,
   TransactionCategory,
 } from '@prisma/client';
+import { PlatformSalesService } from '../ledger/platform-sales.service';
+import { toMinorUnits } from '../ledger/money';
+import { GlIntent } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -74,6 +77,7 @@ export class RecurringService {
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly businessAcquisition?: BusinessAcquisitionService,
     @Optional() private readonly referralCommission?: ReferralCommissionService,
+    @Optional() private readonly platformSales?: PlatformSalesService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -1167,7 +1171,7 @@ export class RecurringService {
         },
       });
 
-      await tx.billingTransaction.create({
+      const renewalBilling = await tx.billingTransaction.create({
         data: {
           businessId: mandate.businessId,
           amount,
@@ -1177,6 +1181,15 @@ export class RecurringService {
           providerPaymentId,
           platformPackageId: pkg.id,
         },
+      });
+      await this.platformSales?.recordSale(tx, {
+        provider: mandate.provider,
+        amountMinor: toMinorUnits(amount),
+        idempotencyKey: `billing:${renewalBilling.id}`,
+        reference: providerPaymentId,
+        description: renewalBilling.description ?? undefined,
+        intent: GlIntent.SUBSCRIPTION,
+        metadata: { billingTransactionId: renewalBilling.id, businessId: mandate.businessId },
       });
     });
   }

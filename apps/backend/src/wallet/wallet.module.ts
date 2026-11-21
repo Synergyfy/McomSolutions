@@ -13,11 +13,13 @@ import { WalletAdminService } from './wallet-admin.service';
 import { WalletEventsService } from './wallet-events.service';
 import { WalletLockUtil } from './utils/wallet-lock.util';
 import { WalletHmacGuard } from './guards/wallet-hmac.guard';
+import { LedgerModule } from '../ledger/ledger.module';
 
 @Module({
   imports: [
     AuthModule,
     ScheduleModule.forRoot(),
+    LedgerModule,
   ],
   controllers: [
     WalletController,

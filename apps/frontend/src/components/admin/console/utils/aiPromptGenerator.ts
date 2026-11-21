@@ -1,4 +1,9 @@
-import type { PlainSecrets, SsoClientDetail } from '../../../../services/admin/types';
+import {
+  CONSOLE_PROFILE_ROLES,
+  CONSOLE_PROFILE_ROLE_LABELS,
+  type PlainSecrets,
+  type SsoClientDetail,
+} from '../../../../services/admin/types';
 
 export function generateAiIntegrationPrompt(
   client: Partial<SsoClientDetail> & { clientId: string; name: string },
@@ -26,6 +31,24 @@ export function generateAiIntegrationPrompt(
 
   const allowedAudiences = client.allowedAudiences ?? [];
   const allowedCallers = client.allowedCallers ?? [];
+
+  // Empty supportedRoles means "all roles" for backwards compatibility.
+  const supportedRoles =
+    client.supportedRoles && client.supportedRoles.length > 0
+      ? client.supportedRoles
+      : [...CONSOLE_PROFILE_ROLES];
+  const profileSyncEndpoint = (client.profileSyncEndpoint ?? '').trim();
+  const profileSyncRolesDisplay = supportedRoles.length
+    ? supportedRoles
+        .map((role) => {
+          const label =
+            CONSOLE_PROFILE_ROLE_LABELS[
+              role as keyof typeof CONSOLE_PROFILE_ROLE_LABELS
+            ] ?? role;
+          return `| \`${role}\` | ${label} |`;
+        })
+        .join('\n')
+    : '| _none_ | — |';
 
   const audiencesDisplay = allowedAudiences.length === 0
     ? 'NONE (Deny-by-default — configure in Console under Service Mesh Policy)'
@@ -994,7 +1017,137 @@ app.post('${new URL(client.webhookUrl || 'https://app.com/webhooks').pathname}',
 ---
 `
     : ''
-}## 📋 ACCEPTANCE CHECKLIST & TROUBLESHOOTING
+}## 🔄 PHASE 7: Profile Update Synchronization (event + B2B pull)
+
+Central publishes one \`profile.updated\` event per profile change to apps that serve the user's
+role. The event carries **only the central user id** — your backend then pulls the canonical
+profile over the secure backend-to-backend (service mesh) channel. No profile data is pushed in
+the event.
+
+### Roles this app serves
+
+| Role | Audience |
+|:--|:--|
+${profileSyncRolesDisplay}
+
+${
+  profileSyncEndpoint
+    ? `**Profile synchronization is enabled.** Events are POSTed to \`${profileSyncEndpoint}\`.`
+    : `**Profile synchronization is currently disabled for this app** — no profile endpoint is registered in Console. This is the default. Enable it in **/admin/console → this app → Configuration → Roles & Profile Synchronization**.`
+}
+
+### Step 1 — Receive the event
+
+\`POST\` body (signed with \`X-Mcom-Webhook-Signature: sha256=<hex>\` using the app webhook secret;
+fall back to \`MCOM_HMAC_SECRET\` if the app has no webhook secret):
+
+\`\`\`json
+{
+  "event": "profile.updated",
+  "platform": "${client.platformSlug || client.clientId}",
+  "timestamp": "2026-11-20T10:15:00.000Z",
+  "data": {
+    "eventId": "4f1c2e8a-8f2b-4a1e-9c3d-2b7e6a1d9f40",
+    "occurredAt": "2026-11-20T10:15:00.000Z",
+    "userId": "usr_123"
+  }
+}
+\`\`\`
+
+- Respond \`2xx\` quickly (under 10s). Failures retry with exponential backoff (5 attempts), then go
+  to the Console dead-letter queue for replay.
+- Delivery is at-least-once: deduplicate on \`data.eventId\`.
+
+### Step 2 — Pull the profile over B2B (RS256 service token)
+
+Mint a short-lived service token for Central, then read the canonical profile:
+
+\`\`\`typescript
+const MCOM_URL = process.env.MCOM_SOLUTIONS_URL!;
+const basic = Buffer.from(
+  \`\${process.env.MCOM_CLIENT_ID}:\${process.env.MCOM_CLIENT_SECRET}\`,
+).toString('base64');
+
+const tokenRes = await fetch(\`\${MCOM_URL}/api/v1/auth/service-token\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: \`Basic \${basic}\` },
+  body: JSON.stringify({
+    grant_type: 'client_credentials',
+    audience: 'mcom-central',
+    scope: 'central:read',
+  }),
+});
+const { access_token } = await tokenRes.json();
+
+const res = await fetch(\`\${MCOM_URL}/api/v1/ecosystem/profiles/\${data.userId}\`, {
+  headers: { Authorization: \`Bearer \${access_token}\` },
+});
+const profile = await res.json();
+
+// profile.user is the same canonical identity returned by SSO:
+// { id, email, role, profileType, firstName, lastName, phone, address, postcode,
+//   businessId, businessName, businessProfile, customerProfile, agentProfile,
+//   consultantProfile, accountManagerProfile, entitlement, membership, packages }
+\`\`\`
+
+Central verifies the RS256 token offline via JWKS (issuer \`mcom-solutions\`, audience
+\`mcom-central\`), requires the \`central:read\` scope, and rejects reads for roles this app does
+not serve — defence in depth on top of the event routing.
+
+### Step 3 — Console requirements (auto-provisioned)
+
+Saving a profile endpoint in Console automatically adds \`central:read\`, the \`mcom-central\`
+audience, service access, and Central's ingress grant for this app. Verify the app's configuration:
+
+| Setting | Expected value |
+|:--|:--|
+| Service Access | Enabled |
+| Service Scopes | includes \`central:read\` |
+| Allowed Audiences | includes \`mcom-central\` |
+| Service Mesh Policy | \`mcom-central\` allows this app as a caller |
+
+### Step 4 — Upsert the local copy
+
+\`\`\`typescript
+const user = profile.user;
+
+await db.profile.upsert({
+  where: { mcomUserId: user.id },
+  create: {
+    mcomUserId: user.id,
+    email: user.email,
+    role: user.role,
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? null,
+    address: user.address ?? null,
+    postcode: user.postcode ?? null,
+    companyName: user.businessProfile?.businessName ?? null,
+  },
+  update: {
+    email: user.email,
+    role: user.role,
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    phone: user.phone ?? null,
+    address: user.address ?? null,
+    postcode: user.postcode ?? null,
+    companyName: user.businessProfile?.businessName ?? null,
+  },
+});
+
+await db.processedEvent.create({ data: { eventId: data.eventId } });
+\`\`\`
+
+### Rules
+- Key local profiles on \`data.userId\` / \`profile.user.id\` — never email alone.
+- The event is only a signal. Always fetch the canonical profile before applying changes.
+- Cache the service token and reuse it (short-lived) as you do for other peer calls.
+- If your app serves one role only, select only that role in Console; Central then never sends
+  other roles to it.
+
+
+## 📋 ACCEPTANCE CHECKLIST & TROUBLESHOOTING
 
 ### Agent Verification Checklist:
 - [ ] Ran \`node test-mcom-mesh.mjs\` and saw \`✅ Service Token Minted Successfully!\`.
@@ -1006,6 +1159,12 @@ app.post('${new URL(client.webhookUrl || 'https://app.com/webhooks').pathname}',
 - [ ] Callback handles \`entitlement.access.hasAccess\` and gates features accordingly.
 - [ ] Local account is provisioned from \`user\` (firstName, lastName, email, phone, address, country, business/role profile) — see Task 4.4.
 - [ ] Business accounts persist \`businessProfile\` details (business name, type, industry, website, logo, address).
+- [ ] A \`profile.updated\` receiver verifies \`X-Mcom-Webhook-Signature\`, deduplicates on \`data.eventId\`, and pulls the profile with a B2B service token (\`central:read\`) — see Phase 7.
+${
+  profileSyncEndpoint
+    ? `- [ ] Receiver is deployed at \`${profileSyncEndpoint}\`.`
+    : '- [ ] Profile sync endpoint is intentionally blank (default) — no receiver required until an admin configures one.'
+}
 ${
   allowWhitelabel
     ? `- [ ] White-label gate requires \`profileType === 'BUSINESS'\`, \`accessType === 'WHITELABEL'\` and \`whitelabel.granted === true\`.

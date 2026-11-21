@@ -1,14 +1,56 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
-import { AppChargeMethod } from '@prisma/client';
+import { AppChargeMethod, GlIntent } from '@prisma/client';
+
+/** One payee's share of a charge. */
+export class ChargeSplitDto {
+  @ApiProperty({
+    enum: ['mcom_user', 'external'],
+    example: 'mcom_user',
+    description:
+      'mcom_user credits that user\'s wallet; external parks the share on a payee payable until payout',
+  })
+  @IsIn(['mcom_user', 'external'])
+  payeeType: 'mcom_user' | 'external';
+
+  @ApiPropertyOptional({ example: 'user_seller123', description: 'Required when payeeType is mcom_user' })
+  @ValidateIf((o) => o.payeeType === 'mcom_user')
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(191)
+  payeeUserId?: string;
+
+  @ApiPropertyOptional({
+    example: 'ledger_778',
+    description: 'Required when payeeType is external — your own payee identifier',
+  })
+  @ValidateIf((o) => o.payeeType === 'external')
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(191)
+  payeeExternalId?: string;
+
+  @ApiProperty({ example: '9000', description: 'Gross share in minor units (pence) as an integer string' })
+  @IsString()
+  @Matches(/^[1-9]\d{0,14}$/, {
+    message: 'split amountMinor must be a positive integer string in minor units',
+  })
+  amountMinor: string;
+}
 
 /**
  * Partner-supplied charge request. The amount arrives in MINOR units (pence)
@@ -89,4 +131,25 @@ export class CreateChargeDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({
+    enum: GlIntent,
+    example: 'ORDER',
+    description: 'What the charge is for — drives analytics and the user\'s ledger label',
+  })
+  @IsOptional()
+  @IsEnum(GlIntent)
+  intent?: GlIntent;
+
+  @ApiPropertyOptional({
+    type: [ChargeSplitDto],
+    description:
+      'Where the money goes. Omit to accrue the net to the calling app\'s payable (legacy). Amounts must sum to amountMinor.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ChargeSplitDto)
+  splits?: ChargeSplitDto[];
 }

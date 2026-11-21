@@ -23,6 +23,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { WalletHmacGuard } from '../wallet/guards/wallet-hmac.guard';
 import { AppPaymentsService } from './app-payments.service';
+import { AppPayoutsService } from './app-payouts.service';
 import { CreateChargeDto } from './dto/create-charge.dto';
 import { ConfirmChargeDto } from './dto/confirm-charge.dto';
 import { RefundChargeDto } from './dto/refund-charge.dto';
@@ -46,7 +47,17 @@ import { AppChargeDto, CreateChargeResponseDto, PaginatedChargesDto, RefundCharg
 @UseGuards(WalletHmacGuard)
 @Controller('app-payments')
 export class AppPaymentsController {
-  constructor(private readonly service: AppPaymentsService) {}
+  constructor(
+    private readonly service: AppPaymentsService,
+    private readonly payouts: AppPayoutsService,
+  ) {}
+
+  @Get('balance')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @ApiOperation({ summary: 'Your payable balance and pending payouts' })
+  async balance(@Req() req: any) {
+    return this.payouts.balanceFor(req.partnerClient.clientId);
+  }
 
   @Post('charges')
   @Throttle({ default: { limit: 60, ttl: 60000 } })
@@ -81,6 +92,13 @@ export class AppPaymentsController {
     @Body() dto: ConfirmChargeDto,
   ) {
     return this.service.confirmCharge(req.partnerClient, id, dto);
+  }
+
+  @Get('charges/:id/splits')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @ApiOperation({ summary: 'Payee splits for a charge and their settlement status' })
+  async splits(@Req() req: any, @Param('id') id: string) {
+    return this.service.getSplits(req.partnerClient, id);
   }
 
   @Post('charges/:id/refund')

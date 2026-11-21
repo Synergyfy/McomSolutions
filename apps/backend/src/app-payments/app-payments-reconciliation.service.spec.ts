@@ -166,3 +166,75 @@ describe('AppPaymentsReconciliationService', () => {
     expect(reconciled).toBe(1);
   });
 });
+
+describe('AppPaymentsReconciliationService — settlement retries', () => {
+  it('re-drives paid charges left PENDING or FAILED', async () => {
+    const prisma: any = {
+      appCharge: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'ch_1', settlementState: 'PENDING', settlementAttempts: 1 },
+          { id: 'ch_2', settlementState: 'FAILED', settlementAttempts: 2 },
+        ]),
+      },
+    };
+    const payments = { settleCharge: jest.fn().mockResolvedValue(undefined) };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AppPaymentsReconciliationService,
+        { provide: ConfigService, useValue: { get: jest.fn(() => null) } },
+        { provide: PrismaService, useValue: prisma },
+        { provide: AppPaymentsService, useValue: payments },
+        { provide: WebhookDispatcherService, useValue: { dispatch: jest.fn() } },
+        { provide: RedisService, useValue: { setNx: jest.fn(), del: jest.fn() } },
+      ],
+    }).compile();
+
+    const service = module.get(AppPaymentsReconciliationService);
+    const retried = await service.retryUnsettledCharges();
+
+    expect(retried).toBe(2);
+    expect(payments.settleCharge).toHaveBeenCalledWith('ch_1');
+    expect(payments.settleCharge).toHaveBeenCalledWith('ch_2');
+    expect(prisma.appCharge.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: 'paid',
+          settlementState: { in: ['PENDING', 'FAILED'] },
+          settlementAttempts: { lt: 10 },
+        }),
+      }),
+    );
+  });
+
+  it('keeps going when one charge fails to settle', async () => {
+    const prisma: any = {
+      appCharge: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'ch_1', settlementState: 'FAILED', settlementAttempts: 1 },
+          { id: 'ch_2', settlementState: 'FAILED', settlementAttempts: 1 },
+        ]),
+      },
+    };
+    const payments = {
+      settleCharge: jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(undefined),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AppPaymentsReconciliationService,
+        { provide: ConfigService, useValue: { get: jest.fn(() => null) } },
+        { provide: PrismaService, useValue: prisma },
+        { provide: AppPaymentsService, useValue: payments },
+        { provide: WebhookDispatcherService, useValue: { dispatch: jest.fn() } },
+        { provide: RedisService, useValue: { setNx: jest.fn(), del: jest.fn() } },
+      ],
+    }).compile();
+
+    const service = module.get(AppPaymentsReconciliationService);
+    const retried = await service.retryUnsettledCharges();
+
+    expect(retried).toBe(1);
+    expect(payments.settleCharge).toHaveBeenCalledTimes(2);
+  });
+});

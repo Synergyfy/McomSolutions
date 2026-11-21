@@ -10,6 +10,21 @@ import { apiClient } from '../services/api';
 import { useReferralInfo } from '../services/referrals/hooks';
 import ReferralLinkCard from './ReferralLinkCard';
 
+/** Fields the profile form may send. Only changed values are transmitted. */
+const EDITABLE_PROFILE_FIELDS = [
+  'businessName',
+  'businessType',
+  'description',
+  'phone',
+  'address',
+  'postcode',
+  'website',
+  'openingHours',
+  'socialMedia',
+  'industry',
+  'category',
+] as const;
+
 export default function DashboardBusinessProfile() {
   const { data: profile, isLoading: loading } = useProfile();
   const { data: referralInfo, isLoading: referralLoading } = useReferralInfo();
@@ -45,10 +60,12 @@ export default function DashboardBusinessProfile() {
     logoUrl: '',
     bannerUrl: '',
   });
+  // Last values loaded from the server — used to send only fields that changed.
+  const baselineRef = useRef<typeof formData | null>(null);
 
   useEffect(() => {
     if (profile) {
-      setFormData({
+      const nextFormData = {
         businessName: profile.businessName || '',
         businessType: profile.businessType || '',
         description: profile.description || '',
@@ -66,7 +83,9 @@ export default function DashboardBusinessProfile() {
         apiKey: profile.apiKey || '',
         logoUrl: profile.logoUrl || '',
         bannerUrl: profile.bannerUrl || '',
-      });
+      };
+      setFormData(nextFormData);
+      baselineRef.current = nextFormData;
     }
   }, [profile]);
 
@@ -173,8 +192,11 @@ export default function DashboardBusinessProfile() {
       const res = await uploadLogoMutation.mutateAsync(file);
       const newLogoUrl = res.secure_url;
       setFormData(prev => ({ ...prev, logoUrl: newLogoUrl }));
-      // Save to business profile immediately to persist and trigger task event worker
-      await updateProfile({ ...formData, logoUrl: newLogoUrl });
+      // Persist only the changed field — never resend the whole profile.
+      await updateProfile({ logoUrl: newLogoUrl });
+      if (baselineRef.current) {
+        baselineRef.current = { ...baselineRef.current, logoUrl: newLogoUrl };
+      }
       setLogoSuccess(true);
       setTimeout(() => setLogoSuccess(false), 5000);
     } catch (err: any) {
@@ -205,8 +227,12 @@ export default function DashboardBusinessProfile() {
       const res = await uploadLogoMutation.mutateAsync(file);
       const newBannerUrl = res.secure_url;
       setFormData(prev => ({ ...prev, bannerUrl: newBannerUrl }));
-      // Persist immediately so the cover survives a refresh and reaches SSO.
-      await updateProfile({ ...formData, bannerUrl: newBannerUrl });
+      // Persist only the changed field so an untouched (possibly legacy)
+      // postcode can never block a cover image upload.
+      await updateProfile({ bannerUrl: newBannerUrl });
+      if (baselineRef.current) {
+        baselineRef.current = { ...baselineRef.current, bannerUrl: newBannerUrl };
+      }
       setBannerSuccess(true);
       setTimeout(() => setBannerSuccess(false), 5000);
     } catch (err: any) {
@@ -221,14 +247,32 @@ export default function DashboardBusinessProfile() {
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    const normalisedPostcode = formData.postcode.trim().toUpperCase();
-    if (normalisedPostcode && !UK_POSTCODE_REGEX.test(normalisedPostcode)) {
-      setError('Please enter a valid UK postcode (e.g. SW1A 1AA).');
-      setSaving(false);
-      return;
+
+    const baseline = baselineRef.current ?? formData;
+    const payload: Record<string, string> = {};
+    for (const key of EDITABLE_PROFILE_FIELDS) {
+      if (formData[key] !== baseline[key]) {
+        payload[key] = formData[key];
+      }
     }
+
+    // Only validate the postcode when the user actually changed it. Legacy
+    // profiles with a non-UK postcode must still be able to edit other fields.
+    if (payload.postcode !== undefined) {
+      const normalisedPostcode = payload.postcode.trim().toUpperCase();
+      if (normalisedPostcode && !UK_POSTCODE_REGEX.test(normalisedPostcode)) {
+        setError('Please enter a valid UK postcode (e.g. SW1A 1AA).');
+        setSaving(false);
+        return;
+      }
+      payload.postcode = normalisedPostcode;
+    }
+
     try {
-      await updateProfile({ ...formData, postcode: normalisedPostcode });
+      if (Object.keys(payload).length > 0) {
+        await updateProfile(payload);
+        baselineRef.current = { ...baseline, ...payload } as typeof formData;
+      }
       setEditing(false);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to update business profile.');

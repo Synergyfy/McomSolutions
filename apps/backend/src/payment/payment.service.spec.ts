@@ -160,7 +160,9 @@ describe('PaymentService', () => {
     configService = module.get(ConfigService);
     pricingService = module.get(PricingService);
     // Re-establish shared defaults (clearAllMocks wipes implementations).
-    mockPrisma.$transaction.mockImplementation((ops: any[]) => Promise.all(ops));
+    mockPrisma.$transaction.mockImplementation((arg: any) =>
+      typeof arg === 'function' ? arg(mockPrisma) : Promise.all(arg),
+    );
     mockPrisma.billingTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.platformPackage.findFirst.mockResolvedValue(null);
     mockPricingService.resolveMembershipCharge.mockImplementation(
@@ -385,7 +387,7 @@ describe('PaymentService', () => {
     it('debits the MCOM wallet and activates the membership', async () => {
       mockWalletService.debitWallet.mockResolvedValue({
         amount: 10,
-        currency: 'MCOM',
+        currency: 'GBP',
         transactionId: 'txn-1',
       });
       mockPricingService.subscribeMembership.mockResolvedValue({ membershipLevel: 'Bronze' });
@@ -409,13 +411,13 @@ describe('PaymentService', () => {
         { provider: 'wallet', providerPaymentId: 'wallet:key-12345678', chargedAmount: 10 },
       );
       expect(result.pricing.walletDebited).toBe(10);
-      expect(result.pricing.walletCurrency).toBe('MCOM');
+      expect(result.pricing.walletCurrency).toBe('GBP');
     });
 
     it('refunds the wallet when activation fails after the debit', async () => {
       mockWalletService.debitWallet.mockResolvedValue({
         amount: 10,
-        currency: 'MCOM',
+        currency: 'GBP',
         transactionId: 'txn-2',
       });
       mockPricingService.subscribeMembership.mockRejectedValue(new Error('db down'));

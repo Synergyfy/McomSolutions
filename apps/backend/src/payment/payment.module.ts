@@ -1,3 +1,4 @@
+import { LedgerModule } from '../ledger/ledger.module';
 import { Module } from '@nestjs/common';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
@@ -13,7 +14,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
 
 @Module({
-  imports: [PricingModule, CouponModule, AccessModule, WalletModule, PrismaModule, ServiceConnectorsModule, WebhookDispatcherModule, AuthModule, RecurringModule, BusinessAcquisitionModule],
+  imports: [LedgerModule, PricingModule, CouponModule, AccessModule, WalletModule, PrismaModule, ServiceConnectorsModule, WebhookDispatcherModule, AuthModule, RecurringModule, BusinessAcquisitionModule],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],

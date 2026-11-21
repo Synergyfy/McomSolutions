@@ -16,7 +16,7 @@ export class WebhookProcessor extends WorkerHost {
   }
 
   async process(job: Job<WebhookJobData>): Promise<any> {
-    const { platformIdentifier, event, data } = job.data;
+    const { platformIdentifier, event, data, targetUrl } = job.data;
     this.logger.log(
       `Processing webhook job ${job.id} (attempt ${job.attemptsMade + 1}): ${event} to ${platformIdentifier}`,
     );
@@ -24,6 +24,7 @@ export class WebhookProcessor extends WorkerHost {
     const result = await this.dispatcher.dispatch(platformIdentifier, event, data, {
       jobId: job.id,
       retryCount: job.attemptsMade,
+      targetUrl,
     });
     if (!result.dispatched && result.reason !== 'APP_NOT_FOUND' && result.reason !== 'NO_WEBHOOK_URL_CONFIGURED') {
       throw new Error(result.error || `Webhook delivery failed with status ${result.statusCode}`);

@@ -13,19 +13,21 @@ import {
   Server,
   ShieldAlert,
   TerminalSquare,
+  Users,
   Wallet as WalletIcon,
   X,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { generateWalletIntegrationGuide, walletEnvBlock } from './utils/walletIntegrationGuide';
 
-type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'recurring' | 'hmac' | 'errors' | 'code';
+type Tab = 'overview' | 'credentials' | 'endpoints' | 'mcompay' | 'splits' | 'recurring' | 'hmac' | 'errors' | 'code';
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'overview', label: 'Overview', icon: Network },
   { id: 'credentials', label: 'Credentials', icon: KeyRound },
   { id: 'endpoints', label: 'Wallet API', icon: Server },
   { id: 'mcompay', label: 'MCOM Pay', icon: CreditCard },
+  { id: 'splits', label: 'Splits & Payouts', icon: Users },
   { id: 'recurring', label: 'Recurring', icon: RefreshCw },
   { id: 'hmac', label: 'HMAC Auth', icon: Lock },
   { id: 'errors', label: 'Errors & Retry', icon: ShieldAlert },
@@ -80,7 +82,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400">
-                How any registered app integrates MCOM Wallet (prepaid balance), MCOM Pay (charge customers) and recurring billing.
+                How any registered app integrates MCOM Wallet (prepaid balance), MCOM Pay (charge customers), payee splits (pay another user/business) and recurring billing.
               </p>
             </div>
           </div>
@@ -137,6 +139,7 @@ export function WalletIntegrationModal({ onClose }: { onClose: () => void }) {
           {activeTab === 'credentials' && <CredentialsTab />}
           {activeTab === 'endpoints' && <EndpointsTab />}
           {activeTab === 'mcompay' && <McomPayTab />}
+          {activeTab === 'splits' && <SplitsTab />}
           {activeTab === 'recurring' && <RecurringTab />}
           {activeTab === 'hmac' && <HmacTab />}
           {activeTab === 'errors' && <ErrorsTab />}
@@ -292,7 +295,7 @@ function OverviewTab() {
     <div className="space-y-6">
       <Section title="One wallet per user, usable across every MCOM platform">
         <p className="text-xs text-gray-600 leading-relaxed">
-          Every McomSolutions user has a single MCOM wallet (balance in MCOM credits). Your app never creates or owns a
+          Every McomSolutions user has a single MCOM wallet (balance in GBP). Your app never creates or owns a
           wallet — it debits, credits, or holds the user's central wallet through the partner API. McomSolutions is the
           single source of truth for balances; your app should never store wallet balances.
         </p>
@@ -327,6 +330,8 @@ function OverviewTab() {
           <li><b>Auto-renew an MCOM membership/platform plan</b> → <b>MCOM handles it</b> (not a partner API — see Recurring tab)</li>
           <li><b>Sell anything and collect real money (card / PayPal / wallet)</b> → <b>MCOM Pay</b> <code className="text-emerald-600 font-mono">/app-payments/charges</code></li>
           <li><b>Immutable ledger in pence with fee/net + webhooks</b> → <b>MCOM Pay</b></li>
+          <li><b>A customer buys from another user/business (marketplace, booking)</b> → <b>MCOM Pay with <code className="text-emerald-600 font-mono">splits</code></b> (Splits tab)</li>
+          <li><b>Get your accumulated balance paid to your bank</b> → <code className="text-emerald-600 font-mono">GET /app-payments/balance</code> + approved payout</li>
         </ul>
       </Section>
     </div>
@@ -395,6 +400,16 @@ function EndpointsTab() {
         />
       </Section>
 
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-bold text-amber-800">Where does a /debit put the money?</p>
+        <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
+          A debit reduces the payer's wallet and records the amount as owed to <b>your app</b>
+          (<code className="font-mono">payable:app:&lt;your client id&gt;</code>). It does <b>not</b> pay a seller.
+          To move money to another user or business in one call, use MCOM Pay with{' '}
+          <code className="font-mono">splits</code> — see the <b>Splits &amp; Payouts</b> tab.
+        </p>
+      </div>
+
       <Section title="Required headers (every request)">
         <HeaderTable
           rows={[
@@ -431,7 +446,7 @@ Content-Type: application/json
   "amount": 50,
   "balanceBefore": 150,
   "balanceAfter": 100,
-  "currency": "MCOM",
+  "currency": "GBP",
   "reference": "sub_inv_0042",
   "idempotencyKey": "mcom-mall-sub-inv_0042_aug2026",
   "processedAt": "2026-08-26T11:15:00.000Z"
@@ -451,7 +466,7 @@ X-Mcom-Signature: sha256=<sign empty string>
   "balance": 100,
   "availableBalance": 50,
   "status": "ACTIVE",
-  "currency": "MCOM"
+  "currency": "GBP"
 }
 
 // availableBalance = balance - active holds. Check it before charging.`}
@@ -484,7 +499,7 @@ function McomPayTab() {
       </Section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <FeatureCard n="₩" title="Wallet = prepaid credits" color="bg-emerald-50 text-emerald-600" body="Moves a user's existing MCOM balance. Debit, credit, hold. Best for rewards, refunds and in-ecosystem spending." />
+        <FeatureCard n="₩" title="Wallet = prepaid balance" color="bg-emerald-50 text-emerald-600" body="Moves a user's existing GBP wallet balance. Debit, credit, hold. Best for rewards, refunds and in-ecosystem spending." />
         <FeatureCard n="£" title="MCOM Pay = collect money" color="bg-indigo-50 text-indigo-600" body="Charges real money (card / PayPal) or the wallet for anything you sell, and keeps an auditable ledger in pence with fees and net." />
       </div>
 
@@ -669,15 +684,19 @@ Content-Type: application/json
           <li><b>Minor units only.</b> Send <code className="text-emerald-600 font-mono">amountMinor</code> as a positive integer string — <code className="text-emerald-600 font-mono">"10270"</code> = £102.70. Responses return <code className="text-emerald-600 font-mono">amountMinor</code> / <code className="text-emerald-600 font-mono">feeMinor</code> / <code className="text-emerald-600 font-mono">netMinor</code> as strings. Never floats.</li>
           <li><b>Fee config</b> (per app, set in the Console; default <b>2.9% + 20p</b>): <code className="text-emerald-600 font-mono">feePercent</code> + <code className="text-emerald-600 font-mono">feeFixedMinor</code>. Fee is clamped to <code className="text-emerald-600 font-mono">[0, amountMinor]</code>.</li>
           <li><b>Net</b> = <code className="text-emerald-600 font-mono">amountMinor − feeMinor</code> — what MCOM records as owed to your app.</li>
-          <li><b>Immutable double-entry ledger</b>: a paid charge posts <code className="text-emerald-600 font-mono">debit clearing = credit app_payable + credit mcom_revenue</code>; refunds post the exact reverse. Entries are never edited or deleted.</li>
+          <li><b>Immutable journal</b>: every charge posts balanced entries against named accounts (your app payable, the platform wallet, gateway clearing, each user's wallet). Refunds post the exact reverse. Entries are never edited or deleted.</li>
+          <li><b>Who pays the fee</b> is a commercial choice: by default it comes out of the gross (payees receive net). Set <code className="text-emerald-600 font-mono">feePercent = 0</code> if your sellers must receive the full amount — see the Splits &amp; Payouts tab.</li>
         </ul>
         <CodeBlock
-          label="ledger (per paid charge)"
-          code={`debit  <clearing>     amountMinor   (money in: gateway or wallet)
-credit app_payable    netMinor      (owed to your app)
-credit mcom_revenue   feeMinor      (MCOM fee, when > 0)
+          label="journal (card charge, then allocation)"
+          code={`debit  gateway:<provider>   amountMinor   (money in)
+credit platform:wallet      amountMinor
 
-// Refunds post the reverse, so the ledger always sums to zero.`}
+debit  platform:wallet      netMinor      (allocation)
+credit <payee account>      netMinor      (app payable, or the seller's wallet)
+
+// Wallet charges are already funded by the payer's debit.
+// The fee is what stays in the platform wallet. Refunds post the reverse.`}
         />
       </Section>
 
@@ -746,6 +765,183 @@ await mcom.createCharge({
 });`}
         />
       </Section>
+    </div>
+  );
+}
+
+function SplitsTab() {
+  const base = (import.meta.env.VITE_API_URL || 'https://api.mcomsolutions.com/api/v1').replace(/\/$/, '');
+  return (
+    <div className="space-y-6">
+      <Section title="Pay another user or business — one call, two wallets">
+        <p className="text-xs text-gray-600 leading-relaxed">
+          Use splits whenever the money belongs to someone else: a seller on your marketplace, a business
+          taking a booking, a professional delivering a service. You state <b>who receives the money</b>, and
+          MCOM debits the buyer and credits the payee's wallet atomically. Without splits MCOM only knows the
+          buyer, so the money accrues to your app's payable and the seller is never paid.
+        </p>
+      </Section>
+
+      <div className="bg-gray-900 rounded-2xl p-5 text-white space-y-3">
+        <div className="flex items-center justify-between text-xs text-gray-400 font-bold uppercase tracking-wider">
+          <span>Where the money goes</span>
+          <span className="text-emerald-400 font-mono">£90.00 order</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-center">
+          <div className="rounded-xl bg-rose-500/10 border border-rose-400/30 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-rose-300">Buyer wallet</p>
+            <p className="text-lg font-black text-rose-200">−£90.00</p>
+          </div>
+          <div className="rounded-xl bg-emerald-500/10 border border-emerald-400/30 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-300">Seller wallet</p>
+            <p className="text-lg font-black text-emerald-200">+£87.19</p>
+          </div>
+          <div className="rounded-xl bg-indigo-500/10 border border-indigo-400/30 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300">Platform fee</p>
+            <p className="text-lg font-black text-indigo-200">+£2.81</p>
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-400">
+          Card payments are identical — the gateway funds the platform, then the seller is credited. The buyer's
+          wallet is not touched.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <FeatureCard n="1" title="One atomic call" color="bg-emerald-50 text-emerald-600" body="The buyer debit and the payee credit post together. No half-completed transfers, no second call to remember." />
+        <FeatureCard n="2" title="Separate settlement" color="bg-amber-50 text-amber-600" body="Each payee settles independently. One frozen seller wallet cannot block another payee's money or fail the payment." />
+        <FeatureCard n="3" title="Real balances" color="bg-blue-50 text-brand-blue" body="GET /balance shows what you are owed and what is already queued for payout. Admin-approved payouts move it to the bank." />
+      </div>
+
+      <Section title="Endpoints">
+        <EndpointTable
+          rows={[
+            ['POST', '/charges', 'Create a charge with splits (stripe | paypal | wallet)', 'Required'],
+            ['GET', '/charges/:id/splits', 'Settlement status per payee', '—'],
+            ['GET', '/balance', 'Payable balance, pending payouts, paid out', '—'],
+            ['POST', '/charges/:id/refund', 'Refund (reverses the payee allocations)', 'Required'],
+          ]}
+        />
+      </Section>
+
+      <Section title="Wallet payment with a split">
+        <CodeBlock
+          label="POST /api/v1/app-payments/charges"
+          code={`POST ${base}/app-payments/charges
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<...>
+X-Idempotency-Key: order_12345
+Content-Type: application/json
+
+{
+  "amountMinor": "9000",          // £90.00 — MINOR units, integer string
+  "method": "wallet",
+  "intent": "ORDER",              // "BOOKING" for a service
+  "reference": "order_12345",
+  "mcomUserId": "<buyer MCOM user id>",
+  "splits": [
+    {
+      "payeeType": "mcom_user",   // or "external"
+      "payeeUserId": "<seller MCOM user id>",
+      "amountMinor": "9000"       // must sum to amountMinor across all splits
+    }
+  ]
+}`}
+        />
+      </Section>
+
+      <Section title="Card payment with a split">
+        <CodeBlock
+          label="Same body — only method changes"
+          code={`{
+  "amountMinor": "9000",
+  "method": "stripe",             // or "paypal"
+  "intent": "ORDER",
+  "reference": "order_12345",
+  "mcomUserId": "<buyer MCOM user id>",
+  "splits": [
+    { "payeeType": "mcom_user", "payeeUserId": "<seller MCOM user id>", "amountMinor": "9000" }
+  ]
+}
+
+// Response: { charge, clientSecret }   (Stripe)
+//           { charge, approvalUrl }    (PayPal)
+// The seller is credited when the payment settles, not when you create the charge.`}
+        />
+      </Section>
+
+      <Section title="Rules">
+        <ul className="text-xs text-gray-600 space-y-1.5 list-disc pl-5">
+          <li><b>sum(splits.amountMinor) must equal amountMinor</b> — otherwise 422 before any money moves.</li>
+          <li><b>mcom_user</b> requires <code className="text-emerald-600 font-mono">payeeUserId</code> (an existing MCOM user; you get it from SSO).</li>
+          <li><b>external</b> requires <code className="text-emerald-600 font-mono">payeeExternalId</code>; the money parks on that payee's payable until paid out.</li>
+          <li><b>One split per payee</b>, 50 maximum. For a multi-seller cart, add one split per seller.</li>
+          <li><b>intent</b> should be <code className="text-emerald-600 font-mono">ORDER</code> or <code className="text-emerald-600 font-mono">BOOKING</code> — it drives analytics and the payer's wallet history.</li>
+          <li>The fee is apportioned with <b>largest-remainder rounding</b>, so splits always sum exactly to the fee.</li>
+        </ul>
+      </Section>
+
+      <Section title="Check the payee was actually paid">
+        <CodeBlock
+          label="GET /api/v1/app-payments/charges/:id/splits"
+          code={`{
+  "success": true,
+  "data": {
+    "chargeId": "ch_...",
+    "settlementState": "SETTLED",      // NA | PENDING | SETTLED | FAILED
+    "splits": [{
+      "id": "sp_...",
+      "payeeType": "mcom_user",
+      "payeeUserId": "user_seller",
+      "amountMinor": "9000",
+      "feeMinor": "281",
+      "netMinor": "8719",
+      "status": "credited",            // pending | credited | failed
+      "walletTransactionId": "wt_...",
+      "failureReason": null
+    }]
+  }
+}
+
+// pending  -> not yet credited (card awaiting settlement, or retry queued)
+// credited -> the payee has the money
+// failed   -> read failureReason; retried every 10 minutes, up to 10 attempts`}
+        />
+      </Section>
+
+      <Section title="Who pays the fee (decide before launch)">
+        <HeaderTable
+          rows={[
+            ['Payee pays (default)', 'Seller receives net — £87.19 of £90. No action needed.'],
+            ['You pay', 'Seller receives the full amount. Set your app feePercent = 0 and feeFixedMinor = 0 in the Console, and be billed separately.'],
+            ['Custom', 'Negotiated rate. Ask MCOM to set your app fee config.'],
+          ]}
+        />
+        <p className="text-[11px] text-gray-400">
+          The fee never comes from the buyer — <code className="font-mono">amountMinor</code> is always what the buyer pays.
+        </p>
+      </Section>
+
+      <Section title="Errors specific to splits">
+        <ErrorTable
+          rows={[
+            ['400', 'BAD_SPLIT', 'Malformed split: missing payee id, non-integer amount, more than 50 splits', 'Fix the payload before retrying'],
+            ['422', 'SPLITS_MISMATCH', 'Splits do not sum to amountMinor', 'Recompute server-side; do not retry blind'],
+            ['422', 'INSUFFICIENT_BALANCE', "The payer's wallet cannot cover the charge", 'Prompt a top-up'],
+            ['409', 'IDEMPOTENCY_CONFLICT', 'Same key reused with a different payload', 'Use a new key for a new economic event'],
+          ]}
+        />
+      </Section>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-bold text-amber-800">Migrating from /wallet/partner/debit</p>
+        <p className="text-[11px] text-amber-800/90 mt-1 leading-relaxed">
+          The old flow charges the buyer but never pays the seller — the money accrues to your app payable.
+          Switching to <code className="font-mono">/app-payments/charges</code> with splits charges the buyer and
+          credits the seller in one atomic call. Any historical balance already sitting on your app payable does
+          not move on its own: request a payout through MCOM.
+        </p>
+      </div>
     </div>
   );
 }

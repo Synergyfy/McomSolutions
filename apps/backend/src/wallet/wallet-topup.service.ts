@@ -19,7 +19,11 @@ import { WalletLockUtil } from './utils/wallet-lock.util';
 import { RedisService } from '../redis/redis.service';
 import { TopUpInitiateDto, ConfirmTopUpDto } from './dto/wallet-operations.dto';
 import { Prisma } from '@prisma/client';
+import { GlIntent } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { GlPostingService } from '../ledger/gl-posting.service';
+import { gatewayAccountCode, walletAccountCode } from '../ledger/account-code';
+import { toMinorUnits } from '../ledger/money';
 
 type TopUpProvider = 'stripe' | 'paypal';
 
@@ -37,6 +41,7 @@ export class WalletTopUpService {
     private readonly ledgerService: WalletLedgerService,
     private readonly lockUtil: WalletLockUtil,
     private readonly redis: RedisService,
+    private readonly glPosting: GlPostingService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -64,16 +69,23 @@ export class WalletTopUpService {
     }
 
     const wallet = await this.walletService.ensureWallet(userId);
-    const exchangeRate = await this.getExchangeRate(dto.currency || 'GBP', wallet.currency);
+    const currency = (dto.currency || 'GBP').toUpperCase();
+    // GBP is the only wallet currency. Rejecting anything else is honest: the
+    // old FX layer silently treated USD/EUR as 1:1 with the wallet currency.
+    if (currency !== 'GBP') {
+      throw new BadRequestException(
+        `Wallet top-ups are GBP only. Received currency: ${currency}.`,
+      );
+    }
 
     const topUp = await this.prisma.walletTopUpRequest.create({
       data: {
         walletId: wallet.id,
         userId,
         amount: dto.amount,
-        currency: dto.currency || 'GBP',
-        walletCurrency: wallet.currency,
-        exchangeRate,
+        currency,
+        walletCurrency: 'GBP',
+        exchangeRate: 1,
         provider,
         status: 'PENDING',
       },
@@ -308,25 +320,6 @@ export class WalletTopUpService {
     );
   }
 
-  /**
-   * Resolves the FX rate for a base → wallet-currency pair. Prefers the DB
-   * (FxRate table, admin-updatable); falls back to the MCOM_GBP_RATE env var
-   * (default 1) so the conversion is never a silent hardcoded 1:1.
-   */
-  private async getExchangeRate(base: string, quote: string): Promise<number> {
-    try {
-      const rate = await this.prisma.fxRate.findUnique({
-        where: { base_quote: { base: base.toUpperCase(), quote: quote.toUpperCase() } },
-      });
-      if (rate) return rate.rate.toNumber();
-    } catch (err) {
-      this.logger.warn(`FX rate lookup failed for ${base}→${quote}:`, err as any);
-    }
-    const envRate = this.config.get<string>('MCOM_GBP_RATE');
-    const parsed = envRate ? parseFloat(envRate) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  }
-
   async handleStripeWebhook(rawBody: string | Buffer, signature: string): Promise<{ received: boolean }> {
     const webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET');
     if (!this.stripe || !webhookSecret) {
@@ -455,7 +448,7 @@ export class WalletTopUpService {
     }
 
     const wallet = await this.walletService.ensureWallet(request.userId);
-    const creditAmount = new Decimal(request.amount).times(request.exchangeRate || 1);
+    const creditAmount = new Decimal(request.amount);
     const providerLabel = provider === 'paypal' ? 'PayPal' : 'Stripe';
 
     // Balance read + ledger write MUST hold the wallet lock — otherwise a
@@ -475,12 +468,13 @@ export class WalletTopUpService {
       const balanceAfter = balanceBefore.plus(creditAmount);
 
       try {
-        await this.prisma.$transaction([
-          this.prisma.walletTopUpRequest.update({
+        await this.prisma.$transaction(async (tx) => {
+          await tx.walletTopUpRequest.update({
             where: { id: request.id },
             data: { status: 'COMPLETED', completedAt: new Date(), providerStatus: paymentStatus, providerRef },
-          }),
-          this.prisma.walletTransaction.create({
+          });
+
+          const created = await tx.walletTransaction.create({
             data: {
               walletId: wallet.id,
               type: 'CREDIT',
@@ -504,16 +498,47 @@ export class WalletTopUpService {
               status: 'COMPLETED',
               initiatedBy: `${provider}:${provider === 'stripe' ? 'payment_intent' : 'order'}`,
             },
-          }),
+          });
+
           // Relative write: an absolute `balance: balanceAfter` computed from a
           // read would silently overwrite any concurrent activity.
-          this.prisma.wallet.update({
+          await tx.wallet.update({
             where: { id: wallet.id },
             data: { balance: { increment: creditAmount }, lastTransactionAt: new Date() },
-          }),
-        ]);
+          });
+
+          // Money came from the payment provider into the user's wallet.
+          const amountMinor = toMinorUnits(creditAmount);
+          const { transferId } = await this.glPosting.post(tx, {
+            intent: GlIntent.TOP_UP,
+            platformId: 'mcom-central',
+            reference: providerRef,
+            description: `Wallet top-up via ${providerLabel}`,
+            initiatorType: 'system',
+            idempotencyKey: `wallet-txn:${created.id}`,
+            transactions: [
+              {
+                legs: [
+                  { account: gatewayAccountCode(provider), direction: 'debit', amountMinor },
+                  { account: walletAccountCode(wallet.id), direction: 'credit', amountMinor },
+                ],
+              },
+            ],
+            provenance: { walletTransactionId: created.id },
+            metadata: { category: 'TOP_UP', source: 'wallet-topup', topUpRequestId: request.id },
+          });
+
+          const entry = await tx.glEntry.findFirst({
+            where: { walletTransactionId: created.id },
+            select: { id: true },
+          });
+          await tx.walletTransaction.update({
+            where: { id: created.id },
+            data: { transferId, intent: GlIntent.TOP_UP, ledgerEntryId: entry?.id ?? null },
+          });
+        });
         await this.redis.del(`wallet:balance:${request.userId}`);
-        this.logger.log(`Wallet credited ${creditAmount.toNumber()} MCOM for top-up ${request.id}`);
+        this.logger.log(`Wallet credited £${creditAmount.toNumber()} for top-up ${request.id}`);
         return { success: true, balance: balanceAfter.toNumber() };
       } catch (err) {
         // Unique idempotency key collision → another confirmation or webhook already processed it

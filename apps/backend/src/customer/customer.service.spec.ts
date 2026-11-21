@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { CustomerService } from './customer.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 
 describe('CustomerService', () => {
   let service: CustomerService;
@@ -60,6 +61,7 @@ describe('CustomerService', () => {
       providers: [
         CustomerService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProfileSyncService, useValue: { emitProfileUpdated: jest.fn().mockResolvedValue(undefined) } },
         { provide: LocationAssignmentService, useValue: mockLocationAssignment },
       ],
     }).compile();

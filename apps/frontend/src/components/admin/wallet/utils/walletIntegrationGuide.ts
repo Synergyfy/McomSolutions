@@ -15,13 +15,14 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 
 | Capability | What it is | Use it when |
 |---|---|---|
-| **MCOM Wallet** | One central prepaid balance (MCOM credits) per user, spendable across every MCOM platform. | The user already has a balance and you want to move credits (debit/credit/hold). |
+| **MCOM Wallet** | One central prepaid balance (GBP) per user, spendable across every MCOM platform. | The user already has a balance and you want to move credits (debit/credit/hold). |
+| **Payee splits** | Part of MCOM Pay: state *who receives the money*. One call debits the buyer and credits the seller's wallet (or parks it on a payee payable). | A customer buys a product or books a service **from another user or business**. |
 | **MCOM Pay** | A generic payment gateway — you charge the customer an arbitrary amount and MCOM processes it via **Stripe**, **PayPal**, or the **MCOM Wallet**, then records it in an immutable ledger. | You sell something on your app and want MCOM to collect the money. |
 
 - Base URL: \`${baseUrl}\`
 - API prefixes: \`/api/v1/wallet/partner\` and \`/api/v1/app-payments\`
 - Shared auth: HMAC via \`X-Mcom-Client-ID\` + \`X-Mcom-Signature\` (same \`hmacSecret\` for both)
-- Wallet currency: **MCOM credits** (displayed 2 dp, stored 4 dp)
+- Wallet currency: **GBP** (displayed 2 dp, stored 4 dp)
 - MCOM Pay money: **minor units** (pence) stored as exact integers — never floats
 - Recurring: MCOM auto-renews **MCOM's own memberships/platform plans**. Partner apps remain responsible for their own renewal charges — see **Part C**.
 
@@ -32,6 +33,9 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 | Scenario | Use | Endpoint family |
 |---|---|---|
 | User has an MCOM wallet balance and you charge them from it | **MCOM Pay (method = \`wallet\`)** *or* Wallet \`/debit\` | \`/app-payments/charges\` or \`/wallet/partner/debit\` |
+| A customer buys from **another user/business** (marketplace, booking, service) | **MCOM Pay with \`splits\`** | \`/app-payments/charges\` (see **Part G**) |
+| You sell something yourself and keep the money | **MCOM Pay** (no splits) | \`/app-payments/charges\` |
+| You want your accumulated balance paid to your bank | **Payout** (approved by MCOM) | \`/app-payments/balance\` + admin payout |
 | Customer pays by card / PayPal for anything you sell | **MCOM Pay** | \`/app-payments/charges\` |
 | You reward, refund, or cashback credits into a user's wallet | **MCOM Wallet** | \`/wallet/partner/credit\` |
 | Reserve funds before confirming an order (pre-auth) | **MCOM Wallet** | \`/wallet/partner/hold/*\` |
@@ -39,7 +43,7 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 | Auto-renew an MCOM membership/platform plan | **MCOM handles it** | Not a partner API — see Part C |
 | You want an immutable, auditable money ledger in pence with MCOM fees/net | **MCOM Pay** | \`/app-payments/*\` |
 
-> Rule of thumb: **MCOM Wallet moves existing MCOM credits. MCOM Pay collects real money (or spends the wallet) and keeps the books.** MCOM's recurring engine renews **MCOM-owned plans**; it does **not** store mandates for partner subscriptions.
+> Rule of thumb: **MCOM Wallet moves existing GBP balances. MCOM Pay collects real money (or spends the wallet) and keeps the books.** MCOM's recurring engine renews **MCOM-owned plans**; it does **not** store mandates for partner subscriptions.
 
 ---
 
@@ -165,7 +169,7 @@ Success (201):
   "amount": 50,
   "balanceBefore": 150,
   "balanceAfter": 100,
-  "currency": "MCOM",
+  "currency": "GBP",
   "reference": "sub_inv_0042",
   "idempotencyKey": "mcom-mall-sub-inv_0042_aug2026",
   "processedAt": "2026-08-26T11:15:00.000Z"
@@ -186,7 +190,7 @@ X-Mcom-Signature: sha256=<sign empty string>
   "balance": 100,
   "availableBalance": 50,
   "status": "ACTIVE",
-  "currency": "MCOM"
+  "currency": "GBP"
 }
 \`\`\`
 
@@ -332,13 +336,26 @@ MCOM Pay turns any Console-registered app into a merchant. Your **backend** (nev
   - \`feeFixedMinor\` (e.g. \`20\` = £0.20)
 - \`feeMinor = round(amountMinor × feePercent) + feeFixedMinor\`, clamped to \`[0, amountMinor]\`.
 - \`netMinor = amountMinor − feeMinor\` — what MCOM records as owed to your app.
-- Every paid charge posts a **balanced double-entry** set (append-only, immutable):
+- Every paid charge posts **balanced, append-only** journal entries. MCOM's ledger uses named accounts
+  (your app payable, the platform wallet, gateway clearing, each user's wallet) rather than one global
+  revenue account:
   \`\`\`
-  debit  <clearing>      amountMinor   (money in: gateway or wallet)
-  credit app_payable     netMinor      (owed to your app)
-  credit mcom_revenue    feeMinor      (MCOM's fee, when > 0)
+  Card:    debit  gateway:<provider>   amountMinor    (money in)
+           credit platform:wallet      amountMinor
+
+  Then the money is allocated to whoever it belongs to:
+           debit  platform:wallet      netMinor
+           credit <payee account>      netMinor        (app payable, or the seller's wallet with splits)
+
+  Wallet:  the payer's wallet debit already funded the platform, so only the allocation posts.
   \`\`\`
-  A refund posts the exact reverse, so the ledger always sums to zero. Entries are never edited or deleted.
+  The fee is simply what stays in the platform wallet. A refund posts the exact reverse. Entries are
+  **never edited or deleted** — corrections are reversing transfers.
+
+- **Who pays the fee is a commercial decision.** By default the fee is taken from the gross, so a
+  payee receives \`netMinor\`. If your sellers must receive the full amount, set your app's
+  \`feePercent\`/\`feeFixedMinor\` to \`0\` in the Console (and be billed separately), or ask MCOM for a
+  fee-bearer option. See **G7**.
 
 ## B4. MCOM Pay Endpoints
 
@@ -351,6 +368,8 @@ All under \`${baseUrl}/api/v1/app-payments\`. HMAC + \`X-Mcom-Client-ID\` requir
 | POST | \`/charges/:id/refund\` | Refund a paid charge (full or partial) | — |
 | GET | \`/charges\` | List charges this app created | — |
 | GET | \`/charges/:id\` | Fetch a single charge | — |
+| GET | \`/charges/:id/splits\` | Payee splits and their settlement status | — |
+| GET | \`/balance\` | Your payable balance and pending payouts | — |
 
 ### B4.1 Create a charge
 
@@ -399,6 +418,19 @@ Response (201):
 **Method-specific notes:**
 - \`stripe\` → use \`clientSecret\` with Stripe.js. \`paypal\` → redirect the customer to \`approvalUrl\`.
 - \`wallet\` → no \`clientSecret\`/\`approvalUrl\`; the charge settles immediately (status \`paid\`) by debiting the payer's MCOM wallet. If the wallet has insufficient funds you get **422 \`INSUFFICIENT_BALANCE\`**.
+
+### B4.1a Who paid? (\`mcomUserId\`) — Central Hub Solution identity
+
+- \`mcomUserId\` is the **Central Hub Solution** user id (the one issued by SSO). It is the
+  only payer identity the ledger can name.
+- \`method: "wallet"\` — **required**: the wallet belongs to a CHS user.
+- Card / PayPal — **optional**. A buyer can pay on your platform without ever registering on
+  Central Hub. If you omit it, the ledger records a **guest buyer** and says so; it does not
+  invent an identity.
+- \`externalCustomerId\` is **your own** customer reference. It is stored for support, is never
+  treated as a CHS identity, and is never displayed as the payer.
+- If you have a CHS user id for the buyer (you get it from the SSO callback), always send it.
+  Without it, nobody — including support — can tie a card payment to a person.
 
 ### B4.2 Confirm a charge
 
@@ -695,6 +727,190 @@ export class McomPaymentsService {
 
 ---
 
+# Part G — Payee Splits: paying another user or business
+
+Use this whenever the money belongs to **someone else** — a seller on your marketplace, a business
+taking a booking, a professional delivering a service. Without splits MCOM only knows the *buyer*,
+so the money accrues to your app's payable instead of reaching the seller.
+
+## G1. What happens to the money
+
+\`\`\`
+Buyer wallet  −£90.00
+Seller wallet +£87.19     <- credited atomically
+Platform      +£2.81      <- the fee (see G7)
+\`\`\`
+
+For a card sale the buyer pays the gateway instead of their wallet, and everything else is identical:
+
+\`\`\`
+gateway:<provider>  →  platform:wallet (gross)  →  seller wallet (net)
+\`\`\`
+
+The buyer's wallet is never touched in the card case.
+
+## G2. Request — wallet
+
+\`\`\`http
+POST /api/v1/app-payments/charges
+X-Mcom-Client-ID: mcom-mall
+X-Mcom-Signature: sha256=<HMAC of the raw body>
+X-Idempotency-Key: order_12345
+Content-Type: application/json
+
+{
+  "amountMinor": "9000",
+  "method": "wallet",
+  "intent": "ORDER",
+  "reference": "order_12345",
+  "mcomUserId": "<buyer MCOM user id>",
+  "splits": [
+    { "payeeType": "mcom_user", "payeeUserId": "<seller MCOM user id>", "amountMinor": "9000" }
+  ]
+}
+\`\`\`
+
+## G3. Request — card (same body, different method)
+
+\`\`\`json
+{
+  "amountMinor": "9000",
+  "method": "stripe",
+  "intent": "ORDER",
+  "reference": "order_12345",
+  "mcomUserId": "<buyer MCOM user id>",
+  "splits": [
+    { "payeeType": "mcom_user", "payeeUserId": "<seller MCOM user id>", "amountMinor": "9000" }
+  ]
+}
+\`\`\`
+
+The response contains \`clientSecret\` (Stripe) or \`approvalUrl\` (PayPal). The seller is credited once
+the payment settles — for card charges that happens on the provider webhook, not when you create the
+charge.
+
+## G4. Rules you must satisfy
+
+| Rule | Why |
+|---|---|
+| \`sum(splits[].amountMinor) === amountMinor\` | A split that does not reconcile is rejected with **422** before any payment is taken |
+| \`payeeType: "mcom_user"\` requires \`payeeUserId\` | The payee must be an existing MCOM user; you get the id from SSO |
+| \`payeeType: "external"\` requires \`payeeExternalId\` | For sellers without an MCOM account. The money parks on a payee payable until paid out |
+| One split per payee | 50 splits maximum per charge |
+| \`intent\` should be \`ORDER\` (product) or \`BOOKING\` (service) | Drives the analytics breakdown and the label in the payer's wallet history |
+
+The fee is apportioned across splits **proportionally, with largest-remainder rounding**, so the parts
+always sum to exactly \`feeMinor\` — no penny is created or lost.
+
+## G5. Did the seller actually get paid?
+
+\`\`\`http
+GET /api/v1/app-payments/charges/:id/splits
+\`\`\`
+
+\`\`\`json
+{
+  "success": true,
+  "data": {
+    "chargeId": "ch_...",
+    "settlementState": "SETTLED",
+    "splits": [
+      {
+        "id": "sp_...",
+        "payeeType": "mcom_user",
+        "payeeUserId": "user_seller",
+        "amountMinor": "9000",
+        "feeMinor": "281",
+        "netMinor": "8719",
+        "status": "credited",
+        "walletTransactionId": "wt_...",
+        "failureReason": null
+      }
+    ]
+  }
+}
+\`\`\`
+
+- \`status: pending\` — not yet credited (card charge awaiting settlement, or a retry is queued).
+- \`status: credited\` — the payee has the money.
+- \`status: failed\` — read \`failureReason\` (for example a frozen payee wallet). The rest of the splits
+  are unaffected; MCOM retries failed splits every 10 minutes, up to 10 attempts.
+
+**One payee failing never blocks another payee's money**, and never fails the payment itself — the
+buyer's money was already taken.
+
+## G6. Your balance and payouts
+
+\`\`\`http
+GET /api/v1/app-payments/balance
+\`\`\`
+
+\`\`\`json
+{ "success": true, "data": {
+    "currency": "GBP",
+    "payableMinor": "1374547",
+    "pendingPayoutMinor": "0",
+    "availableMinor": "1374547",
+    "paidOutMinor": "0"
+} }
+\`\`\`
+
+- Money with **no split** accrues to your **app payable** (this is also what older integrations that
+  only called \`/wallet/partner/debit\` produce).
+- Money for an **external payee** accrues to that payee's own payable account.
+- Payouts are **admin-approved on the MCOM side** — a partner cannot approve its own payout. Ask MCOM
+  to pay out your available balance; the ledger debits your payable and credits the bank.
+
+## G7. Who pays the fee (decide this before launch)
+
+| Choice | Effect | How |
+|---|---|---|
+| **Payee pays** (default) | Seller receives \`netMinor\` (e.g. £87.19 of £90) | No action |
+| **You pay** | Seller receives the full amount; MCOM bills you separately | Set your app's \`feePercent = 0\`, \`feeFixedMinor = 0\` in the Console |
+| **Custom** | Negotiated rate | Ask MCOM to set your app's fee config |
+
+The fee never comes from the buyer: \`amountMinor\` is always what the buyer pays.
+
+## G8. Errors specific to splits
+
+| Status | Meaning |
+|---|---|
+| 400 | Malformed split (missing payee id, non-integer amount, more than 50 splits) |
+| 422 | \`splits\` do not sum to \`amountMinor\`, unknown payee, or the payer's wallet cannot cover the charge |
+| 409 | \`X-Idempotency-Key\` reused with a different payload (amount, method, reference, intent or splits) |
+
+## G9. Migrating from \`/wallet/partner/debit\`
+
+| Before | After |
+|---|---|
+| \`POST /wallet/partner/debit\` → buyer charged, **seller never paid**, your app payable grows | \`POST /app-payments/charges\` with \`splits\` → buyer charged **and** seller credited in one call |
+| You must call \`/wallet/partner/credit\` afterwards to pay the seller (two calls, not atomic, no fee recorded) | One call, atomic, fee handled |
+
+If you keep the old two-call flow it still works — but the seller is only paid if you remember the
+second call, and MCOM records no platform fee. Historical money already sitting on your app payable
+does **not** move on its own: request a payout.
+
+---
+
+# Part H — What MCOM records (the central ledger)
+
+You do not need to implement any of this — it is here so the numbers you see in the Console make sense.
+
+- **One transfer per business event.** A transfer contains one or more balanced steps. Every step has
+  \`sum(debits) === sum(credits)\`; a database constraint rejects anything else at commit.
+- **Named accounts**, not one global pot: each user's wallet, the platform's own wallet, per-app and
+  per-payee payables, gateway clearing, bank. That is why "what do we owe this app?" is a real number.
+- **Intent** labels each transfer (\`ORDER\`, \`BOOKING\`, \`DELEGATION\`, \`PURCHASE\`, \`SUBSCRIPTION\`,
+  \`REFERRAL_COMMISSION\`, \`TOP_UP\`, \`REFUND\`, \`PAYOUT\`, \`TRANSFER\`, \`ADJUSTMENT\`, \`FEE\`). Analytics and
+  the payer's wallet history are built from it.
+- **Immutable.** Entries are never updated or deleted. A correction is a reversing transfer.
+- **Reconciled continuously.** Assets must equal liabilities + equity, and each wallet's balance must
+  equal the sum of its entries. A nightly job and an admin screen report any drift.
+- **Your users see their own ledger** in their wallet: amount, running balance, intent and the other
+  party's name. You never see another user's history through the partner API.
+
+---
+
 # Part F — Go-Live Checklist
 
 **Shared**
@@ -725,7 +941,16 @@ export class McomPaymentsService {
 - [ ] \`wallet\` path displays user balance and gracefully handles 422 \`INSUFFICIENT_BALANCE\` with top-up link
 - [ ] \`confirm\` called after payment, and the \`payment.succeeded\` webhook verified (signature + idempotent)
 - [ ] Refunds go through \`/refund\` (never a manual ledger edit)
-- [ ] Fee config reviewed in the Console (default 2.9% + 20p) if you need a custom split
+- [ ] Fee config reviewed in the Console (default 2.9% + 20p) — see **G7** for who bears it
+
+**Payee splits (marketplace / bookings / services)**
+- [ ] \`splits\` sum exactly to \`amountMinor\`, calculated **server-side** (never the browser)
+- [ ] Every seller resolves to an MCOM user id, or uses \`payeeType: "external"\` with your own id
+- [ ] \`intent\` set to \`ORDER\` (product) or \`BOOKING\` (service) so analytics and the payer's history are meaningful
+- [ ] Fee bearer decided: default payee-pays, or set \`feePercent = 0\` for the seller to receive 100%
+- [ ] Card orders poll \`GET /charges/:id/splits\` until \`settlementState\` is \`SETTLED\`
+- [ ] Any historical balance sitting on your app payable has been requested as a payout
+- [ ] Failure handling: a \`failed\` split does not roll back the payment; surface it to operations
 
 **Both**
 - [ ] Transient errors (409/429/5xx) retried with backoff, same idempotency key

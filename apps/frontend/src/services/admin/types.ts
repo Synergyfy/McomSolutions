@@ -876,6 +876,30 @@ export interface CreateCampaignInput {
 // ─── Mcom Console (dynamic app registry) ───────────────────────────────
 export const CONSOLE_ALLOWED_SCOPES = ['profile', 'email', 'business', 'membership', 'packages'] as const
 
+/**
+ * Roles whose profiles can be synchronized to downstream apps.
+ * ADMIN is excluded — admins are central operators, not profile owners.
+ */
+export const CONSOLE_PROFILE_ROLES = [
+  'BUSINESS',
+  'CUSTOMER',
+  'AGENT',
+  'CONSULTANT',
+  'ACCOUNT_MANAGER',
+  'PARTNER',
+] as const
+
+export type ConsoleProfileRole = (typeof CONSOLE_PROFILE_ROLES)[number]
+
+export const CONSOLE_PROFILE_ROLE_LABELS: Record<ConsoleProfileRole, string> = {
+  BUSINESS: 'Businesses',
+  CUSTOMER: 'Customers',
+  AGENT: 'Agents',
+  CONSULTANT: 'Consultants',
+  ACCOUNT_MANAGER: 'Account Managers',
+  PARTNER: 'Partners',
+}
+
 export interface SsoClientListItem {
   id: string
   clientId: string
@@ -891,6 +915,7 @@ export interface SsoClientListItem {
   isSystemApp: boolean
   allowWhitelabel?: boolean
   serviceScopes: string[]
+  supportedRoles?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -919,6 +944,8 @@ export interface SsoClientDetail extends SsoClientListItem {
   serviceScopes: string[]
   allowedAudiences: string[]
   allowedCallers: string[]
+  supportedRoles?: string[]
+  profileSyncEndpoint?: string | null
 }
 
 export interface RegisterAppInput {
@@ -942,6 +969,8 @@ export interface RegisterAppInput {
   allowedAudiences?: string[]
   allowedCallers?: string[]
   allowWhitelabel?: boolean
+  supportedRoles?: string[]
+  profileSyncEndpoint?: string
 }
 
 export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>

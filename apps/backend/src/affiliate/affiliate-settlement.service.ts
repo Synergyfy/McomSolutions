@@ -338,11 +338,11 @@ export class AffiliateSettlementService {
         type: 'PAYMENT_SETTLED',
         actorRole: 'SYSTEM',
         message: payout.greaterThan(0)
-          ? `Affiliate paid ${payout.toFixed(4)} MCOM; platform kept ${this.decimalOf(
+          ? `Affiliate paid £${payout.toFixed(2)}; platform kept £${this.decimalOf(
               settled.platformFeeCredits,
             )
               .plus(this.decimalOf(settled.platformMarginCredits))
-              .toFixed(4)} MCOM`
+              .toFixed(2)}`
           : 'Task settled with no affiliate payout',
         metadata: {
           settlementId: settled.id,
@@ -504,7 +504,7 @@ export class AffiliateSettlementService {
         releasedCount: released._count,
         failedCount: failed._count,
         notRequiredCount: notRequired._count,
-        currency: 'MCOM',
+        currency: 'GBP',
       },
     };
   }
@@ -667,7 +667,9 @@ export class AffiliateSettlementService {
     const compensationPence = this.normalisePence(task.compensationPence);
     const compensationAmount =
       compensationPence != null ? new Decimal(compensationPence).dividedBy(100) : null;
-    const fxRate = new Decimal(await this.wallet.getGbpToMcomRate());
+    // Wallet balances are GBP. `*Credits` columns are retained as the wallet
+    // amount; at a 1:1 rate they equal the GBP amount exactly.
+    const fxRate = new Decimal(1);
     const compensationCredits = compensationAmount
       ? compensationAmount.times(fxRate).toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
       : new Decimal(0);
@@ -706,8 +708,8 @@ export class AffiliateSettlementService {
 
     if (billable && compensationCredits.greaterThan(businessChargeCredits)) {
       throw new BadRequestException(
-        `Affiliate pay (${compensationCredits.toFixed(2)} MCOM) cannot exceed the business charge ` +
-          `(${businessChargeCredits.toFixed(2)} MCOM). Increase the charge or reduce the affiliate pay.`,
+        `Affiliate pay (£${compensationCredits.toFixed(2)}) cannot exceed the business charge ` +
+          `(£${businessChargeCredits.toFixed(2)}). Increase the charge or reduce the affiliate pay.`,
       );
     }
 
@@ -776,7 +778,7 @@ export class AffiliateSettlementService {
       affiliateEmail: task.assignee?.email ?? null,
       currency: task.compensationCurrency || task.businessChargeCurrency || 'GBP',
       fxBase: 'GBP',
-      fxQuote: 'MCOM',
+      fxQuote: 'GBP',
       fxRate: quote.fxRate,
       businessChargePence: quote.businessChargePence,
       businessChargeCredits: quote.businessChargeCredits,
@@ -927,8 +929,8 @@ export class AffiliateSettlementService {
     const available = error?.response?.availableBalance ?? error?.availableBalance;
     if (error?.response?.error === 'INSUFFICIENT_BALANCE' || error?.message?.includes('insufficient')) {
       return (
-        `${businessName} does not have enough MCOM credits for this task escrow` +
-        (available != null ? ` (available: ${available} MCOM).` : '.') +
+        `${businessName} does not have enough wallet balance for this task escrow` +
+        (available != null ? ` (available: £${available}).` : '.') +
         ' Ask the business to top up, then assign again.'
       );
     }

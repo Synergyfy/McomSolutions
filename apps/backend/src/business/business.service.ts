@@ -9,6 +9,7 @@ import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import { ResolvedPostcode } from '../geography/postcode.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import { generateUniqueReferralCode } from '../common/referral/referral.util';
 import { MembershipLevel, MembershipTier, Role, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -182,6 +183,7 @@ export class BusinessService {
     private googleOAuth: GoogleOAuthService,
     private locationAssignment: LocationAssignmentService,
     private businessAcquisition: BusinessAcquisitionService,
+    private profileSync: ProfileSyncService,
     @Optional() @InjectQueue(TASK_EVENT_QUEUE) private taskEventQueue?: Queue<TaskEventJobData>,
   ) { }
 
@@ -1160,7 +1162,7 @@ export class BusinessService {
           },
         },
         wallet: {
-          create: { balance: 0, currency: 'MCOM', status: 'ACTIVE' },
+          create: { balance: 0, currency: 'GBP', status: 'ACTIVE' },
         },
       },
       include: { businessProfile: true },
@@ -1354,6 +1356,15 @@ export class BusinessService {
     // A profile edit can be the step that completes onboarding for a business
     // an affiliate introduced. Promotion is idempotent.
     void this.promoteAcquisitionOnboarding(businessId);
+
+    // Fan out to apps that (a) support the BUSINESS role and (b) registered a
+    // profile-sync endpoint. Fire-and-forget: the profile is already saved.
+    void this.profileSync.emitProfileUpdated({
+      userId: updated.userId,
+      role: Role.BUSINESS,
+      profileId: updated.id,
+      changedFields: Object.keys(updates ?? {}),
+    });
 
     return updated;
   }

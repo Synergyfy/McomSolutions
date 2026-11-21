@@ -26,7 +26,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { CONSOLE_ALLOWED_SCOPES } from '../../../services/admin/types';
+import {
+  CONSOLE_ALLOWED_SCOPES,
+  CONSOLE_PROFILE_ROLES,
+  CONSOLE_PROFILE_ROLE_LABELS,
+} from '../../../services/admin/types';
 import { useRegisterApp, useConsoleApps } from './hooks/useConsoleApps';
 import AppPeerSelect from './AppPeerSelect';
 import TagInput from './TagInput';
@@ -121,6 +125,10 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   const [serviceScopes, setServiceScopes] = useState<string[]>([]);
   const [allowedAudiences, setAllowedAudiences] = useState<string[]>([]);
   const [allowedCallers, setAllowedCallers] = useState<string[]>([]);
+  // Profile synchronization: every role is allowed by default, and no
+  // profile-update endpoint is configured until the app owner supplies one.
+  const [supportedRoles, setSupportedRoles] = useState<string[]>([...CONSOLE_PROFILE_ROLES]);
+  const [profileSyncEndpoint, setProfileSyncEndpoint] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Auto-slugify helpers
@@ -138,6 +146,12 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
     setScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
   };
 
+  const toggleRole = (role: string) => {
+    setSupportedRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+    );
+  };
+
   const updateRedirectUri = (index: number, value: string) =>
     setRedirectUris((prev) => prev.map((item, i) => (i === index ? value : item)));
 
@@ -153,6 +167,9 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
       }
       if (platformSlug && !/^[a-z0-9_]+$/.test(platformSlug)) {
         return 'Platform slug must be lowercase letters, numbers, and underscores only.';
+      }
+      if (supportedRoles.length === 0) {
+        return 'Select at least one role that may use this application.';
       }
     }
     if (currentStep === 2) {
@@ -177,6 +194,9 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
       if (feeFixedMinor.trim()) {
         const fixed = Number(feeFixedMinor);
         if (!Number.isInteger(fixed) || fixed < 0) return 'MCOM Pay fixed fee must be a non-negative whole number of pence.';
+      }
+      if (profileSyncEndpoint.trim() && !isValidUrl(profileSyncEndpoint.trim())) {
+        return 'The profile-update endpoint must be a valid URL.';
       }
     }
     return null;
@@ -225,6 +245,8 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         allowedAudiences,
         allowedCallers,
         allowWhitelabel,
+        supportedRoles,
+        profileSyncEndpoint: profileSyncEndpoint.trim() || undefined,
       });
       onRegistered(result);
     } catch (err: any) {
@@ -404,6 +426,45 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                 </div>
               </div>
 
+              {/* Role eligibility — drives profile.updated fan-out */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <label className={labelCls}>Who uses this app? *</label>
+                    <p className="text-[11px] text-gray-500">
+                      Pick the roles this app serves. Only their profile changes are sent to it.
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-brand-blue border border-blue-100">
+                    {supportedRoles.length}/{CONSOLE_PROFILE_ROLES.length} roles
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {CONSOLE_PROFILE_ROLES.map((role) => {
+                    const selected = supportedRoles.includes(role);
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => toggleRole(role)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all',
+                          selected
+                            ? 'bg-brand-blue text-white border-brand-blue shadow-xs'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300',
+                        )}
+                      >
+                        {CONSOLE_PROFILE_ROLE_LABELS[role]}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2">
+                  Default: every role is allowed. A <b>BUSINESS</b> profile change is never sent to an
+                  app that only serves agents, consultants or account managers.
+                </p>
+              </div>
+
               {/* Live Preview Card */}
               {name && (
                 <div className="p-4 bg-gray-50/80 rounded-2xl border border-gray-200/80 space-y-2">
@@ -575,6 +636,32 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
               </div>
 
               <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelCls}>Profile Update Endpoint (Optional)</label>
+                  <span className="text-[10px] font-bold text-gray-400">
+                    {profileSyncEndpoint.trim() ? 'configured' : 'not configured'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  One endpoint receives a signed <code>profile.updated</code> event for every role this
+                  app supports. The payload contains only the central <code>userId</code>; your backend
+                  fetches the full profile through the B2B service mesh. Leave blank to disable
+                  synchronization — this is the default.
+                </p>
+                <input
+                  value={profileSyncEndpoint}
+                  onChange={(e) => setProfileSyncEndpoint(e.target.value)}
+                  placeholder={`https://api.${clientId || 'your-app'}.com/webhooks/profile-updated`}
+                  className={cn(inputCls, 'font-mono')}
+                />
+                <p className="text-[10px] text-gray-400 mt-2">
+                  Central automatically adds <code>central:read</code> to Service Scopes,{' '}
+                  <code>mcom-central</code> to Allowed Audiences, and grants this app access to the B2B
+                  profile endpoint.
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
                 <label className={labelCls}>MCOM Pay Fee (Optional)</label>
                 <p className="text-[11px] text-gray-500 mb-3">
                   Commission MCOM takes per charge processed through this app. Leave blank to use the platform default.
@@ -704,6 +791,29 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                   <div>
                     <span className="text-[10px] text-gray-400 block">Scopes</span>
                     <span className="font-bold text-gray-900">{scopes.length} selected</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-200/60 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mr-1">
+                    Roles
+                  </span>
+                  {supportedRoles.map((role) => (
+                    <span
+                      key={role}
+                      className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-brand-blue border border-blue-100"
+                    >
+                      {CONSOLE_PROFILE_ROLE_LABELS[role as keyof typeof CONSOLE_PROFILE_ROLE_LABELS] ?? role}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="pt-2 border-t border-gray-200/60 text-xs space-y-1">
+                  <div className="flex items-center justify-between text-gray-500 text-[11px]">
+                    <span>Profile sync endpoint:</span>
+                    <span className="font-mono text-gray-800">
+                      {profileSyncEndpoint.trim() ? 'Configured' : 'Not configured'}
+                    </span>
                   </div>
                 </div>
 

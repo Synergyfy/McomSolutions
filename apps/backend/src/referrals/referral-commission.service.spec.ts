@@ -56,7 +56,6 @@ describe('ReferralCommissionService', () => {
   };
 
   const wallet = {
-    getGbpToMcomRate: jest.fn(),
     creditWallet: jest.fn(),
   };
 
@@ -91,7 +90,6 @@ describe('ReferralCommissionService', () => {
       rewardType: ReferralRewardType.PERCENTAGE,
       value: 10,
     });
-    wallet.getGbpToMcomRate.mockResolvedValue(2);
     wallet.creditWallet.mockResolvedValue({ transactionId: 'wallet-txn-1' });
   });
 
@@ -139,9 +137,11 @@ describe('ReferralCommissionService', () => {
       expect.anything(),
       expect.objectContaining({
         userId: 'referrer-1',
-        amount: 20,
+        amount: 10,
       }),
       'referral-payout:commission-1',
+      undefined,
+      expect.objectContaining({ intent: 'REFERRAL_COMMISSION' }),
     );
     expect(prisma.referralCommission.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -207,5 +207,96 @@ describe('ReferralCommissionService', () => {
 
     expect(result).toBeNull();
     expect(prisma.referralCommission.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReferralCommissionService — retry queue', () => {
+  const pendingRow = (overrides: Record<string, any> = {}) => ({
+    id: 'commission-9',
+    referrerUserId: 'referrer-1',
+    referredUserId: 'biz-user-1',
+    referredEmail: 'buyer@example.com',
+    referredName: 'Buyer Business',
+    sourceType: 'MEMBERSHIP',
+    sourceId: 'billing-9',
+    sourceName: 'Gold',
+    commissionAmountGbp: 5,
+    commissionCredits: 5,
+    configVersion: 3,
+    status: ReferralCommissionStatus.PENDING,
+    failureReason: 'insufficient platform funds',
+    updatedAt: new Date('2026-11-20T09:00:00Z'),
+    ...overrides,
+  });
+
+  function harness(rows: any[]) {
+    const prisma: any = {
+      referralCommission: {
+        findMany: jest.fn().mockResolvedValue(rows),
+        update: jest.fn(async ({ data }: any) => ({ ...rows[0], ...data })),
+      },
+    };
+    const wallet = { creditWallet: jest.fn().mockResolvedValue({ transactionId: 'wt_9' }) };
+    const service = new ReferralCommissionService(prisma as any, {} as any, wallet as any);
+    return { service, prisma, wallet };
+  }
+
+  it('pays a waiting commission once the platform is funded', async () => {
+    const { service, wallet, prisma } = harness([pendingRow()]);
+
+    const result = await service.retryPendingPayouts();
+
+    expect(result).toEqual({ attempted: 1, credited: 1, stillPending: 0 });
+    expect(wallet.creditWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: 'referrer-1', amount: 5 }),
+      'referral-payout:commission-9',
+      undefined,
+      expect.objectContaining({ intent: 'REFERRAL_COMMISSION' }),
+    );
+    expect(prisma.referralCommission.update).toHaveBeenCalledWith({
+      where: { id: 'commission-9' },
+      data: expect.objectContaining({
+        status: ReferralCommissionStatus.CREDITED,
+        walletTransactionId: 'wt_9',
+        failureReason: null,
+      }),
+    });
+  });
+
+  it('keeps it pending (never mints) while the platform wallet is short', async () => {
+    const { service, wallet, prisma } = harness([pendingRow()]);
+    wallet.creditWallet.mockRejectedValue({ response: { error: 'INSUFFICIENT_PLATFORM_BALANCE' } });
+
+    const result = await service.retryPendingPayouts();
+
+    expect(result).toEqual({ attempted: 1, credited: 0, stillPending: 1 });
+    expect(prisma.referralCommission.update).toHaveBeenCalledWith({
+      where: { id: 'commission-9' },
+      data: { failureReason: expect.any(String) },
+    });
+  });
+
+  it('marks a genuinely broken commission FAILED', async () => {
+    const { service, wallet, prisma } = harness([pendingRow()]);
+    wallet.creditWallet.mockRejectedValue(new Error('wallet closed'));
+
+    const result = await service.retryPendingPayouts();
+
+    expect(result).toEqual({ attempted: 1, credited: 0, stillPending: 0 });
+    expect(prisma.referralCommission.update).toHaveBeenCalledWith({
+      where: { id: 'commission-9' },
+      data: { status: ReferralCommissionStatus.FAILED, failureReason: 'wallet closed' },
+    });
+  });
+
+  it('only looks at pending rows that previously failed and are old enough', async () => {
+    const { service, prisma } = harness([]);
+    await service.retryPendingPayouts();
+
+    const where = prisma.referralCommission.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe(ReferralCommissionStatus.PENDING);
+    expect(where.failureReason).toEqual({ not: null });
+    expect(where.updatedAt.lte).toBeInstanceOf(Date);
   });
 });

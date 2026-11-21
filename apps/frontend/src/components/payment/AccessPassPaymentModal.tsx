@@ -505,7 +505,7 @@ export default function AccessPassPaymentModal({
                 </div>
                 {provider === 'wallet' && (
                   <p className="mt-2 text-[11px] text-gray-500">
-                    Wallet balance: {wallet?.currency || 'MCOM'} {Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}
+                    Wallet balance: £{Number(wallet?.availableBalance ?? wallet?.balance ?? 0).toFixed(2)}
                   </p>
                 )}
                   </>

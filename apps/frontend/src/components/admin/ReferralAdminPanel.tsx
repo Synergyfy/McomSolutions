@@ -351,7 +351,7 @@ export default function ReferralAdminPanel() {
                 <div className="border-b border-gray-100 p-4">
                   <h3 className="font-bold text-gray-900">People referred</h3>
                   <p className="text-xs text-gray-500">
-                    Earnings are commission credits credited to this referrer's MCOM wallet.
+                    Earnings are commission paid into this referrer's MCOM wallet.
                   </p>
                 </div>
                 <div className="overflow-x-auto">

@@ -6,6 +6,7 @@ import { GoogleOAuthService } from '../auth/google-oauth.service';
 import { ConfigService } from '@nestjs/config';
 import { NotFoundException, ForbiddenException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 
 // Force external lookups (Nominatim, postcodes.io) to fail so the service
@@ -97,6 +98,7 @@ describe('BusinessService', () => {
       providers: [
         BusinessService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProfileSyncService, useValue: { emitProfileUpdated: jest.fn().mockResolvedValue(undefined) } },
         { provide: AuthService, useValue: mockAuthService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: GoogleOAuthService, useValue: mockGoogleOAuth },
