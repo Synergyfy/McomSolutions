@@ -2251,7 +2251,7 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Membership Created', 'Membership', dto.name, `Created ${dto.name} membership`, adminName);
       return result;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return { success: true, data: plan };
   }
@@ -2316,7 +2316,7 @@ export class AdminService implements OnModuleInit {
 
       await this.logAuditTx(tx, 'Membership Updated', 'Membership', id, `Updated membership plan settings`, adminName);
       return result;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return { success: true, data: plan };
   }
@@ -2502,7 +2502,7 @@ export class AdminService implements OnModuleInit {
         adminName,
       );
       return created;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return { success: true, data: plan };
   }
@@ -2564,7 +2564,7 @@ export class AdminService implements OnModuleInit {
         adminName,
       );
       return updated;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return { success: true, data: plan };
   }
