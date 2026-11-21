@@ -6,9 +6,14 @@ function buildHarness() {
       findMany: jest.fn().mockResolvedValue([]),
       groupBy: jest.fn().mockResolvedValue([]),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      count: jest.fn().mockResolvedValue(1),
     },
     glAccount: {
       findUnique: jest.fn().mockResolvedValue({ id: 'platform-account' }),
+    },
+    glTransfer: {
+      count: jest.fn().mockResolvedValue(0),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     $queryRaw: jest.fn().mockResolvedValue([]),
     $executeRaw: jest.fn().mockResolvedValue(1),
@@ -143,5 +148,37 @@ describe('LedgerAnalyticsService', () => {
     expect(result.data[0]).toMatchObject({ intent: 'ORDER', volumeMinor: '7500', share: 75 });
     expect(result.data[1]).toMatchObject({ intent: 'PURCHASE', share: 25 });
     expect(result.meta.totalVolumeMinor).toBe('10000');
+  });
+
+  it('rebuilds a range that has transfers but no rollups, before reading', async () => {
+    const { service, prisma } = buildHarness();
+    prisma.glDailyRollup.count.mockResolvedValue(0);
+    prisma.glTransfer.count.mockResolvedValue(4);
+    const rebuild = jest.spyOn(service as any, 'rebuildRange').mockResolvedValue({ days: 2, rows: 3 });
+
+    await service.trend({ from: '2026-11-20', to: '2026-11-21', groupBy: 'day' });
+
+    expect(rebuild).toHaveBeenCalled();
+  });
+
+  it('does not rebuild when rollups already exist', async () => {
+    const { service, prisma } = buildHarness();
+    prisma.glDailyRollup.count.mockResolvedValue(5);
+    const rebuild = jest.spyOn(service as any, 'rebuildRange').mockResolvedValue({ days: 2, rows: 3 });
+
+    await service.byPlatform('2026-11-20', '2026-11-21');
+
+    expect(rebuild).not.toHaveBeenCalled();
+  });
+
+  it('does not rebuild an empty range', async () => {
+    const { service, prisma } = buildHarness();
+    prisma.glDailyRollup.count.mockResolvedValue(0);
+    prisma.glTransfer.count.mockResolvedValue(0);
+    const rebuild = jest.spyOn(service as any, 'rebuildRange').mockResolvedValue({ days: 2, rows: 0 });
+
+    await service.byIntent('2026-11-20', '2026-11-21');
+
+    expect(rebuild).not.toHaveBeenCalled();
   });
 });

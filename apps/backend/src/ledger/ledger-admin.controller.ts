@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -139,6 +139,13 @@ export class LedgerAdminController {
   })
   async analyticsTrend(@Query() filters: AnalyticsQueryDto) {
     return this.analytics.trend(filters);
+  }
+
+  @Post('analytics/rebuild')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Rebuild the rollups behind the analytics charts' })
+  async rebuildAnalytics(@Query('days') days?: string) {
+    return this.analytics.rebuildRecent(days ? Number(days) : 90);
   }
 
   @Get('analytics/by-platform')

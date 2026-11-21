@@ -38,6 +38,7 @@ interface BucketRow {
 @Injectable()
 export class LedgerAnalyticsService {
   private readonly logger = new Logger(LedgerAnalyticsService.name);
+  private lastEnsureAt = 0;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -119,11 +120,60 @@ export class LedgerAnalyticsService {
     return { days: daysBetween(from, to), rows: rows.length };
   }
 
+  /**
+   * Analytics reads the rollups, not the journal. If a range has never been
+   * rolled up — a fresh deploy, or history backfilled after the last cron — the
+   * chart would silently show nothing. Rebuild that range once, on demand.
+   */
+  private async ensureRange(from: Date, to: Date): Promise<void> {
+    const fromDay = isoDay(from);
+    const toDay = isoDay(new Date(to.getTime() - 1));
+
+    const existing = await this.prisma.glDailyRollup.count({
+      where: { date: { gte: fromDay, lte: toDay } },
+    });
+    if (existing > 0) return;
+
+    // Cheap stampede guard: never more than one rebuild a minute per instance.
+    if (Date.now() - this.lastEnsureAt < 60_000) return;
+    this.lastEnsureAt = Date.now();
+
+    const transfers = await this.prisma.glTransfer.count({
+      where: { createdAt: { gte: from, lt: to } },
+    });
+    if (transfers === 0) return;
+
+    this.logger.log(`No rollups for ${fromDay}..${toDay}; rebuilding from ${transfers} transfer(s).`);
+    await this.rebuildRange(from, to);
+  }
+
+  /** Rebuild every day that has transfers (backfill / first deploy). */
+  async rebuildAll(): Promise<{ days: number; rows: number }> {
+    const first = await this.prisma.glTransfer.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const to = new Date(startOfUtcDay(new Date()).getTime() + 86400000);
+    const from = first
+      ? startOfUtcDay(first.createdAt)
+      : new Date(to.getTime() - 30 * 86400000);
+    return this.rebuildRange(from, to);
+  }
+
+  /** Rebuild the last `days` of rollups on demand (admin / post-backfill). */
+  async rebuildRecent(days = 90): Promise<{ days: number; rows: number }> {
+    const span = Math.min(3650, Math.max(1, Math.floor(days)));
+    const to = new Date(startOfUtcDay(new Date()).getTime() + 86400000);
+    const from = new Date(to.getTime() - span * 86400000);
+    return this.rebuildRange(from, to);
+  }
+
   // ─── Reads ────────────────────────────────────────────────────────────────
 
   async trend(query: TrendQuery) {
     const { from, to } = range(query.from, query.to);
     const groupBy = query.groupBy ?? 'day';
+    await this.ensureRange(from, to);
 
     const rollups = await this.prisma.glDailyRollup.findMany({
       where: {
@@ -177,6 +227,7 @@ export class LedgerAnalyticsService {
 
   async byPlatform(fromRaw?: string, toRaw?: string) {
     const { from, to } = range(fromRaw, toRaw);
+    await this.ensureRange(from, to);
 
     const rollups = await this.prisma.glDailyRollup.groupBy({
       by: ['platformId'],
@@ -221,6 +272,7 @@ export class LedgerAnalyticsService {
 
   async byIntent(fromRaw?: string, toRaw?: string) {
     const { from, to } = range(fromRaw, toRaw);
+    await this.ensureRange(from, to);
 
     const rows = await this.prisma.glDailyRollup.groupBy({
       by: ['intent'],
