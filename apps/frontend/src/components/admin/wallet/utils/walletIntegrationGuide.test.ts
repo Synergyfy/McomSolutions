@@ -37,4 +37,32 @@ describe('generateWalletIntegrationGuide', () => {
     expect(guide).toContain('/wallet/partner/debit');
     expect(guide).toContain('does **not** move on its own');
   });
+
+  it('documents payer attribution: CHS ids, intent-first and confirm-time matching', () => {
+    const guide = generateWalletIntegrationGuide();
+
+    expect(guide).toContain('every user id you send is a Central Hub Solution (CHS) user id');
+    expect(guide).toContain('### B4.1a Who is paying?');
+    expect(guide).toContain('Required for every method** (card, PayPal and wallet)');
+    expect(guide).toContain('### B4.1b Intent first, then payment');
+    expect(guide).toContain('`payeeUserId` is the **payee\'s CHS user id**');
+    expect(guide).toContain('If any detail differs, confirmation fails with **403**');
+    expect(guide).toContain('the same CHS user id the charge was created for');
+    expect(guide).toContain('payer mismatch');
+    expect(guide).toContain('mcomUserId: string; paymentIntentId?: string; orderId?: string');
+  });
+
+  it('opens with an unmistakable identity rule, worked example and common mistakes', () => {
+    const guide = generateWalletIntegrationGuide();
+
+    expect(guide).toContain('# ⚠️ READ THIS FIRST — the identity rule');
+    expect(guide).toContain('Every user id you send to MCOM must be a Central Hub Solution (CHS) user id');
+    expect(guide).toContain('## Where do I get the CHS id?');
+    expect(guide).toContain('✅ **This works.**');
+    expect(guide).toContain('❌ **Every one of these fails with 400 and no money moves:**');
+    expect(guide).toContain('## The only correct order (MCOM Pay)');
+    expect(guide).toContain('## Common mistakes (all of these fail)');
+    expect(guide).toContain('already used for a different payer');
+    expect(guide).toContain('If you remember only one sentence');
+  });
 });

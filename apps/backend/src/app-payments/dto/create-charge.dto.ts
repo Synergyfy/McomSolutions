@@ -27,7 +27,11 @@ export class ChargeSplitDto {
   @IsIn(['mcom_user', 'external'])
   payeeType: 'mcom_user' | 'external';
 
-  @ApiPropertyOptional({ example: 'user_seller123', description: 'Required when payeeType is mcom_user' })
+  @ApiPropertyOptional({
+    example: 'user_seller123',
+    description:
+      'Central Hub Solution user id of the payee (from SSO). Required when payeeType is mcom_user; validated as an active CHS user before the charge is created.',
+  })
   @ValidateIf((o) => o.payeeType === 'mcom_user')
   @IsString()
   @IsNotEmpty()
@@ -89,16 +93,17 @@ export class CreateChargeDto {
   @MaxLength(300)
   description?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: 'user_abc123',
-    description: 'MCOM user id of the payer (required for the wallet method)',
+    description:
+      'Central Hub Solution user id of the payer (issued by SSO). Required for every method — guest payments are rejected, and an id that is not an active CHS user fails with 400.',
   })
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(191)
-  mcomUserId?: string;
+  mcomUserId: string;
 
-  @ApiPropertyOptional({ example: 'cust_987', description: "Your app's own customer id" })
+  @ApiPropertyOptional({ example: 'cust_987', description: "Your app's own customer id (never used as an MCOM identity)" })
   @IsOptional()
   @IsString()
   @MaxLength(191)

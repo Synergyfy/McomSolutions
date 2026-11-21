@@ -24,7 +24,105 @@ Integrate MCOM into your registered MCOM application (MCOM Mall, MCOM Rewards, M
 - Shared auth: HMAC via \`X-Mcom-Client-ID\` + \`X-Mcom-Signature\` (same \`hmacSecret\` for both)
 - Wallet currency: **GBP** (displayed 2 dp, stored 4 dp)
 - MCOM Pay money: **minor units** (pence) stored as exact integers — never floats
+- **Identity: every user id you send is a Central Hub Solution (CHS) user id** — the id issued by SSO. Never send your own customer id as \`mcomUserId\`/\`payeeUserId\`/\`userId\`; map it to the CHS id first.
 - Recurring: MCOM auto-renews **MCOM's own memberships/platform plans**. Partner apps remain responsible for their own renewal charges — see **Part C**.
+
+---
+
+# ⚠️ READ THIS FIRST — the identity rule
+
+**Every user id you send to MCOM must be a Central Hub Solution (CHS) user id.**
+
+A CHS user id is the UUID MCOM issues to a person when they sign in through **MCOM SSO**. It is the
+only identity MCOM accepts. There are **no guest payments** and no exceptions.
+
+## The fields and what they must contain
+
+| You send | Field | Must contain | ❌ Not this |
+|---|---|---|---|
+| MCOM Pay — the buyer | \`mcomUserId\` | the buyer's CHS user id | an email, \`cust_987\`, your own \`users.id\`, \`undefined\` |
+| MCOM Pay split — the seller | \`payeeUserId\` | the seller's CHS user id | your seller id, store id or SKU |
+| Wallet API — the wallet owner | \`userId\` | that person's CHS user id | your local user id |
+| Your own reference (optional) | \`externalCustomerId\` | **your** id — never an MCOM identity | — |
+
+## ✅ Correct vs ❌ wrong
+
+✅ **This works.** \`mcomUserId\` and \`payeeUserId\` are CHS ids you saved after SSO login:
+
+\`\`\`json
+{
+  "amountMinor": "9000",
+  "method": "wallet",
+  "reference": "order_12345",
+  "mcomUserId": "3f2a9c1e-8b4d-4a61-9f0e-7c2d5b1a6e33",
+  "splits": [
+    {
+      "payeeType": "mcom_user",
+      "payeeUserId": "b71d4e0a-2c9f-4d38-a6b5-0e1f2d3c4b5a",
+      "amountMinor": "9000"
+    }
+  ]
+}
+\`\`\`
+
+> A real CHS user id is a UUID (like the two above). Wherever this guide writes
+> \`user_abc123\` it is a placeholder for that UUID — not a literal value to send.
+
+❌ **Every one of these fails with 400 and no money moves:**
+
+\`\`\`
+{ "mcomUserId": "buyer@example.com" }    // email — not a CHS id
+{ "mcomUserId": "cust_987" }             // your customer id — not a CHS id
+{ "mcomUserId": "mcom-mall-user-42" }    // an app-local id — not a CHS id
+{ "mcomUserId": "" }                     // blank
+{ /* mcomUserId omitted */ }             // guest payment — rejected
+\`\`\`
+
+## Where do I get the CHS id? (do this once, before taking any payment)
+
+1. The person signs in to your app through **MCOM SSO**.
+2. Read the CHS user id from the SSO response / JWT — it is \`sub\` (also exposed as \`user.id\`).
+3. **Save it** on your own user row (for example a column named \`mcom_user_id\`).
+4. Send that saved value as \`mcomUserId\` (buyer), \`payeeUserId\` (seller) or \`userId\` (wallet) on
+   every MCOM call.
+
+If your platform never calls SSO you cannot use MCOM Pay or the wallet API. There is no fallback and
+no way to invent an id.
+
+## The only correct order (MCOM Pay)
+
+1. You already stored the buyer's **CHS user id** from SSO.
+2. Your **backend** calls \`POST /api/v1/app-payments/charges\` with \`mcomUserId\`.
+   → MCOM creates the charge **and** the Stripe PaymentIntent / PayPal order. Nothing is paid yet.
+3. Your backend hands the browser the provider handle (\`clientSecret\` for Stripe, \`approvalUrl\`
+   for PayPal).
+4. The customer pays on Stripe / PayPal (or the MCOM wallet is debited immediately).
+5. Your **backend** calls \`POST /api/v1/app-payments/charges/:id/confirm\` with the **same**
+   \`mcomUserId\` plus the provider id.
+   → MCOM re-checks payer + charge + intent (amount and currency). Any mismatch → **403**, not paid.
+6. MCOM sends \`payment.succeeded\` to your webhook. Credit the buyer in your own system using
+   \`data.mcomUserId\` — **never** \`externalCustomerId\`.
+
+**Do not** create the charge in the browser. **Do not** create the charge after the payment.
+**Do not** confirm with a different user id. Each of those is a rejected request.
+
+## Common mistakes (all of these fail)
+
+| Mistake | What MCOM returns |
+|---|---|
+| Sending an email / your own id as \`mcomUserId\` | 400 \`Buyer mcomUserId does not belong to an active Central Hub user\` |
+| Omitting \`mcomUserId\` on create | 400 \`mcomUserId is required. Guest payments are not accepted\` |
+| Confirming without \`mcomUserId\` | 400 \`mcomUserId is required to confirm a charge\` |
+| Confirming with someone else's id | 403 \`The confirmed mcomUserId does not match the payer this charge was created for\` |
+| Reusing an idempotency key for another person | 409 \`already used for a different payer\` |
+| Sending \`amountMinor\` as \`90.00\` or a number | 400 — it must be an integer string of minor units (\`"9000"\`) |
+| Creating the charge in the browser | the customer could change the amount — never do it |
+| Using \`payeeExternalId\` for someone who has a CHS account | their wallet is not credited — use \`payeeUserId\` |
+
+## If you remember only one sentence
+
+> Send the **Central Hub Solution user id from SSO** as \`mcomUserId\` when you **create** the charge,
+> and send the **same id** again when you **confirm** it.
 
 ---
 
@@ -146,7 +244,7 @@ X-Idempotency-Key: mcom-mall-sub-inv_0042_aug2026
 Content-Type: application/json
 
 {
-  "userId": "user_abc123",
+  "userId": "user_abc123",          // CHS user id — never your app's own id
   "amount": 50,
   "category": "SUBSCRIPTION",
   "description": "MCOM Mall Gold Package - August 2026",
@@ -231,18 +329,30 @@ X-Mcom-Signature: sha256=<sign empty string>
 
 MCOM Pay turns any Console-registered app into a merchant. Your **backend** (never the browser) creates a charge with an exact amount; MCOM collects it and keeps an immutable ledger.
 
-1. Your app backend calls \`POST /app-payments/charges\` (HMAC-signed) with the amount in **minor units** and the payment method.
-2. MCOM creates the charge and returns a provider handle:
+**Every payment is attributable to a person.** MCOM Pay is create-then-pay-then-confirm, and the
+buyer's **Central Hub Solution (CHS) user id** is fixed when the charge is created:
+
+1. Resolve the buyer to a CHS user id (you get it from the SSO callback) and store it against your
+   own user **before** taking payment.
+2. Your app backend calls \`POST /app-payments/charges\` (HMAC-signed) with the amount in **minor
+   units**, the payment method, and \`mcomUserId\` (the buyer's CHS id). MCOM validates that the id
+   belongs to an active CHS user, then creates the charge **and its provider payment intent/order**
+   before any money can move. A charge with no \`mcomUserId\` is rejected — guest payments do not exist.
+3. MCOM returns a provider handle:
    - \`stripe\` → \`clientSecret\` for Stripe Elements / Payment Element
    - \`paypal\` → \`approvalUrl\` to redirect the customer
    - \`wallet\` → settles immediately by debiting the payer's MCOM wallet
-3. Your frontend completes the payment, then your backend calls \`POST /app-payments/charges/:id/confirm\`.
-4. On success MCOM marks the charge **paid**, posts a **double-entry ledger** entry, and fires a \`payment.succeeded\` webhook to your app.
-5. Refunds post the exact reverse ledger entries.
+4. Your frontend completes the payment, then your backend calls \`POST /app-payments/charges/:id/confirm\`
+   with the **same \`mcomUserId\`**. MCOM compares the confirmed payer, the charge and the provider
+   intent/order; anything that does not match is refused with **403** — a paid intent can never be
+   attributed to a different person.
+5. On success MCOM marks the charge **paid**, posts a **double-entry ledger** entry under that CHS
+   user, and fires a \`payment.succeeded\` webhook to your app.
+6. Refunds post the exact reverse ledger entries and return money to the same CHS wallet.
 
-**Trust model:** the amount always comes from your authenticated backend — the customer's browser can never set or alter it.
+**Trust model:** the amount always comes from your authenticated backend — the customer's browser can never set or alter it. The payer identity always comes from your backend too; MCOM rejects a confirmation that names a different CHS user than the one the intent was created for.
 
-> **Recurring:** MCOM Pay charges are **one-time**. For a subscription, your backend creates a **new charge each billing period** with a new idempotency key. MCOM does not store a partner card/PayPal mandate. See **Part C — Recurring Billing**.
+> **Recurring:** MCOM Pay charges are **one-time**. For a subscription, your backend creates a **new charge each billing period** with a new idempotency key **and the same buyer's CHS id**. MCOM does not store a partner card/PayPal mandate. See **Part C — Recurring Billing**.
 
 ## B1.1 Sandbox vs Production & Client-Side Handling (Critical)
 
@@ -302,7 +412,7 @@ MCOM Pay turns any Console-registered app into a merchant. Your **backend** (nev
   }
   \`\`\`
   - In Sandbox mode, Stripe's official PCI-compliant iframe accepts standard test cards (e.g. \`4242 4242 4242 4242\`, any future expiry date, any 3-digit CVC).
-- **Confirm:** On payment success, frontend notifies your backend, which calls \`POST /app-payments/charges/:id/confirm\` with \`{ "paymentIntentId": paymentIntent.id }\`.
+- **Confirm:** On payment success, frontend notifies your backend, which calls \`POST /app-payments/charges/:id/confirm\` with \`{ "paymentIntentId": paymentIntent.id, "mcomUserId": "<buyer CHS id>" }\`. MCOM checks the intent's stamped \`mcomUserId\`/charge id/amount/currency against the charge before settling.
 
 #### 2. PayPal (\`method: "paypal"\`)
 - **Backend:** Calls \`POST /app-payments/charges\` with \`method: "paypal"\`. Receives \`{ charge, approvalUrl }\`.
@@ -313,7 +423,7 @@ MCOM Pay turns any Console-registered app into a merchant. Your **backend** (nev
   \`\`\`
   *(Or mount the official \`@paypal/react-paypal-js\` Button component using the order token).*
   - The customer logs in using their PayPal Sandbox buyer test account on the real PayPal domain.
-- **Confirm:** When PayPal redirects back to your \`returnUrl\` with \`?token=...\`, your backend calls \`POST /app-payments/charges/:id/confirm\` with \`{ "orderId": token }\`.
+- **Confirm:** When PayPal redirects back to your \`returnUrl\` with \`?token=...\`, your backend calls \`POST /app-payments/charges/:id/confirm\` with \`{ "orderId": token, "mcomUserId": "<buyer CHS id>" }\`. MCOM verifies the captured order belongs to this charge (\`custom_id\`) and that amount/currency/payer match before settling.
 
 #### 3. MCOM Wallet (\`method: "wallet"\`)
 - **No Third-Party Gateway:** Handled entirely within the MCOM ecosystem.
@@ -386,7 +496,7 @@ Content-Type: application/json
   "method": "stripe",              // "stripe" | "paypal" | "wallet"
   "reference": "ORDER_123",        // your order/invoice id — required
   "description": "Pro plan renewal",
-  "mcomUserId": "user_abc123",     // required only for method = "wallet"
+  "mcomUserId": "user_abc123",     // required for every method — guest charges are rejected
   "externalCustomerId": "cust_987",// your own customer id (optional)
   "metadata": { "cartId": "c_1" }
 }
@@ -419,22 +529,51 @@ Response (201):
 - \`stripe\` → use \`clientSecret\` with Stripe.js. \`paypal\` → redirect the customer to \`approvalUrl\`.
 - \`wallet\` → no \`clientSecret\`/\`approvalUrl\`; the charge settles immediately (status \`paid\`) by debiting the payer's MCOM wallet. If the wallet has insufficient funds you get **422 \`INSUFFICIENT_BALANCE\`**.
 
-### B4.1a Who paid? (\`mcomUserId\`) — Central Hub Solution identity
+### B4.1a Who is paying? — every id is a Central Hub Solution id
 
-- \`mcomUserId\` is the **Central Hub Solution** user id (the one issued by SSO). It is the
-  only payer identity the ledger can name.
-- \`method: "wallet"\` — **required**: the wallet belongs to a CHS user.
-- Card / PayPal — **optional**. A buyer can pay on your platform without ever registering on
-  Central Hub. If you omit it, the ledger records a **guest buyer** and says so; it does not
-  invent an identity.
-- \`externalCustomerId\` is **your own** customer reference. It is stored for support, is never
-  treated as a CHS identity, and is never displayed as the payer.
-- If you have a CHS user id for the buyer (you get it from the SSO callback), always send it.
-  Without it, nobody — including support — can tie a card payment to a person.
+MCOM must be able to name **who is paying** on every transaction. There is no guest checkout: a
+charge without a payer is rejected before any provider intent is created.
+
+- \`mcomUserId\` is the **payer's Central Hub Solution (CHS) user id** — the id issued by SSO. It is
+  the only payer identity the ledger records and the only one support can trace a payment to.
+- **Required for every method** (card, PayPal and wallet). If the id is missing, blank or does not
+  belong to an active CHS user, the request fails **400** and nothing is charged.
+- Get the id from the SSO callback and store it against your own user **before** taking payment.
+  Never send the id your app generated for the customer — MCOM validates the id against the CHS
+  user table, so an app-local id is rejected.
+- For **splits**, \`payeeUserId\` is the **payee's CHS user id** too. Each \`payeeType: "mcom_user"\`
+  payee is validated the same way before the charge is created, so money can only be credited to a
+  real CHS user's wallet. \`payeeExternalId\` is for sellers with no CHS account and parks the share
+  on a payee payable until payout.
+- \`externalCustomerId\` is **your own** customer reference. It is stored for support, but it is
+  never treated as a CHS identity and never displayed as the payer.
+
+### B4.1b Intent first, then payment — the intent is the attribution record
+
+MCOM creates the provider **payment intent** (Stripe) or **order** (PayPal) at charge-creation
+time, *before the buyer can pay*. The intent carries the charge id and the payer's CHS id, so the
+payment and the person are bound together from the start:
+
+\`\`\`
+POST /charges  →  charge + intent/order  →  customer pays  →  POST /confirm (same mcomUserId)
+\`\`\`
+
+At confirmation MCOM re-checks the details that were used to create the intent:
+
+| Check | Stripe | PayPal |
+|---|---|---|
+| Intent/order belongs to this charge | \`metadata.chargeId\` / \`providerRef\` | order \`custom_id\` / \`providerRef\` |
+| Payer is the same CHS user | \`metadata.mcomUserId\` vs charge | asserted \`mcomUserId\` vs charge |
+| Amount matches the charge | intent amount | captured amount |
+| Currency matches the charge | intent currency | captured currency |
+
+If any detail differs, confirmation fails with **403** and the charge is not marked paid. That is
+what stops a payment taken for one person (or one order) being confirmed against another.
 
 ### B4.2 Confirm a charge
 
-After the customer completes payment, confirm server-side:
+After the customer completes payment, confirm server-side. \`mcomUserId\` is **required** and must be
+the same CHS user id the charge was created for:
 
 \`\`\`http
 POST ${baseUrl}/api/v1/app-payments/charges/clx8p2qr.../confirm
@@ -442,10 +581,21 @@ X-Mcom-Client-ID: mcom-mall
 X-Mcom-Signature: sha256=<...>
 Content-Type: application/json
 
-{ "paymentIntentId": "pi_3Pabc..." }   // stripe — or { "orderId": "5O1..." } for paypal
+{
+  "mcomUserId": "user_abc123",        // same CHS payer id used at creation — required
+  "paymentIntentId": "pi_3Pabc..."    // stripe — or "orderId": "5O1..." for paypal
+}
 \`\`\`
 
 Returns the charge with \`status: "paid"\`. Confirm is **idempotent** — confirming an already-paid charge returns it unchanged. MCOM also settles charges from provider webhooks as a backstop (close-tab-after-charge), so you never lose a paid charge.
+
+Possible refusals:
+
+| Status | Meaning |
+|---|---|
+| **400** | \`mcomUserId\` missing, or the payment has not succeeded yet |
+| **403** | The confirmed payer ≠ the charge's payer, or the intent/order was created for a different charge or CHS user |
+| **409** | The charge is not in a confirmable state (e.g. already refunded) |
 
 ### B4.3 Refund a charge
 
@@ -460,7 +610,7 @@ Content-Type: application/json
 
 - \`amountMinor\` is optional — omit for a full refund. Fee is prorated for partial refunds.
 - A full refund flips the charge to \`refunded\`; a partial refund leaves it \`paid\` and records the refund in metadata.
-- Wallet-method refunds credit the payer's MCOM wallet back.
+- Wallet-method refunds credit the payer's MCOM wallet back (the payer is the CHS user recorded on the charge).
 
 ### B4.4 List / fetch charges
 
@@ -508,7 +658,7 @@ Payload:
 }
 \`\`\`
 
-Verify the signature before trusting the payload, and treat webhooks as **at-least-once** (idempotent handling keyed on \`chargeId\`).
+Verify the signature before trusting the payload, and treat webhooks as **at-least-once** (idempotent handling keyed on \`chargeId\`). \`data.mcomUserId\` is the payer's Central Hub Solution user id — use it (never \`externalCustomerId\`) to credit the person in your own system.
 
 ## B6. MCOM Pay Error Codes
 
@@ -516,11 +666,15 @@ Verify the signature before trusting the payload, and treat webhooks as **at-lea
 |---|---|---|---|
 | 400 | \`VALIDATION_ERROR\` | Bad body / bad \`amountMinor\` | Fix request — don't retry |
 | 400 | (idempotency missing) | \`X-Idempotency-Key\` absent on create | Add the header |
+| 400 | payer not found | \`mcomUserId\` is not an active Central Hub user | Send the CHS id from SSO, not your app's customer id |
+| 400 | payee not found | A split \`payeeUserId\` is not an active Central Hub user | Send the seller's CHS id, or use \`payeeType: "external"\` |
 | 400 | amount mismatch | Confirmed/paid amount ≠ charge amount | Do not activate; investigate |
 | 401 | \`INVALID_SIGNATURE\` | Bad HMAC / unknown client | Check \`hmacSecret\`; rotate in Console |
 | 403 | forbidden | Charge belongs to another app | Only read/confirm your own charges |
+| 403 | payer mismatch | Confirmed \`mcomUserId\` ≠ the charge's payer | Confirm with the same CHS id used at creation |
+| 403 | intent mismatch | The intent/order was created for another charge or CHS user | Create a new charge; do not force the confirmation |
 | 404 | not found | Unknown charge id | Check the id |
-| 409 | conflict | Idempotency key reused by another app | Use a platform-scoped key |
+| 409 | conflict | Idempotency key reused by another app, or reused with a different payer/amount/splits | Use a platform-scoped, per-order key |
 | 409 | conflict | Charge not in a refundable/confirmable state | Re-read the charge |
 | 422 | \`INSUFFICIENT_BALANCE\` | Wallet method — not enough balance | Show top-up prompt / offer card |
 | 429 | \`RATE_LIMITED\` | Too many requests | Exponential backoff |
@@ -558,7 +712,7 @@ Store \`nextChargeAt\` in UTC on your subscription row. A daily cron is enough:
    Content-Type: application/json
 
    {
-     "userId": "user_abc123",
+     "userId": "user_abc123",        // CHS user id of the subscriber — never your app's id
      "amount": 50,
      "category": "SUBSCRIPTION",
      "description": "MCOM Mall Gold - November 2026",
@@ -567,7 +721,7 @@ Store \`nextChargeAt\` in UTC on your subscription row. A daily cron is enough:
    }
    \`\`\`
 
-   For card / PayPal renewals, call \`POST /app-payments/charges\` with the same per-period key instead.
+   For card / PayPal renewals, call \`POST /app-payments/charges\` with the same per-period key instead, and pass the subscriber's \`mcomUserId\`.
 4. On success, extend \`currentPeriodEnd\`, advance \`nextChargeAt\`, write your invoice, and send a receipt.
 5. On \`422 INSUFFICIENT_BALANCE\` or a provider failure, move the subscription to \`past_due\` and retry on your dunning schedule.
 6. After the final retry, set \`canceled\` and revoke access.
@@ -646,6 +800,7 @@ Rules:
 - **Renewals:** a new key per billing period; the **same** key for retries within that period.
 - **Never reuse** a key for a different amount or operation.
 - Same key + same body on retry → you get the original result back, no second charge.
+- The **payer is part of that body**: for MCOM Pay, replaying a key with a different \`mcomUserId\` (or different amount/splits) is rejected with **409** instead of returning a charge attributed to someone else.
 - Keys are scoped to your platform — another platform's key never collides with yours.
 
 ---
@@ -694,6 +849,8 @@ export class McomPaymentsService {
   }
 
   // ── Wallet ──────────────────────────────────────────────────────────────
+  // userId is ALWAYS the Central Hub Solution user id (from SSO) — never
+  // your own customer/user id.
   getBalance(userId: string) {
     return this.call(\`/wallet/partner/balance/\${userId}\`, undefined, 'GET');
   }
@@ -705,15 +862,20 @@ export class McomPaymentsService {
   }
 
   // ── MCOM Pay ────────────────────────────────────────────────────────────
+  // mcomUserId is REQUIRED on create and confirm: it is the buyer's CHS
+  // user id (from SSO). MCOM rejects unknown ids and any payer mismatch.
   createCharge(input: {
     amountMinor: string; method: 'stripe' | 'paypal' | 'wallet'; reference: string;
-    currency?: string; description?: string; mcomUserId?: string; externalCustomerId?: string;
+    currency?: string; description?: string; mcomUserId: string; externalCustomerId?: string;
     metadata?: object; idempotencyKey: string;
   }) {
     const { idempotencyKey, ...body } = input;
     return this.call('/app-payments/charges', body, 'POST', idempotencyKey);
   }
-  confirmCharge(chargeId: string, handle: { paymentIntentId?: string; orderId?: string }) {
+  confirmCharge(
+    chargeId: string,
+    handle: { mcomUserId: string; paymentIntentId?: string; orderId?: string },
+  ) {
     return this.call(\`/app-payments/charges/\${chargeId}/confirm\`, handle, 'POST');
   }
   refundCharge(chargeId: string, amountMinor?: string, reason?: string) {
@@ -732,6 +894,11 @@ export class McomPaymentsService {
 Use this whenever the money belongs to **someone else** — a seller on your marketplace, a business
 taking a booking, a professional delivering a service. Without splits MCOM only knows the *buyer*,
 so the money accrues to your app's payable instead of reaching the seller.
+
+Every party on a split is a **Central Hub Solution user**: \`mcomUserId\` is the buyer's CHS id and
+\`payeeUserId\` is the seller's CHS id (both from SSO). MCOM validates every \`mcom_user\` payee against
+the CHS user table **before** creating the charge, so money can never be routed to an app-local id
+that has no CHS account. If your seller has no CHS account, use \`payeeType: "external"\` instead.
 
 ## G1. What happens to the money
 
@@ -794,7 +961,8 @@ charge.
 | Rule | Why |
 |---|---|
 | \`sum(splits[].amountMinor) === amountMinor\` | A split that does not reconcile is rejected with **422** before any payment is taken |
-| \`payeeType: "mcom_user"\` requires \`payeeUserId\` | The payee must be an existing MCOM user; you get the id from SSO |
+| Every id is a **CHS user id** | \`mcomUserId\` and \`payeeUserId\` are validated against active Central Hub users before the intent is created; unknown ids → **400** |
+| \`payeeType: "mcom_user"\` requires \`payeeUserId\` | The payee must be an existing CHS user; you get the id from SSO |
 | \`payeeType: "external"\` requires \`payeeExternalId\` | For sellers without an MCOM account. The money parks on a payee payable until paid out |
 | One split per payee | 50 splits maximum per charge |
 | \`intent\` should be \`ORDER\` (product) or \`BOOKING\` (service) | Drives the analytics breakdown and the label in the payer's wallet history |
@@ -904,6 +1072,7 @@ You do not need to implement any of this — it is here so the numbers you see i
   \`REFERRAL_COMMISSION\`, \`TOP_UP\`, \`REFUND\`, \`PAYOUT\`, \`TRANSFER\`, \`ADJUSTMENT\`, \`FEE\`). Analytics and
   the payer's wallet history are built from it.
 - **Immutable.** Entries are never updated or deleted. A correction is a reversing transfer.
+- **Attributed.** Every MCOM Pay transfer carries the payer's Central Hub Solution user id (and each split the payee's), so "who paid" is a fact on the ledger — not something reconstructed from a platform's own ids.
 - **Reconciled continuously.** Assets must equal liabilities + equity, and each wallet's balance must
   equal the sum of its entries. A nightly job and an admin screen report any drift.
 - **Your users see their own ledger** in their wallet: amount, running balance, intent and the other
@@ -916,6 +1085,7 @@ You do not need to implement any of this — it is here so the numbers you see i
 **Shared**
 - [ ] App registered in MCOM Console with a per-app \`hmacSecret\` (and a Webhook URL for MCOM Pay events)
 - [ ] \`MCOM_SOLUTIONS_URL\`, \`MCOM_CLIENT_ID\`, \`MCOM_HMAC_SECRET\` in env (server-side only — never in the browser)
+- [ ] Your user table stores the **CHS user id** from SSO; every \`mcomUserId\`/\`payeeUserId\`/\`userId\` you send is that id (never your own customer id)
 
 **Wallet**
 - [ ] \`getBalance\` returns \`ACTIVE\` before charging
@@ -935,17 +1105,19 @@ You do not need to implement any of this — it is here so the numbers you see i
 
 **MCOM Pay**
 - [ ] Charges are created **server-side** only (amount never comes from the browser)
+- [ ] The buyer's **CHS user id** is resolved from SSO and sent as \`mcomUserId\` on every charge — guest payments are rejected
+- [ ] The provider intent/order is created **before** the customer pays, and \`confirm\` sends the **same** \`mcomUserId\` (mismatch → 403)
 - [ ] Amounts sent as integer minor-unit strings (pence)
 - [ ] **Frontend mounts official Stripe Elements (\`<PaymentElement />\`)** with \`clientSecret\` — no custom dummy card forms
 - [ ] **Frontend redirects to official PayPal Sandbox \`approvalUrl\`** (or uses official PayPal Buttons SDK) — no mock login forms
 - [ ] \`wallet\` path displays user balance and gracefully handles 422 \`INSUFFICIENT_BALANCE\` with top-up link
-- [ ] \`confirm\` called after payment, and the \`payment.succeeded\` webhook verified (signature + idempotent)
+- [ ] \`confirm\` called after payment with \`mcomUserId\`, and the \`payment.succeeded\` webhook verified (signature + idempotent)
 - [ ] Refunds go through \`/refund\` (never a manual ledger edit)
 - [ ] Fee config reviewed in the Console (default 2.9% + 20p) — see **G7** for who bears it
 
 **Payee splits (marketplace / bookings / services)**
 - [ ] \`splits\` sum exactly to \`amountMinor\`, calculated **server-side** (never the browser)
-- [ ] Every seller resolves to an MCOM user id, or uses \`payeeType: "external"\` with your own id
+- [ ] Every seller resolves to a **CHS user id** (\`payeeUserId\`), or uses \`payeeType: "external"\` with your own id
 - [ ] \`intent\` set to \`ORDER\` (product) or \`BOOKING\` (service) so analytics and the payer's history are meaningful
 - [ ] Fee bearer decided: default payee-pays, or set \`feePercent = 0\` for the seller to receive 100%
 - [ ] Card orders poll \`GET /charges/:id/splits\` until \`settlementState\` is \`SETTLED\`

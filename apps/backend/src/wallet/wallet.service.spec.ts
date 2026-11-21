@@ -62,6 +62,9 @@ describe('WalletService', () => {
       aggregate: jest.fn(),
     },
     glEntry: { findFirst: jest.fn() },
+    user: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'u-new' }),
+    },
     walletHold: {
       aggregate: jest.fn(),
       create: jest.fn(),
@@ -600,6 +603,16 @@ describe('WalletService', () => {
         data: expect.objectContaining({ userId: 'u-new', balance: 0, currency: 'GBP', status: 'ACTIVE' }),
       });
       expect(result.userId).toBe('u-new');
+    });
+
+    it('rejects an id that is not an active Central Hub user', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValueOnce(null);
+
+      await expect(service.ensureWallet('app-local-customer-7')).rejects.toThrow(
+        /active Central Hub user/,
+      );
+      expect(mockPrisma.wallet.create).not.toHaveBeenCalled();
     });
   });
 });

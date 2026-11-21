@@ -39,7 +39,7 @@ const baseCharge = (overrides: Partial<any> = {}) => ({
   status: AppChargeStatus.pending,
   reference: 'order_1',
   description: null,
-  mcomUserId: null,
+  mcomUserId: 'user_1',
   externalCustomerId: null,
   provider: null,
   providerRef: null,
@@ -127,6 +127,9 @@ describe('AppPaymentsService', () => {
         delete: jest.fn().mockResolvedValue({}),
       },
       auditLog: { create: jest.fn().mockResolvedValue({}) },
+      user: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'user_1' }),
+      },
       appPaymentLedgerEntry: { createMany: jest.fn().mockResolvedValue({ count: 3 }) },
       programmeSetting: { findUnique: jest.fn().mockResolvedValue(null) },
       fxRate: { findUnique: jest.fn().mockResolvedValue(null) },
@@ -172,7 +175,7 @@ describe('AppPaymentsService', () => {
 
     const res = await service.createCharge(
       client,
-      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_1' } as any,
       'idem_1',
     );
 
@@ -192,7 +195,7 @@ describe('AppPaymentsService', () => {
 
     const res = await service.createCharge(
       client,
-      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_1' } as any,
       'idem_1',
     );
 
@@ -208,10 +211,25 @@ describe('AppPaymentsService', () => {
     await expect(
       service.createCharge(
         client,
-        { amountMinor: '99999', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+        { amountMinor: '99999', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_1' } as any,
         'idem_1',
       ),
     ).rejects.toThrow('different payload');
+    expect(mockPaymentIntents.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a replay of the same key for a different payer', async () => {
+    prisma.appCharge.findUnique.mockResolvedValue(
+      baseCharge({ status: AppChargeStatus.paid, mcomUserId: 'user_1' }),
+    );
+
+    await expect(
+      service.createCharge(
+        client,
+        { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_2' } as any,
+        'idem_1',
+      ),
+    ).rejects.toThrow('different payer');
     expect(mockPaymentIntents.create).not.toHaveBeenCalled();
   });
 
@@ -229,7 +247,7 @@ describe('AppPaymentsService', () => {
 
     const res = await service.createCharge(
       client,
-      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+      { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_1' } as any,
       'idem_1',
     );
 
@@ -245,7 +263,7 @@ describe('AppPaymentsService', () => {
     await expect(
       service.createCharge(
         client,
-        { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+        { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'user_1' } as any,
         'idem_1',
       ),
     ).rejects.toThrow('already used for a charge that is failed');
@@ -275,14 +293,94 @@ describe('AppPaymentsService', () => {
     expect(prisma.appPaymentLedgerEntry.createMany).toHaveBeenCalled();
   });
 
-  it('requires mcomUserId for the wallet method', async () => {
+  it('rejects guest payments with no mcomUserId for any method', async () => {
     await expect(
       service.createCharge(
         client,
         { amountMinor: '10270', method: AppChargeMethod.wallet, reference: 'order_1' } as any,
-        'idem_wallet',
+        'idem_guest_wallet',
       ),
     ).rejects.toThrow('mcomUserId is required');
+
+    await expect(
+      service.createCharge(
+        client,
+        { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1' } as any,
+        'idem_guest_stripe',
+      ),
+    ).rejects.toThrow('mcomUserId is required');
+    expect(mockPaymentIntents.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a payer id that is not an active Central Hub user', async () => {
+    prisma.user.findFirst.mockResolvedValueOnce(null);
+
+    await expect(
+      service.createCharge(
+        client,
+        { amountMinor: '10270', method: AppChargeMethod.stripe, reference: 'order_1', mcomUserId: 'app-local-42' } as any,
+        'idem_unknown_payer',
+      ),
+    ).rejects.toThrow(/active Central Hub user/);
+    expect(mockPaymentIntents.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a split payee id that is not an active Central Hub user', async () => {
+    // Buyer exists; the seller id is an app-local id that resolves to nothing.
+    prisma.user.findFirst
+      .mockResolvedValueOnce({ id: 'user_1' })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      service.createCharge(
+        client,
+        {
+          amountMinor: '9000',
+          method: AppChargeMethod.wallet,
+          reference: 'order_1',
+          mcomUserId: 'user_1',
+          splits: [{ payeeType: 'mcom_user', payeeUserId: 'seller_app_id', amountMinor: '9000' }],
+        } as any,
+        'idem_unknown_payee',
+      ),
+    ).rejects.toThrow(/Payee mcomUserId does not belong to an active Central Hub user/);
+    expect(wallet.debitWallet).not.toHaveBeenCalled();
+  });
+
+  it('requires the payer id on confirm', async () => {
+    prisma.appCharge.findUnique.mockResolvedValue(baseCharge({ provider: 'stripe', providerRef: 'pi_1' }));
+
+    await expect(
+      service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1' } as any),
+    ).rejects.toThrow('mcomUserId is required to confirm a charge');
+    expect(mockPaymentIntents.retrieve).not.toHaveBeenCalled();
+  });
+
+  it('refuses to confirm when the asserted payer is not the charge payer', async () => {
+    prisma.appCharge.findUnique.mockResolvedValue(
+      baseCharge({ provider: 'stripe', providerRef: 'pi_1', mcomUserId: 'user_1' }),
+    );
+
+    await expect(
+      service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_2' } as any),
+    ).rejects.toThrow('does not match the payer this charge was created for');
+    expect(mockPaymentIntents.retrieve).not.toHaveBeenCalled();
+  });
+
+  it('refuses to confirm a Stripe intent created for a different Central Hub user', async () => {
+    const charge = baseCharge({ provider: 'stripe', providerRef: 'pi_1', mcomUserId: 'user_1' });
+    prisma.appCharge.findUnique.mockResolvedValue(charge);
+    mockPaymentIntents.retrieve.mockResolvedValue({
+      id: 'pi_1',
+      status: 'succeeded',
+      amount: 10270,
+      currency: 'gbp',
+      metadata: { chargeId: 'ch_1', mcomUserId: 'user_2' },
+    });
+
+    await expect(
+      service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_1' } as any),
+    ).rejects.toThrow('different Central Hub user');
   });
 
   it('confirms a Stripe charge after the intent succeeds', async () => {
@@ -302,7 +400,7 @@ describe('AppPaymentsService', () => {
       paidAt: new Date(),
     });
 
-    const res = await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1' } as any);
+    const res = await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_1' } as any);
 
     expect(res.charge.status).toBe(AppChargeStatus.paid);
     expect(prisma.appPaymentLedgerEntry.createMany).toHaveBeenCalled();
@@ -329,7 +427,7 @@ describe('AppPaymentsService', () => {
       paidAt: new Date(),
     });
 
-    const res = await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1' } as any);
+    const res = await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_1' } as any);
 
     expect(res.charge.status).toBe(AppChargeStatus.paid);
     expect(prisma.appPaymentLedgerEntry.createMany).not.toHaveBeenCalled();
@@ -348,7 +446,7 @@ describe('AppPaymentsService', () => {
       metadata: { chargeId: 'ch_1' },
     });
 
-    await expect(service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1' } as any)).rejects.toThrow(
+    await expect(service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_1' } as any)).rejects.toThrow(
       'Paid amount does not match',
     );
   });
@@ -533,7 +631,7 @@ describe('AppPaymentsService', () => {
       paidAt: new Date(),
     });
 
-    await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1' } as any);
+    await service.confirmCharge(client, 'ch_1', { paymentIntentId: 'pi_1', mcomUserId: 'user_1' } as any);
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(prisma.appPaymentOutbox.upsert).toHaveBeenCalledWith(
@@ -588,7 +686,7 @@ describe('AppPaymentsService', () => {
 
     it('processes a Stripe event once when the provider delivers it twice', async () => {
       const charge = baseCharge({ status: AppChargeStatus.pending, providerRef: 'pi_1' });
-      const intent = { id: 'pi_1', amount: 10270, metadata: { chargeId: 'ch_1' }, status: 'succeeded' };
+      const intent = { id: 'pi_1', amount: 10270, currency: 'gbp', metadata: { chargeId: 'ch_1' }, status: 'succeeded' };
 
       mockStripeWebhooks.constructEvent.mockReturnValue(
         stripeEvent('evt_dup', 'payment_intent.succeeded', intent),
@@ -623,6 +721,7 @@ describe('AppPaymentsService', () => {
         stripeEvent('evt_broken', 'payment_intent.succeeded', {
           id: 'pi_1',
           amount: 10270,
+          currency: 'gbp',
           metadata: { chargeId: 'ch_1' },
         }),
       );

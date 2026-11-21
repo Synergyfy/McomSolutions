@@ -138,7 +138,7 @@ export function EventDrawer({ eventKey, onClose }: { eventKey: string; onClose: 
                         ? `MCOM user ${data.payer.mcomUserId}`
                         : data.payer.method === 'wallet'
                           ? 'Wallet holder'
-                          : 'Guest buyer'}
+                          : 'Unidentified buyer'}
                     <span className="ml-2 text-[11px] font-normal text-gray-500">
                       via {providerLabel(data.payer)}
                     </span>
@@ -155,11 +155,11 @@ export function EventDrawer({ eventKey, onClose }: { eventKey: string; onClose: 
 
                   {!data.payer.identified && !data.payer.mcomUserId && (
                     <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                      No Central Hub Solution account was supplied with this payment — the buyer paid without
-                      registering here, which is allowed on any platform.
+                      This legacy charge was sent without a Central Hub user id, so the buyer cannot be named.
+                      Guest payments are no longer accepted — new charges without an MCOM identity are rejected.
                       {data.payer.appCustomerRef ? (
                         <>
-                          {' '}The app&apos;s own customer reference is{' '}
+                          {' '}The app&apos;s own customer reference was{' '}
                           <span className="font-mono">{data.payer.appCustomerRef}</span> (not a CHS identity).
                         </>
                       ) : null}
