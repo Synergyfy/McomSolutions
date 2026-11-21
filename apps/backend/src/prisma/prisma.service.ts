@@ -237,6 +237,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // Phase 6: full query log in dev; warn/error only elsewhere (prod
       // slowness is covered by slowQueryExtension above).
       log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn'] : ['warn', 'error'],
+      // The database sits behind a Supabase pooler where individual queries
+      // routinely take 200–500 ms and occasionally much longer. Prisma's
+      // defaults (2 s to acquire a connection, 5 s transaction budget) caused
+      // valid membership/payment writes to abort mid-transaction. Keep the
+      // budgets generous so transient latency cannot turn a paid action into
+      // a 500.
+      transactionOptions: { maxWait: 15000, timeout: 30000 },
     });
     // Apply the soft-delete extension to the two identity delegates.
     // (Copied per-delegate rather than reassigning the whole client so the
