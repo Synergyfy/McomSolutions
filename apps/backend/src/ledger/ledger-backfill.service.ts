@@ -383,16 +383,22 @@ export class LedgerBackfillService {
    */
   private async ensureWalletAccounts(): Promise<void> {
     const wallets = await this.prisma.wallet.findMany({ select: { id: true } });
-    const batchSize = 500;
+    // Small batches with a generous timeout: a managed Postgres pooler (e.g.
+    // Supabase) aborts long interactive transactions, and creating hundreds of
+    // accounts in one transaction is exactly that.
+    const batchSize = 100;
 
     for (let i = 0; i < wallets.length; i += batchSize) {
       const codes = wallets
         .slice(i, i + batchSize)
         .map((wallet) => `wallet:${wallet.id}`);
 
-      await this.prisma.$transaction(async (tx) => {
-        await this.chart.ensureAccounts(tx, codes);
-      });
+      await this.prisma.$transaction(
+        async (tx) => {
+          await this.chart.ensureAccounts(tx, codes);
+        },
+        { timeout: 120_000 },
+      );
     }
   }
 
@@ -509,7 +515,8 @@ export class LedgerBackfillService {
 
       let wrote = false;
 
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(
+        async (tx) => {
         const result = await this.posting.post(tx, {
           intent: plan.intent,
           platformId: opts.platformId ?? null,
@@ -532,7 +539,9 @@ export class LedgerBackfillService {
         // linking, and is idempotent.
         if (opts.link) await opts.link(tx, result.transferId);
         wrote = !result.replayed;
-      });
+        },
+        { timeout: 60_000 },
+      );
 
       return wrote;
     } catch (err: any) {

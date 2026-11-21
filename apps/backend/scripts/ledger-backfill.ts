@@ -14,11 +14,27 @@
 import { Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { PrismaModule } from '../src/prisma/prisma.module';
-import { LedgerModule } from '../src/ledger/ledger.module';
+import { ChartOfAccountsService } from '../src/ledger/chart-of-accounts.service';
+import { GlPostingService } from '../src/ledger/gl-posting.service';
 import { LedgerBackfillService } from '../src/ledger/ledger-backfill.service';
 import { LedgerReconciliationService } from '../src/ledger/ledger-reconciliation.service';
+import { LedgerAnalyticsService } from '../src/ledger/ledger-analytics.service';
 
-@Module({ imports: [PrismaModule, LedgerModule] })
+/**
+ * Deliberately does NOT import LedgerModule: that module now carries the admin
+ * controller, which drags in AuthModule and the whole auth graph (Redis, JWT,
+ * profile sync). A maintenance CLI needs five providers, not an application.
+ */
+@Module({
+  imports: [PrismaModule],
+  providers: [
+    ChartOfAccountsService,
+    GlPostingService,
+    LedgerBackfillService,
+    LedgerReconciliationService,
+    LedgerAnalyticsService,
+  ],
+})
 class LedgerCliModule {}
 
 function flag(name: string): boolean {
@@ -114,6 +130,12 @@ async function main() {
     }
 
     if (apply) {
+      // Analytics reads rollups, so a backfill that does not roll up leaves the
+      // dashboard blank until the next cron.
+      const analytics = app.get(LedgerAnalyticsService);
+      const rolled = await analytics.rebuildAll();
+      console.log(`Rollups rebuilt: ${rolled.rows} row(s) across ${rolled.days} day(s).`);
+
       printReport(await reconciliation.getReport());
     }
 
