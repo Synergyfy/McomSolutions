@@ -80,6 +80,10 @@ export class ConsoleService {
     const profileSyncEndpoint = this.normalizeProfileSyncEndpoint(
       dto.profileSyncEndpoint,
     );
+    const membershipSyncEndpoint = this.normalizeSyncEndpoint(
+      dto.membershipSyncEndpoint,
+      'membershipSyncEndpoint',
+    );
 
     const created = await this.prisma.ssoClient.create({
       data: {
@@ -106,21 +110,24 @@ export class ConsoleService {
         feePercent: dto.feePercent ?? null,
         feeFixedMinor: dto.feeFixedMinor != null ? BigInt(dto.feeFixedMinor) : null,
         metadata: this.buildMetadata(dto.planSchemaEndpoint, dto.accessPassPlansEndpoint),
-        serviceEnabled: profileSyncEndpoint ? true : dto.serviceEnabled ?? true,
+        serviceEnabled: profileSyncEndpoint || membershipSyncEndpoint ? true : dto.serviceEnabled ?? true,
         serviceBaseUrl: dto.serviceBaseUrl ?? null,
-        serviceScopes: profileSyncEndpoint
-          ? this.withRequiredServiceScope(dto.serviceScopes)
-          : dto.serviceScopes ?? [],
-        allowedAudiences: profileSyncEndpoint
-          ? this.withCentralAudience(dto.allowedAudiences)
-          : dto.allowedAudiences ?? [],
+        serviceScopes:
+          profileSyncEndpoint || membershipSyncEndpoint
+            ? this.withRequiredServiceScope(dto.serviceScopes)
+            : dto.serviceScopes ?? [],
+        allowedAudiences:
+          profileSyncEndpoint || membershipSyncEndpoint
+            ? this.withCentralAudience(dto.allowedAudiences)
+            : dto.allowedAudiences ?? [],
         allowedCallers: dto.allowedCallers ?? [],
         supportedRoles,
         profileSyncEndpoint,
+        membershipSyncEndpoint,
       },
     });
 
-    if (profileSyncEndpoint) {
+    if (profileSyncEndpoint || membershipSyncEndpoint) {
       await this.ensureCentralCallerAccess(dto.clientId);
     }
 
@@ -202,10 +209,22 @@ export class ConsoleService {
       data.profileSyncEndpoint = nextProfileSyncEndpoint;
     }
 
-    // Enabling profile sync needs the B2B read path: `central:read`, the
-    // `mcom-central` audience, and service access. Grant them automatically so
-    // the integration works without a second manual policy edit.
-    if (nextProfileSyncEndpoint) {
+    const nextMembershipSyncEndpoint =
+      dto.membershipSyncEndpoint !== undefined
+        ? this.normalizeSyncEndpoint(
+            dto.membershipSyncEndpoint,
+            'membershipSyncEndpoint',
+          )
+        : existing.membershipSyncEndpoint ?? null;
+    if (dto.membershipSyncEndpoint !== undefined) {
+      data.membershipSyncEndpoint = nextMembershipSyncEndpoint;
+    }
+
+    // Enabling profile or membership sync needs the B2B read path:
+    // `central:read`, the `mcom-central` audience, and service access. Grant
+    // them automatically so the integration works without a second manual
+    // policy edit.
+    if (nextProfileSyncEndpoint || nextMembershipSyncEndpoint) {
       const scopes =
         (data.serviceScopes as string[] | undefined) ??
         existing.serviceScopes ??
@@ -234,7 +253,7 @@ export class ConsoleService {
       ]);
     }
 
-    if (nextProfileSyncEndpoint) {
+    if (nextProfileSyncEndpoint || nextMembershipSyncEndpoint) {
       await this.ensureCentralCallerAccess(clientId);
     }
 
@@ -748,6 +767,8 @@ export class ConsoleService {
       allowWhitelabel: client.allowWhitelabel ?? false,
       serviceScopes: client.serviceScopes ?? [],
       supportedRoles: client.supportedRoles ?? [],
+      profileSyncEndpoint: client.profileSyncEndpoint ?? null,
+      membershipSyncEndpoint: client.membershipSyncEndpoint ?? null,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
     };
@@ -786,6 +807,7 @@ export class ConsoleService {
       allowedCallers: client.allowedCallers ?? [],
       supportedRoles: client.supportedRoles ?? [],
       profileSyncEndpoint: client.profileSyncEndpoint ?? null,
+      membershipSyncEndpoint: client.membershipSyncEndpoint ?? null,
       webhookFailCount: client.webhookFailCount,
       lastWebhookAt: client.lastWebhookAt,
       createdAt: client.createdAt,
@@ -819,10 +841,22 @@ export class ConsoleService {
   private normalizeProfileSyncEndpoint(
     endpoint?: string | null,
   ): string | null {
+    return this.normalizeSyncEndpoint(endpoint, 'profileSyncEndpoint');
+  }
+
+  /**
+   * Shared normalizer for the per-app synchronization endpoints. Blank values
+   * clear synchronization; otherwise the URL must be a valid http(s)
+   * destination.
+   */
+  private normalizeSyncEndpoint(
+    endpoint: string | null | undefined,
+    field: string,
+  ): string | null {
     const url = typeof endpoint === 'string' ? endpoint.trim() : '';
     if (!url) return null;
 
-    this.assertValidEndpointUrl(url, 'profileSyncEndpoint');
+    this.assertValidEndpointUrl(url, field);
     return url;
   }
 

@@ -88,14 +88,17 @@ export function AnalyticsTab() {
         {points.length === 0 ? (
           <div className="py-16 text-center text-sm text-gray-500">No activity in this period.</div>
         ) : (
-          <div className="flex items-end gap-1.5 h-48 overflow-x-auto">
+          <div className="flex items-stretch gap-1.5 h-48 overflow-x-auto">
             {points.map((point) => {
               const height = Math.max(2, (Number(point.volumeMinor) / maxVolume) * 100);
               return (
-                <div key={point.bucket} className="flex-1 min-w-[8px] flex flex-col items-center gap-1 group">
-                  <div className="relative w-full flex-1 flex items-end">
+                <div
+                  key={point.bucket}
+                  className="flex-1 min-w-[8px] flex flex-col items-center justify-end gap-1 group"
+                >
+                  <div className="relative w-full flex-1 min-h-0 flex items-end justify-center">
                     <div
-                      className="w-full rounded-t bg-brand-blue/80 group-hover:bg-brand-blue transition-colors"
+                      className="w-full max-w-[56px] rounded-t bg-brand-blue/80 group-hover:bg-brand-blue transition-colors"
                       style={{ height: `${height}%` }}
                       title={`${point.bucket} · ${formatMinor(point.volumeMinor)} · ${point.transfers} transfers`}
                     />

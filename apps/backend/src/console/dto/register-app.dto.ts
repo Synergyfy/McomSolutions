@@ -208,4 +208,16 @@ export class RegisterAppDto {
   @IsOptional()
   @IsUrl({ require_tld: false })
   profileSyncEndpoint?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'https://api.mcom-mall.com/webhooks/membership-updated',
+    description:
+      'Single endpoint that receives signed membership.updated events when a purchased membership bundles this app. Central only notifies apps included in the plan, and the payload carries the business context plus this app\'s package grant. Empty = no membership synchronization.',
+  })
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? null : value,
+  )
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  membershipSyncEndpoint?: string | null;
 }

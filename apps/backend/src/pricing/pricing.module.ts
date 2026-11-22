@@ -7,6 +7,7 @@ import { EcosystemEventsModule } from '../ecosystem-events/ecosystem-events.modu
 import { AffiliateModule } from '../affiliate/affiliate.module';
 import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { MembershipSyncModule } from '../membership-sync/membership-sync.module';
 import { PricingService } from './pricing.service';
 import { PricingController } from './pricing.controller';
 
@@ -17,6 +18,7 @@ import { PricingController } from './pricing.controller';
     AffiliateModule,
     BusinessAcquisitionModule,
     ReferralsModule,
+    MembershipSyncModule,
     BullModule.registerQueue({ name: TASK_EVENT_QUEUE }),
   ],
   controllers: [PricingController],

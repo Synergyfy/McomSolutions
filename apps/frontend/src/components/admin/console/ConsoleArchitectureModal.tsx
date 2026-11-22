@@ -34,7 +34,7 @@ interface ConsoleArchitectureModalProps {
   onClose: () => void;
 }
 
-type TabType = 'overview' | 'ai-skill' | 'sso' | 'whitelabel' | 'hmac' | 'service-mesh' | 'permissions' | 'connector' | 'quickstart';
+type TabType = 'overview' | 'ai-skill' | 'sso' | 'whitelabel' | 'hmac' | 'service-mesh' | 'event-sync' | 'permissions' | 'connector' | 'quickstart';
 
 export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectureModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -46,6 +46,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
     { id: 'whitelabel', label: 'White-Label Access', icon: ShieldCheck },
     { id: 'hmac', label: 'Inter-Service HMAC', icon: Lock },
     { id: 'service-mesh', label: 'Service Mesh (M2M)', icon: Radio },
+    { id: 'event-sync', label: 'Profile & Membership Sync', icon: Layers },
     { id: 'permissions', label: 'Dynamic Permissions', icon: Zap },
     { id: 'connector', label: 'Billing Connector', icon: Puzzle },
     { id: 'quickstart', label: 'Developer Quickstart', icon: Code2 },
@@ -111,6 +112,7 @@ export default function ConsoleArchitectureModal({ onClose }: ConsoleArchitectur
           {activeTab === 'whitelabel' && <WhitelabelTab />}
           {activeTab === 'hmac' && <HmacTab />}
           {activeTab === 'service-mesh' && <ServiceMeshTab />}
+          {activeTab === 'event-sync' && <EventSyncTab />}
           {activeTab === 'permissions' && <PermissionsTab />}
           {activeTab === 'connector' && <ConnectorTab />}
           {activeTab === 'quickstart' && <QuickstartTab />}
@@ -148,7 +150,7 @@ function OverviewTab() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-2">
           <div className="w-8 h-8 rounded-xl bg-blue-50 text-brand-blue flex items-center justify-center font-bold text-sm">
             1
@@ -176,6 +178,16 @@ function OverviewTab() {
           <h5 className="font-bold text-gray-900 text-xs">Generic Plan Connector</h5>
           <p className="text-[11px] text-gray-500 leading-normal">
             By pointing <code>billingApiUrl</code> to the platform backend, MCOM Solutions discovers and provisions plans with no custom TypeScript connectors.
+          </p>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm space-y-2">
+          <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm">
+            4
+          </div>
+          <h5 className="font-bold text-gray-900 text-xs">Event-Driven Profile & Membership Sync</h5>
+          <p className="text-[11px] text-gray-500 leading-normal">
+            Profile edits fan out as <code>profile.updated</code>; membership purchases, renewals and expiries fan out as <code>membership.updated</code> to the apps bundled in the plan. Apps pull canonical data through the B2B mesh.
           </p>
         </div>
       </div>
@@ -229,6 +241,7 @@ function AiSkillTab() {
     allowWhitelabel: true,
     supportedRoles: ['BUSINESS', 'CUSTOMER'],
     profileSyncEndpoint: 'https://api.sample.mcom.com/webhooks/profile-updated',
+    membershipSyncEndpoint: 'https://api.sample.mcom.com/webhooks/membership-updated',
   });
 
   const handleCopy = () => {
@@ -832,6 +845,140 @@ function ServiceMeshTab() {
   );
 }
 
+function EventSyncTab() {
+  return (
+    <div className="space-y-4">
+      <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+        <h4 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+          <Layers className="w-4 h-4 text-brand-blue" />
+          Event-Driven Profile &amp; Membership Synchronization
+        </h4>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Central is the source of truth for user profiles and memberships. It never pushes a full
+          snapshot. It sends a signed signal to the app, and the app pulls canonical data over the
+          B2B service mesh using an RS256 <code>central:read</code> token. Both streams reuse the
+          same HMAC-signed webhook pipeline, retries and dead-letter queue as lifecycle webhooks.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-100 space-y-2">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-brand-blue" />
+            <span className="font-bold text-gray-900 text-xs">profile.updated</span>
+          </div>
+          <p className="text-[11px] text-blue-900 leading-relaxed">
+            Fired when a business, customer, agent, consultant, account manager or partner edits
+            their profile. Central routes it only to apps that serve that role. The payload carries
+            just <code>userId</code>; the app pulls the canonical profile.
+          </p>
+          <div className="text-[10px] font-mono text-blue-800 bg-white/70 rounded-lg p-2 border border-blue-100">
+            POST /webhooks/profile-updated
+            <br />
+            {`{ "event": "profile.updated", "data": { "userId": "usr_123" } }`}
+          </div>
+        </div>
+
+        <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100 space-y-2">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-emerald-600" />
+            <span className="font-bold text-gray-900 text-xs">membership.updated</span>
+          </div>
+          <p className="text-[11px] text-emerald-900 leading-relaxed">
+            Fired when a business buys, renews, lapses or cancels a membership plan. Central routes
+            it <b>only to apps bundled in that plan</b>, and includes the plan tier plus the app's
+            own package grant.
+          </p>
+          <div className="text-[10px] font-mono text-emerald-800 bg-white/70 rounded-lg p-2 border border-emerald-100">
+            POST /webhooks/membership-updated
+            <br />
+            {`{ "event": "membership.updated", "data": { "membership": { "tier": "Pro+", "status": "active" }, "package": { "externalPlanId": "mall-pro-plus" } } }`}
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+        <h5 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+          <Code2 className="w-4 h-4 text-gray-700" />
+          Membership lifecycle on the app side
+        </h5>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[11px]">
+          <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="font-bold text-gray-900">Purchase</div>
+            <p className="text-gray-500 mt-1">Receive <code>active</code>, activate <code>package.externalPlanId</code> until <code>expiresAt</code>.</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="font-bold text-gray-900">Renewal</div>
+            <p className="text-gray-500 mt-1">Receive <code>active</code> again with a new <code>expiresAt</code>; extend access.</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="font-bold text-gray-900">Lapse</div>
+            <p className="text-gray-500 mt-1">Receive <code>expired</code>; revoke or downgrade to free.</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <div className="font-bold text-gray-900">Cancellation</div>
+            <p className="text-gray-500 mt-1">Receive <code>cancelled</code>; revoke immediately.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="p-4 bg-gray-900 rounded-2xl text-emerald-300 font-mono text-[10px] overflow-x-auto space-y-1">
+          <p className="text-gray-400">// Active membership payload</p>
+          <p>{`{`}</p>
+          <p>{`  "data": {`}</p>
+          <p>{`    "userId": "usr_123", "businessId": "biz_123",`}</p>
+          <p>{`    "membership": {`}</p>
+          <p>{`      "planName": "Gold", "tier": "Pro+",`}</p>
+          <p>{`      "status": "active", "expiresAt": "2027-11-22..."`}</p>
+          <p>{`    },`}</p>
+          <p>{`    "package": {`}</p>
+          <p>{`      "externalPlanId": "mall-pro-plus",`}</p>
+          <p>{`      "limits": { "listings": 500 }`}</p>
+          <p>{`    }`}</p>
+          <p>{`  }`}</p>
+          <p>{`}`}</p>
+        </div>
+
+        <div className="border border-gray-100 rounded-2xl p-4 bg-white shadow-sm space-y-2">
+          <h5 className="font-bold text-gray-900 text-xs">Console settings</h5>
+          <div className="space-y-1.5 text-[11px]">
+            {[
+              ['Roles', 'Roles this app serves (profile routing)'],
+              ['Profile Update Endpoint', 'One URL for profile.updated'],
+              ['Membership Update Endpoint', 'One URL for membership.updated'],
+              ['Service Scopes', 'central:read is added automatically'],
+              ['Allowed Audiences', 'mcom-central is added automatically'],
+              ['Service Mesh Policy', 'Central is allowed as a caller automatically'],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-3 border-b border-gray-100 last:border-0 pb-1.5">
+                <span className="font-bold text-gray-700">{label}</span>
+                <span className="text-gray-500 text-right">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-100 text-[11px] text-blue-900 space-y-1.5">
+        <p className="font-bold flex items-center gap-1.5">
+          <ShieldCheck className="w-3.5 h-3.5" /> Delivery guarantees
+        </p>
+        <p>At-least-once delivery. Deduplicate on <code>data.eventId</code> in both streams.</p>
+        <p>Failures retry with exponential backoff and land in the Console dead-letter queue for replay.</p>
+        <p>Signature is <code>X-Mcom-Webhook-Signature: sha256=&lt;hex&gt;</code> using the app's webhook secret.</p>
+      </div>
+
+      <div className="p-4 bg-emerald-50/70 rounded-xl border border-emerald-100 text-[11px] text-emerald-900">
+        <b>Need copy-pasteable instructions for an app?</b> Open the{' '}
+        <b>🤖 AI Agent Skill / Blueprint</b> tab for the full integration prompt, or the{' '}
+        <b>Service Mesh (M2M)</b> tab for the backend-to-backend skill. Both now include the full
+        <code> membership.updated</code> receiver contract.
+      </div>
+    </div>
+  );
+}
+
 function PermissionsTab() {
   return (
     <div className="space-y-4">
@@ -977,9 +1124,24 @@ function QuickstartTab() {
           </div>
         </div>
 
+        <div className="flex items-start gap-3 p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+          <div className="w-5 h-5 rounded-full bg-brand-blue text-white text-[10px] font-bold flex items-center justify-center mt-0.5">
+            5
+          </div>
+          <div>
+            <p className="font-bold text-gray-900">Wire Profile &amp; Membership Sync</p>
+            <p className="text-gray-500 text-[11px]">
+              In the app's Configuration tab, set a <b>Profile Update Endpoint</b> and a{' '}
+              <b>Membership Update Endpoint</b>. Verify the HMAC signature, dedupe on{' '}
+              <code>data.eventId</code>, and pull canonical data via the B2B mesh. Membership events
+              only arrive for plans that bundle this app.
+            </p>
+          </div>
+        </div>
+
         <div className="flex items-start gap-3 p-3.5 bg-emerald-50 rounded-xl border border-emerald-100">
           <div className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center mt-0.5">
-            5
+            6
           </div>
           <div>
             <p className="font-bold text-gray-900">White-Label Platforms (grant-only)</p>

@@ -554,6 +554,9 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
   const [profileSyncEndpoint, setProfileSyncEndpoint] = useState(
     detail.profileSyncEndpoint ?? '',
   );
+  const [membershipSyncEndpoint, setMembershipSyncEndpoint] = useState(
+    detail.membershipSyncEndpoint ?? '',
+  );
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -588,6 +591,12 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       setError('Profile-update endpoint must be a valid http(s) URL.');
       return;
     }
+    const invalidMembershipEndpoint =
+      membershipSyncEndpoint.trim() && !/^https?:\/\//i.test(membershipSyncEndpoint.trim());
+    if (invalidMembershipEndpoint) {
+      setError('Membership-update endpoint must be a valid http(s) URL.');
+      return;
+    }
     const payload: UpdateAppInput = {
       name: name.trim(),
       description: description.trim() || undefined,
@@ -610,6 +619,7 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
       allowWhitelabel,
       supportedRoles,
       profileSyncEndpoint: profileSyncEndpoint.trim(),
+      membershipSyncEndpoint: membershipSyncEndpoint.trim(),
     };
     try {
       await updateApp.mutateAsync({ clientId: detail.clientId, data: payload });
@@ -858,6 +868,38 @@ function ConfigTab({ detail }: { detail: SsoClientDetail }) {
             the profile via <code>GET /api/v1/ecosystem/profiles/:userId</code> using a B2B service token
             (<code>central:read</code>). Saving here automatically grants that scope, the{' '}
             <code>mcom-central</code> audience, and Central ingress access.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Membership update synchronization ─────────────────────────────── */}
+      <div className="pt-4 border-t border-gray-100 space-y-3">
+        <div>
+          <h5 className="font-bold text-gray-900 text-xs flex items-center gap-2">
+            <Layers className="w-3.5 h-3.5 text-brand-blue" />
+            Membership Synchronization
+          </h5>
+          <p className="text-[10px] text-gray-400 mt-1 max-w-lg">
+            When a business buys a membership plan that bundles this app, Central POSTs a signed{' '}
+            <code>membership.updated</code> event here with the business, plan tier and the package
+            this app should activate for the user. Apps excluded from the plan never receive the event.
+          </p>
+        </div>
+
+        <div className="space-y-2 pt-1">
+          <label className={labelCls}>Membership Update Endpoint</label>
+          <input
+            value={membershipSyncEndpoint}
+            onChange={(e) => setMembershipSyncEndpoint(e.target.value)}
+            className={cn(inputCls, 'font-mono text-xs')}
+            placeholder="https://api.your-app.com/webhooks/membership-updated (blank = no sync)"
+          />
+          <p className="text-[10px] text-gray-400">
+            Payload includes <code>membership</code> (plan, tier, status, expiry) and{' '}
+            <code>package</code> (your plan id, quotas). Use the bundled <code>externalPlanId</code> to
+            activate access locally, or pull the canonical entitlement through the B2B service mesh.
+            Saving here automatically grants <code>central:read</code>, the <code>mcom-central</code>{' '}
+            audience, and Central ingress access.
           </p>
         </div>
       </div>

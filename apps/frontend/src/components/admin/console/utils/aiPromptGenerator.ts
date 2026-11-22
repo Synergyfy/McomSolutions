@@ -38,6 +38,7 @@ export function generateAiIntegrationPrompt(
       ? client.supportedRoles
       : [...CONSOLE_PROFILE_ROLES];
   const profileSyncEndpoint = (client.profileSyncEndpoint ?? '').trim();
+  const membershipSyncEndpoint = (client.membershipSyncEndpoint ?? '').trim();
   const profileSyncRolesDisplay = supportedRoles.length
     ? supportedRoles
         .map((role) => {
@@ -69,7 +70,7 @@ export function generateAiIntegrationPrompt(
   return `---
 name: mcom-ecosystem-integration
 description: Complete executable AI integration skill for ${client.name} with MCOM Solutions Central Hub and Ecosystem Service Mesh${allowWhitelabel ? ' — includes business-only white-label SSO rules (grant-gated, no membership checks)' : ''}
-version: 2.1.0
+version: 2.2.0
 target_platform: ${client.name} (${client.clientId})
 protocol_version: 2026-10-01
 mode: executable-agent-directive
@@ -1147,6 +1148,67 @@ await db.processedEvent.create({ data: { eventId: data.eventId } });
   other roles to it.
 
 
+## 🎟️ PHASE 8: Membership Update Synchronization
+
+When a business buys a membership plan that **bundles this app**, Central provisions the matching
+platform package and POSTs a signed \`membership.updated\` event to the endpoint configured in
+**/admin/console → this app → Configuration → Membership Synchronization**. Apps excluded from the
+purchased plan never receive the event.
+
+${
+  membershipSyncEndpoint
+    ? `**Membership synchronization is enabled.** Events are POSTed to \`${membershipSyncEndpoint}\`.`
+    : `**Membership synchronization is currently disabled for this app** — no membership endpoint is registered in Console. Enable it in **/admin/console → this app → Configuration → Membership Synchronization**.`
+}
+
+### Receive the event
+
+\`POST\` body (signed with \`X-Mcom-Webhook-Signature: sha256=<hex>\` using the app webhook secret):
+
+\`\`\`json
+{
+  "event": "membership.updated",
+  "platform": "${client.platformSlug || client.clientId}",
+  "timestamp": "2026-11-22T10:15:00.000Z",
+  "data": {
+    "eventId": "8f2c1e9a-3b4d-4c5e-9f6a-1d2b3c4e5f60",
+    "occurredAt": "2026-11-22T10:15:00.000Z",
+    "userId": "usr_123",
+    "businessId": "biz_123",
+    "membership": {
+      "planId": "plan_gold",
+      "planName": "Gold",
+      "tier": "Pro+",
+      "level": "Gold",
+      "status": "active",
+      "billingCycle": "Annually",
+      "amount": 249,
+      "currency": "GBP",
+      "startsAt": null,
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    },
+    "package": {
+      "platform": "MCOM Mall",
+      "packageName": "Mall Pro+",
+      "externalPlanId": "mall-pro-plus",
+      "status": "active",
+      "limits": { "listings": 500 },
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    }
+  }
+}
+\`\`\`
+
+### Rules
+- Match \`package.externalPlanId\` (or \`package.packageName\`) to your own plan catalogue and
+  activate that access for \`data.userId\` until \`membership.expiresAt\`.
+- Branch on \`data.membership.status\`: \`active\` grants access, \`expired\` / \`cancelled\` /
+  \`inactive\` revokes it.
+- Delivery is at-least-once — deduplicate on \`data.eventId\`.
+- Need the canonical entitlement view? Pull \`GET /api/v1/ecosystem/profiles/:userId\` with a
+  \`central:read\` service token; the response includes the membership and the app-scoped packages.
+
+
 ## 📋 ACCEPTANCE CHECKLIST & TROUBLESHOOTING
 
 ### Agent Verification Checklist:
@@ -1164,6 +1226,11 @@ ${
   profileSyncEndpoint
     ? `- [ ] Receiver is deployed at \`${profileSyncEndpoint}\`.`
     : '- [ ] Profile sync endpoint is intentionally blank (default) — no receiver required until an admin configures one.'
+}
+${
+  membershipSyncEndpoint
+    ? `- [ ] A \`membership.updated\` receiver is deployed at \`${membershipSyncEndpoint}\` and activates \`package.externalPlanId\` for the user.`
+    : '- [ ] Membership sync endpoint is intentionally blank (default) — configure one if this app is bundled in membership plans.'
 }
 ${
   allowWhitelabel

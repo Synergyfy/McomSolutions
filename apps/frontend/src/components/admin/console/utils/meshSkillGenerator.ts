@@ -35,6 +35,8 @@ export function generateServiceMeshSkillPrompt(
 - **Supported Scopes:** \`${app.serviceScopes?.length ? app.serviceScopes.join(' ') : 'service:read service:write'}\`
 - **Permitted Outbound Targets (Egress):** ${egressText}
 - **Permitted Inbound Callers (Ingress):** ${ingressText}
+- **Profile Sync Receiver:** ${app.profileSyncEndpoint ? `\`${app.profileSyncEndpoint}\`` : 'not configured'}
+- **Membership Sync Receiver:** ${app.membershipSyncEndpoint ? `\`${app.membershipSyncEndpoint}\`` : 'not configured'}
 `;
   }).join('\n');
 
@@ -43,8 +45,8 @@ export function generateServiceMeshSkillPrompt(
 
   return `---
 name: mcom-backend-to-backend-m2m-skill
-description: Comprehensive executable AI integration skill for direct machine-to-machine (M2M) backend communication between registered ecosystem applications, credential protocol rules, and zero-hop service mesh architecture
-version: 2.1.0
+description: Comprehensive executable AI integration skill for direct machine-to-machine (M2M) backend communication between registered ecosystem applications, credential protocol rules, zero-hop service mesh architecture, and event-driven profile/membership synchronization
+version: 2.2.0
 protocol_version: 2026-10-01
 target_role: Full-Stack Engineer / Autonomous AI Coding Agent (Cursor, Copilot, Antigravity, Claude)
 mode: executable-agent-directive
@@ -79,7 +81,7 @@ mode: executable-agent-directive
 | **Client Secret (\`clientSecret\`)** | \`cs_...\` | **App $\\to$ Central Hub** | Used with \`clientId\` to authenticate against MCOM Central for OAuth2 SSO code exchange and **minting RS256 Service Tokens** to talk to other apps. |
 | **System API Key (\`apiKey\`)** | \`ak_...\` | **Central Hub $\\to$ App** | Authorizes MCOM Central when Central calls the app's \`/api/v1/system/plans\` endpoints to read/update pricing tiers. |
 | **HMAC Secret (\`hmacSecret\`)** | \`hm_...\` | **App $\\to$ Central Hub** | Used by your backend to sign synchronous queries to MCOM Central's Data-Sharing API (e.g. checking user ecosystem quota/membership). |
-| **Webhook Secret (\`webhookSecret\`)** | \`wh_...\` | **Central Hub $\\to$ App** | Used strictly to verify HMAC signatures (\`X-Mcom-Webhook-Signature\`) of push notifications sent **from Central Hub to your app's \`webhookUrl\`** (e.g., \`package.created\`, \`package.renewed\`). |
+| **Webhook Secret (\`webhookSecret\`)** | \`wh_...\` | **Central Hub $\\to$ App** | Used strictly to verify HMAC signatures (\`X-Mcom-Webhook-Signature\`) of push notifications sent **from Central Hub to your app's \`webhookUrl\`, profile endpoint and membership endpoint** (e.g., \`package.created\`, \`profile.updated\`, \`membership.updated\`). |
 
 ### 🚫 Why Webhook Keys are NOT Used for App-to-App Communication:
 1. **Webhooks are One-Way Push Notifications from Central Hub:** Webhook secrets are designed so an app knows that a subscription lifecycle event came genuinely from MCOM Central billing, not an attacker.
@@ -495,6 +497,160 @@ Central verifies the token offline via JWKS (issuer \`mcom-solutions\`, audience
 | Service Mesh Policy | Central allows this app as a caller (auto) |
 
 Saving the endpoint in Console provisions the B2B scope, audience and ingress grant automatically.
+
+---
+
+## 🎟️ EVENT-DRIVEN MEMBERSHIP SYNC (CENTRAL → APP → B2B)
+
+Central is the **source of truth** for ecosystem memberships. When a business buys a membership
+plan that bundles this app, Central:
+
+1. Provisions/refreshes a \`PlatformPackage\` for this app with the plan id + tier quotas.
+2. POSTs a signed \`membership.updated\` event to this app's **Membership Update Endpoint**.
+
+When the membership is renewed the same event is sent with \`status: "active"\` and a new expiry.
+When it lapses or is cancelled, Central marks the bundled package \`expired\` and sends
+\`membership.updated\` with \`status: "expired"\` or \`status: "cancelled"\`.
+
+**Only apps included in the purchased plan receive the event.** A Gold Pro+ plan notifies Mall and
+Rewards, never Spin.
+
+### Concrete example: MCOM Mall
+
+\`\`\`
+1. A business buys "Gold Pro+" in Central.
+2. Central resolves the plan's bundled apps: MCOM Mall, MCOM Rewards.
+3. Central upserts the business's Mall package (externalPlanId "mall-pro-plus", 500 listings).
+4. Central POSTs to Mall's membership endpoint:
+      { "event": "membership.updated",
+        "data": { "userId": "...", "membership": { "tier": "Pro+", ... },
+                  "package": { "externalPlanId": "mall-pro-plus", "limits": {...} } } }
+5. Mall verifies the signature, dedupes on data.eventId, maps externalPlanId to its own plan.
+6. Mall activates Mall Pro+ for the user until data.membership.expiresAt.
+7. On lapse/cancel, Mall receives status "expired"/"cancelled" and downgrades the user.
+\`\`\`
+
+### Event contract (Central → Mall)
+
+\`\`\`http
+POST https://api.mcom-mall.com/webhooks/membership-updated
+Content-Type: application/json
+X-Mcom-Webhook-Signature: sha256=<hex>
+\`\`\`
+
+\`\`\`json
+{
+  "event": "membership.updated",
+  "platform": "mcom-mall",
+  "timestamp": "2026-11-22T10:15:00.000Z",
+  "data": {
+    "eventId": "8f2c1e9a-3b4d-4c5e-9f6a-1d2b3c4e5f60",
+    "occurredAt": "2026-11-22T10:15:00.000Z",
+    "userId": "usr_123",
+    "businessId": "biz_123",
+    "membership": {
+      "planId": "plan_gold",
+      "planName": "Gold",
+      "tier": "Pro+",
+      "level": "Gold",
+      "status": "active",
+      "billingCycle": "Annually",
+      "amount": 249,
+      "currency": "GBP",
+      "startsAt": null,
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    },
+    "package": {
+      "platform": "MCOM Mall",
+      "packageName": "Mall Pro+",
+      "externalPlanId": "mall-pro-plus",
+      "status": "active",
+      "limits": { "listings": 500 },
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    }
+  }
+}
+\`\`\`
+
+For an ended membership the same envelope is sent with
+\`data.membership.status = "expired"\` or \`"cancelled"\`, \`data.package.status\` matching and
+\`data.membership.expiresAt = null\`.
+
+- Verify the HMAC with the app's **webhook secret** (or HMAC secret if no webhook secret exists).
+- Delivery is at-least-once — dedupe on \`data.eventId\`.
+- Respond \`2xx\` fast; Central retries with exponential backoff, then dead-letters.
+
+### Handler (Mall backend)
+
+\`\`\`typescript
+app.post('/api/v1/mcom/webhooks/membership-updated', async (req, res) => {
+  const raw = req.rawBody ?? JSON.stringify(req.body);
+  if (!verifyWebhookSignature(raw, req.headers['x-mcom-webhook-signature'] as string, process.env.MCOM_WEBHOOK_SECRET!)) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  const { event, data } = JSON.parse(raw.toString());
+  if (event !== 'membership.updated') return res.json({ received: true });
+
+  // At-least-once delivery: skip replays
+  const seen = await db.webhookEvent.findUnique({ where: { eventId: data.eventId } });
+  if (seen) return res.json({ received: true });
+
+  await db.$transaction(async (tx) => {
+    await tx.webhookEvent.create({ data: { eventId: data.eventId } });
+
+    if (data.membership.status === 'active') {
+      // Map the Central bundle id to YOUR plan and activate it
+      await tx.subscription.upsert({
+        where: { mcomUserId: data.userId },
+        create: {
+          mcomUserId: data.userId,
+          externalPlanId: data.package.externalPlanId,
+          tier: data.membership.tier,
+          status: 'active',
+          limits: data.package.limits,
+          expiresAt: new Date(data.membership.expiresAt),
+        },
+        update: {
+          externalPlanId: data.package.externalPlanId,
+          tier: data.membership.tier,
+          status: 'active',
+          limits: data.package.limits,
+          expiresAt: new Date(data.membership.expiresAt),
+        },
+      });
+    } else {
+      // expired | cancelled | inactive — revoke access
+      await tx.subscription.updateMany({
+        where: { mcomUserId: data.userId },
+        data: { status: data.membership.status, expiresAt: new Date() },
+      });
+    }
+  });
+
+  res.json({ received: true });
+});
+\`\`\`
+
+Need the canonical entitlement view as well? Mint a \`central:read\` service token and call
+\`GET {MCOM_SOLUTIONS_URL}/api/v1/ecosystem/profiles/{userId}\` — the response includes the
+membership and the app-scoped packages.
+
+### Console settings
+
+| Setting | Value |
+|:--|:--|
+| Membership Update Endpoint | One HTTPS endpoint for this app (blank = no membership sync) |
+| Service Access | Enabled (auto) |
+| Service Scopes | includes \`central:read\` (auto) |
+| Allowed Audiences | includes \`mcom-central\` (auto) |
+| Service Mesh Policy | Central allows this app as a caller (auto) |
+
+### Rules
+- Key local access on \`data.userId\` / \`data.businessId\` — never on email.
+- Match \`data.package.externalPlanId\` (or \`packageName\`) to your own catalogue.
+- Branch on \`data.membership.status\`: \`active\` grants, \`expired\`/\`cancelled\`/\`inactive\` revokes.
+- Never trust the amount; Central is the billing source of truth.
 
 ---
 
