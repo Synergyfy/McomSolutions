@@ -10,6 +10,8 @@ import { EcosystemEventsService } from '../ecosystem-events/ecosystem-events.ser
 import { AccountManagerAssignmentService } from '../affiliate/account-manager-assignment.service';
 import { BusinessAcquisitionService } from '../affiliate/business-acquisition.service';
 import { ReferralCommissionService } from '../referrals/referral-commission.service';
+import { MembershipSyncService } from '../membership-sync/membership-sync.service';
+import type { MembershipAppGrant } from '../membership-sync/membership-sync.service';
 import { ReferralCommissionSourceType } from '@prisma/client';
 import { MembershipLevel, MembershipTier, MembershipStatus, Prisma, PlanTier, MembershipPaymentPlan, PaymentPriceMode, GlIntent } from '@prisma/client';
 import {
@@ -100,6 +102,8 @@ export class PricingService {
     private readonly referralCommission?: ReferralCommissionService,
     @Optional()
     private readonly platformSales?: PlatformSalesService,
+    @Optional()
+    private readonly membershipSync?: MembershipSyncService,
   ) {}
 
   private tierMultiplier(tier: string): number {
@@ -612,6 +616,7 @@ export class PricingService {
     const tierQuotas = await this.finalizeMembershipActivation({
       updatedUserId: updated?.userId ?? null,
       businessId,
+      planId: plan.id,
       planName: plan.name,
       tierEntitlements: plan.tierEntitlements,
       includedApps: plan.includedApps,
@@ -685,6 +690,7 @@ export class PricingService {
   private async finalizeMembershipActivation(input: {
     updatedUserId?: string | null;
     businessId: string;
+    planId?: string | null;
     planName: string;
     tierEntitlements: unknown;
     includedApps: unknown;
@@ -697,12 +703,14 @@ export class PricingService {
     const {
       updatedUserId,
       businessId,
+      planId,
       planName,
       tierEntitlements,
       includedApps: rawApps,
       canonicalTier,
       validLevel,
       billing,
+      price,
       expiresAt,
     } = input;
 
@@ -743,6 +751,13 @@ export class PricingService {
 
     // Cross-Platform Multi-App Package Auto-Provisioning
     const includedApps = Array.isArray(rawApps) ? (rawApps as any[]) : [];
+    const packageBillingCycle =
+      canonicalTier === 'Pro+'
+        ? 'Annually'
+        : canonicalTier === 'Pro'
+          ? '180 Days'
+          : '90 Days';
+    const provisionedApps: MembershipAppGrant[] = [];
 
     for (const app of includedApps) {
       const platformName = app.platform || app.platformName || 'MCOM Solutions';
@@ -789,7 +804,7 @@ export class PricingService {
           limits,
           amount: 0,
           currency: 'GBP',
-          billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
+          billingCycle: packageBillingCycle,
           expiresAt,
         },
         update: {
@@ -797,9 +812,37 @@ export class PricingService {
           externalPlanId,
           status: 'active',
           limits,
-          billingCycle: canonicalTier === 'Pro+' ? 'Annually' : canonicalTier === 'Pro' ? '180 Days' : '90 Days',
+          billingCycle: packageBillingCycle,
           expiresAt,
         },
+      });
+
+      provisionedApps.push({
+        platform: platformName,
+        packageName,
+        externalPlanId,
+        limits,
+      });
+    }
+
+    // Tell each bundled app that this business now owns the plan on its
+    // platform. Fire-and-forget: the membership and packages are committed.
+    if (updatedUserId && provisionedApps.length > 0) {
+      void this.membershipSync?.emitMembershipUpdated({
+        userId: updatedUserId,
+        businessId,
+        plan: {
+          id: planId ?? null,
+          name: planName,
+          tier: canonicalTier,
+          level: String(validLevel),
+          status: 'active',
+          billingCycle: packageBillingCycle,
+          amount: price,
+          currency: 'GBP',
+          expiresAt,
+        },
+        apps: provisionedApps,
       });
     }
 
@@ -1011,6 +1054,7 @@ export class PricingService {
     const tierQuotas = await this.finalizeMembershipActivation({
       updatedUserId: result.updated.userId ?? null,
       businessId: business.id,
+      planId: plan.id,
       planName: plan.name,
       tierEntitlements: plan.tierEntitlements,
       includedApps: plan.includedApps,

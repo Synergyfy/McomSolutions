@@ -916,6 +916,8 @@ export interface SsoClientListItem {
   allowWhitelabel?: boolean
   serviceScopes: string[]
   supportedRoles?: string[]
+  profileSyncEndpoint?: string | null
+  membershipSyncEndpoint?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -946,6 +948,7 @@ export interface SsoClientDetail extends SsoClientListItem {
   allowedCallers: string[]
   supportedRoles?: string[]
   profileSyncEndpoint?: string | null
+  membershipSyncEndpoint?: string | null
 }
 
 export interface RegisterAppInput {
@@ -971,6 +974,7 @@ export interface RegisterAppInput {
   allowWhitelabel?: boolean
   supportedRoles?: string[]
   profileSyncEndpoint?: string
+  membershipSyncEndpoint?: string
 }
 
 export type UpdateAppInput = Partial<Omit<RegisterAppInput, 'clientId'>>

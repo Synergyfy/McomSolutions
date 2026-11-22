@@ -608,6 +608,13 @@ model SsoClient {
   // fetches the canonical profile through the B2B service-mesh endpoint.
   profileSyncEndpoint String? @map("profile_sync_endpoint")
 
+  // ── Membership-update synchronization (additive) ────────────────────────
+  // Single endpoint that receives `membership.updated` events whenever a
+  // membership purchase/renewal includes this app in its bundle. Central only
+  // notifies apps whose platform is bundled with the purchased plan, so a
+  // business gets "Gold Pro+" only on the platforms that plan includes.
+  membershipSyncEndpoint String? @map("membership_sync_endpoint")
+
   // ── White-label access (additive) ───────────────────────────────────────
   // When true, this platform only admits businesses that an admin has
   // explicitly granted white-label access to. It bypasses membership and

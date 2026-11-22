@@ -36,6 +36,7 @@ import { BusinessAcquisitionService } from '../affiliate/business-acquisition.se
 import { ReferralCommissionService } from '../referrals/referral-commission.service';
 import { ReferralCommissionSourceType } from '@prisma/client';
 import { normalizePlanTier } from '../pricing/payment-option.util';
+import { MembershipSyncService } from '../membership-sync/membership-sync.service';
 import {
   ChargeEvidence,
   MandatePeriod,
@@ -78,6 +79,7 @@ export class RecurringService {
     @Optional() private readonly businessAcquisition?: BusinessAcquisitionService,
     @Optional() private readonly referralCommission?: ReferralCommissionService,
     @Optional() private readonly platformSales?: PlatformSalesService,
+    @Optional() private readonly membershipSync?: MembershipSyncService,
   ) {
     const stripeKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (stripeKey) {
@@ -936,6 +938,23 @@ export class RecurringService {
     if (!alreadyApplied) {
       if (fresh.scope === RecurringScope.MEMBERSHIP) {
         await this.extendMembership(fresh, periodStart, periodEnd, evidence.amount, providerPaymentId);
+
+        // Provision/refresh the bundled platform packages and tell each
+        // included app that the membership is active for the new term. This
+        // covers first charges and renewals (including reactivation after a
+        // lapse) because recurring memberships bypass the one-time pricing
+        // activation path.
+        void this.membershipSync?.syncActiveMembership({
+          userId: fresh.userId ?? undefined,
+          businessId: fresh.businessId,
+          planId: fresh.membershipPlanId ?? undefined,
+          planName: fresh.membershipPlanName ?? fresh.planName,
+          level: fresh.level ?? undefined,
+          tier: fresh.membershipTier ?? undefined,
+          billingCycle: fresh.billingCycle,
+          amount: evidence.amount,
+          expiresAt: periodEnd,
+        });
       } else {
         await this.extendPlatform(fresh, periodStart, periodEnd, evidence.amount, providerPaymentId);
       }
@@ -1492,6 +1511,21 @@ export class RecurringService {
         where: { id: mandate.businessId, membershipRecurringId: mandate.id },
         data: { membershipStatus: MembershipStatus.inactive },
       });
+
+      // Retire the bundled platform packages and tell every included app that
+      // the membership is over. Cancellations (immediate cancel / provider
+      // deletion) surface as `cancelled`; a lapsed term surfaces as `expired`.
+      void this.membershipSync?.endMembership({
+        userId: mandate.userId ?? undefined,
+        businessId: mandate.businessId,
+        planId: mandate.membershipPlanId ?? undefined,
+        planName: mandate.membershipPlanName ?? mandate.planName,
+        level: mandate.level ?? undefined,
+        tier: mandate.membershipTier ?? undefined,
+        status: /cancel|deleted/i.test(reason) ? 'cancelled' : 'expired',
+        reason,
+      });
+
       await this.notify(
         mandate,
         'Subscription expired',

@@ -129,6 +129,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
   // profile-update endpoint is configured until the app owner supplies one.
   const [supportedRoles, setSupportedRoles] = useState<string[]>([...CONSOLE_PROFILE_ROLES]);
   const [profileSyncEndpoint, setProfileSyncEndpoint] = useState('');
+  const [membershipSyncEndpoint, setMembershipSyncEndpoint] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Auto-slugify helpers
@@ -198,6 +199,9 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
       if (profileSyncEndpoint.trim() && !isValidUrl(profileSyncEndpoint.trim())) {
         return 'The profile-update endpoint must be a valid URL.';
       }
+      if (membershipSyncEndpoint.trim() && !isValidUrl(membershipSyncEndpoint.trim())) {
+        return 'The membership-update endpoint must be a valid URL.';
+      }
     }
     return null;
   };
@@ -247,6 +251,7 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
         allowWhitelabel,
         supportedRoles,
         profileSyncEndpoint: profileSyncEndpoint.trim() || undefined,
+        membershipSyncEndpoint: membershipSyncEndpoint.trim() || undefined,
       });
       onRegistered(result);
     } catch (err: any) {
@@ -662,6 +667,27 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
               </div>
 
               <div className="pt-2 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelCls}>Membership Update Endpoint (Optional)</label>
+                  <span className="text-[10px] font-bold text-gray-400">
+                    {membershipSyncEndpoint.trim() ? 'configured' : 'not configured'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  Receives a signed <code>membership.updated</code> event whenever a purchased
+                  membership plan bundles this app. The payload includes the business, plan tier,
+                  package name and this app&apos;s <code>externalPlanId</code> so access can be
+                  activated locally. Leave blank to disable membership synchronization.
+                </p>
+                <input
+                  value={membershipSyncEndpoint}
+                  onChange={(e) => setMembershipSyncEndpoint(e.target.value)}
+                  placeholder={`https://api.${clientId || 'your-app'}.com/webhooks/membership-updated`}
+                  className={cn(inputCls, 'font-mono')}
+                />
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
                 <label className={labelCls}>MCOM Pay Fee (Optional)</label>
                 <p className="text-[11px] text-gray-500 mb-3">
                   Commission MCOM takes per charge processed through this app. Leave blank to use the platform default.
@@ -813,6 +839,12 @@ export default function RegisterAppModal({ onClose, onRegistered }: RegisterAppM
                     <span>Profile sync endpoint:</span>
                     <span className="font-mono text-gray-800">
                       {profileSyncEndpoint.trim() ? 'Configured' : 'Not configured'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-gray-500 text-[11px]">
+                    <span>Membership sync endpoint:</span>
+                    <span className="font-mono text-gray-800">
+                      {membershipSyncEndpoint.trim() ? 'Configured' : 'Not configured'}
                     </span>
                   </div>
                 </div>

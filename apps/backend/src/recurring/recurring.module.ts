@@ -10,6 +10,7 @@ import { ServiceConnectorsModule } from '../service-connectors/service-connector
 import { PricingModule } from '../pricing/pricing.module';
 import { BusinessAcquisitionModule } from '../affiliate/business-acquisition.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { MembershipSyncModule } from '../membership-sync/membership-sync.module';
 import { RecurringService } from './recurring.service';
 import { RenewalSchedulerService } from './renewal-scheduler.service';
 import { RecurringController } from './recurring.controller';
@@ -27,6 +28,7 @@ import { RecurringAdminController } from './recurring-admin.controller';
     PricingModule,
     BusinessAcquisitionModule,
     ReferralsModule,
+    MembershipSyncModule,
   ],
   controllers: [RecurringController, RecurringAdminController],
   providers: [RecurringService, RenewalSchedulerService],

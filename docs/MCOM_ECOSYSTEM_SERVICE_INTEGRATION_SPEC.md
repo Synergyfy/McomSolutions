@@ -741,6 +741,100 @@ export function verifyWebhookSignature(rawBody: Buffer | string, signatureHeader
 
 ---
 
+### 6.3 Event-Driven Profile & Membership Synchronization (Central → App → B2B pull)
+
+Central is the source of truth for **profiles** and **ecosystem memberships**. Rather than pushing
+full snapshots, Central sends a small signed signal and the app pulls canonical data through the
+B2B service mesh using an RS256 service token (`central:read`, audience `mcom-central`).
+
+Both streams use the same signing, retry and dead-letter pipeline as lifecycle webhooks:
+`X-Mcom-Webhook-Signature: sha256=<hex>` over the raw body, verified with the app's webhook secret.
+Delivery is **at-least-once** — deduplicate on `data.eventId`.
+
+#### Profile updates — `profile.updated`
+
+Sent when a business, customer, agent, consultant, account manager or partner edits their profile.
+Central routes it **only to apps that serve that role** (configured as Roles in Console).
+
+Configure the destination in **Console → App → Configuration → Profile Update Endpoint**.
+
+```json
+{
+  "event": "profile.updated",
+  "platform": "mcom-mall",
+  "timestamp": "2026-11-22T10:15:00.000Z",
+  "data": {
+    "eventId": "4f1c2e8a-8f2b-4a1e-9c3d-2b7e6a1d9f40",
+    "occurredAt": "2026-11-22T10:15:00.000Z",
+    "userId": "usr_123"
+  }
+}
+```
+
+The app then mints a `central:read` token and calls
+`GET /api/v1/ecosystem/profiles/{userId}` for the canonical identity + role profile.
+
+#### Membership updates — `membership.updated`
+
+Sent when a business **buys, renews, lapses or cancels** a membership plan.
+
+- Central provisions/refreshes the bundled `PlatformPackage` for each included app.
+- The event is delivered **only to apps bundled in that plan** — a Gold Pro+ plan never touches an
+  app it does not include.
+- Expiry/cancellation marks the bundled package `expired` and sends `status: "expired"` or
+  `status: "cancelled"`.
+
+Configure the destination in **Console → App → Configuration → Membership Synchronization →
+Membership Update Endpoint**.
+
+```json
+{
+  "event": "membership.updated",
+  "platform": "mcom-mall",
+  "timestamp": "2026-11-22T10:15:00.000Z",
+  "data": {
+    "eventId": "8f2c1e9a-3b4d-4c5e-9f6a-1d2b3c4e5f60",
+    "occurredAt": "2026-11-22T10:15:00.000Z",
+    "userId": "usr_123",
+    "businessId": "biz_123",
+    "membership": {
+      "planId": "plan_gold",
+      "planName": "Gold",
+      "tier": "Pro+",
+      "level": "Gold",
+      "status": "active",
+      "billingCycle": "Annually",
+      "amount": 249,
+      "currency": "GBP",
+      "startsAt": null,
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    },
+    "package": {
+      "platform": "MCOM Mall",
+      "packageName": "Mall Pro+",
+      "externalPlanId": "mall-pro-plus",
+      "status": "active",
+      "limits": { "listings": 500 },
+      "expiresAt": "2027-11-22T00:00:00.000Z"
+    }
+  }
+}
+```
+
+#### App-side handling rules
+
+1. Verify the HMAC signature before parsing.
+2. Deduplicate on `data.eventId` (at-least-once).
+3. Match `data.package.externalPlanId` (or `packageName`) to the app's own plan catalogue.
+4. On `membership.status === 'active'`, grant the plan until `membership.expiresAt`.
+5. On `expired` / `cancelled` / `inactive`, revoke or downgrade immediately.
+6. Key local rows on `data.userId` / `data.businessId` — never on email.
+
+Saving either endpoint in Console automatically grants `central:read`, the `mcom-central`
+audience, service access, and Central ingress for the app.
+
+---
+
 ## 7. Edge Cases & Reliability Checklist
 
 | Issue / Scenario | Mitigation Strategy |
@@ -766,6 +860,8 @@ Before shipping your integration to Staging or Production, ensure your team has 
 - [ ] Stripe Elements modal allows successful test card checkout in your native frontend.
 - [ ] Purchases create a `PlatformPackage` in Central and flip `canAccess_<slug>` to `true`.
 - [ ] `/api/v1/mcom/webhook` verifies `X-Mcom-Webhook-Signature` and updates local quotas on `package.created`.
+- [ ] Profile endpoint verifies the signature, dedupes on `data.eventId`, and pulls `/api/v1/ecosystem/profiles/:userId`.
+- [ ] Membership endpoint activates `package.externalPlanId` on `active` and revokes on `expired`/`cancelled`.
 - [ ] Token refresh flow recovers gracefully from expired access tokens without logging the user out.
 
 ---

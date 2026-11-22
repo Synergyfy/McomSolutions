@@ -8,6 +8,7 @@ import { NotificationService } from '../notification/notification.service';
 import { ServiceConnectorsService } from '../service-connectors/service-connectors.service';
 import { PricingService } from '../pricing/pricing.service';
 import { RedisService } from '../redis/redis.service';
+import { MembershipSyncService } from '../membership-sync/membership-sync.service';
 import {
   RecurringChargeStatus,
   RecurringProvider,
@@ -102,6 +103,10 @@ describe('RecurringService', () => {
   const mockNotifications = { createNotification: jest.fn().mockResolvedValue({}) };
   const mockConnectors = { getPlanById: jest.fn().mockResolvedValue(null) };
   const mockPricing = { resolveMembershipCharge: jest.fn() };
+  const mockMembershipSync = {
+    endMembership: jest.fn().mockResolvedValue(undefined),
+    syncActiveMembership: jest.fn().mockResolvedValue(undefined),
+  };
   const mockConfig = {
     get: jest.fn((key: string) => {
       const values: Record<string, any> = {
@@ -140,6 +145,7 @@ describe('RecurringService', () => {
         { provide: NotificationService, useValue: mockNotifications },
         { provide: ServiceConnectorsService, useValue: mockConnectors },
         { provide: PricingService, useValue: mockPricing },
+        { provide: MembershipSyncService, useValue: mockMembershipSync },
         { provide: RedisService, useValue: { setNx: jest.fn(), del: jest.fn() } },
       ],
     }).compile();
@@ -273,6 +279,27 @@ describe('RecurringService', () => {
     expect(mockWebhook.dispatchPackageEvent).toHaveBeenCalledWith(
       'package.expired',
       expect.objectContaining({ platform: 'mall' }),
+    );
+  });
+
+  it('retires bundled packages and emits membership.updated on membership expiry', async () => {
+    await service.expireMandate('m1', 'term ended');
+
+    expect(mockMembershipSync.endMembership).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: 'b1',
+        planId: 'gold',
+        planName: 'Gold',
+        status: 'expired',
+      }),
+    );
+  });
+
+  it('marks immediate cancellations as cancelled in the membership event', async () => {
+    await service.expireMandate('m1', 'Canceled by request');
+
+    expect(mockMembershipSync.endMembership).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'cancelled' }),
     );
   });
 });
