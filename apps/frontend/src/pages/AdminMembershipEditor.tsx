@@ -102,6 +102,15 @@ function normalizeTierLabel(value?: string | null): TierName | null {
   return null;
 }
 
+/**
+ * Platform names are inconsistent across sources: console apps register as
+ * `mcom mall`, while older bundles were saved as `MCOM Mall`. Comparing their
+ * normalised form keeps the "one plan per platform" rule reliable.
+ */
+function platformKey(value?: string | null): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 const EMPTY_TIER_ENTITLEMENTS: Record<TierKey, TierEntitlementInput[]> = {
   Standard: [],
   Pro: [],
@@ -277,17 +286,22 @@ export default function AdminMembershipEditor() {
     () => (consoleApps ?? []).filter((app) => app.allowWhitelabel && app.isActive),
     [consoleApps],
   );
-  const { data: externalPlansRes } = useExternalPlans(selectedBundlePlatform);
+  const { data: externalPlansRes, isLoading: externalPlansLoading, isError: externalPlansError } =
+    useExternalPlans(selectedBundlePlatform);
   const availablePlansForPlatform = useMemo(() => {
     const extPlans = (externalPlansRes as any)?.data ?? [];
     return extPlans.map((ep: any) => ({ id: ep.id, name: ep.name, price: ep.tierPrices?.Standard ?? ep.monthlyPrice ?? 0 }));
   }, [externalPlansRes]);
 
   // One bundled plan per platform — platforms already in the bundle are hidden
-  // from the picker until their existing entry is removed.
-  const bundledPlatforms = useMemo(() => new Set(includedApps.map((a) => a.platform)), [includedApps]);
+  // from the picker until their existing entry is removed. Platform names are
+  // normalised so legacy `MCOM Mall` entries also block `mcom mall`.
+  const bundledPlatforms = useMemo(
+    () => new Set(includedApps.map((a) => platformKey(a.platform))),
+    [includedApps],
+  );
   const availableBundlePlatforms = useMemo(
-    () => platforms.filter((p) => !bundledPlatforms.has(p.name)),
+    () => platforms.filter((p) => !bundledPlatforms.has(platformKey(p.name))),
     [platforms, bundledPlatforms],
   );
 
@@ -344,7 +358,19 @@ export default function AdminMembershipEditor() {
 
     const rawTiers = Array.isArray((src as any).tiers) ? ((src as any).tiers as any[]) : [];
     setPreservedEntitlements(collectTierEntitlements(rawTiers, src.tierEntitlements));
-    setIncludedApps(src.includedApps || []);
+    // Relational `appBundles` rows are the source of truth; the JSON mirror is
+    // kept for older readers, so fall back to it when the mirror is missing
+    // (for example after a partial migration).
+    const jsonBundles = Array.isArray(src.includedApps) ? src.includedApps : [];
+    setIncludedApps(
+      jsonBundles.length > 0
+        ? jsonBundles
+        : (src.appBundles ?? []).map((bundle) => ({
+            platform: bundle.platform,
+            planId: bundle.externalPlanId ?? '',
+            planName: bundle.packageName,
+          })),
+    );
     const legacyFree = Number((src as any).freeDelegatedTasks ?? 0);
     const legacyUnlimited = Boolean((src as any).unlimitedFreeDelegatedTasks);
     setTierDelegation(
@@ -446,16 +472,21 @@ export default function AdminMembershipEditor() {
       current[clientId] ? { ...current, [clientId]: [...TIER_KEYS] } : current,
     );
 
-  const addBundledApp = () => {
-    if (!selectedBundlePlanId || !selectedBundlePlatform) return;
-    if (bundledPlatforms.has(selectedBundlePlatform)) {
+  const addBundledApp = (): boolean => {
+    if (!selectedBundlePlanId || !selectedBundlePlatform) return false;
+    if (bundledPlatforms.has(platformKey(selectedBundlePlatform))) {
       setFormError(
         `Only one plan per platform is allowed. Remove the existing ${selectedBundlePlatform} bundle before adding another.`,
       );
-      return;
+      return false;
     }
     const planObj = availablePlansForPlatform.find((p: any) => p.id === selectedBundlePlanId);
-    if (!planObj) return;
+    if (!planObj) {
+      setFormError(
+        `The selected ${selectedBundlePlatform} plan could not be found. Refresh the plan list and try again.`,
+      );
+      return false;
+    }
     setFormError(null);
     setIncludedApps([
       ...includedApps,
@@ -463,6 +494,7 @@ export default function AdminMembershipEditor() {
     ]);
     setSelectedBundlePlatform('');
     setSelectedBundlePlanId('');
+    return true;
   };
 
   const handleSave = () => {
@@ -541,6 +573,18 @@ export default function AdminMembershipEditor() {
       setShowErrors(true);
       setFormError(step === 0 ? basicsError : pricingError);
       return;
+    }
+    if (step === 3) {
+      // Treat a fully chosen platform + plan as an implicit "Add to bundle".
+      // Previously the selection was silently dropped by Continue, so admins
+      // could save a membership believing the visible plan had been attached.
+      if (selectedBundlePlatform && selectedBundlePlanId) {
+        if (!addBundledApp()) return;
+      } else if (selectedBundlePlatform || selectedBundlePlanId) {
+        setShowErrors(true);
+        setFormError('Choose both a platform and a plan, or clear the selection, before continuing.');
+        return;
+      }
     }
     setFormError(null);
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
@@ -1058,24 +1102,42 @@ export default function AdminMembershipEditor() {
                     id="bundle-plan"
                     value={selectedBundlePlanId}
                     onChange={(e) => setSelectedBundlePlanId(e.target.value)}
-                    disabled={!selectedBundlePlatform}
+                    disabled={!selectedBundlePlatform || externalPlansLoading}
                     className={cn(inputClass, 'bg-white disabled:opacity-50')}
                   >
-                    <option value="">Choose plan…</option>
+                    <option value="">
+                      {externalPlansLoading ? 'Loading plans…' : 'Choose plan…'}
+                    </option>
                     {availablePlansForPlatform.map((p: any) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
+                  {selectedBundlePlatform && externalPlansError && (
+                    <p className="text-xs sm:text-sm font-semibold text-red-600 mt-1.5">
+                      Could not load plans for {selectedBundlePlatform}. Check the platform is online and has a billing API URL in Console.
+                    </p>
+                  )}
+                  {selectedBundlePlatform && !externalPlansLoading && !externalPlansError && availablePlansForPlatform.length === 0 && (
+                    <p className="text-xs sm:text-sm font-semibold text-amber-600 mt-1.5">
+                      This platform has no plans yet. Create one in the Packages tab first.
+                    </p>
+                  )}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={addBundledApp}
-                disabled={!selectedBundlePlanId}
+                disabled={!selectedBundlePlatform || !selectedBundlePlanId}
                 className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold disabled:opacity-40 min-h-[48px] flex items-center justify-center gap-2"
               >
                 <Plus className="w-4 h-4" /> Add to bundle
               </button>
+              {selectedBundlePlatform && selectedBundlePlanId && (
+                <p className="text-xs sm:text-sm font-semibold text-amber-600 flex items-start gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  This plan is not in the bundle yet — click “Add to bundle”. Continuing will add it automatically.
+                </p>
+              )}
               {includedApps.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">No bundled apps yet.</p>
               ) : (
@@ -1085,6 +1147,11 @@ export default function AdminMembershipEditor() {
                       <span className="text-sm font-bold text-gray-800 flex items-center gap-1.5 min-w-0">
                         <Layers className="w-4 h-4 text-brand-blue shrink-0" />
                         <span className="truncate"><span className="text-brand-blue">{app.platform}:</span> {app.planName}</span>
+                        {!app.planId && (
+                          <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
+                            Missing plan reference
+                          </span>
+                        )}
                       </span>
                       <button
                         type="button"
