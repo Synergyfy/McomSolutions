@@ -10,6 +10,7 @@ import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
 import LegalPage from './pages/LegalPage';
 import MembershipPage from './pages/MembershipPage';
+import AccessPassesPage from './pages/AccessPassesPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
@@ -182,6 +183,14 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <MembershipPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/access-passes" 
+            element={
+              <PageWrapper>
+                <AccessPassesPage />
               </PageWrapper>
             } 
           />

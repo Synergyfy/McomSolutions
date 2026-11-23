@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Menu, X, ChevronDown, LayoutGrid, LogOut } from 'lucide-react';
+import { Menu, X, ChevronDown, LayoutGrid, LogOut, Ticket } from 'lucide-react';
 import { PRODUCTS } from '../constants';
 import { cn } from '../lib/utils';
 import { getAuthUserDisplay, readStoredAuthUser, type StoredAuthUser } from '../lib/authUser';
@@ -26,6 +26,23 @@ export default function Navbar() {
   const mobileShortcuts: UserShortcut[] = authUser
     ? getUserShortcuts(authUser.role)
     : [{ label: 'Dashboard', description: 'Your workspace', to: '/dashboard', icon: LayoutGrid }];
+
+  const planLinks = [
+    {
+      label: 'Membership',
+      description: 'Plans & subscriptions',
+      to: '/membership',
+      icon: LayoutGrid,
+      iconClass: 'bg-purple-100 text-purple-600',
+    },
+    {
+      label: 'Access Pass',
+      description: 'One-off platform passes',
+      to: '/access-passes',
+      icon: Ticket,
+      iconClass: 'bg-orange-100 text-orange-600',
+    },
+  ];
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -127,17 +144,25 @@ export default function Navbar() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute top-full left-1/2 -translate-x-1/2 w-56 glass rounded-2xl shadow-2xl p-3 mt-2"
+                  className="absolute top-full left-1/2 -translate-x-1/2 w-64 glass rounded-2xl shadow-2xl p-3 mt-2"
                 >
-                  <Link to={isLoggedIn ? "/membership" : "/register"} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item">
-                    <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
-                      <LayoutGrid className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">{isLoggedIn ? 'Membership' : 'Join and choose a plan'}</div>
-                      <div className="text-xs text-gray-500">{isLoggedIn ? 'Plans & subscriptions' : 'Sign up, then select a tier'}</div>
-                    </div>
-                  </Link>
+                  {planLinks.map((link) => (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group/item"
+                    >
+                      <div className={cn('p-2 rounded-lg', link.iconClass)}>
+                        <link.icon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900 group-hover/item:text-brand-blue transition-colors text-sm">
+                          {link.label}
+                        </div>
+                        <div className="text-xs text-gray-500">{link.description}</div>
+                      </div>
+                    </Link>
+                  ))}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -227,17 +252,22 @@ export default function Navbar() {
               <div>
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2.5">Plans</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Link 
-                    to={isLoggedIn ? "/membership" : "/register"}
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
-                  >
-                    <div className="p-2 rounded-lg bg-purple-100 text-purple-600 shrink-0"><LayoutGrid className="w-4 h-4" /></div>
-                    <div>
-                      <span className="text-gray-900 block">{isLoggedIn ? 'Membership' : 'Join and choose a plan'}</span>
-                      <span className="text-xs text-gray-500 block">{isLoggedIn ? 'Plans & subscriptions' : 'Sign up, then select a tier'}</span>
-                    </div>
-                  </Link>
+                  {planLinks.map((link) => (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      onClick={() => setIsOpen(false)}
+                      className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors font-medium text-sm"
+                    >
+                      <div className={cn('p-2 rounded-lg shrink-0', link.iconClass)}>
+                        <link.icon className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-gray-900 block">{link.label}</span>
+                        <span className="text-xs text-gray-500 block">{link.description}</span>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
               </div>
               <div className="pt-2">
