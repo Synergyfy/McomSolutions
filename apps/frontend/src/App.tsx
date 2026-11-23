@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+import SupportPage from './pages/SupportPage';
 import LegalPage from './pages/LegalPage';
 import MembershipPage from './pages/MembershipPage';
 import AccessPassesPage from './pages/AccessPassesPage';
@@ -169,6 +171,22 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <AboutPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/contact" 
+            element={
+              <PageWrapper>
+                <ContactPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/support" 
+            element={
+              <PageWrapper>
+                <SupportPage />
               </PageWrapper>
             } 
           />
