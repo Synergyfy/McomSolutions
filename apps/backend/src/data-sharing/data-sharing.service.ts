@@ -2,9 +2,116 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculatePermissions } from './permissions.util';
 
+/**
+ * Flat snapshot of the UK geographic hierarchy. Ecosystem apps mirror this
+ * locally so they resolve the exact same cities, boroughs, high streets and
+ * local malls that Central Hub assigns to profiles.
+ */
+export interface GeographySnapshot {
+  version: number;
+  generatedAt: string;
+  cities: Array<{
+    id: string;
+    name: string;
+    region: string | null;
+    country: string;
+    gssCode: string | null;
+  }>;
+  boroughs: Array<{
+    id: string;
+    cityId: string | null;
+    name: string;
+    gssCode: string | null;
+  }>;
+  highStreets: Array<{
+    id: string;
+    cityId: string | null;
+    boroughId: string | null;
+    name: string;
+    borough: string;
+    lat: number | null;
+    lng: number | null;
+    gssCode: string | null;
+  }>;
+  localMalls: Array<{
+    id: string;
+    cityId: string | null;
+    boroughId: string | null;
+    highStreetId: string | null;
+    name: string;
+    slug: string;
+    borough: string;
+    postcodes: string[];
+    status: string;
+  }>;
+}
+
+const GEOGRAPHY_SNAPSHOT_VERSION = 1;
+
 @Injectable()
 export class DataSharingService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Read-only geography snapshot for ecosystem apps.
+   *
+   * Kept deliberately flat: consumers persist it in their own tables and build
+   * the tree themselves, so a parent id never has to be resolved over HTTP.
+   */
+  async getGeographySnapshot(): Promise<GeographySnapshot> {
+    const [cities, boroughs, highStreets, localMalls] = await Promise.all([
+      this.prisma.city.findMany({
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          region: true,
+          country: true,
+          gssCode: true,
+        },
+      }),
+      this.prisma.borough.findMany({
+        orderBy: { name: 'asc' },
+        select: { id: true, cityId: true, name: true, gssCode: true },
+      }),
+      this.prisma.highStreet.findMany({
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          cityId: true,
+          boroughId: true,
+          name: true,
+          borough: true,
+          lat: true,
+          lng: true,
+          gssCode: true,
+        },
+      }),
+      this.prisma.localMall.findMany({
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          cityId: true,
+          boroughId: true,
+          highStreetId: true,
+          name: true,
+          slug: true,
+          borough: true,
+          postcodes: true,
+          status: true,
+        },
+      }),
+    ]);
+
+    return {
+      version: GEOGRAPHY_SNAPSHOT_VERSION,
+      generatedAt: new Date().toISOString(),
+      cities,
+      boroughs,
+      highStreets,
+      localMalls,
+    };
+  }
 
   async getUserContext(email?: string, userId?: string) {
     if (!email && !userId) {
