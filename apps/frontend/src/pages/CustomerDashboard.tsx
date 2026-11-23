@@ -4,23 +4,26 @@ import {
   Check, CheckCheck, ChevronDown, ChevronLeft, Compass, Copy, ExternalLink, Eye, EyeOff,
   Filter, Gamepad2, Gift, Globe2, Grid2X2, Headphones, Home, KeyRound, Link2, LogOut,
   Mail, MapPin, MessageCircle, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PiggyBank,
-  Plus, Search, Send, Settings, Share2, ShieldCheck, SlidersHorizontal, Smile, Ticket, UserRound, WalletCards, X,
+  Plus, Search, Send, Settings, Share2, ShieldCheck, SlidersHorizontal, Smile, Store, Ticket, UserRound, WalletCards, X,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CHSLogo from '../components/CHSLogo';
 import DashboardAllProducts from '../components/DashboardAllProducts';
 import DashboardMessages from '../components/DashboardMessages';
 import DashboardWallet from '../components/DashboardWallet';
+import LocalMallPanel from '../components/LocalMallPanel';
 import ReferralEarningsCard from '../components/ReferralEarningsCard';
 import { useLogout, useCurrentUser } from '../services/auth/hooks';
 import { useMyWallet, useWalletTransactions } from '../services/wallet/hooks';
 import { useEcosystemApps } from '../services/business/hooks';
+import type { MyLocalMallOverview } from '../services/local-mall';
 import { CUSTOMER_CONVERSATIONS, CUSTOMER_NOTIFICATIONS, OLDER_CUSTOMER_NOTIFICATIONS, CUSTOMER_PREVIEW, CUSTOMER_PRODUCTS, CUSTOMER_TRANSACTIONS, type CustomerPreviewConversation, type CustomerPreviewNotification } from '../data/customerDashboardMock';
 
-type CustomerPage = 'overview' | 'ecosystem' | 'wallet' | 'messages' | 'notifications' | 'settings' | 'profile';
+type CustomerPage = 'overview' | 'local-mall' | 'ecosystem' | 'wallet' | 'messages' | 'notifications' | 'settings' | 'profile';
 
 const NAV_ITEMS: { id: CustomerPage; label: string; icon: typeof Home }[] = [
   { id: 'overview', label: 'Overview', icon: Home },
+  { id: 'local-mall', label: 'Local Mall', icon: Store },
   { id: 'ecosystem', label: 'MCOM Ecosystem', icon: Grid2X2 },
   { id: 'wallet', label: 'My Wallet', icon: WalletCards },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
@@ -31,12 +34,37 @@ const MOBILE_NAV_ITEMS = NAV_ITEMS.filter(({ id }) => id !== 'settings');
 
 const PAGE_TITLES: Record<CustomerPage, { title: string; subtitle: string }> = {
   overview: { title: 'Your CHS workspace', subtitle: 'Your wallet, connected apps, and messages in one place.' },
+  'local-mall': { title: 'Your Local Mall', subtitle: 'The city, borough, high street and local mall your postcode belongs to.' },
   ecosystem: { title: 'MCOM Ecosystem', subtitle: 'Discover and open the MCOM apps connected to your account.' },
   wallet: { title: 'My Wallet', subtitle: 'Check your balance, add funds, and review transactions.' },
   messages: { title: 'Messages & Support', subtitle: 'Talk with CHS support and your connected businesses.' },
   notifications: { title: 'Notifications Center', subtitle: 'Stay up to date with activity across your CHS and MCOM accounts.' },
   settings: { title: 'Settings & Security', subtitle: 'Manage your customer account and sign-in details.' },
   profile: { title: 'Customer Profile', subtitle: 'Your master customer identity and account details.' },
+};
+
+/** Dev-preview snapshot so the local mall page is demonstrable without a live backend. */
+const CUSTOMER_PREVIEW_LOCAL_MALL: MyLocalMallOverview = {
+  assigned: true,
+  role: 'CUSTOMER',
+  postcode: '3DZDS34',
+  city: { id: 'preview-city', name: 'London' },
+  borough: { id: 'preview-borough', name: 'Westminster' },
+  highStreet: { id: 'preview-street', name: 'Buckingham Gate' },
+  localMall: {
+    id: 'preview-mall',
+    name: 'Westminster Local Mall',
+    slug: 'westminster-local-mall',
+    status: 'Active',
+    postcodes: ['3DZDS34'],
+  },
+  locationAssignedAt: new Date().toISOString(),
+  partners: [
+    { id: 'p1', businessName: 'Cedar Fitness Studio', logoUrl: null, category: 'Fitness', industry: null, membershipTier: 'Pro+' },
+    { id: 'p2', businessName: 'London Fashion Hub', logoUrl: null, category: 'Retail', industry: null, membershipTier: 'Normal' },
+    { id: 'p3', businessName: 'Westminster Bakery', logoUrl: null, category: 'Food & Drink', industry: null, membershipTier: 'Normal' },
+  ],
+  partnerCount: 3,
 };
 
 export default function CustomerDashboard() {
@@ -210,6 +238,9 @@ export default function CustomerDashboard() {
           {customerPreview ? (
             <>
               {page === 'overview' && <PreviewOverview balance={previewBalance} onNavigate={goTo} />}
+              {page === 'local-mall' && (
+                <LocalMallPanel previewData={CUSTOMER_PREVIEW_LOCAL_MALL} profileHref="/customer/profile" profileLabel="Update postcode" />
+              )}
               {page === 'ecosystem' && <PreviewEcosystem />}
               {page === 'wallet' && <PreviewWallet balance={previewBalance} onBalanceChange={setPreviewBalance} />}
               {page === 'messages' && <PreviewMessages />}
@@ -226,7 +257,9 @@ export default function CustomerDashboard() {
               onNavigate={goTo}
             />
           ) : page === 'ecosystem' ? <DashboardAllProducts initialFilter="mcom" initialSearch={search} />
-            : page === 'wallet' ? <DashboardWallet />
+            : page === 'local-mall' ? (
+              <LocalMallPanel profileHref="/customer/profile" profileLabel="Update postcode" />
+            ) : page === 'wallet' ? <DashboardWallet />
               : page === 'messages' ? <DashboardMessages />
                 : page === 'notifications' ? <CustomerNotifications preview={customerPreview} onNavigate={goTo} notifications={customerNotifications} setNotifications={setCustomerNotifications} />
                   : page === 'profile' ? <CustomerProfile customer={customer} preview={customerPreview} onNavigate={goTo} onProfileChange={setProfileOverride} />
@@ -234,7 +267,7 @@ export default function CustomerDashboard() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden" aria-label="Mobile customer navigation">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-slate-200 bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur lg:hidden" aria-label="Mobile customer navigation">
         {MOBILE_NAV_ITEMS.map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => goTo(id)} aria-label={label} aria-current={page === id || (page === 'profile' && id === 'settings') ? 'page' : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium ${page === id || (page === 'profile' && id === 'settings') ? 'text-orange-700' : 'text-slate-500'}`}>
             <Icon className="h-5 w-5" />

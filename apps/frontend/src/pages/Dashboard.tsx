@@ -5,7 +5,7 @@ import CHSLogo from '../components/CHSLogo';
 import {
   Search, Bell, Settings, Grid, LogOut, Menu, X,
   LayoutDashboard, HelpCircle, CreditCard,
-  Wallet, Building2, ShieldCheck,
+  Wallet, Building2, ShieldCheck, Store,
   User, Users, ChevronDown, ExternalLink, MoreHorizontal, MessageSquare, Ticket, KeyRound, UserCog, ClipboardList
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -20,6 +20,7 @@ import TaskComposer from '../components/task-composer/TaskComposer';
 
 import DashboardOverview from '../components/DashboardOverview';
 import DashboardAllProducts from '../components/DashboardAllProducts';
+import LocalMallPanel from '../components/LocalMallPanel';
 import DashboardBilling from '../components/DashboardBilling';
 import DashboardBusinessProfile from '../components/DashboardBusinessProfile';
 import DashboardAccess from '../components/DashboardAccess';
@@ -34,7 +35,7 @@ import VerificationPaymentModal from '../components/payment/VerificationPaymentM
 import { apiClient } from '../services/api';
 
 const DASHBOARD_TABS = [
-  'overview', 'all-products', 'access', 'access-passes', 'notifications', 'messages',
+  'overview', 'local-mall', 'all-products', 'access', 'access-passes', 'notifications', 'messages',
   'account-manager', 'tasks',
   'memberships', 'billing', 'business-profile',
   'referrals', 'support', 'settings', 'wallet', 'coupons',
@@ -195,6 +196,7 @@ export default function Dashboard() {
 
         <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto scrollbar-hide">
           <NavItem icon={LayoutDashboard} label="Overview" active={activeTab === 'overview'} onClick={() => handleNav('overview')} />
+          <NavItem icon={Store} label="Local Mall" active={activeTab === 'local-mall'} onClick={() => handleNav('local-mall')} />
           <NavItem icon={Grid} label="All Products" active={activeTab === 'all-products'} onClick={() => handleNav('all-products')} />
           <NavItem icon={ShieldCheck} label="Access & Limits" active={activeTab === 'access'} onClick={() => handleNav('access')} />
           <NavItem icon={Bell} label="Notifications" active={activeTab === 'notifications'} onClick={() => handleNav('notifications')} />
@@ -456,6 +458,12 @@ export default function Dashboard() {
                 )
               )}
               {activeTab === 'all-products' && <DashboardAllProducts />}
+              {activeTab === 'local-mall' && (
+                <LocalMallPanel
+                  profileHref="/dashboard/business-profile"
+                  profileLabel="Update business postcode"
+                />
+              )}
               {activeTab === 'access' && <DashboardAccess />}
               {activeTab === 'access-passes' && <DashboardAccessPasses />}
               {activeTab === 'notifications' && <DashboardNotifications />}
@@ -541,6 +549,7 @@ export default function Dashboard() {
                     <SheetItem icon={UserCog} label="Manager" active={activeTab === 'account-manager'} onClick={() => handleNav('account-manager')} />
                     <SheetItem icon={ClipboardList} label="Tasks" active={activeTab === 'tasks'} onClick={() => handleNav('tasks')} />
                     <SheetItem icon={HelpCircle} label="Support" active={activeTab === 'support'} onClick={() => handleNav('support')} />
+                    <SheetItem icon={Store} label="Local Mall" active={activeTab === 'local-mall'} onClick={() => handleNav('local-mall')} />
                   </div>
                 </div>
                 <div>

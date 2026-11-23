@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { businessApi } from './index';
 import { apiClient } from '../api';
+import { localMallQueryKeys } from '../local-mall/hooks';
 import type { CreateSupportTicket } from '../../types/contracts';
 
 export const useProfile = (enabled = true) => {
@@ -43,6 +44,10 @@ export const useUpdateProfile = () => {
     mutationFn: (updates: any) => businessApi.updateProfile(updates),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
+      // A postcode change (re)assigns city → borough → high street → local mall
+      // on the server, so the local mall card must not keep serving the old
+      // "not assigned" payload.
+      queryClient.invalidateQueries({ queryKey: localMallQueryKeys.all });
     },
   });
 };
