@@ -8,8 +8,11 @@ import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+import SupportPage from './pages/SupportPage';
 import LegalPage from './pages/LegalPage';
 import MembershipPage from './pages/MembershipPage';
+import AccessPassesPage from './pages/AccessPassesPage';
 import LoginPage from './pages/LoginPage';
 import CheckoutPage from './pages/CheckoutPage';
 import PayPalReturnPage from './pages/PayPalReturnPage';
@@ -171,6 +174,22 @@ function AnimatedRoutes() {
               </PageWrapper>
             } 
           />
+          <Route 
+            path="/contact" 
+            element={
+              <PageWrapper>
+                <ContactPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/support" 
+            element={
+              <PageWrapper>
+                <SupportPage />
+              </PageWrapper>
+            } 
+          />
           <Route path="/terms" element={<PageWrapper><LegalPage type="terms" /></PageWrapper>} />
           <Route path="/privacy" element={<PageWrapper><LegalPage type="privacy" /></PageWrapper>} />
           <Route 
@@ -182,6 +201,14 @@ function AnimatedRoutes() {
             element={
               <PageWrapper>
                 <MembershipPage />
+              </PageWrapper>
+            } 
+          />
+          <Route 
+            path="/access-passes" 
+            element={
+              <PageWrapper>
+                <AccessPassesPage />
               </PageWrapper>
             } 
           />
