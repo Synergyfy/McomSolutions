@@ -10,10 +10,12 @@ import { TaskEventProcessor } from './task-event.processor';
 import { TaskRewardProcessor } from './task-reward.processor';
 import { TaskCouponProcessor } from './task-coupon.processor';
 import { CouponModule } from '../coupon/coupon.module';
+import { ProgrammeModule } from '../programme/programme.module';
 
 @Module({
   imports: [
     PrismaModule,
+    ProgrammeModule,
     WalletModule,
     QueueModule,
     CouponModule,

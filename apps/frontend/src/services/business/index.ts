@@ -186,6 +186,16 @@ export const businessApi = {
     return res.data;
   },
 
+  pauseMyProgramme: async () => {
+    const res = await apiClient.post('/programme/my-programme/pause');
+    return res.data;
+  },
+
+  resumeMyProgramme: async () => {
+    const res = await apiClient.post('/programme/my-programme/resume');
+    return res.data;
+  },
+
   getProgrammePhases: async () => {
     const res = await apiClient.get('/programme/phases');
     return res.data;

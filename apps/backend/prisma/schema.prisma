@@ -2124,6 +2124,11 @@ model BusinessProgramme {
   completedMissions  String[]              @map("completed_missions")
   startedAt          DateTime              @default(now()) @map("started_at")
   extendedBy         Int                   @default(0) @map("extended_by")
+  // User-initiated pause: the programme clock stops while `pausedAt` is set.
+  // On resume every open task deadline is shifted forward by the paused
+  // duration and `pausedSeconds` accumulates for display/audit.
+  pausedAt           DateTime?             @map("paused_at")
+  pausedSeconds      Int                   @default(0) @map("paused_seconds")
   phaseId            String?               @map("phase_id")
   phase              ProgrammePhase?       @relation(fields: [phaseId], references: [id], onDelete: SetNull)
   taskStatuses       ProgrammeTaskStatus[]

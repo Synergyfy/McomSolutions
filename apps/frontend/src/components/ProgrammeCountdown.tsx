@@ -22,6 +22,8 @@ function splitRemaining(remainingMs: number) {
 export interface ProgrammeCountdownProps {
   /** End of the whole programme (start date + programme length). */
   endsAt?: string | Date | null;
+  /** Freeze the clock at this instant (paused programme). */
+  frozenAt?: string | Date | null;
   className?: string;
 }
 
@@ -30,11 +32,16 @@ export interface ProgrammeCountdownProps {
  * Shares the app-wide ticker via `useNow`, so the dashboard never re-renders
  * when the seconds tick — only this block does.
  */
-function ProgrammeCountdown({ endsAt, className }: ProgrammeCountdownProps) {
+function ProgrammeCountdown({ endsAt, frozenAt, className }: ProgrammeCountdownProps) {
   const end = endsAt ? new Date(endsAt) : null;
   const endMs = end && !isNaN(end.getTime()) ? end.getTime() : null;
+  const frozen = frozenAt ? new Date(frozenAt) : null;
+  const frozenMs = frozen && !isNaN(frozen.getTime()) ? frozen.getTime() : null;
 
-  const now = useNow(endMs !== null, endMs);
+  const tick = useNow(endMs !== null, endMs);
+  // A paused programme stops counting: keep showing the remaining time as at
+  // the moment it was paused.
+  const now = frozenMs !== null ? Math.min(tick, frozenMs) : tick;
 
   if (endMs === null) return null;
 

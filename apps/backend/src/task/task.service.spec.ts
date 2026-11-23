@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TASK_REWARD_QUEUE } from '../queue/queue.constants';
 import { TaskAssignmentStatus, TaskAccessScope, TaskAudience, Role, TaskSource, TaskSubmissionType } from '@prisma/client';
+import { ProgrammeService } from '../programme/programme.service';
 
 describe('TaskService', () => {
   let service: TaskService;
@@ -50,12 +51,24 @@ describe('TaskService', () => {
     }),
   };
 
+  const mockProgramme = {
+    getPauseState: jest.fn().mockResolvedValue({
+      exists: false,
+      paused: false,
+      pausedAt: null,
+      pausedSeconds: 0,
+    }),
+    assertProgrammeActiveForUser: jest.fn().mockResolvedValue(undefined),
+    assertProgrammeActiveForBusiness: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TaskService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProgrammeService, useValue: mockProgramme },
         { provide: getQueueToken(TASK_REWARD_QUEUE), useValue: mockRewardQueue },
       ],
     }).compile();
@@ -627,6 +640,28 @@ describe('TaskService', () => {
     it('throws when the user does not exist', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
       await expect(service.getProgrammeUserTasks('missing')).rejects.toThrow('User not found');
+    });
+  });
+
+  describe('paused programme', () => {
+    it('blocks starting a task while the programme is paused', async () => {
+      mockProgramme.assertProgrammeActiveForUser.mockRejectedValueOnce(
+        new Error('Your programme is paused. Resume it to continue with tasks.'),
+      );
+
+      await expect(service.startMyTask('assign-1', 'user-1')).rejects.toThrow(
+        'programme is paused',
+      );
+    });
+
+    it('blocks completing a task while the programme is paused', async () => {
+      mockProgramme.assertProgrammeActiveForUser.mockRejectedValueOnce(
+        new Error('Your programme is paused. Resume it to continue with tasks.'),
+      );
+
+      await expect(service.completeMyTask('assign-1', 'user-1', {})).rejects.toThrow(
+        'programme is paused',
+      );
     });
   });
 });

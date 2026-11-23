@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   AlertCircle, ArrowRight, CheckCircle2, Clock, ExternalLink, Gift,
-  Play, RotateCcw, Send,
+  Pause, Play, RotateCcw, Send,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { TaskStatus } from '../lib/programmeData';
@@ -26,6 +26,10 @@ export interface ProgrammeTaskRowProps {
   onComplete: (mission: any) => void;
   /** Delegate this specific task to the business account manager. */
   onDelegate?: (mission: any) => void;
+  /** Programme is paused: deadlines are frozen and task work is on hold. */
+  paused?: boolean;
+  /** Instant the programme clock was paused (used to freeze countdowns). */
+  frozenAt?: string | Date | null;
   className?: string;
 }
 
@@ -45,6 +49,8 @@ export default function ProgrammeTaskRow({
   onContinue,
   onComplete,
   onDelegate,
+  paused = false,
+  frozenAt,
   className,
 }: ProgrammeTaskRowProps) {
   const submissionType = String(mission.submissionType || '').toUpperCase();
@@ -58,6 +64,7 @@ export default function ProgrammeTaskRow({
   const isInProgress = status === 'in_progress';
   const isCompleted = status === 'completed';
   const isExpired = status === 'expired';
+  const isPaused = paused && !isCompleted && !isExpired;
   const showNumber = typeof index === 'number' && !isCompleted && !isInProgress && !isExpired;
   const isNextUp = showNumber && index === 0;
   const delegation = mission.delegation as
@@ -91,7 +98,7 @@ export default function ProgrammeTaskRow({
           <p className="font-bold text-gray-900 text-[13px] sm:text-sm leading-tight break-words line-clamp-2">{mission.title}</p>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-3 mt-1">
             {mission.deadlineAt && !isCompleted && !isExpired ? (
-              <TaskCountdown deadlineAt={mission.deadlineAt} active />
+              <TaskCountdown deadlineAt={mission.deadlineAt} active frozenAt={frozenAt} />
             ) : (
               <span className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1">
                 <Clock className="w-3 h-3 shrink-0" /> {mission.estimatedMinutes}
@@ -125,7 +132,7 @@ export default function ProgrammeTaskRow({
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto mt-1 sm:mt-0 min-w-0">
-        {onDelegate && !isCompleted && !isExpired && !delegation && (
+        {onDelegate && !isCompleted && !isExpired && !delegation && !paused && (
           <button
             onClick={() => onDelegate(mission)}
             title="Delegate this task to your account manager"
@@ -134,7 +141,12 @@ export default function ProgrammeTaskRow({
             <Send className="w-3 h-3 shrink-0" /> <span className="truncate">Delegate</span>
           </button>
         )}
-        {status === 'not_started' && (
+        {isPaused && (
+          <span className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold">
+            <Pause className="w-3 h-3 shrink-0" /> Programme paused
+          </span>
+        )}
+        {!isPaused && status === 'not_started' && (
           isLinkTask ? (
             <button onClick={() => onOpenLink(mission)} className="w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm max-w-full">
               <ExternalLink className="w-3 h-3 shrink-0" /> <span className="truncate">{mission.actionLabel || 'Open link'}</span>
@@ -145,7 +157,7 @@ export default function ProgrammeTaskRow({
             </button>
           )
         )}
-        {isInProgress && (
+        {!isPaused && isInProgress && (
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <span className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2 bg-blue-100 text-blue-700 rounded-full sm:rounded-xl text-[11px] sm:text-xs font-bold flex-1 sm:flex-none">
               <RotateCcw className="w-3 h-3 animate-spin" /> In Progress

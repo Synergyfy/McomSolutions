@@ -182,6 +182,28 @@ export const useMyProgramme = () => {
   });
 };
 
+export const usePauseMyProgramme = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => businessApi.pauseMyProgramme(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-programme'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
+export const useResumeMyProgramme = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => businessApi.resumeMyProgramme(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-programme'] });
+      queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    },
+  });
+};
+
 export const useCompleteMission = () => {
   const queryClient = useQueryClient();
   return useMutation({

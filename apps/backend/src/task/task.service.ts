@@ -19,6 +19,7 @@ import {
   UpdateTaskDefinitionDto,
 } from './dto/task.dto';
 import { CENTRAL_FEATURE_KEYS } from './task.constants';
+import { ProgrammeService } from '../programme/programme.service';
 import {
   TASK_COUPON_QUEUE,
   TASK_REWARD_QUEUE,
@@ -43,6 +44,7 @@ export class TaskService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly programmeService: ProgrammeService,
     @Optional() @InjectQueue(TASK_REWARD_QUEUE)
     private readonly rewardQueue?: Queue<TaskRewardJobData>,
     @Optional() @InjectQueue(TASK_COUPON_QUEUE)
@@ -1149,6 +1151,7 @@ export class TaskService {
         createdAt: true,
         businessProfile: {
           select: {
+            id: true,
             businessName: true,
             logoUrl: true,
             category: true,
@@ -1163,6 +1166,13 @@ export class TaskService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
+
+    // Admin drill-down mirrors the user's frozen clock while paused.
+    const pauseState = user.businessProfile?.id
+      ? await this.programmeService.getPauseState(user.businessProfile.id)
+      : { exists: false, paused: false, pausedAt: null as Date | null, pausedSeconds: 0 };
+    const referenceNow =
+      pauseState.paused && pauseState.pausedAt ? new Date(pauseState.pausedAt) : new Date();
 
     const assignments = await this.prisma.userTaskAssignment.findMany({
       where: { userId },
@@ -1187,7 +1197,7 @@ export class TaskService {
       orderBy: [{ status: 'asc' }, { deadlineAt: 'asc' }],
     });
 
-    const now = new Date();
+    const now = referenceNow;
     const data = assignments.map((a) => {
       const isOpen =
         a.status === TaskAssignmentStatus.PENDING ||
@@ -1442,6 +1452,7 @@ export class TaskService {
         role: true,
         businessProfile: {
           select: {
+            id: true,
             membershipStatus: true,
             membershipPlanName: true,
             membershipExpiresAt: true,
@@ -1458,6 +1469,14 @@ export class TaskService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
+
+    // Programme pause freezes the clock: deadlines stop counting down, no
+    // task is flagged as expired and no new tasks are handed out.
+    const pauseState = user.businessProfile?.id
+      ? await this.programmeService.getPauseState(user.businessProfile.id)
+      : { exists: false, paused: false, pausedAt: null as Date | null, pausedSeconds: 0 };
+    const referenceNow =
+      pauseState.paused && pauseState.pausedAt ? new Date(pauseState.pausedAt) : new Date();
 
     const audience = user.role === Role.CUSTOMER ? TaskAudience.CUSTOMER : TaskAudience.BUSINESS;
     const accessSettings = await this.getProgrammeAccessSettings();
@@ -1483,7 +1502,9 @@ export class TaskService {
     });
     const existingIds = new Set(existing.map((e) => e.taskId));
 
-    const toAssign = activeTasks.filter((t) => !existingIds.has(t.id));
+    const toAssign = pauseState.paused
+      ? []
+      : activeTasks.filter((t) => !existingIds.has(t.id));
     if (toAssign.length > 0) {
       const now = new Date();
       await this.prisma.userTaskAssignment.createMany({
@@ -1567,7 +1588,7 @@ export class TaskService {
     return {
       success: true,
       data: assignments.map((a) => {
-        const now = new Date();
+        const now = referenceNow;
         const daysRemaining = Math.max(
           0,
           Math.ceil((new Date(a.deadlineAt).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
@@ -1629,6 +1650,9 @@ export class TaskService {
         totalProgrammeDays,
         configuredTaskCount,
         accessScope: access.isPaid ? 'PAID' : access.isTrial ? 'TRIAL' : 'NONE',
+        programmePaused: pauseState.paused,
+        programmePausedAt: pauseState.pausedAt,
+        programmePausedSeconds: pauseState.pausedSeconds,
       },
     };
   }
@@ -1637,6 +1661,7 @@ export class TaskService {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
+    await this.programmeService.assertProgrammeActiveForUser(userId);
     const assignment = await this.prisma.userTaskAssignment.findFirst({
       where: { id: assignmentId, userId },
     });
@@ -1822,6 +1847,7 @@ export class TaskService {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
+    await this.programmeService.assertProgrammeActiveForUser(userId);
     const assignment = await this.prisma.userTaskAssignment.findUnique({
       where: { id: assignmentId },
       include: { task: true, user: { include: { businessProfile: true } } },
@@ -1952,6 +1978,10 @@ export class TaskService {
     this.logger.log('Running nightly task deadline expiry sweep...');
     const now = new Date();
 
+    // A paused programme never expires its tasks: skip assignments belonging
+    // to businesses whose owner has paused the clock.
+    const pausedUserIds = await this.getPausedProgrammeUserIds();
+
     const expired = await this.prisma.userTaskAssignment.updateMany({
       where: {
         status: {
@@ -1960,6 +1990,7 @@ export class TaskService {
         deadlineAt: {
           lt: now,
         },
+        ...(pausedUserIds.length > 0 ? { userId: { notIn: pausedUserIds } } : {}),
       },
       data: {
         status: TaskAssignmentStatus.EXPIRED,
@@ -1970,6 +2001,33 @@ export class TaskService {
       this.logger.log(`Nightly sweep marked ${expired.count} assignments as EXPIRED`);
     } else {
       this.logger.log('No expired assignments found in nightly sweep');
+    }
+  }
+
+  /** Owner user ids of businesses whose programme clock is paused. */
+  private async getPausedProgrammeUserIds(): Promise<string[]> {
+    try {
+      const paused = await this.prisma.businessProgramme.findMany({
+        where: { status: 'paused', deletedAt: null, businessId: { not: null } },
+        select: { businessId: true },
+      });
+      const businessIds = paused
+        .map((p) => p.businessId)
+        .filter((id): id is string => Boolean(id));
+      if (businessIds.length === 0) return [];
+
+      const owners = await this.prisma.businessProfile.findMany({
+        where: { id: { in: businessIds } },
+        select: { userId: true },
+      });
+      return owners.map((o) => o.userId);
+    } catch (err) {
+      this.logger.warn(
+        `Could not resolve paused programmes for the expiry sweep: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return [];
     }
   }
 }

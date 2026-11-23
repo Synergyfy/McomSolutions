@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
+import { MCOM_CENTRAL_CLIENT_ID } from '../mesh-inbound/service-mesh.constants';
 
 /**
  * Public business-sector catalog endpoints. Backed by the `sectors` /
@@ -69,6 +70,16 @@ export class CatalogController {
         updatedAt: true,
       },
     });
-    return apps;
+
+    // Central is the hub that brokers SSO for every app in this directory — it
+    // is not a launchable product, so keep it (and any duplicate registration
+    // using the same platform slug) out of the public list. Filtered in memory
+    // so clients with a null `platformSlug` are never dropped by SQL null
+    // semantics.
+    return apps.filter(
+      (app) =>
+        app.clientId !== MCOM_CENTRAL_CLIENT_ID &&
+        app.platformSlug !== MCOM_CENTRAL_CLIENT_ID,
+    );
   }
 }
