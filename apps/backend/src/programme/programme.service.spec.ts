@@ -31,10 +31,21 @@ describe('ProgrammeService', () => {
     },
     businessProgramme: {
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+    },
+    businessProfile: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    user: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    userTaskAssignment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
     },
     programmeTaskStatus: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -129,25 +140,38 @@ describe('ProgrammeService', () => {
   describe('performAction branches', () => {
     const base = { id: 'b1', status: 'active', currentDay: 4, extendedBy: 0, completedMissions: [] };
 
-    it('pauses an active programme', async () => {
+    it('pauses an active programme and records the pause timestamp', async () => {
       mockPrisma.businessProgramme.findUnique.mockResolvedValue(base);
       mockPrisma.businessProgramme.update.mockResolvedValue({ ...base, status: 'paused' });
       const result = await service.performAction('b1', 'pause');
       expect(mockPrisma.businessProgramme.update).toHaveBeenCalledWith({
         where: { id: 'b1' },
-        data: { status: 'paused' },
+        data: { status: 'paused', pausedAt: expect.any(Date) },
       });
       expect(result.success).toBe(true);
     });
 
-    it('rejects pausing a non-active programme', async () => {
+    it('treats pausing a paused programme as idempotent', async () => {
       mockPrisma.businessProgramme.findUnique.mockResolvedValue({ ...base, status: 'paused' });
-      await expect(service.performAction('b1', 'pause')).rejects.toThrow('Only active programmes can be paused');
+      mockPrisma.businessProgramme.update.mockClear();
+      const result = await service.performAction('b1', 'pause');
+      expect(result.success).toBe(true);
+      expect(mockPrisma.businessProgramme.update).not.toHaveBeenCalled();
     });
 
-    it('rejects resuming a non-paused programme', async () => {
+    it('rejects pausing a completed programme', async () => {
+      mockPrisma.businessProgramme.findUnique.mockResolvedValue({ ...base, status: 'completed' });
+      await expect(service.performAction('b1', 'pause')).rejects.toThrow(
+        'Completed programmes cannot be paused',
+      );
+    });
+
+    it('treats resuming a non-paused programme as idempotent', async () => {
       mockPrisma.businessProgramme.findUnique.mockResolvedValue({ ...base, status: 'active' });
-      await expect(service.performAction('b1', 'resume')).rejects.toThrow('Only paused programmes can be resumed');
+      mockPrisma.businessProgramme.update.mockClear();
+      const result = await service.performAction('b1', 'resume');
+      expect(result.success).toBe(true);
+      expect(mockPrisma.businessProgramme.update).not.toHaveBeenCalled();
     });
 
     it('extends and reactivates a completed programme', async () => {
@@ -263,6 +287,61 @@ describe('ProgrammeService', () => {
     it('throws NotFoundException when deleting a missing business', async () => {
       mockPrisma.businessProgramme.findUnique.mockResolvedValue(null);
       await expect(service.deleteBusiness('nope')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('pause / resume clock', () => {
+    const pausedAt = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2h ago
+    const startedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const assignedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const deadlineAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+
+    it('shifts every assignment deadline forward by the paused duration', async () => {
+      mockPrisma.businessProgramme.findFirst.mockResolvedValue({ id: 'b1' });
+      mockPrisma.businessProgramme.findUnique.mockResolvedValue({
+        id: 'b1',
+        businessId: 'biz-1',
+        businessName: 'Acme',
+        status: 'paused',
+        pausedAt,
+        pausedSeconds: 0,
+        startedAt,
+      });
+      mockPrisma.businessProfile.findUnique.mockResolvedValue({ userId: 'user-1' });
+      mockPrisma.userTaskAssignment.findMany.mockResolvedValue([
+        { id: 'a1', assignedAt, deadlineAt },
+        { id: 'a2', assignedAt, deadlineAt },
+      ]);
+      mockPrisma.businessProgramme.update.mockResolvedValue({ id: 'b1', status: 'active' });
+      mockPrisma.userTaskAssignment.update.mockResolvedValue({});
+
+      await service.resumeBusinessProgramme('biz-1');
+
+      expect(mockPrisma.userTaskAssignment.update).toHaveBeenCalledTimes(2);
+      const firstCall = mockPrisma.userTaskAssignment.update.mock.calls[0][0];
+      expect(firstCall.data.deadlineAt.getTime()).toBeGreaterThan(deadlineAt.getTime());
+      expect(firstCall.data.assignedAt.getTime()).toBeGreaterThan(assignedAt.getTime());
+      expect(mockPrisma.businessProgramme.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'active',
+            pausedAt: null,
+            pausedSeconds: { increment: expect.any(Number) },
+          }),
+        }),
+      );
+    });
+
+    it('blocks task work while paused', async () => {
+      mockPrisma.businessProgramme.findFirst.mockResolvedValue({
+        id: 'b1',
+        status: 'paused',
+        pausedAt,
+        pausedSeconds: 0,
+      });
+      await expect(service.assertProgrammeActiveForBusiness('biz-1')).rejects.toThrow(
+        'programme is paused',
+      );
     });
   });
 });

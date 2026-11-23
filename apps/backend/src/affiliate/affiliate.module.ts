@@ -21,6 +21,7 @@ import { AffiliateBusinessAcquisitionController } from './affiliate-business-acq
 import { AffiliateBusinessAcquisitionAdminController } from './affiliate-business-acquisition-admin.controller';
 import { BusinessAcquisitionModule } from './business-acquisition.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { ProgrammeModule } from '../programme/programme.module';
 import { AffiliateApiKeyGuard } from './guards/affiliate-api-key.guard';
 
 @Module({
@@ -34,6 +35,7 @@ import { AffiliateApiKeyGuard } from './guards/affiliate-api-key.guard';
     WalletModule,
     BusinessAcquisitionModule,
     ReferralsModule,
+    ProgrammeModule,
   ],
   controllers: [
     AffiliateBusinessController,

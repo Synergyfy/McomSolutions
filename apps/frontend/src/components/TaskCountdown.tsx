@@ -34,6 +34,8 @@ export interface TaskCountdownProps {
   deadlineAt?: string | Date | null;
   /** Set false once the task is completed/expired so the ticker unsubscribes. */
   active?: boolean;
+  /** Freeze the clock at this instant (paused programme). */
+  frozenAt?: string | Date | null;
   className?: string;
 }
 
@@ -43,12 +45,15 @@ export interface TaskCountdownProps {
  * Only this component subscribes to the shared ticker, so the surrounding task
  * list and dashboard never re-render on each tick.
  */
-function TaskCountdown({ deadlineAt, active = true, className }: TaskCountdownProps) {
+function TaskCountdown({ deadlineAt, active = true, frozenAt, className }: TaskCountdownProps) {
   const deadline = deadlineAt ? new Date(deadlineAt) : null;
   const deadlineMs = deadline && !isNaN(deadline.getTime()) ? deadline.getTime() : null;
+  const frozen = frozenAt ? new Date(frozenAt) : null;
+  const frozenMs = frozen && !isNaN(frozen.getTime()) ? frozen.getTime() : null;
 
   // Freeze the clock at the deadline instead of ticking past it.
-  const now = useNow(active && deadlineMs !== null, deadlineMs);
+  const tick = useNow(active && deadlineMs !== null, deadlineMs);
+  const now = frozenMs !== null ? Math.min(tick, frozenMs) : tick;
 
   if (deadlineMs === null) return null;
 

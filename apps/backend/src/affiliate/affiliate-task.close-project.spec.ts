@@ -23,6 +23,7 @@ function buildHarness() {
     {} as never,
     { get: jest.fn() } as never,
     {} as never,
+    { assertProgrammeActiveForUser: jest.fn() } as never,
     undefined,
   );
 

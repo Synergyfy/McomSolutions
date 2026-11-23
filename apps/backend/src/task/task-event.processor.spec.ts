@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { TASK_REWARD_QUEUE } from '../queue/queue.constants';
 import { TaskAssignmentStatus } from '@prisma/client';
+import { ProgrammeService } from '../programme/programme.service';
 
 describe('TaskEventProcessor', () => {
   let processor: TaskEventProcessor;
@@ -25,6 +26,18 @@ describe('TaskEventProcessor', () => {
       providers: [
         TaskEventProcessor,
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: ProgrammeService,
+          useValue: {
+            getPauseStateForUser: jest.fn().mockResolvedValue({
+              businessId: null,
+              exists: false,
+              paused: false,
+              pausedAt: null,
+              pausedSeconds: 0,
+            }),
+          },
+        },
         { provide: getQueueToken(TASK_REWARD_QUEUE), useValue: mockRewardQueue },
       ],
     }).compile();

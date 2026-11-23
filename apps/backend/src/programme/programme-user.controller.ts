@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, Put, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
@@ -37,6 +37,28 @@ export class ProgrammeUserController {
   async getMyProgramme(@Req() req: any) {
     const businessId = await this.resolveBusinessId(req);
     return this.programmeService.getBusinessProgrammeByBusinessId(businessId);
+  }
+
+  @Post('my-programme/pause')
+  @ApiOperation({ summary: 'Pause the programme clock and task deadlines' })
+  @ApiOkResponse({ description: 'Programme paused' })
+  async pauseMyProgramme(@Req() req: any) {
+    const businessId = await this.resolveBusinessId(req);
+    // Ensures an enrolment row exists before the first pause (same lazy
+    // enrolment the dashboard uses).
+    await this.programmeService.getBusinessProgrammeByBusinessId(businessId);
+    const actor = req.user?.email || req.user?.name || 'Business owner';
+    return this.programmeService.pauseBusinessProgramme(businessId, actor);
+  }
+
+  @Post('my-programme/resume')
+  @ApiOperation({ summary: 'Resume the programme and shift task deadlines past the pause' })
+  @ApiOkResponse({ description: 'Programme resumed' })
+  async resumeMyProgramme(@Req() req: any) {
+    const businessId = await this.resolveBusinessId(req);
+    await this.programmeService.getBusinessProgrammeByBusinessId(businessId);
+    const actor = req.user?.email || req.user?.name || 'Business owner';
+    return this.programmeService.resumeBusinessProgramme(businessId, actor);
   }
 
   @Put('my-programme/missions/:missionId/complete')

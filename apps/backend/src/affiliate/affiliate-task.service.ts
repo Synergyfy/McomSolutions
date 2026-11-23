@@ -28,6 +28,7 @@ import { AffiliateTaskQuotaService } from './affiliate-task-quota.service';
 import { AccountManagerAssignmentService } from './account-manager-assignment.service';
 import { BusinessAcquisitionService } from './business-acquisition.service';
 import { TaskService } from '../task/task.service';
+import { ProgrammeService } from '../programme/programme.service';
 import { normalizePlatformKey } from './affiliate-affinity.util';
 import { AFFILIATE_TASK_QUEUE, AffiliateTaskJobData } from '../queue/queue.constants';
 import {
@@ -76,6 +77,7 @@ export class AffiliateTaskService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly acquisition: BusinessAcquisitionService,
+    private readonly programme: ProgrammeService,
     @Optional()
     @InjectQueue(AFFILIATE_TASK_QUEUE)
     private readonly affiliateQueue?: Queue<AffiliateTaskJobData>,
@@ -191,6 +193,10 @@ export class AffiliateTaskService {
         include: { task: true },
       });
       if (!assignment) throw new NotFoundException('Programme task assignment not found');
+
+      // A paused programme cannot be worked — including indirectly through a
+      // delegated affiliate task.
+      await this.programme.assertProgrammeActiveForUser(assignment.userId);
 
       const activeDelegation = await this.prisma.affiliateTask.findFirst({
         where: {

@@ -46,6 +46,25 @@ export interface SsoIdentity {
   /** Storefront cover banner (`BusinessProfile.bannerUrl`), null for non-business roles. */
   bannerUrl: string | null;
 
+  /**
+   * Canonical UK geography resolved from the profile's postcode. Businesses
+   * carry the full city → borough → high street → local mall chain so partner
+   * apps never have to re-resolve or guess a location.
+   */
+  location: {
+    postcode: string | null;
+    cityId: string | null;
+    city: string | null;
+    region: string | null;
+    country: string | null;
+    boroughId: string | null;
+    borough: string | null;
+    highStreetId: string | null;
+    highStreet: string | null;
+    localMallId: string | null;
+    localMall: string | null;
+  } | null;
+
   // ── Contact details (role-agnostic, resolved from whichever profile exists) ─
   phone: string | null;
   address: string | null;
@@ -120,16 +139,38 @@ export function buildSsoIdentity(
     clean(customer?.postcode) ??
     null;
 
-  const location =
-    agent?.city ?? consultant?.city ?? accountManager?.city ?? customer?.city ?? null;
+  const profileLocation =
+    business?.city ??
+    agent?.city ??
+    consultant?.city ??
+    accountManager?.city ??
+    customer?.city ??
+    null;
 
   const country =
     clean(business?.country) ??
-    clean(location?.country) ??
+    clean(profileLocation?.country) ??
     (postcode ? 'United Kingdom' : null);
 
-  const city = clean(location?.name);
-  const region = clean(location?.region);
+  const city = clean(profileLocation?.name);
+  const region = clean(profileLocation?.region);
+
+  const location = business
+    ? {
+        postcode: clean(business.postcode),
+        cityId: business.cityId ?? null,
+        city: clean(business.city?.name),
+        region: clean(business.city?.region),
+        country: clean(business.city?.country) ?? clean(business.country),
+        boroughId: business.boroughId ?? null,
+        borough: clean(business.borough?.name),
+        highStreetId: business.highStreetId ?? null,
+        highStreet: clean(business.highStreet?.name),
+        localMallId: business.localMallId ?? null,
+        localMall:
+          clean(business.localMall?.name) ?? clean(business.localMallName),
+      }
+    : null;
 
   const profileType = user.role;
 
@@ -158,6 +199,7 @@ export function buildSsoIdentity(
     jobTitle: clean(user.jobTitle),
     avatarUrl: business?.logoUrl ?? null,
     bannerUrl: business?.bannerUrl ?? null,
+    location,
 
     phone,
     address: business?.address ?? null,

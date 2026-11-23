@@ -49,6 +49,20 @@ export class DataSharingController {
     return { success: true, data };
   }
 
+  @Get('geography')
+  @ApiOperation({
+    summary:
+      'Read-only snapshot of the city → borough → high street → local mall hierarchy',
+  })
+  @ApiOkResponse({
+    description:
+      'Flat hierarchy lists; consumers persist them and build the tree locally.',
+  })
+  async getGeography() {
+    const data = await this.dataSharingService.getGeographySnapshot();
+    return { success: true, data };
+  }
+
   @Get('user')
   @ApiOperation({ summary: 'Query single user profile and packages context by email or userId' })
   @ApiQuery({ type: QueryUserDto })

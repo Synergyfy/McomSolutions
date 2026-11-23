@@ -70,4 +70,19 @@ describe('TaskCountdown', () => {
     const { container } = render(<TaskCountdown deadlineAt={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('freezes at `frozenAt` while the programme is paused', () => {
+    vi.setSystemTime(new Date('2026-01-01T00:00:08.000Z'));
+    render(
+      <TaskCountdown deadlineAt="2026-01-01T00:00:10.000Z" frozenAt="2026-01-01T00:00:06.000Z" />,
+    );
+    expect(screen.getByText('04')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByText('04')).toBeInTheDocument();
+    expect(screen.queryByText('Deadline passed')).not.toBeInTheDocument();
+  });
 });

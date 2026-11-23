@@ -121,6 +121,13 @@ export const ssoUserInfoSelect = {
       localMallName: true,
       localMallId: true,
       proximityTier: true,
+      cityId: true,
+      city: { select: { name: true, region: true, country: true } },
+      boroughId: true,
+      borough: { select: { name: true } },
+      highStreetId: true,
+      highStreet: { select: { name: true } },
+      localMall: { select: { name: true } },
       createdAt: true,
       updatedAt: true,
       packages: {

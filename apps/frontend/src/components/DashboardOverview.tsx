@@ -4,7 +4,7 @@ import {
   CheckCircle2, ArrowRight, X,
   Users, FileSearch,
   User, HeadphonesIcon, Calendar, ChevronRight, AlertCircle,
-  BarChart3, Heart, Lock, Sparkles, Play, RotateCcw, ExternalLink, Briefcase,
+  BarChart3, Heart, Lock, Sparkles, Play, Pause, RotateCcw, ExternalLink, Briefcase,
   Send, Loader2
 } from 'lucide-react';
 import {
@@ -12,12 +12,13 @@ import {
   getTaskStatus, setTaskStatus, TaskStatus
 } from '../lib/programmeData';
 import type { ProgrammeMission } from '../lib/programmeData';
-import { useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile, useAccountManager, usePlatformAccess, useCreateAffiliateTask } from '../services/business/hooks';
+import { useProfile, useMyTasks, useStartMyTask, useCompleteMyTask, useMyProgramme, useCompleteMission, useProgrammePhases, useUploadBusinessFile, useAccountManager, usePlatformAccess, useCreateAffiliateTask, usePauseMyProgramme, useResumeMyProgramme } from '../services/business/hooks';
 import ProgrammeCountdown from './ProgrammeCountdown';
 import ProgrammeTaskRow from './ProgrammeTaskRow';
 import ProgrammeTaskGroup from './ProgrammeTaskGroup';
 import { resolveProgrammeTimeline } from '../lib/programmeTimeline';
 import { groupProgrammeTasks } from '../lib/programmeTaskGroups';
+import { cn } from '../lib/utils';
 
 function TaskStartModal({
   mission,
@@ -586,24 +587,50 @@ function DelegateTaskModal({
   );
 }
 
-export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: string) => void }) {
-  const userRaw = localStorage.getItem('business_user');
-  let businessName = 'Your Business';
-  let sector = '';
-  let category = '';
-  let membership = 'Bronze';
-  let membershipSub = 'Standard';
+/**
+ * Profile relations such as sector/category may arrive either as plain strings
+ * or as `{ id, name }` objects — never render the raw object.
+ */
+function displayLabel(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const candidate = record.name ?? record.label ?? record.title;
+    if (typeof candidate === 'string') return candidate;
+  }
+  return '';
+}
 
-  if (userRaw) {
+export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: string) => void }) {
+  // The live profile is the source of truth for membership; the cached
+  // `business_user` snapshot goes stale after an upgrade, so it is only a
+  // fallback for the brief moment before the profile query resolves.
+  const { data: profile } = useProfile();
+
+  let businessName = profile?.businessName || '';
+  let sector = displayLabel(profile?.sector);
+  let category = displayLabel(profile?.category);
+  let membership = profile?.membershipLevel || '';
+  let membershipSub = profile?.membershipTier || '';
+
+  const userRaw = localStorage.getItem('business_user');
+  if (userRaw && (!businessName || !sector || !category || !membership)) {
     try {
       const user = JSON.parse(userRaw);
-      businessName = user.businessName || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Your Business');
-      sector = user.sector || '';
-      category = user.category || '';
-      if (user.membership) membership = user.membership;
-      if (user.membershipSub) membershipSub = user.membershipSub;
+      if (!businessName) {
+        businessName = user.businessProfile?.businessName || user.businessName || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '');
+      }
+      if (!sector) sector = displayLabel(user.sector);
+      if (!category) category = displayLabel(user.category);
+      if (!membership) membership = user.businessProfile?.membershipLevel || user.membershipLevel || '';
+      if (!membershipSub) membershipSub = user.businessProfile?.membershipTier || user.membershipTier || user.membershipSub || '';
     } catch {}
   }
+
+  if (!businessName) businessName = 'Your Business';
+  if (!membership) membership = 'Bronze';
+  if (!membershipSub) membershipSub = 'Standard';
 
   const { data: myTasksRes, isLoading: loadingMyTasks } = useMyTasks();
   const startTaskMutation = useStartMyTask();
@@ -620,6 +647,25 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
     : [];
   const taskMeta = (myTasksRes as any)?.meta;
   const apiTasks = myTasksRes?.data;
+
+  // Pause state comes from the programme record (source of truth) and is
+  // echoed back by the task engine meta too.
+  const programmePaused =
+    programmeData?.paused === true ||
+    programmeData?.status === 'paused' ||
+    taskMeta?.programmePaused === true;
+  const programmePausedAt = programmeData?.pausedAt ?? taskMeta?.programmePausedAt ?? null;
+  const programmePausedAtMs = programmePausedAt ? new Date(programmePausedAt).getTime() : null;
+  // While paused the programme is evaluated as at the pause instant, so
+  // countdowns freeze and no task flips to "expired".
+  const programmeReferenceNow =
+    programmePaused && programmePausedAtMs && Number.isFinite(programmePausedAtMs)
+      ? programmePausedAtMs
+      : undefined;
+
+  const pauseProgrammeMutation = usePauseMyProgramme();
+  const resumeProgrammeMutation = useResumeMyProgramme();
+  const pausePending = pauseProgrammeMutation.isPending || resumeProgrammeMutation.isPending;
 
   // Programme clock derived from the task engine config in /admin/programme:
   // each task expires `deadlineDays` after assignment; the whole programme is
@@ -725,8 +771,9 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
       useApiStatus: hasApiTasks,
       completedMissionIds,
       localStatuses: taskStatuses,
+      now: programmeReferenceNow,
     });
-  }, [allMissions, hasApiTasks, completedMissionIds, taskStatuses]);
+  }, [allMissions, hasApiTasks, completedMissionIds, taskStatuses, programmeReferenceNow]);
 
   const totalTasksCount = allMissions.length;
   const completedTasksCount = taskGroups.completed.length;
@@ -747,6 +794,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   };
 
   const handleGoToAction = (mission: any) => {
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     // Proof-submission tasks are completed from the modal, not by navigating.
     if (['external_link', 'text_input', 'digit_input', 'image_upload'].includes(String(mission.submissionType || '').toLowerCase())) {
       setActiveMission(mission);
@@ -771,6 +822,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   // Admin-configured link tasks (MCOM Central + External Link): opening the link
   // marks the task in progress, which is the proof recorded on completion.
   const openTaskLink = (mission: any) => {
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     const url = mission.actionUrl || mission.externalAppUrl;
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -782,17 +837,26 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
 
   const openDelegateForTask = (mission: any) => {
     if (mission?.delegation) return;
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     setDelegateTask(mission);
     setDelegateOpen(true);
   };
 
   const handleStart = (mission: any) => {
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     setActiveMission(mission);
     setModalOpen(true);
   };
 
   const confirmStart = () => {
     if (!activeMission) return;
+    if (programmePaused) return;
     if (hasApiTasks && activeMission.id) {
       startTaskMutation.mutate(activeMission.id);
     }
@@ -814,6 +878,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   };
 
   const markComplete = async (mission: any, isApiTask: boolean) => {
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     const id = typeof mission === 'string' ? mission : mission.id;
     const isLinkTask = String(mission?.submissionType || '').toUpperCase() === 'EXTERNAL_LINK';
     const submissionData = isLinkTask
@@ -837,6 +905,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   };
 
   const submitMission = async (mission: any, submissionData: Record<string, unknown>) => {
+    if (programmePaused) {
+      alert('Your programme is paused. Resume it to continue with tasks.');
+      return;
+    }
     if (hasApiTasks) {
       await completeTaskMutation.mutateAsync({ assignmentId: mission.id, submissionData });
     } else {
@@ -850,6 +922,22 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
   const handleCloseModal = () => {
     setModalOpen(false);
     setActiveMission(null);
+  };
+
+  const toggleProgrammePause = async () => {
+    try {
+      if (programmePaused) {
+        await resumeProgrammeMutation.mutateAsync();
+      } else {
+        await pauseProgrammeMutation.mutateAsync();
+      }
+    } catch (err: any) {
+      alert(
+        err?.response?.data?.message ||
+          err?.message ||
+          'Could not update the programme pause state.',
+      );
+    }
   };
 
   const nextPhase = currentPhaseIndex < activePhases.length - 1 ? activePhases[currentPhaseIndex + 1] : null;
@@ -900,23 +988,70 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
               <h2 className="mt-1 text-xl font-bold leading-tight text-gray-900 sm:text-2xl">Welcome, {businessName}</h2>
               <p className="mt-1 text-sm text-gray-500">Your guided plan to strengthen and grow your business.</p>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700">
-              <span className="h-2 w-2 rounded-full bg-orange-500" />
-              {membership} {membershipSub}
-            </span>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700">
+                <span className="h-2 w-2 rounded-full bg-orange-500" />
+                {membership} {membershipSub}
+              </span>
+              {profile?.id && (
+                <button
+                  type="button"
+                  onClick={toggleProgrammePause}
+                  disabled={pausePending}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors disabled:opacity-60',
+                    programmePaused
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100',
+                  )}
+                  title={
+                    programmePaused
+                      ? 'Resume the programme clock and task deadlines'
+                      : 'Pause the programme clock and put task deadlines on hold'
+                  }
+                >
+                  {pausePending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : programmePaused ? (
+                    <Play className="h-3.5 w-3.5" />
+                  ) : (
+                    <Pause className="h-3.5 w-3.5" />
+                  )}
+                  <span>{programmePaused ? 'Resume programme' : 'Pause programme'}</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {programmeEndsAt && (
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-100 bg-orange-50/40 px-3 py-3 sm:px-4">
+            <div
+              className={cn(
+                'mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-3 py-3 sm:px-4',
+                programmePaused
+                  ? 'border-amber-200 bg-amber-50/60'
+                  : 'border-orange-100 bg-orange-50/40',
+              )}
+            >
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-600">
-                  Programme time remaining
+                <p
+                  className={cn(
+                    'text-[10px] font-bold uppercase tracking-[0.14em]',
+                    programmePaused ? 'text-amber-700' : 'text-orange-600',
+                  )}
+                >
+                  {programmePaused ? 'Programme paused' : 'Programme time remaining'}
                 </p>
                 <p className="mt-0.5 text-xs text-gray-500">
-                  Complete every task before the programme clock runs out.
+                  {programmePaused
+                    ? 'Your clock and task deadlines are on hold. Resume to continue where you left off.'
+                    : 'Complete every task before the programme clock runs out.'}
                 </p>
               </div>
-              <ProgrammeCountdown endsAt={programmeEndsAt} />
+              <ProgrammeCountdown
+                endsAt={programmeEndsAt}
+                frozenAt={programmePaused ? programmePausedAt : undefined}
+                className={programmePaused ? 'opacity-60' : undefined}
+              />
             </div>
           )}
 
@@ -964,7 +1099,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base leading-tight">Your Programme Tasks</h3>
                 <p className="text-[11px] sm:text-xs text-gray-400 truncate">
                   {hasApiTasks
-                    ? `${completedTasksCount} of ${totalTasksCount} done${taskGroups.expired.length > 0 ? ` · ${taskGroups.expired.length} expired` : ''}`
+                    ? `${completedTasksCount} of ${totalTasksCount} done${taskGroups.expired.length > 0 ? ` · ${taskGroups.expired.length} expired` : ''}${programmePaused ? ' · paused' : ''}`
                     : currentPhase?.name}
                 </p>
               </div>
@@ -1002,6 +1137,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       status={mission.status}
                       index={i}
                       hasApiTasks={hasApiTasks}
+                      paused={programmePaused}
+                      frozenAt={programmePaused ? programmePausedAt : undefined}
                       onStart={handleStart}
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}
@@ -1026,6 +1163,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       mission={mission}
                       status={mission.status}
                       hasApiTasks={hasApiTasks}
+                      paused={programmePaused}
+                      frozenAt={programmePaused ? programmePausedAt : undefined}
                       onStart={handleStart}
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}
@@ -1050,6 +1189,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate?: (tab: s
                       mission={mission}
                       status={mission.status}
                       hasApiTasks={hasApiTasks}
+                      paused={programmePaused}
+                      frozenAt={programmePaused ? programmePausedAt : undefined}
                       onStart={handleStart}
                       onOpenLink={openTaskLink}
                       onContinue={handleGoToAction}

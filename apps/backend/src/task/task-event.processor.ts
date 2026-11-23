@@ -11,6 +11,7 @@ import {
 } from '../queue/queue.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaskAssignmentStatus, TaskSource } from '@prisma/client';
+import { ProgrammeService } from '../programme/programme.service';
 
 @Processor(TASK_EVENT_QUEUE)
 export class TaskEventProcessor extends WorkerHost {
@@ -18,6 +19,7 @@ export class TaskEventProcessor extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly programme: ProgrammeService,
     @InjectQueue(TASK_REWARD_QUEUE) private readonly rewardQueue: Queue<TaskRewardJobData>,
     @Optional() @InjectQueue(TASK_COUPON_QUEUE)
     private readonly couponQueue?: Queue<TaskCouponJobData>,
@@ -30,6 +32,16 @@ export class TaskEventProcessor extends WorkerHost {
     this.logger.log(
       `Processing task-event for user=${userId} (${userType}) featureKey=${featureKey} (job=${job.id})`,
     );
+
+    // A paused programme neither completes nor expires tasks automatically:
+    // the work is on hold until the owner resumes.
+    const pauseState = await this.programme.getPauseStateForUser(userId);
+    if (pauseState.paused) {
+      this.logger.log(
+        `Skipping task-event for user=${userId}: programme is paused`,
+      );
+      return { matched: 0, completed: 0, expired: 0 };
+    }
 
     const now = new Date();
 

@@ -50,4 +50,19 @@ describe('ProgrammeCountdown', () => {
     const { container } = render(<ProgrammeCountdown endsAt={null} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('freezes the clock at `frozenAt` while the programme is paused', () => {
+    // Paused at 00:00:05 — 5s must remain even after the ticker advances.
+    vi.setSystemTime(new Date('2026-01-01T00:00:08.000Z'));
+    render(
+      <ProgrammeCountdown endsAt="2026-01-01T00:00:10.000Z" frozenAt="2026-01-01T00:00:05.000Z" />,
+    );
+    expect(screen.getByText('05')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByText('05')).toBeInTheDocument();
+  });
 });

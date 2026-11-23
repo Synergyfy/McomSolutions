@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -253,21 +254,21 @@ export class ProgrammeService {
   async performAction(id: string, action: string, days?: number) {
     const business = await this.ensureBusiness(id);
 
+    // Pause/resume are clock operations, not plain status flips: the shared
+    // helpers record `pausedAt`, shift task deadlines on resume and write the
+    // audit trail, so admin and user actions behave identically.
+    if (action === 'pause' || action === 'resume') {
+      if (business.status === 'completed') {
+        throw new BadRequestException('Completed programmes cannot be paused');
+      }
+      return action === 'pause'
+        ? this.pauseProgrammeById(business.id, 'Admin')
+        : this.resumeProgrammeById(business.id, 'Admin');
+    }
+
     let data: Prisma.BusinessProgrammeUpdateInput = {};
 
     switch (action) {
-      case 'pause':
-        if (business.status !== 'active') {
-          throw new BadRequestException('Only active programmes can be paused');
-        }
-        data = { status: 'paused' };
-        break;
-      case 'resume':
-        if (business.status !== 'paused') {
-          throw new BadRequestException('Only paused programmes can be resumed');
-        }
-        data = { status: 'active' };
-        break;
       case 'fastTrack':
         // `days` is used as the target day when provided; otherwise advance +7
         data = { currentDay: Math.min(90, days ?? business.currentDay + 7) };
@@ -296,6 +297,174 @@ export class ProgrammeService {
     const updated = await this.prisma.businessProgramme.update({ where: { id }, data });
     await this.logAudit('Business Programme Action', 'BusinessProgramme', id, `Applied "${action}" to business programme "${business.businessName}"`);
     return { success: true, data: updated };
+  }
+
+  // ─── Pause / Resume (programme clock) ─────────────────
+  //
+  // Pausing freezes the programme: the clock stops, open task deadlines stop
+  // counting down (nothing expires) and task start/submission is rejected
+  // until the owner resumes. Resuming shifts every assignment deadline
+  // forward by the paused duration so no time is lost.
+
+  /** Pause state used by the dashboard, the task engine and the SSO gate. */
+  async getPauseState(businessId: string) {
+    const programme = await this.prisma.businessProgramme.findFirst({
+      where: { businessId, deletedAt: null },
+      select: { id: true, status: true, pausedAt: true, pausedSeconds: true },
+    });
+    return {
+      exists: Boolean(programme),
+      paused: programme?.status === 'paused',
+      pausedAt: programme?.pausedAt ?? null,
+      pausedSeconds: programme?.pausedSeconds ?? 0,
+    };
+  }
+
+  async getPauseStateForUser(userId: string) {
+    const profile = await this.prisma.businessProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) {
+      return {
+        businessId: null as string | null,
+        exists: false,
+        paused: false,
+        pausedAt: null as Date | null,
+        pausedSeconds: 0,
+      };
+    }
+    return { businessId: profile.id, ...(await this.getPauseState(profile.id)) };
+  }
+
+  async pauseBusinessProgramme(businessId: string, actorName = 'Business owner') {
+    const programme = await this.prisma.businessProgramme.findFirst({
+      where: { businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!programme) {
+      throw new NotFoundException('Business programme not found');
+    }
+    return this.pauseProgrammeById(programme.id, actorName);
+  }
+
+  async resumeBusinessProgramme(businessId: string, actorName = 'Business owner') {
+    const programme = await this.prisma.businessProgramme.findFirst({
+      where: { businessId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!programme) {
+      throw new NotFoundException('Business programme not found');
+    }
+    return this.resumeProgrammeById(programme.id, actorName);
+  }
+
+  private async pauseProgrammeById(id: string, actorName: string) {
+    const programme = await this.prisma.businessProgramme.findUnique({ where: { id } });
+    if (!programme) throw new NotFoundException('Business programme not found');
+    if (programme.status === 'completed') {
+      throw new BadRequestException('Completed programmes cannot be paused');
+    }
+    // Idempotent: pausing an already-paused programme keeps the original clock
+    // stop point so the paused duration is never double counted.
+    if (programme.status === 'paused') {
+      return { success: true, data: programme };
+    }
+
+    const updated = await this.prisma.businessProgramme.update({
+      where: { id },
+      data: { status: 'paused', pausedAt: new Date() },
+    });
+    await this.logAudit(
+      'Business Programme Paused',
+      'BusinessProgramme',
+      programme.businessName,
+      'Programme clock paused — task deadlines frozen',
+      actorName,
+    );
+    return { success: true, data: updated };
+  }
+
+  private async resumeProgrammeById(id: string, actorName: string) {
+    const programme = await this.prisma.businessProgramme.findUnique({ where: { id } });
+    if (!programme) throw new NotFoundException('Business programme not found');
+    if (programme.status !== 'paused') {
+      return { success: true, data: programme };
+    }
+
+    const now = new Date();
+    const pausedAt = programme.pausedAt ?? now;
+    const pausedMs = Math.max(0, now.getTime() - pausedAt.getTime());
+    const pausedSeconds = Math.floor(pausedMs / 1000);
+    const shift = (value: Date) => new Date(value.getTime() + pausedMs);
+
+    // Every assignment attached to this business shifts forward, so neither
+    // the programme countdown nor a single task deadline "counts" the pause.
+    const owner = programme.businessId
+      ? await this.prisma.businessProfile.findUnique({
+          where: { id: programme.businessId },
+          select: { userId: true },
+        })
+      : null;
+
+    const assignments = owner?.userId
+      ? await this.prisma.userTaskAssignment.findMany({
+          where: { userId: owner.userId },
+          select: { id: true, assignedAt: true, deadlineAt: true },
+        })
+      : [];
+
+    const operations: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.businessProgramme.update({
+        where: { id },
+        data: {
+          status: 'active',
+          pausedAt: null,
+          pausedSeconds: { increment: pausedSeconds },
+          startedAt: shift(programme.startedAt),
+        },
+      }),
+      ...assignments.map((assignment) =>
+        this.prisma.userTaskAssignment.update({
+          where: { id: assignment.id },
+          data: {
+            assignedAt: shift(assignment.assignedAt),
+            deadlineAt: shift(assignment.deadlineAt),
+          },
+        }),
+      ),
+    ];
+
+    const results = await this.prisma.$transaction(operations);
+    const updated = results[0];
+
+    await this.logAudit(
+      'Business Programme Resumed',
+      'BusinessProgramme',
+      programme.businessName,
+      `Programme clock resumed after ${pausedSeconds}s paused — task deadlines shifted forward`,
+      actorName,
+    );
+    return { success: true, data: updated };
+  }
+
+  /** Blocks task work while the owner has the programme paused. */
+  async assertProgrammeActiveForBusiness(businessId: string) {
+    const state = await this.getPauseState(businessId);
+    if (state.paused) {
+      throw new ForbiddenException(
+        'Your programme is paused. Resume it to continue with tasks.',
+      );
+    }
+  }
+
+  async assertProgrammeActiveForUser(userId: string) {
+    const profile = await this.prisma.businessProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) return;
+    await this.assertProgrammeActiveForBusiness(profile.id);
   }
 
   // ─── Task Statuses ────────────────────────────────────
@@ -386,10 +555,12 @@ export class ProgrammeService {
       });
     }
 
-    return { success: true, data: prog };
+    return { success: true, data: { ...prog, paused: prog.status === 'paused' } };
   }
 
   async completeMissionForBusiness(businessId: string, missionId: string) {
+    await this.assertProgrammeActiveForBusiness(businessId);
+
     const prog = await this.prisma.businessProgramme.findFirst({
       where: { businessId },
     });
