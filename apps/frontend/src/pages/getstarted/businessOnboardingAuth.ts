@@ -5,10 +5,13 @@ type ApiError = {
 };
 
 export async function assertSignupEmailAvailable(
-  checkEmail: (email: string) => Promise<{ exists?: boolean }>,
+  checkEmail: (email: string) => Promise<{ exists?: boolean; deleted?: boolean }>,
   email: string,
 ): Promise<void> {
   const result = await checkEmail(email);
+  if (result?.deleted) {
+    throw new Error('This account was deleted. Contact support to have it restored.');
+  }
   if (result?.exists) {
     throw new Error('An account with this email already exists. Please log in instead.');
   }

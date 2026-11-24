@@ -641,6 +641,17 @@ export interface CreateNotificationInput {
   status?: string
 }
 
+export interface DeletedUser {
+  id: string
+  userId: string
+  name: string
+  email: string
+  role: string
+  registrationSource?: string | null
+  createdAt: string
+  deletedAt: string
+}
+
 export interface UpdateTicketInput {
   status?: string
   priority?: string

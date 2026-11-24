@@ -87,6 +87,7 @@ export class ChatService {
                     firstName: true,
                     lastName: true,
                     role: true,
+                    deletedAt: true,
                     businessProfile: { select: { businessName: true, logoUrl: true } },
                   },
                 },
@@ -102,12 +103,24 @@ export class ChatService {
       },
     });
 
+    // A soft-deleted account must not stay in anybody's inbox: hide direct
+    // conversations whose counterpart was deleted and drop deleted users from
+    // the participant list of group conversations.
+    const visibleParticipants = participants.filter((cp) => {
+      if (cp.conversation.type !== 'DIRECT') return true;
+      return cp.conversation.participants
+        .filter((p) => p.userId !== userId)
+        .every((p) => !p.user?.deletedAt);
+    });
+
     // Presence: one batched lookup for every user across the whole inbox
     // instead of one round-trip per conversation/participant.
     const allUserIds = Array.from(
       new Set(
-        participants.flatMap((cp) =>
-          cp.conversation.participants.map((participant) => participant.userId),
+        visibleParticipants.flatMap((cp) =>
+          cp.conversation.participants
+            .filter((participant) => !participant.user?.deletedAt)
+            .map((participant) => participant.userId),
         ),
       ),
     );
@@ -119,7 +132,7 @@ export class ChatService {
     // Unread counts: one grouped query for all conversations that actually
     // have unread messages, instead of an N+1 `count()` per conversation.
     // Each OR branch carries that conversation's own read cursor.
-    const unreadTargets = participants.filter(
+    const unreadTargets = visibleParticipants.filter(
       (cp) => !cp.lastReadAt || cp.conversation.lastMessageAt > cp.lastReadAt,
     );
     const unreadMap = new Map<string, number>();
@@ -141,9 +154,10 @@ export class ChatService {
       }
     }
 
-    return participants.map((cp) => {
+    return visibleParticipants.map((cp) => {
       const conv = cp.conversation;
-      const otherParticipants = conv.participants.filter((p) => p.userId !== userId);
+      const activeParticipants = conv.participants.filter((p) => !p.user?.deletedAt);
+      const otherParticipants = activeParticipants.filter((p) => p.userId !== userId);
 
       let title = conv.title;
       let avatarUrl = conv.avatarUrl;
@@ -173,8 +187,8 @@ export class ChatService {
         lastMessageSenderId: conv.lastMessageSenderId,
         unreadCount: unreadMap.get(conv.id) ?? 0,
         isOnline,
-        participantsCount: conv.participants.length,
-        participants: conv.participants.map((p) => ({
+        participantsCount: activeParticipants.length,
+        participants: activeParticipants.map((p) => ({
           userId: p.userId,
           role: p.role,
           displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
@@ -204,6 +218,7 @@ export class ChatService {
                     firstName: true,
                     lastName: true,
                     role: true,
+                    deletedAt: true,
                     businessProfile: { select: { businessName: true, logoUrl: true } },
                   },
                 },
@@ -219,7 +234,14 @@ export class ChatService {
     }
 
     const conv = cp.conversation;
-    const otherParticipants = conv.participants.filter((p) => p.userId !== userId);
+    const activeParticipants = conv.participants.filter((p) => !p.user?.deletedAt);
+    const otherParticipants = activeParticipants.filter((p) => p.userId !== userId);
+
+    // A direct conversation with a soft-deleted account is no longer available.
+    if (conv.type === 'DIRECT' && otherParticipants.length === 0) {
+      throw new NotFoundException('Conversation not found');
+    }
+
     let title = conv.title;
     let avatarUrl = conv.avatarUrl;
 
@@ -230,7 +252,7 @@ export class ChatService {
     }
 
     const participantOnline = await this.presenceService.areUsersOnline(
-      conv.participants.map((p) => p.userId),
+      activeParticipants.map((p) => p.userId),
     );
 
     return {
@@ -243,7 +265,7 @@ export class ChatService {
       role: cp.role,
       lastMessageAt: conv.lastMessageAt,
       createdAt: conv.createdAt,
-      participants: conv.participants.map((p) => ({
+      participants: activeParticipants.map((p) => ({
         userId: p.userId,
         role: p.role,
         displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
@@ -580,6 +602,16 @@ export class ChatService {
     if (cp.conversation.type === 'DIRECT') {
       const otherParticipant = cp.conversation.participants.find((p) => p.userId !== senderId);
       if (otherParticipant) {
+        // A soft-deleted account cannot be messaged: the conversation is
+        // closed for good until an admin restores the account.
+        const counterpart = await this.prisma.user.findFirst({
+          where: { id: otherParticipant.userId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!counterpart) {
+          throw new ForbiddenException('This user is no longer available');
+        }
+
         const isSenderAdmin = cp.user.role === 'ADMIN';
 
         if (!isSenderAdmin) {

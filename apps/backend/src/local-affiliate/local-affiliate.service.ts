@@ -227,6 +227,8 @@ export class LocalAffiliateService {
 
     const email = dto.email.toLowerCase().trim();
 
+    // Soft-deleted accounts still own their email: they must not be able to
+    // re-register. Only an admin restore brings the account back.
     const existing = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true },
@@ -237,6 +239,20 @@ export class LocalAffiliateService {
         message: 'EMAIL_ALREADY_REGISTERED',
         errors: [
           'An account with this email already exists. Sign in and activate your affiliate profile instead.',
+        ],
+      });
+    }
+
+    const deleted = await this.prisma.user.findFirst({
+      where: { email, deletedAt: { not: null } },
+      select: { id: true },
+    });
+    if (deleted) {
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'ACCOUNT_DELETED',
+        errors: [
+          'This account has been deleted and cannot be used again. Contact support to request a restore.',
         ],
       });
     }

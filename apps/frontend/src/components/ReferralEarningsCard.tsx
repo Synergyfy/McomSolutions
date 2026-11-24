@@ -28,10 +28,10 @@ export default function ReferralEarningsCard({
             <Gift className="h-3.5 w-3.5 text-emerald-600" /> Referral earnings
           </p>
           <p className="mt-2 text-2xl font-black text-emerald-700">
-            {isLoading ? '…' : `${formatCredits(earnings?.summary.totalEarnedCredits ?? 0)} MCOM`}
+            {isLoading ? '…' : `£${formatCredits(earnings?.summary.totalEarnedCredits ?? 0)}`}
           </p>
           <p className="mt-1 text-xs font-semibold text-gray-500">
-            Part of your MCOM wallet balance · not a separate balance
+            Part of your wallet balance · not a separate balance
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 text-center">
@@ -82,8 +82,7 @@ export default function ReferralEarningsCard({
                   entry.status === 'CREDITED' ? 'text-emerald-700' : 'text-gray-400'
                 }`}
               >
-                {entry.status === 'CREDITED' ? '+' : ''}
-                {formatCredits(entry.commissionCredits)} MCOM
+                {entry.status === 'CREDITED' ? '+' : ''}£{formatCredits(entry.commissionCredits)}
               </p>
             </div>
           ))}

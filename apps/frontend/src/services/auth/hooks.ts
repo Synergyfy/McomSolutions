@@ -98,6 +98,23 @@ export const useLogout = () => {
   };
 };
 
+/**
+ * Soft-deletes the signed-in account. The session is revoked server-side, so
+ * the user is signed out and can only return if an administrator restores the
+ * account.
+ */
+export const useDeleteAccount = (onDeleted?: () => void) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => authApi.deleteAccount(),
+    onSuccess: () => {
+      queryClient.clear();
+      onDeleted?.();
+    },
+  });
+};
+
 // --- TypeScript interfaces ---
 
 export interface LoginCredentials {

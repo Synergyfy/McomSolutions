@@ -18,6 +18,13 @@ export const PROFILE_SYNC_ROLES: Role[] = [
 /** Event name fanned out to apps that consume a role's profile updates. */
 export const PROFILE_UPDATED_EVENT = 'profile.updated';
 
+/**
+ * Event name fanned out when a profile is soft-deleted. Consumers should
+ * treat the user as unavailable until a later `profile.updated` (restore)
+ * event is received, and must stop accepting new interactions for that user.
+ */
+export const PROFILE_DELETED_EVENT = 'profile.deleted';
+
 export function isProfileSyncRole(
   role: Role | string | null | undefined,
 ): role is Role {

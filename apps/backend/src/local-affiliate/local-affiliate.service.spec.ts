@@ -18,7 +18,7 @@ describe('LocalAffiliateService', () => {
   };
 
   const prisma: any = {
-    user: { findUnique: jest.fn() },
+    user: { findUnique: jest.fn(), findFirst: jest.fn() },
     localAffiliateProfile: {
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -62,6 +62,7 @@ describe('LocalAffiliateService', () => {
     prisma.localAffiliateProfile.create.mockResolvedValue(profile);
     prisma.localAffiliateCard.create.mockResolvedValue({});
     prisma.localAffiliateProfile.findUnique.mockResolvedValue(null);
+    prisma.user.findFirst.mockResolvedValue(null);
     rewards.getBalances.mockResolvedValue({
       unit: 'POINTS',
       pending: 0,
@@ -184,6 +185,15 @@ describe('LocalAffiliateService', () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'existing' });
       await expect(service.register(dto as any)).rejects.toMatchObject({
         response: { message: 'EMAIL_ALREADY_REGISTERED' },
+      });
+      expect(prisma.localAffiliateProfile.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects an email owned by a soft-deleted account', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue({ id: 'deleted-user' });
+      await expect(service.register(dto as any)).rejects.toMatchObject({
+        response: { message: 'ACCOUNT_DELETED' },
       });
       expect(prisma.localAffiliateProfile.create).not.toHaveBeenCalled();
     });

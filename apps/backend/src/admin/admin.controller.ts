@@ -176,6 +176,19 @@ export class AdminController {
     return this.adminService.updateUserRole(userId, dto.role, this.getAdminName(req));
   }
 
+  // ─── Deleted accounts / restore ────────────────────────
+  @Get('users/deleted')
+  @ApiOperation({ summary: 'List soft-deleted accounts that can be restored' })
+  async getDeletedUsers(@Query() query: AdminQueryDto) {
+    return this.adminService.getDeletedUsers(query);
+  }
+
+  @Patch('users/:userId/restore')
+  @ApiOperation({ summary: 'Restore a soft-deleted account so it can sign in again' })
+  async restoreUser(@Req() req: any, @Param('userId') userId: string) {
+    return this.adminService.restoreUser(userId, this.getAdminName(req));
+  }
+
   // ─── Agent Users Management ───────────────────────────
   @Get('users/agents')
   @ApiOperation({ summary: 'List agents' })

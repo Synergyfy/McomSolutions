@@ -4,6 +4,7 @@ import {
   ConflictException,
   UnauthorizedException,
   ForbiddenException,
+  NotFoundException,
   HttpException,
   HttpStatus,
   ServiceUnavailableException,
@@ -98,17 +99,25 @@ export class AuthService {
   /**
    * Resolve `?ref=CODE` to a referrer user id. Unknown codes are rejected
    * with 400 so typos surface instead of silently dropping attribution.
+   * Soft-deleted accounts are excluded — a deleted account must not receive
+   * new referrals.
    */
   private async resolveReferrerId(
-    tx: { user: { findUnique: any } },
+    tx: { user: { findUnique: any; findFirst?: any } },
     referredByCode?: string,
   ): Promise<string | null> {
     const code = referredByCode?.trim().toUpperCase();
     if (!code) return null;
-    const referrer = await tx.user.findUnique({
-      where: { referralCode: code },
-      select: { id: true },
-    });
+    const lookup = tx.user.findFirst
+      ? tx.user.findFirst({
+          where: { referralCode: code, deletedAt: null },
+          select: { id: true },
+        })
+      : tx.user.findUnique({
+          where: { referralCode: code },
+          select: { id: true },
+        });
+    const referrer = await lookup;
     if (!referrer) {
       throw new BadRequestException('Invalid referral code');
     }
@@ -1186,6 +1195,131 @@ export class AuthService {
     });
 
     return updated;
+  }
+
+  /**
+   * Self-service account deletion.
+   *
+   * Soft-deletes the account and its role-specific profile so the audit trail
+   * (payments, tasks, messages, referrals) survives. The user can no longer
+   * log in: `validateUser` filters `deletedAt`, and every outstanding
+   * access/refresh token is revoked here.
+   *
+   * Restoring the account is an admin-only action (`PATCH
+   * /admin/users/:userId/restore`).
+   */
+  async deleteOwnAccount(userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        businessProfile: { select: { id: true } },
+        customerProfile: { select: { id: true } },
+        agentProfile: { select: { id: true } },
+        consultantProfile: { select: { id: true } },
+        accountManagerProfile: { select: { id: true } },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User account not found');
+    }
+
+    const deletedAt = new Date();
+    const profileId =
+      user.businessProfile?.id ??
+      user.customerProfile?.id ??
+      user.agentProfile?.id ??
+      user.consultantProfile?.id ??
+      user.accountManagerProfile?.id ??
+      null;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Soft-delete every role profile that belongs to this user. Only one
+      // should exist; updateMany keeps the flow role-agnostic and harmless.
+      await tx.businessProfile.updateMany({
+        where: { userId, deletedAt: null },
+        data: { deletedAt },
+      });
+      await tx.customerProfile.updateMany({
+        where: { userId, deletedAt: null },
+        data: { deletedAt },
+      });
+      await tx.agentProfile.updateMany({
+        where: { userId, deletedAt: null },
+        data: { deletedAt },
+      });
+      await tx.consultantProfile.updateMany({
+        where: { userId, deletedAt: null },
+        data: { deletedAt },
+      });
+      await tx.accountManagerProfile.updateMany({
+        where: { userId, deletedAt: null },
+        data: { deletedAt },
+      });
+
+      // A deleted affiliate must stop being the contactable account manager
+      // for any business. Existing work stays intact for the audit trail.
+      await tx.businessProfile.updateMany({
+        where: { accountManagerId: userId },
+        data: { accountManagerId: null },
+      });
+
+      // Hide direct conversations involving this account and remove its group
+      // memberships so no other user or affiliate can keep interacting with
+      // the deleted account. Message history is preserved.
+      const directConversations = await tx.conversation.findMany({
+        where: {
+          type: 'DIRECT',
+          deletedAt: null,
+          participants: { some: { userId } },
+        },
+        select: { id: true },
+      });
+      if (directConversations.length > 0) {
+        await tx.conversation.updateMany({
+          where: { id: { in: directConversations.map((c) => c.id) } },
+          data: { deletedAt },
+        });
+      }
+      await tx.conversationParticipant.deleteMany({ where: { userId } });
+
+      // Pending message requests must not be delivered to a deleted account.
+      await tx.chatMessageRequest.updateMany({
+        where: {
+          status: 'PENDING',
+          OR: [{ senderId: userId }, { receiverId: userId }],
+        },
+        data: { status: 'REJECTED', respondedAt: deletedAt },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { deletedAt, tokenVersion: { increment: 1 } },
+      });
+
+      // Access tokens die with the tokenVersion bump; refresh sessions are
+      // revoked explicitly so /auth/refresh fails closed immediately.
+      await tx.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: deletedAt },
+      });
+    });
+
+    // Notify every ecosystem app that consumes this role. Fire-and-forget:
+    // the deletion has already committed.
+    void this.profileSync.emitProfileDeleted({
+      userId: user.id,
+      role: user.role,
+      profileId,
+      deletedAt,
+    });
+
+    this.logger.log(`User ${user.id} (${user.role}) deleted their account`);
+
+    return { success: true, deletedAt: deletedAt.toISOString() };
   }
 
   async generateSsoToken(userId: string, targetClientId?: string) {

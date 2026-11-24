@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import WhitelabelAccessModal from './WhitelabelAccessModal';
 import {
   useAdminBusinesses, useAdminCustomers, useAdminAgents, useAdminConsultants, useAdminAccountManagers,
+  useAdminDeletedUsers, useRestoreUser,
   useCreateBusiness, useUpdateBusiness, useDeleteBusiness,
   useCreateCustomer, useUpdateCustomer, useDeleteCustomer,
   useCreateAgent, useUpdateAgent, useDeleteAgent,
@@ -13,7 +14,7 @@ import {
   useCreateAccountManager, useUpdateAccountManager, useDeleteAccountManager,
 } from '../../services/admin/hooks';
 
-type UserTab = 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers';
+type UserTab = 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers' | 'deleted';
 
 export default function UserManagementPanel() {
   const navigate = useNavigate();
@@ -22,6 +23,8 @@ export default function UserManagementPanel() {
   const { data: agentRes, isLoading: agentLoading } = useAdminAgents();
   const { data: consRes, isLoading: consLoading } = useAdminConsultants();
   const { data: amRes, isLoading: amLoading } = useAdminAccountManagers();
+  const { data: deletedRes, isLoading: deletedLoading } = useAdminDeletedUsers();
+  const restoreUser = useRestoreUser();
 
   const createBiz = useCreateBusiness();
   const updateBiz = useUpdateBusiness();
@@ -49,7 +52,7 @@ export default function UserManagementPanel() {
   const [editing, setEditing] = useState<any>(null);
   const [whitelabelBusiness, setWhitelabelBusiness] = useState<{ id: string; name: string } | null>(null);
 
-  const isLoading = bizLoading || custLoading || agentLoading || consLoading || amLoading;
+  const isLoading = bizLoading || custLoading || agentLoading || consLoading || amLoading || deletedLoading;
 
   const bizData = bizRes?.data as any;
   const businesses = (Array.isArray(bizData) ? bizData : bizData?.data) ?? [];
@@ -61,6 +64,8 @@ export default function UserManagementPanel() {
   const consultants = (Array.isArray(consData) ? consData : consData?.data) ?? [];
   const amData = amRes?.data as any;
   const accountManagers = (Array.isArray(amData) ? amData : amData?.data) ?? [];
+  const deletedData = deletedRes?.data as any;
+  const deletedUsers = (Array.isArray(deletedData) ? deletedData : deletedData?.data) ?? [];
 
   const filterBySearch = <T extends { name: string; email: string }>(items: T[]) =>
     items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.email.toLowerCase().includes(search.toLowerCase()));
@@ -81,6 +86,7 @@ export default function UserManagementPanel() {
       case 'agents': return <AgentTable data={filterBySearch(agents)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
       case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
       case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'deleted': return <DeletedUsersTable data={filterBySearch(deletedUsers)} onRestore={(id: string) => restoreUser.mutate(id)} isRestoring={restoreUser.isPending} />;
     }
   };
 
@@ -89,9 +95,9 @@ export default function UserManagementPanel() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div className="overflow-x-auto max-w-full pb-1">
           <div className="flex gap-1.5 sm:gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm shrink-0">
-            {(['businesses', 'customers', 'agents', 'consultants', 'account-managers'] as UserTab[]).map(t => (
+            {(['businesses', 'customers', 'agents', 'consultants', 'account-managers', 'deleted'] as UserTab[]).map(t => (
               <button key={t} onClick={() => setUserTab(t)} className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0", userTab === t ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}>
-                {t === 'businesses' ? 'Businesses' : t === 'customers' ? 'Customers' : t === 'agents' ? 'Agents' : t === 'consultants' ? 'Consultants' : 'Account Mgrs'}
+                {t === 'businesses' ? 'Businesses' : t === 'customers' ? 'Customers' : t === 'agents' ? 'Agents' : t === 'consultants' ? 'Consultants' : t === 'deleted' ? 'Deleted' : 'Account Mgrs'}
               </button>
             ))}
           </div>
@@ -101,7 +107,7 @@ export default function UserManagementPanel() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-full sm:w-48" />
           </div>
-          <button onClick={() => setShowAdd(true)} className="px-3 sm:px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-1.5 sm:gap-2 shrink-0"><Plus className="w-4 h-4" /> Add New</button>
+          {userTab !== 'deleted' && <button onClick={() => setShowAdd(true)} className="px-3 sm:px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-1.5 sm:gap-2 shrink-0"><Plus className="w-4 h-4" /> Add New</button>}
         </div>
       </div>
 
@@ -337,6 +343,41 @@ function AccountManagerTable({ data, onView, onEdit, onDelete }: any) {
         </table>
       </div>
       {data.length === 0 && <div className="p-12 text-center text-sm font-bold text-gray-400">No account managers found</div>}
+    </div>
+  );
+}
+
+function DeletedUsersTable({ data, onRestore, isRestoring }: { data: any[]; onRestore: (id: string) => void; isRestoring: boolean }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left min-w-[680px]">
+          <thead><tr className="bg-gray-50/50">
+            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Account</th>
+            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Role</th>
+            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Deleted</th>
+            <th className="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Actions</th>
+          </tr></thead>
+          <tbody className="divide-y divide-gray-50">
+            {data.map((u: any) => (
+              <tr key={u.userId} className="hover:bg-gray-50/80 transition-colors">
+                <td className="px-6 py-4"><div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-red-50 text-red-600 rounded-lg flex items-center justify-center font-bold text-xs">{u.name?.charAt(0)}</div>
+                  <div><div className="font-bold text-sm text-gray-900">{u.name}</div><div className="text-[10px] text-gray-400 font-bold">{u.email}</div></div>
+                </div></td>
+                <td className="px-6 py-4"><span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border bg-gray-50 text-gray-600 border-gray-200">{String(u.role || '').replace(/_/g, ' ')}</span></td>
+                <td className="px-6 py-4 text-xs font-bold text-gray-500">{u.deletedAt ? new Date(u.deletedAt).toLocaleString('en-GB') : '—'}</td>
+                <td className="px-6 py-4"><div className="flex justify-center">
+                  <button disabled={isRestoring} onClick={() => onRestore(u.userId)} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-all text-[10px] font-bold disabled:opacity-50" title="Restore this account">
+                    <RotateCcw className="w-3.5 h-3.5" /> Restore
+                  </button>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {data.length === 0 && <div className="p-12 text-center text-sm font-bold text-gray-400">No deleted accounts</div>}
     </div>
   );
 }
