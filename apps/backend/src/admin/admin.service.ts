@@ -10,6 +10,7 @@ import { Prisma, Role, MembershipPaymentPlan, PaymentPriceMode, PlanTier, Member
 import { accessTtlSeconds, hashRefreshToken, refreshTtlSeconds } from '../auth/refresh-session.util';
 import { rethrowAsConflictOnUniqueViolation } from '../common/prisma-errors.util';
 import { generateUniqueReferralCode } from '../common/referral/referral.util';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import {
   allowedSplit,
   normalizePaymentPlan,
@@ -330,6 +331,7 @@ export class AdminService implements OnModuleInit {
     private locationAggregation: LocationAggregationService,
     private locationAssignment: LocationAssignmentService,
     private ukReferenceData: UkReferenceDataService,
+    private profileSync: ProfileSyncService,
   ) {}
 
   /**
@@ -1063,23 +1065,83 @@ export class AdminService implements OnModuleInit {
     profileId: string,
     audit: { action: string; targetType: string; targetName: string; details: string },
     adminName?: string,
-  ) {
+  ): Promise<{ userId: string; profileId: string; role: Role }> {
+    const deletedAt = new Date();
     await (tx[profileModel] as any).update({
       where: { id: profileId },
-      data: { deletedAt: new Date() },
+      data: { deletedAt },
     });
     await tx.user.update({
       where: { id: userId },
-      data: { deletedAt: new Date(), tokenVersion: { increment: 1 } },
+      data: { deletedAt, tokenVersion: { increment: 1 } },
     });
     // Outstanding access dies with the tokenVersion bump (JwtStrategy rejects
     // tv mismatch); outstanding refresh dies here so /auth/refresh fails closed
     // instead of relying on the deleted-user check at use time.
     await tx.refreshSession.updateMany({
       where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: deletedAt },
     });
+
+    // The deleted account must no longer be an interaction target: clear any
+    // account-manager assignment and remove it from conversations. History is
+    // preserved for the audit trail, but direct conversations are hidden.
+    await tx.businessProfile.updateMany({
+      where: { accountManagerId: userId },
+      data: { accountManagerId: null },
+    });
+    const directConversations = await tx.conversation.findMany({
+      where: {
+        type: 'DIRECT',
+        deletedAt: null,
+        participants: { some: { userId } },
+      },
+      select: { id: true },
+    });
+    if (directConversations.length > 0) {
+      await tx.conversation.updateMany({
+        where: { id: { in: directConversations.map((c: { id: string }) => c.id) } },
+        data: { deletedAt },
+      });
+    }
+    await tx.conversationParticipant.deleteMany({ where: { userId } });
+    await tx.chatMessageRequest.updateMany({
+      where: {
+        status: 'PENDING',
+        OR: [{ senderId: userId }, { receiverId: userId }],
+      },
+      data: { status: 'REJECTED', respondedAt: deletedAt },
+    });
+
     await this.logAuditTx(tx, audit.action, audit.targetType, audit.targetName, audit.details, adminName);
+
+    return { userId, profileId, role: this.roleForProfileModel(profileModel) };
+  }
+
+  private roleForProfileModel(
+    profileModel: 'businessProfile' | 'customerProfile' | 'agentProfile' | 'consultantProfile' | 'accountManagerProfile',
+  ): Role {
+    switch (profileModel) {
+      case 'businessProfile':
+        return Role.BUSINESS;
+      case 'customerProfile':
+        return Role.CUSTOMER;
+      case 'agentProfile':
+        return Role.AGENT;
+      case 'consultantProfile':
+        return Role.CONSULTANT;
+      case 'accountManagerProfile':
+        return Role.ACCOUNT_MANAGER;
+    }
+  }
+
+  /** Fire-and-forget `profile.deleted` fan-out for admin-initiated deletions. */
+  private notifyProfileDeleted(user: { userId: string; profileId: string; role: Role }) {
+    void this.profileSync.emitProfileDeleted({
+      userId: user.userId,
+      role: user.role,
+      profileId: user.profileId,
+    });
   }
 
   /**
@@ -1119,8 +1181,8 @@ export class AdminService implements OnModuleInit {
     const profile = await this.prisma.businessProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Business profile not found');
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.softDeleteUserTx(
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      return this.softDeleteUserTx(
         tx,
         profile.userId,
         'businessProfile',
@@ -1130,6 +1192,7 @@ export class AdminService implements OnModuleInit {
       );
     });
 
+    this.notifyProfileDeleted(deleted);
     return { success: true };
   }
 
@@ -1250,8 +1313,8 @@ export class AdminService implements OnModuleInit {
     const profile = await this.prisma.customerProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Customer profile not found');
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.softDeleteUserTx(
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      return this.softDeleteUserTx(
         tx,
         profile.userId,
         'customerProfile',
@@ -1261,6 +1324,7 @@ export class AdminService implements OnModuleInit {
       );
     });
 
+    this.notifyProfileDeleted(deleted);
     return { success: true };
   }
 
@@ -1374,8 +1438,8 @@ export class AdminService implements OnModuleInit {
     const profile = await this.prisma.agentProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Agent profile not found');
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.softDeleteUserTx(
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      return this.softDeleteUserTx(
         tx,
         profile.userId,
         'agentProfile',
@@ -1385,6 +1449,7 @@ export class AdminService implements OnModuleInit {
       );
     });
 
+    this.notifyProfileDeleted(deleted);
     return { success: true };
   }
 
@@ -1498,8 +1563,8 @@ export class AdminService implements OnModuleInit {
     const profile = await this.prisma.consultantProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Consultant profile not found');
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.softDeleteUserTx(
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      return this.softDeleteUserTx(
         tx,
         profile.userId,
         'consultantProfile',
@@ -1509,6 +1574,7 @@ export class AdminService implements OnModuleInit {
       );
     });
 
+    this.notifyProfileDeleted(deleted);
     return { success: true };
   }
 
@@ -1622,8 +1688,8 @@ export class AdminService implements OnModuleInit {
     const profile = await this.prisma.accountManagerProfile.findUnique({ where: { id } });
     if (!profile) throw new NotFoundException('Account manager profile not found');
 
-    await this.prisma.$transaction(async (tx) => {
-      await this.softDeleteUserTx(
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      return this.softDeleteUserTx(
         tx,
         profile.userId,
         'accountManagerProfile',
@@ -1633,7 +1699,152 @@ export class AdminService implements OnModuleInit {
       );
     });
 
+    this.notifyProfileDeleted(deleted);
     return { success: true };
+  }
+
+  // ─── Deleted users / restore ───────────────────────────
+  /**
+   * Trash view for soft-deleted accounts. The soft-delete extension hides
+   * deleted rows unless the query explicitly asks for them, so this is the
+   * only way an admin can find an account to restore.
+   */
+  async getDeletedUsers(query: AdminQueryDto) {
+    const { search, page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.UserWhereInput = { deletedAt: { not: null } };
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.user.findMany({
+        skip,
+        take: limit,
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          registrationSource: true,
+          createdAt: true,
+          deletedAt: true,
+        },
+        orderBy: { deletedAt: 'desc' },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const userIds = items.map((item) => item.id);
+    const businessProfiles =
+      userIds.length > 0
+        ? await this.prisma.businessProfile.findMany({
+            where: { userId: { in: userIds }, deletedAt: { not: null } },
+            select: { userId: true, businessName: true },
+          })
+        : [];
+    const businessNameByUser = new Map(
+      businessProfiles.map((profile) => [profile.userId, profile.businessName]),
+    );
+
+    const formatted = items.map((user) => {
+      const fallbackName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+      return {
+        id: user.id,
+        userId: user.id,
+        name: businessNameByUser.get(user.id) || fallbackName || user.email.split('@')[0],
+        email: user.email,
+        role: user.role,
+        registrationSource: user.registrationSource,
+        createdAt: user.createdAt,
+        deletedAt: user.deletedAt,
+      };
+    });
+
+    return {
+      success: true,
+      data: formatted,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Admin-only restore of a soft-deleted account. The user's email was never
+   * released, so the same identity resumes once the profile and user rows are
+   * un-deleted. All previous sessions stay revoked; the user signs in again.
+   */
+  async restoreUser(userId: string, adminName?: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: { not: null } },
+      select: { id: true, email: true, role: true },
+    });
+    if (!user) {
+      throw new NotFoundException('Deleted user not found');
+    }
+
+    const restored = await this.prisma.$transaction(async (tx) => {
+      await tx.businessProfile.updateMany({
+        where: { userId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      await tx.customerProfile.updateMany({
+        where: { userId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      await tx.agentProfile.updateMany({
+        where: { userId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      await tx.consultantProfile.updateMany({
+        where: { userId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+      await tx.accountManagerProfile.updateMany({
+        where: { userId, deletedAt: { not: null } },
+        data: { deletedAt: null },
+      });
+
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { deletedAt: null, tokenVersion: { increment: 1 } },
+        select: { id: true, email: true, role: true, deletedAt: true },
+      });
+
+      await tx.refreshSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      await this.logAuditTx(
+        tx,
+        'User Restored',
+        'User',
+        user.email,
+        'Restored a soft-deleted account',
+        adminName,
+      );
+
+      return updated;
+    });
+
+    // Downstream apps pull the now-available profile and resume interactions.
+    void this.profileSync.emitProfileUpdated({
+      userId: restored.id,
+      role: restored.role,
+      changedFields: ['restored'],
+    });
+
+    return { success: true, data: restored };
   }
 
   // ─── Full user profile (admin drill-down) ──────────────

@@ -6,6 +6,7 @@ import type {
   AgentUser,
   ConsultantUser,
   AccountManager,
+  DeletedUser,
   BusinessWhitelabelAccess,
   MembershipPlan,
   Subscription,
@@ -217,6 +218,17 @@ export const adminApi = {
   deleteAccountManager: async (id: string) => {
     const res = await apiClient.delete(`/admin/users/account-managers/${id}`)
     return res.data
+  },
+
+  // ─── Deleted accounts (restore) ──────────────────────
+  getDeletedUsers: async (params?: { page?: number; limit?: number; search?: string }) => {
+    const res = await apiClient.get('/admin/users/deleted', { params })
+    return res.data as PaginatedResponse<DeletedUser>
+  },
+
+  restoreUser: async (userId: string) => {
+    const res = await apiClient.patch(`/admin/users/${userId}/restore`)
+    return res.data as ApiResponse<any>
   },
 
   // ─── Full User Profile (drill-down) ──────────────────

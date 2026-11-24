@@ -45,10 +45,31 @@ describe('AuthService', () => {
     businessProfile: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     customerProfile: {
       findUnique: jest.fn(),
       findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    agentProfile: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    consultantProfile: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    accountManagerProfile: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    conversation: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    conversationParticipant: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    chatMessageRequest: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     platformPackage: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -136,7 +157,7 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: ProfileSyncService, useValue: { emitProfileUpdated: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProfileSyncService, useValue: { emitProfileUpdated: jest.fn().mockResolvedValue(undefined), emitProfileDeleted: jest.fn().mockResolvedValue(undefined) } },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: RedisService, useValue: mockRedis },
@@ -382,6 +403,111 @@ describe('AuthService', () => {
       expect(result.user.businessId).toBe('bp-99');
       expect(result.user.isOnboarded).toBe(true);
       expect(result.user.name).toBe('Dynamic Store');
+    });
+  });
+
+  // ─── deleteOwnAccount ─────────────────────────────
+  describe('deleteOwnAccount', () => {
+    beforeEach(() => {
+      mockPrisma.user.update.mockResolvedValue({ id: 'u1' });
+    });
+
+    it('soft-deletes the account, the profile and every session', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        email: 'owner@test.com',
+        role: Role.BUSINESS,
+        businessProfile: { id: 'b1' },
+        customerProfile: null,
+        agentProfile: null,
+        consultantProfile: null,
+        accountManagerProfile: null,
+      });
+
+      const result = await service.deleteOwnAccount('u1');
+
+      expect(result.success).toBe(true);
+      // The user row is soft-deleted and its token version bumped so any
+      // outstanding access token is rejected.
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u1' },
+          data: expect.objectContaining({
+            deletedAt: expect.any(Date),
+            tokenVersion: { increment: 1 },
+          }),
+        }),
+      );
+      // The role profile is soft-deleted too.
+      expect(mockPrisma.businessProfile.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'u1' }),
+          data: { deletedAt: expect.any(Date) },
+        }),
+      );
+      // Refresh sessions are revoked.
+      expect(mockPrisma.refreshSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1', revokedAt: null },
+          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+        }),
+      );
+    });
+
+    it('notifies ecosystem apps with a profile.deleted event', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        email: 'owner@test.com',
+        role: Role.CUSTOMER,
+        businessProfile: null,
+        customerProfile: { id: 'c1' },
+        agentProfile: null,
+        consultantProfile: null,
+        accountManagerProfile: null,
+      });
+
+      await service.deleteOwnAccount('u1');
+
+      const profileSync = service['profileSync'] as any;
+      expect(profileSync.emitProfileDeleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          role: Role.CUSTOMER,
+          profileId: 'c1',
+        }),
+      );
+    });
+
+    it('removes the account from conversations so nobody can interact with it', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        id: 'u1',
+        email: 'owner@test.com',
+        role: Role.BUSINESS,
+        businessProfile: { id: 'b1' },
+        customerProfile: null,
+        agentProfile: null,
+        consultantProfile: null,
+        accountManagerProfile: null,
+      });
+      mockPrisma.conversation.findMany.mockResolvedValue([{ id: 'conv-1' }]);
+
+      await service.deleteOwnAccount('u1');
+
+      expect(mockPrisma.conversationParticipant.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+      });
+      expect(mockPrisma.conversation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['conv-1'] } },
+          data: { deletedAt: expect.any(Date) },
+        }),
+      );
+      expect(mockPrisma.chatMessageRequest.updateMany).toHaveBeenCalled();
+    });
+
+    it('404s for a missing or already deleted account', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      await expect(service.deleteOwnAccount('missing')).rejects.toThrow('User account not found');
     });
   });
 

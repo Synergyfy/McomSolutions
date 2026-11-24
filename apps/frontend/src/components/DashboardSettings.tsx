@@ -1,13 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
   User, Lock, ShieldCheck, Bell, Smartphone,
-  Mail, Key, CheckCircle2, AlertCircle, Apple, Loader2
+  Mail, Key, CheckCircle2, AlertCircle, Apple, Loader2, Trash2
 } from 'lucide-react';
-import { useCurrentUser, useUpdateSettings } from '../services/auth/hooks';
+import { useNavigate } from 'react-router-dom';
+import { useCurrentUser, useUpdateSettings, useDeleteAccount } from '../services/auth/hooks';
+import { authApi } from '../services/auth';
 
 export default function DashboardSettings() {
   const { data: user, isLoading: loading } = useCurrentUser();
   const { mutateAsync: updateSettings } = useUpdateSettings();
+  const navigate = useNavigate();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteAccount = useDeleteAccount(() => {
+    authApi.logout();
+    navigate('/login');
+  });
   const [saving, setSaving] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -250,6 +259,63 @@ export default function DashboardSettings() {
               </div>
               <button className="text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-50 px-3 py-1.5 border border-gray-200 rounded-full transition-colors">Connect</button>
             </div>
+          </div>
+        </div>
+
+        {/* Danger zone — account deletion */}
+        <div className="bg-white rounded-[2rem] border border-red-200 shadow-sm p-5 md:p-8 lg:col-span-2">
+          <h3 className="text-lg font-bold text-red-700 mb-2 flex items-center gap-2">
+            <Trash2 className="w-5 h-5 text-red-500" /> Delete account
+          </h3>
+          <p className="text-sm text-gray-500 max-w-3xl">
+            Deleting your account signs you out everywhere, removes your profile from the directory and stops any
+            member or affiliate from interacting with you. Your records are kept for legal and audit purposes, but
+            you will not be able to sign in again unless an administrator restores the account.
+          </p>
+          {deleteError && (
+            <p className="mt-4 text-sm font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              {deleteError}
+            </p>
+          )}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {confirmingDelete ? (
+              <>
+                <span className="text-sm font-bold text-red-700">
+                  Delete {user?.email || 'this account'}? This cannot be undone.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 font-bold text-gray-600 transition-colors text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteAccount.isPending}
+                  onClick={async () => {
+                    setDeleteError(null);
+                    try {
+                      await deleteAccount.mutateAsync();
+                    } catch {
+                      setDeleteError('We could not delete your account. Please try again or contact support.');
+                      setConfirmingDelete(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold transition-colors text-sm disabled:opacity-60"
+                >
+                  {deleteAccount.isPending ? 'Deleting…' : 'Yes, delete my account'}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                className="px-5 py-2.5 rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 font-bold transition-colors text-sm"
+              >
+                Delete my account
+              </button>
+            )}
           </div>
         </div>
 

@@ -80,6 +80,20 @@ export const authApi = {
     return res.data;
   },
 
+  /**
+   * Soft-deletes the signed-in account. The account is revoked immediately
+   * and can only be brought back by an administrator.
+   */
+  deleteAccount: async () => {
+    const res = await apiClient.delete('/auth/me');
+    // The session is dead either way — clear the local copy before the
+    // caller redirects.
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('business_user');
+    clearSharedAuthCookies();
+    return res.data;
+  },
+
   logout: () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('business_user');

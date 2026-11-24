@@ -126,18 +126,17 @@ export default function DashboardWallet() {
         <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 text-orange-100 text-xs font-bold uppercase tracking-widest">
-              <WalletIcon className="w-4 h-4" /> MCOM Wallet Balance
+              <WalletIcon className="w-4 h-4" /> Wallet Balance
             </div>
             {walletLoading ? (
               <div className="text-4xl font-black mt-2 font-display animate-pulse">...</div>
             ) : (
               <>
                 <div className="text-3xl sm:text-4xl md:text-5xl font-black mt-2 font-display break-all leading-tight">
-                  {(wallet?.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  <span className="block sm:inline text-sm sm:text-lg font-bold sm:ml-2 opacity-80">MCOM</span>
+                  £{(wallet?.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </div>
                 <div className="mt-2 text-xs font-bold text-orange-100">
-                  Available: {(wallet?.availableBalance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} MCOM
+                  Available: £{(wallet?.availableBalance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   {holds?.data?.length > 0 && <span className="ml-2 opacity-80">· {holds.data.length} hold(s) active</span>}
                 </div>
               </>
@@ -170,7 +169,7 @@ export default function DashboardWallet() {
               <div key={p.platformSlug || p.platformName}>
                 <div className="flex items-center justify-between text-xs font-bold mb-1">
                   <span className="text-gray-700">{p.platformName || p.platformSlug}</span>
-                  <span className="text-gray-500">{p.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2 })} MCOM</span>
+                  <span className="text-gray-500">£{p.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div className="h-full bg-orange-500 rounded-full" style={{ width: `${(p.totalSpent / maxSpent) * 100}%` }} />
@@ -248,7 +247,7 @@ function StatCard({ label, value, color, icon: Icon }: { label: string; value: n
         <Icon className={`w-3.5 h-3.5 ${color}`} /> {label}
       </div>
       <div className={cn('text-2xl font-black mt-1 font-display', color)}>
-        {value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        £{value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
       </div>
     </div>
   );

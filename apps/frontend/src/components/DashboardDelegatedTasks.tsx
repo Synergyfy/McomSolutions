@@ -553,8 +553,8 @@ export default function DashboardDelegatedTasks() {
                       </p>
                       <p className="mt-1 text-[11px] font-medium leading-5 text-amber-800">
                         {shortfall > 0
-                          ? `Add at least ${shortfall.toFixed(2)} MCOM (£${shortfall.toFixed(2)}) to your wallet, then lock the funds.`
-                          : `Your available balance covers this task. Lock ${requiredCredits.toFixed(2)} MCOM now so the affiliate can start.`}
+                          ? `Add at least £${shortfall.toFixed(2)} to your wallet, then lock the funds.`
+                          : `Your available balance covers this task. Lock £${requiredCredits.toFixed(2)} now so the affiliate can start.`}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
@@ -724,7 +724,7 @@ export default function DashboardDelegatedTasks() {
                             {task.settlement.status === 'SETTLED'
                               ? 'Charge settled'
                               : task.settlement.status === 'HELD'
-                                ? `Funds reserved: ${Number(task.settlement.businessChargeCredits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} MCOM`
+                                ? `Funds reserved: £${Number(task.settlement.businessChargeCredits ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}`
                                 : `Payment status: ${task.settlement.status.replaceAll('_', ' ').toLowerCase()}`}
                           </p>
                           <p className="mt-0.5 text-[10px] opacity-80">

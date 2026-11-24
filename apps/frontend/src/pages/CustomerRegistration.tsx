@@ -536,7 +536,9 @@ export default function CustomerRegistration() {
             try {
               const result = await checkEmailAsync(formData.email);
               if (result.exists) {
-                newErrors.email = 'This email is already registered. Please sign in.';
+                newErrors.email = (result as { deleted?: boolean }).deleted
+                  ? 'This account was deleted. Contact support to have it restored.'
+                  : 'This email is already registered. Please sign in.';
                 isValid = false;
               } else {
                 newErrors.email = '';

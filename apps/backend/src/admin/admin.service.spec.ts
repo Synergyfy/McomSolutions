@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { LocationAggregationService } from '../geography/location-aggregation.service';
 import { LocationAssignmentService } from '../geography/location-assignment.service';
 import { UkReferenceDataService } from '../geography/uk-reference-data.service';
+import { ProfileSyncService } from '../profile-sync/profile-sync.service';
 import { Role } from '@prisma/client';
 
 describe('AdminService', () => {
@@ -84,6 +85,13 @@ describe('AdminService', () => {
           useValue: {
             importAdministrativeAreas: jest.fn().mockResolvedValue({}),
             importMalls: jest.fn().mockResolvedValue({}),
+          },
+        },
+        {
+          provide: ProfileSyncService,
+          useValue: {
+            emitProfileUpdated: jest.fn().mockResolvedValue(undefined),
+            emitProfileDeleted: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -373,6 +381,97 @@ describe('AdminService', () => {
         }),
       );
       expect(p.membershipPlan.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('restoreUser', () => {
+    beforeEach(() => {
+      const p: any = mockPrisma;
+      p.user.findFirst = jest.fn();
+      p.user.update = jest.fn();
+      p.user.findMany = jest.fn();
+      p.user.count = jest.fn();
+      p.businessProfile = {
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      };
+      p.customerProfile = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      p.agentProfile = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      p.consultantProfile = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      p.accountManagerProfile = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      p.refreshSession = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+      p.$transaction = jest.fn(async (fn: any) => {
+        if (typeof fn === 'function') {
+          return fn({ ...p, auditLog: { create: jest.fn().mockResolvedValue({ id: 'a' }) } });
+        }
+        return Promise.all(fn);
+      });
+    });
+
+    it('un-deletes the account and its profile', async () => {
+      const p: any = mockPrisma;
+      p.user.findFirst.mockResolvedValue({ id: 'u1', email: 'a@b.c', role: Role.CUSTOMER });
+      p.user.update.mockResolvedValue({ id: 'u1', email: 'a@b.c', role: Role.CUSTOMER, deletedAt: null });
+
+      const result = await service.restoreUser('u1', 'admin');
+
+      expect(result.success).toBe(true);
+      expect(p.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u1' },
+          data: expect.objectContaining({ deletedAt: null }),
+        }),
+      );
+      expect(p.customerProfile.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ userId: 'u1' }),
+          data: { deletedAt: null },
+        }),
+      );
+    });
+
+    it('404s when the user is not soft-deleted', async () => {
+      const p: any = mockPrisma;
+      p.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.restoreUser('missing', 'admin')).rejects.toThrow(
+        'Deleted user not found',
+      );
+    });
+  });
+
+  describe('getDeletedUsers', () => {
+    it('lists only soft-deleted accounts', async () => {
+      const p: any = mockPrisma;
+      p.user.findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'u1',
+          email: 'gone@example.com',
+          firstName: 'Gone',
+          lastName: 'User',
+          role: Role.BUSINESS,
+          registrationSource: 'direct',
+          createdAt: new Date(),
+          deletedAt: new Date(),
+        },
+      ]);
+      p.user.count = jest.fn().mockResolvedValue(1);
+      p.businessProfile = {
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'u1', businessName: 'Gone Ltd' },
+        ]),
+      };
+
+      const result = await service.getDeletedUsers({ page: 1, limit: 20 });
+
+      expect(result.success).toBe(true);
+      expect(result.total).toBe(1);
+      expect(result.data[0].name).toBe('Gone Ltd');
+      expect(p.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ deletedAt: { not: null } }),
+        }),
+      );
     });
   });
 });

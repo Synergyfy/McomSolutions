@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException, BadRequestException, Req } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Body, UseGuards, Request, Res, Query, UnauthorizedException, ServiceUnavailableException, ForbiddenException, BadRequestException, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiBody, ApiOkResponse, ApiCreatedResponse, ApiBearerAuth, ApiUnauthorizedResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -89,11 +89,22 @@ export class AuthController {
   @ApiOperation({ summary: 'Check whether an email is already registered' })
   @ApiOkResponse({ description: 'Email existence flag' })
   async checkEmail(@Query() query: CheckEmailQueryDto) {
-    if (!query.email) return { exists: false };
-    const user = await this.prisma.user.findUnique({
-      where: { email: query.email.toLowerCase().trim() },
-    });
-    return { exists: !!user };
+    if (!query.email) return { exists: false, deleted: false };
+    const email = query.email.toLowerCase().trim();
+    // A soft-deleted account still owns its email address, so it must stay
+    // "taken" — the account can only be recovered by an admin restore.
+    const [active, deleted] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { email },
+        select: { id: true },
+      }),
+      this.prisma.user.findFirst({
+        where: { email, deletedAt: { not: null } },
+        select: { id: true },
+      }),
+    ]);
+    if (!active && !deleted) return { exists: false, deleted: false };
+    return { exists: true, deleted: !active };
   }
 
   @Throttle({ default: { limit: 15, ttl: 60000, blockDuration: 60000 } })
@@ -172,6 +183,23 @@ export class AuthController {
   @ApiOkResponse({ description: 'Settings updated' })
   async updateSettings(@Request() req: any, @Body() body: UpdateSettingsDto) {
     return this.authService.updateSettings(req.user.userId, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete the authenticated account (soft delete)',
+    description:
+      'Soft-deletes the account and its profile, revokes all sessions, and notifies ecosystem apps. '
+      + 'The account cannot log in again until an administrator restores it.',
+  })
+  @ApiOkResponse({ description: 'Account deleted' })
+  async deleteOwnAccount(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.deleteOwnAccount(req.user.userId);
+    res.clearCookie('mcom_session');
+    res.clearCookie('mcom_refresh');
+    return result;
   }
 
   @Throttle({ default: { limit: 5, ttl: 60000 } })

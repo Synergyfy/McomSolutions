@@ -6,6 +6,7 @@ import { WebhookDispatcherService } from '../webhook-dispatcher/webhook-dispatch
 import {
   PROFILE_SYNC_ROLES,
   PROFILE_UPDATED_EVENT,
+  PROFILE_DELETED_EVENT,
   appSupportsRole,
   isProfileSyncRole,
 } from '../common/profile-sync/profile-sync.constants';
@@ -21,22 +22,39 @@ export interface ProfileUpdatedInput {
   changedFields?: string[];
 }
 
+export interface ProfileDeletedInput {
+  /** Central Hub user id — the only identity the receiving app needs. */
+  userId: string;
+  /** Central role that owned the profile. Drives which apps receive the event. */
+  role: Role;
+  /** Optional role-specific profile id, kept for audit/correlation only. */
+  profileId?: string | null;
+  /** When the account was soft-deleted (defaults to now). */
+  deletedAt?: Date;
+}
+
 /**
  * Event-driven profile synchronization.
  *
- * Every profile mutation in Central publishes one `profile.updated` event to
- * each app that (a) supports the user's role and (b) configured a single
- * `profileSyncEndpoint`. A BUSINESS profile change therefore never reaches an
- * AGENT-only app such as 247GBS Affiliate.
+ * Every profile mutation in Central publishes one event to each app that
+ * (a) supports the user's role and (b) configured a single
+ * `profileSyncEndpoint`:
+ *
+ * - `profile.updated` for edits and admin restores
+ * - `profile.deleted` for soft-deletes (self-service or admin)
+ *
+ * A BUSINESS profile change therefore never reaches an AGENT-only app such as
+ * 247GBS Affiliate.
  *
  * The payload deliberately carries only the central `userId` (plus event
  * metadata). The receiving app then pulls the canonical profile from Central
  * over the secure backend-to-backend service mesh using its RS256 service
- * token — no profile snapshot is pushed over the wire.
+ * token — no profile snapshot is pushed over the wire. For `profile.deleted`
+ * that pull returns 404, which tells the app to stop interacting with the user.
  *
  * Delivery reuses the durable webhook pipeline (HMAC signature, BullMQ
  * retries, `AppWebhookLog` audit rows) and is always fire-and-forget so a
- * slow or down consumer can never block the user's profile save.
+ * slow or down consumer can never block the user's request.
  */
 @Injectable()
 export class ProfileSyncService {
@@ -52,6 +70,25 @@ export class ProfileSyncService {
    * not fail because a downstream app is unavailable.
    */
   async emitProfileUpdated(input: ProfileUpdatedInput): Promise<void> {
+    await this.emit(input, PROFILE_UPDATED_EVENT);
+  }
+
+  /**
+   * Publishes a `profile.deleted` event. Never throws — account deletion must
+   * not fail because a downstream app is unavailable.
+   */
+  async emitProfileDeleted(input: ProfileDeletedInput): Promise<void> {
+    await this.emit(input, PROFILE_DELETED_EVENT, {
+      deletedAt: (input.deletedAt ?? new Date()).toISOString(),
+      deleted: true,
+    });
+  }
+
+  private async emit(
+    input: { userId: string; role: Role } | undefined,
+    event: string,
+    extraData: Record<string, unknown> = {},
+  ): Promise<void> {
     try {
       if (!input?.userId || !isProfileSyncRole(input.role)) {
         return;
@@ -84,6 +121,7 @@ export class ProfileSyncService {
         eventId,
         occurredAt: occurredAt.toISOString(),
         userId: input.userId,
+        ...extraData,
       };
 
       let dispatched = 0;
@@ -95,7 +133,7 @@ export class ProfileSyncService {
         const endpoint = client.profileSyncEndpoint?.trim();
         if (!endpoint) continue;
 
-        this.dispatcher.dispatchAsync(client.clientId, PROFILE_UPDATED_EVENT, data, {
+        this.dispatcher.dispatchAsync(client.clientId, event, data, {
           targetUrl: endpoint,
         });
         dispatched += 1;
@@ -103,12 +141,12 @@ export class ProfileSyncService {
 
       if (dispatched > 0) {
         this.logger.log(
-          `Queued ${PROFILE_UPDATED_EVENT} for ${input.role} user ${input.userId} to ${dispatched} app(s)`,
+          `Queued ${event} for ${input.role} user ${input.userId} to ${dispatched} app(s)`,
         );
       }
     } catch (error) {
       this.logger.warn(
-        `Failed to publish ${PROFILE_UPDATED_EVENT} for user ${input?.userId}: ${
+        `Failed to publish ${event} for user ${input?.userId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

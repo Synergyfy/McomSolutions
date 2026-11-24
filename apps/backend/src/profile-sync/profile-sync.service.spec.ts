@@ -121,4 +121,45 @@ describe('ProfileSyncService', () => {
     ).resolves.toBeUndefined();
     expect(dispatcher.dispatchAsync).not.toHaveBeenCalled();
   });
+
+  describe('emitProfileDeleted', () => {
+    it('publishes a profile.deleted event to apps that support the role', async () => {
+      prisma.ssoClient.findMany.mockResolvedValue([
+        {
+          clientId: 'mcom-mall',
+          name: 'MCOM Mall',
+          supportedRoles: [Role.BUSINESS, Role.CUSTOMER],
+          profileSyncEndpoint: 'https://api.mall.com/webhooks/profile-updated',
+        },
+      ]);
+
+      await service.emitProfileDeleted({
+        userId: 'usr_9',
+        role: Role.BUSINESS,
+        profileId: 'biz_9',
+        deletedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      expect(dispatcher.dispatchAsync).toHaveBeenCalledTimes(1);
+      const [clientId, event, data, options] = dispatcher.dispatchAsync.mock.calls[0];
+      expect(clientId).toBe('mcom-mall');
+      expect(event).toBe('profile.deleted');
+      expect(data).toEqual(
+        expect.objectContaining({
+          userId: 'usr_9',
+          deleted: true,
+          deletedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      );
+      expect(data.eventId).toEqual(expect.any(String));
+      expect(options.targetUrl).toBe('https://api.mall.com/webhooks/profile-updated');
+    });
+
+    it('never publishes a delete event for non-profile roles', async () => {
+      await service.emitProfileDeleted({ userId: 'usr_admin', role: Role.ADMIN });
+
+      expect(prisma.ssoClient.findMany).not.toHaveBeenCalled();
+      expect(dispatcher.dispatchAsync).not.toHaveBeenCalled();
+    });
+  });
 });

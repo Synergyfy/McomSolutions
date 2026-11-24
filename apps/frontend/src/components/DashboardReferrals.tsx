@@ -74,7 +74,7 @@ export default function DashboardReferrals() {
             <Wallet className="h-3.5 w-3.5 text-emerald-600" /> Referral earnings
           </div>
           <p className="mt-2 text-2xl font-black text-emerald-700">
-            {earningsLoading ? '…' : `${formatCredits(earnings?.summary.totalEarnedCredits ?? 0)} MCOM`}
+            {earningsLoading ? '…' : `£${formatCredits(earnings?.summary.totalEarnedCredits ?? 0)}`}
           </p>
           <p className="mt-1 text-xs font-semibold text-gray-500">
             £{Number(earnings?.summary.totalEarnedGbp ?? 0).toFixed(2)} commission value · part of your wallet balance
@@ -158,7 +158,7 @@ export default function DashboardReferrals() {
                                 : 'text-gray-400'
                             }`}
                           >
-                            {formatCredits(earned?.earnedCredits ?? 0)} MCOM
+                            £{formatCredits(earned?.earnedCredits ?? 0)}
                           </span>
                           <span className="mt-0.5 block text-[10px] text-gray-400">
                             £{Number(earned?.earnedGbp ?? 0).toFixed(2)} commission
@@ -250,7 +250,7 @@ export default function DashboardReferrals() {
                           entry.status === 'CREDITED' ? 'text-emerald-700' : 'text-gray-500'
                         }`}
                       >
-                        {formatCredits(entry.commissionCredits)} MCOM
+                        £{formatCredits(entry.commissionCredits)}
                       </span>
                       <span className="mt-0.5 block text-[10px] text-gray-400">
                         £{Number(entry.commissionAmountGbp).toFixed(2)}

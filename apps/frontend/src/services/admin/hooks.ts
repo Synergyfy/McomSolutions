@@ -6,6 +6,7 @@ import type {
   AgentUser,
   ConsultantUser,
   AccountManager,
+  DeletedUser,
   MembershipPlan,
   Platform,
   Subscription,
@@ -111,6 +112,30 @@ export const useDeleteBusiness = () => {
   return useMutation({
     mutationFn: (id: string) => adminApi.deleteBusiness(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'businesses'] }),
+  })
+}
+
+// ─── Deleted accounts (restore) ───────────────────────
+export const useAdminDeletedUsers = (params?: { page?: number; limit?: number; search?: string }) => {
+  return useQuery({
+    queryKey: ['admin', 'deletedUsers', params],
+    queryFn: () => adminApi.getDeletedUsers(params),
+    staleTime: 1000 * 30,
+  })
+}
+
+export const useRestoreUser = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: string) => adminApi.restoreUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'deletedUsers'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'businesses'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'customers'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'agents'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'consultants'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'accountManagers'] })
+    },
   })
 }
 
