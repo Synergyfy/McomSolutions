@@ -82,11 +82,15 @@ export const useAdminStats = () => {
 }
 
 // ─── Businesses ────────────────────────────────────────
-export const useAdminBusinesses = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminBusinesses = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'businesses', params],
     queryFn: () => adminApi.getBusinesses(params),
     staleTime: 1000 * 60 * 2,
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -116,11 +120,15 @@ export const useDeleteBusiness = () => {
 }
 
 // ─── Deleted accounts (restore) ───────────────────────
-export const useAdminDeletedUsers = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminDeletedUsers = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'deletedUsers', params],
     queryFn: () => adminApi.getDeletedUsers(params),
     staleTime: 1000 * 30,
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -173,11 +181,15 @@ export const useSetBusinessWhitelabelAccess = () => {
 }
 
 // ─── Customers ─────────────────────────────────────────
-export const useAdminCustomers = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminCustomers = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'customers', params],
     queryFn: () => adminApi.getCustomers(params),
     staleTime: 1000 * 60 * 2,
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -207,11 +219,15 @@ export const useDeleteCustomer = () => {
 }
 
 // ─── Agents ────────────────────────────────────────────
-export const useAdminAgents = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminAgents = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'agents', params],
     queryFn: () => adminApi.getAgents(params),
     staleTime: 1000 * 60 * 5,
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -241,11 +257,15 @@ export const useDeleteAgent = () => {
 }
 
 // ─── Consultants ───────────────────────────────────────
-export const useAdminConsultants = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminConsultants = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'consultants', params],
     queryFn: () => adminApi.getConsultants(params),
     staleTime: 1000 * 60 * 5,
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -275,11 +295,15 @@ export const useDeleteConsultant = () => {
 }
 
 // ─── Account Managers ──────────────────────────────────
-export const useAdminAccountManagers = (params?: { page?: number; limit?: number; search?: string }) => {
+export const useAdminAccountManagers = (
+  params?: { page?: number; limit?: number; search?: string },
+  options?: { enabled?: boolean },
+) => {
   return useQuery({
     queryKey: ['admin', 'accountManagers', params],
     queryFn: () => adminApi.getAccountManagers(params),
     staleTime: 1000 * 60 * 5,
+    enabled: options?.enabled ?? true,
   })
 }
 
