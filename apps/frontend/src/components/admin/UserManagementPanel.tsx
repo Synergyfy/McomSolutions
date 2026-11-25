@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
+import { Search, Plus, X, Eye, Trash2, Edit3, Building2, UserCircle, Briefcase, Users, Mail, Phone, Shield, ShieldCheck, CheckCircle2, AlertTriangle, Loader2, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import WhitelabelAccessModal from './WhitelabelAccessModal';
 import {
@@ -16,14 +16,51 @@ import {
 
 type UserTab = 'businesses' | 'customers' | 'agents' | 'consultants' | 'account-managers' | 'deleted';
 
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
+
+function rowsOf<T>(res?: { data?: unknown } | null): T[] {
+  const data = res?.data as any;
+  if (Array.isArray(data)) return data as T[];
+  return (data?.data ?? []) as T[];
+}
+
 export default function UserManagementPanel() {
   const navigate = useNavigate();
-  const { data: bizRes, isLoading: bizLoading } = useAdminBusinesses();
-  const { data: custRes, isLoading: custLoading } = useAdminCustomers();
-  const { data: agentRes, isLoading: agentLoading } = useAdminAgents();
-  const { data: consRes, isLoading: consLoading } = useAdminConsultants();
-  const { data: amRes, isLoading: amLoading } = useAdminAccountManagers();
-  const { data: deletedRes, isLoading: deletedLoading } = useAdminDeletedUsers();
+
+  const [userTab, setUserTab] = useState<UserTab>('businesses');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Debounce the search box so we hit the API once the admin stops typing,
+  // and jump back to page 1 whenever the query changes.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const params = useMemo(
+    () => ({ page, limit: PAGE_SIZE, ...(search ? { search } : {}) }),
+    [page, search],
+  );
+
+  const { data: bizRes, isLoading: bizLoading, isFetching: bizFetching } =
+    useAdminBusinesses(params, { enabled: userTab === 'businesses' });
+  const { data: custRes, isLoading: custLoading, isFetching: custFetching } =
+    useAdminCustomers(params, { enabled: userTab === 'customers' });
+  const { data: agentRes, isLoading: agentLoading, isFetching: agentFetching } =
+    useAdminAgents(params, { enabled: userTab === 'agents' });
+  const { data: consRes, isLoading: consLoading, isFetching: consFetching } =
+    useAdminConsultants(params, { enabled: userTab === 'consultants' });
+  const { data: amRes, isLoading: amLoading, isFetching: amFetching } =
+    useAdminAccountManagers(params, { enabled: userTab === 'account-managers' });
+  const { data: deletedRes, isLoading: deletedLoading, isFetching: deletedFetching } =
+    useAdminDeletedUsers(params, { enabled: userTab === 'deleted' });
+
   const restoreUser = useRestoreUser();
 
   const createBiz = useCreateBusiness();
@@ -46,29 +83,55 @@ export default function UserManagementPanel() {
   const updateAM = useUpdateAccountManager();
   const deleteAM = useDeleteAccountManager();
 
-  const [userTab, setUserTab] = useState<UserTab>('businesses');
-  const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [whitelabelBusiness, setWhitelabelBusiness] = useState<{ id: string; name: string } | null>(null);
 
-  const isLoading = bizLoading || custLoading || agentLoading || consLoading || amLoading || deletedLoading;
+  const businesses = rowsOf<any>(bizRes);
+  const customers = rowsOf<any>(custRes);
+  const agents = rowsOf<any>(agentRes);
+  const consultants = rowsOf<any>(consRes);
+  const accountManagers = rowsOf<any>(amRes);
+  const deletedUsers = rowsOf<any>(deletedRes);
 
-  const bizData = bizRes?.data as any;
-  const businesses = (Array.isArray(bizData) ? bizData : bizData?.data) ?? [];
-  const custData = custRes?.data as any;
-  const customers = (Array.isArray(custData) ? custData : custData?.data) ?? [];
-  const agtData = agentRes?.data as any;
-  const agents = (Array.isArray(agtData) ? agtData : agtData?.data) ?? [];
-  const consData = consRes?.data as any;
-  const consultants = (Array.isArray(consData) ? consData : consData?.data) ?? [];
-  const amData = amRes?.data as any;
-  const accountManagers = (Array.isArray(amData) ? amData : amData?.data) ?? [];
-  const deletedData = deletedRes?.data as any;
-  const deletedUsers = (Array.isArray(deletedData) ? deletedData : deletedData?.data) ?? [];
+  const activeRes =
+    userTab === 'businesses' ? bizRes
+    : userTab === 'customers' ? custRes
+    : userTab === 'agents' ? agentRes
+    : userTab === 'consultants' ? consRes
+    : userTab === 'account-managers' ? amRes
+    : deletedRes;
 
-  const filterBySearch = <T extends { name: string; email: string }>(items: T[]) =>
-    items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()) || i.email.toLowerCase().includes(search.toLowerCase()));
+  const isLoading =
+    userTab === 'businesses' ? bizLoading
+    : userTab === 'customers' ? custLoading
+    : userTab === 'agents' ? agentLoading
+    : userTab === 'consultants' ? consLoading
+    : userTab === 'account-managers' ? amLoading
+    : deletedLoading;
+
+  const isFetching =
+    userTab === 'businesses' ? bizFetching
+    : userTab === 'customers' ? custFetching
+    : userTab === 'agents' ? agentFetching
+    : userTab === 'consultants' ? consFetching
+    : userTab === 'account-managers' ? amFetching
+    : deletedFetching;
+
+  const total = activeRes?.total ?? 0;
+  const totalPages = activeRes?.totalPages ?? 0;
+
+  // Deleting rows can leave the admin on a page that no longer exists.
+  useEffect(() => {
+    if (!isLoading && totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [isLoading, totalPages, page]);
+
+  const selectTab = (tab: UserTab) => {
+    setUserTab(tab);
+    setPage(1);
+  };
 
   const openUser = (userId: string) => navigate(`/admin/users/${userId}`);
 
@@ -81,12 +144,12 @@ export default function UserManagementPanel() {
       );
     }
     switch (userTab) {
-      case 'businesses': return <BusinessTable data={filterBySearch(businesses)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} onWhitelabel={(b: any) => setWhitelabelBusiness({ id: b.id, name: b.name })} />;
-      case 'customers': return <CustomerTable data={filterBySearch(customers)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'agents': return <AgentTable data={filterBySearch(agents)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'consultants': return <ConsultantTable data={filterBySearch(consultants)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'account-managers': return <AccountManagerTable data={filterBySearch(accountManagers)} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
-      case 'deleted': return <DeletedUsersTable data={filterBySearch(deletedUsers)} onRestore={(id: string) => restoreUser.mutate(id)} isRestoring={restoreUser.isPending} />;
+      case 'businesses': return <BusinessTable data={businesses} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteBiz.mutate(id)} onAdd={() => setShowAdd(true)} onWhitelabel={(b: any) => setWhitelabelBusiness({ id: b.id, name: b.name })} />;
+      case 'customers': return <CustomerTable data={customers} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCust.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'agents': return <AgentTable data={agents} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAgt.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'consultants': return <ConsultantTable data={consultants} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteCons.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'account-managers': return <AccountManagerTable data={accountManagers} onView={openUser} onEdit={setEditing} onDelete={(id: string) => deleteAM.mutate(id)} onAdd={() => setShowAdd(true)} />;
+      case 'deleted': return <DeletedUsersTable data={deletedUsers} onRestore={(id: string) => restoreUser.mutate(id)} isRestoring={restoreUser.isPending} />;
     }
   };
 
@@ -96,7 +159,7 @@ export default function UserManagementPanel() {
         <div className="overflow-x-auto max-w-full pb-1">
           <div className="flex gap-1.5 sm:gap-2 bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm shrink-0">
             {(['businesses', 'customers', 'agents', 'consultants', 'account-managers', 'deleted'] as UserTab[]).map(t => (
-              <button key={t} onClick={() => setUserTab(t)} className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0", userTab === t ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}>
+              <button key={t} onClick={() => selectTab(t)} className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0", userTab === t ? "bg-brand-blue text-white shadow-glow" : "text-gray-400 hover:text-gray-600")}>
                 {t === 'businesses' ? 'Businesses' : t === 'customers' ? 'Customers' : t === 'agents' ? 'Agents' : t === 'consultants' ? 'Consultants' : t === 'deleted' ? 'Deleted' : 'Account Mgrs'}
               </button>
             ))}
@@ -105,13 +168,23 @@ export default function UserManagementPanel() {
         <div className="flex gap-2 sm:gap-3">
           <div className="relative flex-1 sm:flex-initial">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-full sm:w-48" />
+            <input type="text" placeholder="Search..." value={searchInput} onChange={e => setSearchInput(e.target.value)} className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 w-full sm:w-48" />
+            {isFetching && !isLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-gray-300" />}
           </div>
           {userTab !== 'deleted' && <button onClick={() => setShowAdd(true)} className="px-3 sm:px-4 py-2 bg-brand-blue text-white rounded-xl font-bold text-xs hover:bg-blue-600 transition-all shadow-glow flex items-center gap-1.5 sm:gap-2 shrink-0"><Plus className="w-4 h-4" /> Add New</button>}
         </div>
       </div>
 
       {renderTable()}
+
+      <PaginationBar
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        limit={PAGE_SIZE}
+        disabled={isFetching}
+        onPageChange={setPage}
+      />
 
       <AnimatePresence>
         {showAdd && (
@@ -151,6 +224,60 @@ export default function UserManagementPanel() {
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function PaginationBar({
+  page,
+  totalPages,
+  total,
+  limit,
+  disabled,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  disabled?: boolean;
+  onPageChange: (page: number) => void;
+}) {
+  if (total === 0) return null;
+
+  const from = (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
+  const canPrev = page > 1 && !disabled;
+  const canNext = page < totalPages && !disabled;
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4">
+      <p className="text-xs font-bold text-gray-400">
+        Showing <span className="text-gray-700">{from}–{to}</span> of <span className="text-gray-700">{total}</span>
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(page - 1)}
+          disabled={!canPrev}
+          className="flex items-center gap-1 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Prev
+        </button>
+        <span className="px-3 py-2 text-xs font-bold text-gray-500 whitespace-nowrap">
+          Page {page} of {Math.max(totalPages, 1)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPageChange(page + 1)}
+          disabled={!canNext}
+          className="flex items-center gap-1 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label="Next page"
+        >
+          Next <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
