@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -29,6 +30,9 @@ import {
   AddParticipantDto,
   MuteConversationDto,
   PushSubscriptionDto,
+  UpdateGroupSettingsDto,
+  SetParticipantRoleDto,
+  TransferOwnershipDto,
 } from './dto/chat.dto';
 
 @ApiTags('Chat & Messaging')
@@ -155,6 +159,91 @@ export class ChatController {
       conversationId,
       dto.userId,
     );
+  }
+
+  @Patch('conversations/:id')
+  @ApiOperation({
+    summary: 'Update group settings (title, photo, admin-only mode)',
+    description:
+      'Admin-only. Setting `isAdminOnly` makes the group read-only for members: they can still read and receive notifications, but only group admins may send messages.',
+  })
+  async updateGroupSettings(
+    @Request() req: any,
+    @Param('id') conversationId: string,
+    @Body() dto: UpdateGroupSettingsDto,
+  ) {
+    const conversation = await this.chatService.updateGroupSettings(
+      req.user.userId,
+      conversationId,
+      dto,
+    );
+
+    // Tell every connected participant in real time so their composer
+    // switches to read-only without a refresh.
+    this.chatGateway.broadcastConversationUpdate(conversationId, {
+      conversationId,
+      isAdminOnly: conversation.isAdminOnly,
+      title: conversation.title,
+      avatarUrl: conversation.avatarUrl,
+    });
+
+    return conversation;
+  }
+
+  @Patch('conversations/:id/participants/:targetUserId')
+  @ApiOperation({
+    summary: 'Promote a member to group admin, or demote an admin to member',
+    description:
+      'Admin-only. The group owner cannot be demoted — transfer ownership instead.',
+  })
+  async setParticipantRole(
+    @Request() req: any,
+    @Param('id') conversationId: string,
+    @Param('targetUserId') targetUserId: string,
+    @Body() dto: SetParticipantRoleDto,
+  ) {
+    const conversation = await this.chatService.setParticipantRole(
+      req.user.userId,
+      conversationId,
+      targetUserId,
+      dto.role,
+    );
+
+    this.chatGateway.broadcastConversationUpdate(conversationId, {
+      conversationId,
+      isAdminOnly: conversation.isAdminOnly,
+      title: conversation.title,
+      avatarUrl: conversation.avatarUrl,
+    });
+
+    return conversation;
+  }
+
+  @Post('conversations/:id/transfer-ownership')
+  @ApiOperation({
+    summary: 'Transfer group ownership to another participant',
+    description:
+      'Owner-only. The previous owner stays an admin so the group always keeps at least one admin.',
+  })
+  async transferOwnership(
+    @Request() req: any,
+    @Param('id') conversationId: string,
+    @Body() dto: TransferOwnershipDto,
+  ) {
+    const conversation = await this.chatService.transferOwnership(
+      req.user.userId,
+      conversationId,
+      dto.userId,
+    );
+
+    this.chatGateway.broadcastConversationUpdate(conversationId, {
+      conversationId,
+      isAdminOnly: conversation.isAdminOnly,
+      title: conversation.title,
+      avatarUrl: conversation.avatarUrl,
+    });
+
+    return conversation;
   }
 
   @Delete('conversations/:id/participants/:targetUserId')

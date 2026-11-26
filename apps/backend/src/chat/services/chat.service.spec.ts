@@ -538,4 +538,322 @@ describe('ChatService', () => {
       expect(result[1].isOnline).toBe(true);
     });
   });
+
+  // ─── Group administration: admin-only (read-only) mode ───────────────────
+  describe('Group administration (admin-only mode, roles, ownership)', () => {
+    /** Participant + conversation shape shared by the group-admin helpers. */
+    const groupConversation = (overrides: Record<string, any> = {}) => ({
+      id: 'conv-1',
+      type: 'GROUP',
+      deletedAt: null,
+      title: 'Acme Weekly',
+      avatarUrl: null,
+      isAdminOnly: false,
+      createdById: 'owner-1',
+      participants: [
+        { userId: 'owner-1', role: 'ADMIN', user: { id: 'owner-1', email: 'o@t.com' } },
+        { userId: 'admin-1', role: 'ADMIN', user: { id: 'admin-1', email: 'a@t.com' } },
+        { userId: 'member-1', role: 'MEMBER', user: { id: 'member-1', email: 'm@t.com' } },
+      ],
+      ...overrides,
+    });
+
+    const participantRecord = (userId: string, role: 'ADMIN' | 'MEMBER', overrides: Record<string, any> = {}) => ({
+      id: `cp-${userId}`,
+      conversationId: 'conv-1',
+      userId,
+      role,
+      isMuted: false,
+      lastReadAt: null,
+      user: { id: userId, email: `${userId}@t.com`, firstName: userId, lastName: 'User', role: 'BUSINESS' },
+      conversation: groupConversation(),
+      ...overrides,
+    });
+
+    describe('admin-only posting mode', () => {
+      it('should reject a MEMBER sending into an admin-only group', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('member-1', 'MEMBER', {
+            conversation: groupConversation({ isAdminOnly: true }),
+          }),
+        );
+
+        await expect(
+          service.sendMessage('member-1', { conversationId: 'conv-1', content: 'Hi team' }),
+        ).rejects.toThrow(ForbiddenException);
+
+        // Nothing must be persisted when the sender is not allowed to post.
+        expect(prisma.message.create).not.toHaveBeenCalled();
+        expect(prisma.chatOutbox.create).not.toHaveBeenCalled();
+      });
+
+      it('should allow an ADMIN to send into an admin-only group', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN', {
+            conversation: groupConversation({ isAdminOnly: true }),
+          }),
+        );
+        prisma.message.findFirst.mockResolvedValue(null);
+        prisma.message.create.mockResolvedValue({
+          id: 'msg-admin',
+          conversationId: 'conv-1',
+          content: 'Hello team',
+          senderId: 'admin-1',
+          type: 'TEXT',
+          createdAt: new Date(),
+          sender: { id: 'admin-1', email: 'a@t.com' },
+        });
+
+        const result = await service.sendMessage('admin-1', {
+          conversationId: 'conv-1',
+          content: 'Hello team',
+        });
+
+        expect(result.id).toBe('msg-admin');
+        expect(prisma.message.create).toHaveBeenCalled();
+      });
+
+      it('should still allow a MEMBER to send in a normal group', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('member-1', 'MEMBER'),
+        );
+        prisma.message.findFirst.mockResolvedValue(null);
+        prisma.message.create.mockResolvedValue({
+          id: 'msg-member',
+          conversationId: 'conv-1',
+          content: 'Hello team',
+          senderId: 'member-1',
+          type: 'TEXT',
+          createdAt: new Date(),
+          sender: { id: 'member-1', email: 'm@t.com' },
+        });
+
+        const result = await service.sendMessage('member-1', {
+          conversationId: 'conv-1',
+          content: 'Hello team',
+        });
+
+        expect(result.id).toBe('msg-member');
+      });
+
+      it('should never apply the admin-only rule to direct conversations', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue({
+          id: 'cp-1',
+          conversationId: 'conv-1',
+          userId: 'member-1',
+          role: 'MEMBER',
+          user: { id: 'member-1', email: 'm@t.com' },
+          conversation: {
+            id: 'conv-1',
+            type: 'DIRECT',
+            isAdminOnly: false,
+            deletedAt: null,
+            participants: [
+              { userId: 'member-1', isMuted: false },
+              { userId: 'other-1', isMuted: false },
+            ],
+          },
+        });
+        prisma.message.findFirst.mockResolvedValue(null);
+        prisma.message.create.mockResolvedValue({
+          id: 'msg-direct',
+          conversationId: 'conv-1',
+          content: 'Hello',
+          senderId: 'member-1',
+          type: 'TEXT',
+          createdAt: new Date(),
+          sender: { id: 'member-1', email: 'm@t.com' },
+        });
+        // The counterpart must exist for a direct conversation.
+        prisma.user.findFirst.mockResolvedValue({ id: 'other-1' });
+
+        const result = await service.sendMessage('member-1', {
+          conversationId: 'conv-1',
+          content: 'Hello',
+        });
+
+        expect(result.id).toBe('msg-direct');
+      });
+    });
+
+    describe('updateGroupSettings', () => {
+      it('should forbid a MEMBER from toggling the admin-only mode', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('member-1', 'MEMBER'),
+        );
+
+        await expect(
+          service.updateGroupSettings('member-1', 'conv-1', { isAdminOnly: true }),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(prisma.conversation.update).not.toHaveBeenCalled();
+      });
+
+      it('should let an ADMIN switch the group to admin-only and announce it', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+        prisma.conversation.update.mockResolvedValue({});
+
+        await service.updateGroupSettings('admin-1', 'conv-1', { isAdminOnly: true });
+
+        expect(prisma.conversation.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'conv-1' },
+            data: expect.objectContaining({ isAdminOnly: true }),
+          }),
+        );
+        // The change is recorded in the transcript as a system message.
+        expect(prisma.message.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ type: 'SYSTEM' }),
+          }),
+        );
+      });
+
+      it('should let an ADMIN rename the group', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+        prisma.conversation.update.mockResolvedValue({});
+
+        await service.updateGroupSettings('admin-1', 'conv-1', { title: '  New Name  ' });
+
+        expect(prisma.conversation.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ title: 'New Name' }),
+          }),
+        );
+      });
+
+      it('should not write a system message when nothing actually changed', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+
+        await service.updateGroupSettings('admin-1', 'conv-1', { isAdminOnly: false });
+
+        expect(prisma.conversation.update).not.toHaveBeenCalled();
+        expect(prisma.message.create).not.toHaveBeenCalled();
+      });
+
+      it('should reject a non-http group photo URL', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+
+        await expect(
+          service.updateGroupSettings('admin-1', 'conv-1', { avatarUrl: 'javascript:alert(1)' }),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('setParticipantRole', () => {
+      it('should let an ADMIN promote a member', async () => {
+        prisma.conversationParticipant.findUnique.mockImplementation(
+          async ({ where }: any) => {
+            if (where?.conversationId_userId?.userId === 'member-1') {
+              return participantRecord('member-1', 'MEMBER');
+            }
+            return participantRecord('admin-1', 'ADMIN');
+          },
+        );
+
+        await service.setParticipantRole('admin-1', 'conv-1', 'member-1', 'ADMIN');
+
+        expect(prisma.conversationParticipant.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { conversationId_userId: { conversationId: 'conv-1', userId: 'member-1' } },
+            data: { role: 'ADMIN' },
+          }),
+        );
+      });
+
+      it('should refuse to demote the group owner', async () => {
+        prisma.conversationParticipant.findUnique.mockImplementation(
+          async ({ where }: any) => {
+            if (where?.conversationId_userId?.userId === 'owner-1') {
+              return participantRecord('owner-1', 'ADMIN');
+            }
+            return participantRecord('admin-1', 'ADMIN');
+          },
+        );
+
+        await expect(
+          service.setParticipantRole('admin-1', 'conv-1', 'owner-1', 'MEMBER'),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(prisma.conversationParticipant.update).not.toHaveBeenCalled();
+      });
+
+      it('should refuse to change the caller own role', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+
+        await expect(
+          service.setParticipantRole('admin-1', 'conv-1', 'admin-1', 'MEMBER'),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
+
+    describe('transferOwnership', () => {
+      it('should refuse a transfer requested by a non-owner admin', async () => {
+        prisma.conversationParticipant.findUnique.mockResolvedValue(
+          participantRecord('admin-1', 'ADMIN'),
+        );
+
+        await expect(
+          service.transferOwnership('admin-1', 'conv-1', 'member-1'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should let the owner transfer ownership and promote the new owner', async () => {
+        prisma.conversationParticipant.findUnique.mockImplementation(
+          async ({ where }: any) => {
+            if (where?.conversationId_userId?.userId === 'member-1') {
+              return participantRecord('member-1', 'MEMBER');
+            }
+            return participantRecord('owner-1', 'ADMIN');
+          },
+        );
+        prisma.conversation.update.mockResolvedValue({});
+        prisma.conversationParticipant.update.mockResolvedValue({});
+
+        await service.transferOwnership('owner-1', 'conv-1', 'member-1');
+
+        expect(prisma.conversation.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'conv-1' },
+            data: expect.objectContaining({ createdById: 'member-1' }),
+          }),
+        );
+        expect(prisma.conversationParticipant.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { conversationId_userId: { conversationId: 'conv-1', userId: 'member-1' } },
+            data: { role: 'ADMIN' },
+          }),
+        );
+      });
+    });
+
+    describe('removeParticipant', () => {
+      it('should refuse to remove the group owner', async () => {
+        prisma.conversationParticipant.findUnique.mockImplementation(
+          async ({ where }: any) => {
+            if (where?.conversationId_userId?.userId === 'owner-1') {
+              return participantRecord('owner-1', 'ADMIN');
+            }
+            return participantRecord('admin-1', 'ADMIN');
+          },
+        );
+
+        await expect(
+          service.removeParticipant('admin-1', 'conv-1', 'owner-1'),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(prisma.conversationParticipant.delete).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

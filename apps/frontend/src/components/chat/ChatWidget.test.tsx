@@ -59,6 +59,7 @@ vi.mock('../../services/chat', () => ({
     }),
     getBlockedUsers: vi.fn().mockResolvedValue([]),
   },
+  getCurrentUserId: vi.fn().mockReturnValue('user-1'),
 }));
 
 describe('ChatWidget component', () => {

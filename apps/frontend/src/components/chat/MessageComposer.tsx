@@ -1,16 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 interface MessageComposerProps {
   onSend: (content: string) => void;
   onTyping: () => void;
   disabled?: boolean;
+  /** Shown in place of the normal hint when the composer is disabled. */
+  disabledPlaceholder?: string;
 }
 
 export default function MessageComposer({
   onSend,
   onTyping,
   disabled,
+  disabledPlaceholder,
 }: MessageComposerProps) {
   const [content, setContent] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -56,10 +60,13 @@ export default function MessageComposer({
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message... (Enter to send)"
+          placeholder={disabled ? disabledPlaceholder || 'Sending is disabled here' : 'Type a message... (Enter to send)'}
           rows={1}
           disabled={disabled}
-          className="min-w-0 flex-1 bg-transparent text-base sm:text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none max-h-28 min-h-[24px]"
+          className={cn(
+            'min-w-0 flex-1 bg-transparent text-base sm:text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none max-h-28 min-h-[24px]',
+            disabled && 'cursor-not-allowed opacity-70',
+          )}
         />
         <button
           type="submit"

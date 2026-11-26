@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class ChatSessionDto {
   @ApiProperty({
@@ -102,6 +102,59 @@ export class MarkReadDto {
 
 export class AddParticipantDto {
   @ApiProperty({ description: 'User ID to add to conversation' })
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+}
+
+export class UpdateGroupSettingsDto {
+  @ApiPropertyOptional({
+    example: 'Acme Weekly Sync',
+    description: 'New group title. Only admins may change it.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  title?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.png',
+    description: 'New group avatar URL.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  avatarUrl?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      'When true the group becomes read-only for members: only participants with the ADMIN role may send messages. Only admins may toggle it.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  isAdminOnly?: boolean;
+}
+
+export class SetParticipantRoleDto {
+  @ApiProperty({
+    enum: ['ADMIN', 'MEMBER'],
+    example: 'ADMIN',
+    description:
+      'The role to grant. ADMIN members may send messages in an admin-only group and manage the group.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['ADMIN', 'MEMBER'], { message: 'role must be ADMIN or MEMBER' })
+  role: 'ADMIN' | 'MEMBER';
+}
+
+export class TransferOwnershipDto {
+  @ApiProperty({
+    example: 'usr_456',
+    description: 'The participant who becomes the new group owner.',
+  })
   @IsString()
   @IsNotEmpty()
   userId: string;

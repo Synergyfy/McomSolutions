@@ -33,6 +33,12 @@ interface AuthenticatedSocket extends Socket {
     };
     /** Conversations joined by this socket — avoids a DB check on every keystroke. */
     conversations: Set<string>;
+    /**
+     * The caller's access level per joined conversation, captured once on
+     * join. Lets the gateway enforce the admin-only posting mode without a
+     * database round-trip on every event.
+     */
+    conversationAccess: Map<string, { role: string; isAdminOnly: boolean }>;
   };
 }
 
@@ -133,6 +139,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
             businessId: user.businessProfile?.id || null,
           },
           conversations: new Set<string>(),
+          conversationAccess: new Map<string, { role: string; isAdminOnly: boolean }>(),
         };
 
         next();
@@ -254,7 +261,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           userId,
         },
       },
-      include: { conversation: { select: { deletedAt: true } } },
+      include: { conversation: { select: { deletedAt: true, isAdminOnly: true } } },
     });
 
     if (!participant || participant.conversation.deletedAt) {
@@ -263,6 +270,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
     await client.join(`conversation:${data.conversationId}`);
     client.data.conversations?.add(data.conversationId);
+    client.data.conversationAccess?.set(data.conversationId, {
+      role: participant.role,
+      isAdminOnly: participant.conversation.isAdminOnly,
+    });
 
     return {
       success: true,
@@ -282,6 +293,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
         this.presenceService.clearConversationViewer(userId, data.conversationId);
         client.data.conversations?.delete(data.conversationId);
       }
+      client.data.conversationAccess?.delete(data.conversationId);
       await client.leave(`conversation:${data.conversationId}`);
     }
     return { success: true };
@@ -378,6 +390,13 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     // Membership is validated once on join — never hit the DB on a keystroke.
     if (!client.data.conversations?.has(data.conversationId)) {
       return { success: false, error: 'Join the conversation before typing' };
+    }
+
+    // In an admin-only group members cannot post, so they must not show a
+    // typing indicator either — it would promise a message they cannot send.
+    const access = client.data.conversationAccess?.get(data.conversationId);
+    if (access?.isAdminOnly && access.role !== 'ADMIN') {
+      return { success: false, error: 'Only group admins can send messages in this group' };
     }
 
     if (!(await this.allowEvent(user.userId, 'typing', 4, 2))) {
@@ -480,6 +499,17 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   notifyUser(userId: string, event: string, data: any) {
     if (!this.server) return;
     this.server.to(`user:${userId}`).emit(event, data);
+  }
+
+  /**
+   * Announce a group-settings change to everyone in the conversation room.
+   *
+   * Clients use this to switch the composer to read-only the moment an admin
+   * enables the admin-only mode — no refresh, no stale "send" button.
+   */
+  broadcastConversationUpdate(conversationId: string, payload: any) {
+    if (!this.server) return;
+    this.server.to(`conversation:${conversationId}`).emit('conversation_updated', payload);
   }
 
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))

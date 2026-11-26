@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PresenceService } from './presence.service';
 import { PushNotificationService } from './push-notification.service';
@@ -15,6 +16,7 @@ import {
   SendMessageRequestDto,
   RespondMessageRequestDto,
   BlockUserDto,
+  UpdateGroupSettingsDto,
 } from '../dto/chat.dto';
 
 export interface UserSummary {
@@ -182,6 +184,8 @@ export class ChatService {
         directKey: conv.directKey,
         isMuted: cp.isMuted,
         role: cp.role,
+        isAdminOnly: conv.isAdminOnly,
+        isOwner: conv.createdById === userId,
         lastMessageAt: conv.lastMessageAt,
         lastMessageText: conv.lastMessageText,
         lastMessageSenderId: conv.lastMessageSenderId,
@@ -191,6 +195,7 @@ export class ChatService {
         participants: activeParticipants.map((p) => ({
           userId: p.userId,
           role: p.role,
+          isOwner: conv.createdById === p.userId,
           displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
           email: p.user.email,
           roleTitle: this.formatRoleTitle(p.user.role),
@@ -263,11 +268,14 @@ export class ChatService {
       directKey: conv.directKey,
       isMuted: cp.isMuted,
       role: cp.role,
+      isAdminOnly: conv.isAdminOnly,
+      isOwner: conv.createdById === userId,
       lastMessageAt: conv.lastMessageAt,
       createdAt: conv.createdAt,
       participants: activeParticipants.map((p) => ({
         userId: p.userId,
         role: p.role,
+        isOwner: conv.createdById === p.userId,
         displayName: p.user.businessProfile?.businessName || this.formatUserName(p.user),
         email: p.user.email,
         roleTitle: this.formatRoleTitle(p.user.role),
@@ -545,6 +553,15 @@ export class ChatService {
     });
     if (!targetCp) throw new NotFoundException('Participant not found');
 
+    // The owner is the group's anchor: their role follows ownership and the
+    // group must always keep at least one admin. Block removal until the
+    // ownership has been transferred.
+    if (callerCp.conversation.createdById === targetUserId) {
+      throw new ForbiddenException(
+        'The group owner cannot be removed. Transfer ownership to another member first',
+      );
+    }
+
     await this.prisma.conversationParticipant.delete({
       where: { conversationId_userId: { conversationId, userId: targetUserId } },
     });
@@ -565,6 +582,209 @@ export class ChatService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * Loads the caller's participant record for a group conversation and
+   * asserts they hold the ADMIN role.
+   *
+   * Every group-management action (add/remove member, promote/demote, change
+   * settings, toggle the admin-only mode) funnels through here so the
+   * authorization rule is written once.
+   */
+  private async requireGroupAdmin(callerId: string, conversationId: string) {
+    const cp = await this.prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId: callerId } },
+      include: { user: true, conversation: true },
+    });
+
+    if (!cp || cp.conversation.deletedAt) {
+      throw new ForbiddenException('You are not in this conversation');
+    }
+    if (cp.conversation.type !== 'GROUP') {
+      throw new BadRequestException('This action is only available for group conversations');
+    }
+    if (cp.role !== 'ADMIN') {
+      throw new ForbiddenException('Only group admins can perform this action');
+    }
+
+    return cp;
+  }
+
+  /**
+   * Updates group settings. Admin-only.
+   *
+   * `isAdminOnly` turns the group into a broadcast channel: members can still
+   * read everything and receive notifications, but only admins may post.
+   */
+  async updateGroupSettings(
+    callerId: string,
+    conversationId: string,
+    dto: UpdateGroupSettingsDto,
+  ) {
+    const adminCp = await this.requireGroupAdmin(callerId, conversationId);
+
+    const data: Prisma.ConversationUpdateInput = {};
+    const changes: string[] = [];
+
+    if (dto.title !== undefined) {
+      const title = dto.title.trim();
+      if (!title) {
+        throw new BadRequestException('Group title cannot be empty');
+      }
+      data.title = title;
+      changes.push(`renamed the group to "${title}"`);
+    }
+
+    if (dto.avatarUrl !== undefined) {
+      const avatarUrl = dto.avatarUrl.trim();
+      if (avatarUrl) {
+        if (!/^https?:\/\//i.test(avatarUrl)) {
+          throw new BadRequestException('Group photo must be a valid http(s) URL');
+        }
+        data.avatarUrl = avatarUrl;
+      } else {
+        data.avatarUrl = null;
+      }
+      changes.push('updated the group photo');
+    }
+
+    if (dto.isAdminOnly !== undefined) {
+      const next = dto.isAdminOnly;
+      if (next !== adminCp.conversation.isAdminOnly) {
+        data.isAdminOnly = next;
+        changes.push(
+          next
+            ? 'made the group read-only for members — only admins can post'
+            : 'allowed all members to post again',
+        );
+      }
+    }
+
+    // Nothing actually changed — do not write a noisy system message.
+    if (Object.keys(data).length === 0) {
+      return this.getConversation(callerId, conversationId);
+    }
+
+    await this.prisma.conversation.update({ where: { id: conversationId }, data });
+
+    await this.prisma.message.create({
+      data: {
+        conversationId,
+        senderId: callerId,
+        type: 'SYSTEM',
+        content: `${this.formatUserName(adminCp.user)} ${changes.join(' and ')}`,
+      },
+    });
+
+    return this.getConversation(callerId, conversationId);
+  }
+
+  /**
+   * Promotes a member to group admin, or demotes an admin back to member.
+   *
+   * The group owner (the conversation creator) is exempt: their role follows
+   * ownership, so the only way to change it is to transfer ownership.
+   */
+  async setParticipantRole(
+    callerId: string,
+    conversationId: string,
+    targetUserId: string,
+    role: 'ADMIN' | 'MEMBER',
+  ) {
+    const adminCp = await this.requireGroupAdmin(callerId, conversationId);
+
+    if (targetUserId === callerId) {
+      throw new BadRequestException('You cannot change your own group role');
+    }
+
+    const targetCp = await this.prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId: targetUserId } },
+      include: { user: true },
+    });
+    if (!targetCp) throw new NotFoundException('Participant not found');
+
+    if (adminCp.conversation.createdById === targetUserId) {
+      throw new ForbiddenException(
+        'The group owner cannot be demoted. Transfer ownership first',
+      );
+    }
+
+    if (targetCp.role === role) {
+      return this.getConversation(callerId, conversationId);
+    }
+
+    await this.prisma.conversationParticipant.update({
+      where: { conversationId_userId: { conversationId, userId: targetUserId } },
+      data: { role },
+    });
+
+    const targetName = this.formatUserName(targetCp.user);
+    const callerName = this.formatUserName(adminCp.user);
+    await this.prisma.message.create({
+      data: {
+        conversationId,
+        senderId: callerId,
+        type: 'SYSTEM',
+        content:
+          role === 'ADMIN'
+            ? `${callerName} made ${targetName} a group admin`
+            : `${callerName} removed ${targetName} as a group admin`,
+      },
+    });
+
+    return this.getConversation(callerId, conversationId);
+  }
+
+  /**
+   * Transfers group ownership to another participant. Owner-only.
+   *
+   * The previous owner stays an admin — they simply stop being the owner, so
+   * a group always keeps at least one admin (the owner) who can manage it.
+   */
+  async transferOwnership(
+    callerId: string,
+    conversationId: string,
+    targetUserId: string,
+  ) {
+    const ownerCp = await this.requireGroupAdmin(callerId, conversationId);
+
+    if (ownerCp.conversation.createdById !== callerId) {
+      throw new ForbiddenException('Only the group owner can transfer ownership');
+    }
+    if (targetUserId === callerId) {
+      throw new BadRequestException('You already own this group');
+    }
+
+    const targetCp = await this.prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId: targetUserId } },
+      include: { user: true },
+    });
+    if (!targetCp) throw new NotFoundException('Participant not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { createdById: targetUserId },
+      });
+      await tx.conversationParticipant.update({
+        where: { conversationId_userId: { conversationId, userId: targetUserId } },
+        data: { role: 'ADMIN' },
+      });
+    });
+
+    const targetName = this.formatUserName(targetCp.user);
+    const callerName = this.formatUserName(ownerCp.user);
+    await this.prisma.message.create({
+      data: {
+        conversationId,
+        senderId: callerId,
+        type: 'SYSTEM',
+        content: `${callerName} transferred group ownership to ${targetName}`,
+      },
+    });
+
+    return this.getConversation(callerId, conversationId);
   }
 
   async sendMessage(senderId: string, dto: SendMessageDto) {
@@ -596,6 +816,20 @@ export class ChatService {
 
     if (!cp || cp.conversation.deletedAt) {
       throw new ForbiddenException('You are not a participant in this conversation');
+    }
+
+    // Group rules: an admin-only group is a broadcast channel. Members can
+    // still read it and receive notifications, but only admins may post.
+    // Enforced here so it applies to EVERY send path — socket, REST and any
+    // partner-app proxy — because all of them funnel through this method.
+    if (
+      cp.conversation.type === 'GROUP' &&
+      cp.conversation.isAdminOnly &&
+      cp.role !== 'ADMIN'
+    ) {
+      throw new ForbiddenException(
+        'This group is read-only for members. Only group admins can send messages',
+      );
     }
 
     // Direct conversation rules: blocking & rejection guards (Admin exempt)

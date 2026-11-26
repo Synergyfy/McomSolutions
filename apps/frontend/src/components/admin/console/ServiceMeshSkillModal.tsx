@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Download,
+  MessageCircle,
   Network,
   Play,
   Shield,
@@ -133,7 +134,7 @@ try {
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                Instruction skill for AI agents & engineers explaining direct app-to-app communication, offline JWKS token verification, and why webhook keys are NOT needed for peer calls.
+                Instruction skill for AI agents & engineers explaining direct app-to-app communication, offline JWKS token verification, why webhook keys are NOT needed for peer calls, and how to bridge your app onto Central Hub's real-time chat backbone.
               </p>
             </div>
           </div>
@@ -162,7 +163,7 @@ try {
         </div>
 
         {/* Feature Highlights Ribbon */}
-        <div className="p-4 bg-gray-50 border-b border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+        <div className="p-4 bg-gray-50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           <div className="p-3 bg-white rounded-2xl border border-gray-200/80 shadow-xs flex items-start gap-2.5">
             <div className="w-6 h-6 rounded-lg bg-blue-50 text-brand-blue flex items-center justify-center flex-shrink-0 mt-0.5">
               <Network className="w-3.5 h-3.5" />
@@ -207,6 +208,18 @@ try {
               <p className="font-bold text-gray-900">30s Smoke Test Script</p>
               <p className="text-[11px] text-gray-500 mt-0.5">
                 Includes zero-dependency Node.js test script to verify token minting immediately.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 bg-white rounded-2xl border border-gray-200/80 shadow-xs flex items-start gap-2.5">
+            <div className="w-6 h-6 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <MessageCircle className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900">Real-Time Chat Bridge</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                Optional. Bridge your app onto Central's <code className="font-mono text-[10px]">/chat</code> socket — no local message store.
               </p>
             </div>
           </div>

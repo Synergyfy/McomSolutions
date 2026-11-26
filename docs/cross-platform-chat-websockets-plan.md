@@ -610,6 +610,26 @@ apps/web/components/ChatOverlay.tsx                        replace mock
   exponential backoff, and a per-minute sweeper re-enqueues rows left by a crashed process. If the
   queue is unavailable it falls back to inline processing. Verified end-to-end: the outbox row reached
   `COMPLETED` and the recipient notification was created by the worker.
+- **Group conversations with owners, admins and an admin-only (read-only) mode**
+  (migration `20261125000000_add_group_admin_only_mode` adds `conversations.is_admin_only`):
+  - `POST /chat/conversations/group` already existed; the creator is now explicitly the **owner**
+    (`Conversation.createdById`) and an `ADMIN` participant.
+  - `PATCH /chat/conversations/:id` — group settings: title, photo and the `isAdminOnly` toggle
+    (admins only). Every change is written to the transcript as a `SYSTEM` message.
+  - `PATCH /chat/conversations/:id/participants/:userId` — promote a member to `ADMIN` or demote an
+    admin back to `MEMBER` (admins only).
+  - `POST /chat/conversations/:id/transfer-ownership` — hand the group to another participant
+    (owner only). The previous owner stays an admin so the group always keeps one.
+  - Enforcement lives in **one** place — `ChatService.sendMessage` — so the admin-only mode applies
+    identically to the socket, REST and any partner-app proxy. A member's send is rejected with
+    `403 "This group is read-only for members. Only group admins can send messages"`.
+  - The owner cannot be demoted or removed until ownership is transferred.
+  - The gateway caches the caller's role and the group mode on `join_conversation`
+    (`socket.data.conversationAccess`) so `typing_*` in a read-only group is refused without a
+    database round-trip, and emits `conversation_updated` so clients disable the composer live.
+  - Verified end-to-end against Postgres by `apps/backend/scripts/chat-group-smoke.ts`
+    (22 assertions: ownership, admin-only enforcement, promotion, owner protections, transfer,
+    re-opening the group, and that direct conversations are unaffected).
 
 ### 247GBS Affiliates (done)
 
