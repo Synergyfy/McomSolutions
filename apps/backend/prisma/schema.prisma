@@ -2653,6 +2653,9 @@ model Conversation {
   directKey           String?          @unique @map("direct_key") // canonical sorted "userIdA:userIdB"
   createdById         String?          @map("created_by_id")
   createdBy           User?            @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  /// GROUP only. When true the group is read-only for members: only participants
+  /// with role ADMIN may send messages. Toggled by a group admin.
+  isAdminOnly         Boolean          @default(false) @map("is_admin_only")
   lastMessageAt       DateTime         @default(now()) @map("last_message_at")
   lastMessageText     String?          @map("last_message_text")
   lastMessageSenderId String?          @map("last_message_sender_id")

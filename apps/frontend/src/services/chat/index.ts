@@ -3,6 +3,8 @@ import { apiClient } from '../api';
 export interface ChatParticipant {
   userId: string;
   role: 'ADMIN' | 'MEMBER';
+  /** True for the participant who created (and therefore owns) the group. */
+  isOwner?: boolean;
   displayName: string;
   email: string;
   roleTitle: string;
@@ -18,6 +20,10 @@ export interface ConversationSummary {
   directKey?: string | null;
   isMuted: boolean;
   role: 'ADMIN' | 'MEMBER';
+  /** GROUP only — when true only admins may post; members are read-only. */
+  isAdminOnly?: boolean;
+  /** GROUP only — true for the participant who created the group. */
+  isOwner?: boolean;
   lastMessageAt: string;
   lastMessageText?: string | null;
   lastMessageSenderId?: string | null;
@@ -25,6 +31,26 @@ export interface ConversationSummary {
   isOnline: boolean;
   participantsCount: number;
   participants: ChatParticipant[];
+}
+
+/**
+ * The signed-in user's id, decoded from the stored access token.
+ *
+ * The chat surface reads the id from the JWT rather than a cached profile so
+ * it stays correct across the admin and business login flows.
+ */
+export function getCurrentUserId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.sub || payload.id || null;
+  } catch {
+    return null;
+  }
 }
 
 export interface ChatMessage {
@@ -156,6 +182,39 @@ export const chatApi = {
   ): Promise<{ success: boolean }> => {
     const res = await apiClient.delete(
       `/chat/conversations/${conversationId}/participants/${targetUserId}`,
+    );
+    return res.data;
+  },
+
+  // ─── Group management (admin only) ────────────────────────────────────
+
+  updateGroupSettings: async (
+    conversationId: string,
+    data: { title?: string; avatarUrl?: string; isAdminOnly?: boolean },
+  ): Promise<ConversationSummary> => {
+    const res = await apiClient.patch(`/chat/conversations/${conversationId}`, data);
+    return res.data;
+  },
+
+  setParticipantRole: async (
+    conversationId: string,
+    targetUserId: string,
+    role: 'ADMIN' | 'MEMBER',
+  ): Promise<ConversationSummary> => {
+    const res = await apiClient.patch(
+      `/chat/conversations/${conversationId}/participants/${targetUserId}`,
+      { role },
+    );
+    return res.data;
+  },
+
+  transferOwnership: async (
+    conversationId: string,
+    targetUserId: string,
+  ): Promise<ConversationSummary> => {
+    const res = await apiClient.post(
+      `/chat/conversations/${conversationId}/transfer-ownership`,
+      { userId: targetUserId },
     );
     return res.data;
   },

@@ -763,6 +763,14 @@ Central Hub is the single source of truth for conversations and messages. A
 registered app can give its users real-time chat with Central users (businesses,
 agents, account managers, consultants) without storing messages locally.
 
+> 📖 **This is the quick reference.** The full, authoritative contract —
+> prerequisites and Console settings, every socket event in both directions,
+> optimistic-send idempotency, rate limits, security rules, operational
+> requirements and a messaging troubleshooting table — lives in the
+> **Backend-to-Backend (M2M) Skill** on the MCOM Console page
+> (*Backend-to-Backend Skill* button). Implement from that document; this
+> section is the summary.
+
 ### 1. Mint a scoped chat session (server-to-server)
 
 \`\`\`http

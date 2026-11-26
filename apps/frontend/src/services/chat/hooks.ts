@@ -6,6 +6,7 @@ import {
   ConversationSummary,
   ChatMessage,
   MessageReceiptsResponse,
+  getCurrentUserId,
 } from './index';
 
 export function useChatConnection() {
@@ -56,6 +57,18 @@ export function useChat(options: { enabled?: boolean } = {}) {
   });
 
   const activeConversation = conversationsQuery.data?.find((c) => c.id === activeConversationId);
+
+  /**
+   * True when the active conversation is a group in admin-only mode and the
+   * signed-in user is not one of its admins. Such a member may read the group
+   * but cannot post in it.
+   */
+  const isReadOnlyForUser = Boolean(
+    activeConversation &&
+      activeConversation.type === 'GROUP' &&
+      activeConversation.isAdminOnly &&
+      activeConversation.role !== 'ADMIN',
+  );
 
   // Presence is scoped to watchers (never broadcast platform-wide). Subscribe
   // to the participants we actually share conversations with.
@@ -178,18 +191,7 @@ export function useChat(options: { enabled?: boolean } = {}) {
     const socket = chatConnection.getSocket();
     if (!socket) return;
 
-    const currentUserId = (() => {
-      try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) return null;
-        const parts = token.split('.');
-        if (parts.length >= 2) {
-          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-          return payload.sub || payload.id || null;
-        }
-      } catch {}
-      return null;
-    })();
+    const currentUserId = getCurrentUserId();
 
     const handleNewMessage = (rawMsg: ChatMessage) => {
       const isSender = Boolean(currentUserId && rawMsg.senderId === currentUserId);
@@ -308,6 +310,32 @@ export function useChat(options: { enabled?: boolean } = {}) {
       queryClient.invalidateQueries({ queryKey: ['chat-conversations'] });
     };
 
+    /**
+     * A group admin changed the group settings (title, photo, or the
+     * admin-only mode). Patch the cached conversation so the composer
+     * switches to read-only immediately — no refresh needed.
+     */
+    const handleConversationUpdated = (data: {
+      conversationId: string;
+      isAdminOnly?: boolean;
+      title?: string;
+      avatarUrl?: string | null;
+    }) => {
+      queryClient.setQueryData<ConversationSummary[]>(['chat-conversations'], (old) => {
+        if (!old) return old;
+        return old.map((c) =>
+          c.id === data.conversationId
+            ? {
+                ...c,
+                ...(data.isAdminOnly !== undefined ? { isAdminOnly: data.isAdminOnly } : {}),
+                ...(data.title !== undefined ? { title: data.title } : {}),
+                ...(data.avatarUrl !== undefined ? { avatarUrl: data.avatarUrl } : {}),
+              }
+            : c,
+        );
+      });
+    };
+
     const handleSocketException = (exc: any) => {
       console.warn('[Chat] Socket exception received from server:', exc);
       setMessages((prev) =>
@@ -320,6 +348,7 @@ export function useChat(options: { enabled?: boolean } = {}) {
     socket.on('typing_update', handleTypingUpdate);
     socket.on('presence_update', handlePresenceUpdate);
     socket.on('inbox_update', handleInboxUpdate);
+    socket.on('conversation_updated', handleConversationUpdated);
     socket.on('exception', handleSocketException);
 
     // Cross-tab synchronization via BroadcastChannel for tab-local actions
@@ -337,6 +366,7 @@ export function useChat(options: { enabled?: boolean } = {}) {
       socket.off('typing_update', handleTypingUpdate);
       socket.off('presence_update', handlePresenceUpdate);
       socket.off('inbox_update', handleInboxUpdate);
+      socket.off('conversation_updated', handleConversationUpdated);
       socket.off('exception', handleSocketException);
       unsubscribeTabBus();
     };
@@ -346,6 +376,14 @@ export function useChat(options: { enabled?: boolean } = {}) {
   const sendMessage = useCallback(
     async (content: string, type = 'TEXT') => {
       if (!activeConversationId || !content.trim()) return;
+
+      // Defense in depth: an admin may have switched the group to read-only
+      // while this member was typing. The server enforces it too, but we
+      // avoid a pointless optimistic bubble that would immediately fail.
+      if (isReadOnlyForUser) {
+        console.warn('[Chat] Message blocked: this group is read-only for members.');
+        return;
+      }
 
       const clientTempId = `tmp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const optimisticMsg: ChatMessage = {
@@ -451,7 +489,7 @@ export function useChat(options: { enabled?: boolean } = {}) {
         }
       }
     },
-    [activeConversationId, queryClient],
+    [activeConversationId, queryClient, isReadOnlyForUser],
   );
 
   // Throttled typing indicator emitter
@@ -497,6 +535,8 @@ export function useChat(options: { enabled?: boolean } = {}) {
     activeConversationId,
     setActiveConversationId,
     activeConversation,
+    isReadOnlyForUser,
+    currentUserId: getCurrentUserId(),
     messages,
     isLoadingMessages,
     typingUsers,

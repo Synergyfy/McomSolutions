@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { ArrowLeft, MoreVertical, Users, Shield, Circle, UserX, AlertTriangle } from 'lucide-react';
-import { ConversationSummary, ChatMessage, chatApi } from '../../services/chat';
+import { ArrowLeft, MoreVertical, Users, Shield, Circle, UserX, AlertTriangle, Lock } from 'lucide-react';
+import { ConversationSummary, ChatMessage, chatApi, getCurrentUserId } from '../../services/chat';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import TypingIndicator from './TypingIndicator';
@@ -39,18 +39,15 @@ export default function ConversationView({
 
   const isGroup = conversation.type === 'GROUP';
 
-  const currentUserId = (() => {
-    try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-      if (!token) return null;
-      const parts = token.split('.');
-      if (parts.length >= 2) {
-        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-        return payload.sub || payload.id || null;
-      }
-    } catch {}
-    return null;
-  })();
+  /**
+   * A group in admin-only mode is read-only for members: they can read and
+   * receive everything, but only admins may post.
+   */
+  const isAdminOnly = isGroup && Boolean(conversation.isAdminOnly);
+  const isGroupAdmin = conversation.role === 'ADMIN';
+  const isReadOnlyForUser = isAdminOnly && !isGroupAdmin;
+
+  const currentUserId = getCurrentUserId();
 
   const otherParticipant =
     conversation.participants.find((p) => p.userId !== currentUserId) ||
@@ -106,6 +103,12 @@ export default function ConversationView({
               {!isGroup && isAccountManager && (
                 <span className="shrink-0 rounded-full bg-brand-blue/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-brand-blue">
                   Account Manager
+                </span>
+              )}
+              {isGroup && isAdminOnly && (
+                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5" />
+                  Admins only
                 </span>
               )}
             </div>
@@ -239,8 +242,26 @@ export default function ConversationView({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Read-only notice — the group is in admin-only mode */}
+      {isReadOnlyForUser && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 shrink-0">
+          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="font-semibold">Read-only group.</span>
+          <span className="text-amber-700">Only group admins can send messages here.</span>
+        </div>
+      )}
+
       {/* Message Composer */}
-      <MessageComposer onSend={onSend} onTyping={onTyping} />
+      <MessageComposer
+        onSend={onSend}
+        onTyping={onTyping}
+        disabled={isReadOnlyForUser}
+        disabledPlaceholder={
+          isReadOnlyForUser
+            ? 'Only group admins can send messages in this group'
+            : undefined
+        }
+      />
     </div>
   );
 }

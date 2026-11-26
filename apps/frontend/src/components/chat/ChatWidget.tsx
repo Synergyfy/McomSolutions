@@ -28,6 +28,7 @@ export default function ChatWidget() {
     activeConversationId,
     setActiveConversationId,
     activeConversation,
+    currentUserId,
     messages,
     isLoadingMessages,
     typingUsers,
@@ -183,6 +184,7 @@ export default function ChatWidget() {
       <GroupInfoModal
         isOpen={isGroupInfoOpen}
         conversation={activeConversation || null}
+        currentUserId={currentUserId}
         onClose={() => setIsGroupInfoOpen(false)}
         onRefresh={refetchConversations}
       />

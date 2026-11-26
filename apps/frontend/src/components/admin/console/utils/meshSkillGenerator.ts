@@ -45,8 +45,8 @@ export function generateServiceMeshSkillPrompt(
 
   return `---
 name: mcom-backend-to-backend-m2m-skill
-description: Comprehensive executable AI integration skill for direct machine-to-machine (M2M) backend communication between registered ecosystem applications, credential protocol rules, zero-hop service mesh architecture, and event-driven profile/membership synchronization
-version: 2.2.0
+description: Comprehensive executable AI integration skill for direct machine-to-machine (M2M) backend communication between registered ecosystem applications, credential protocol rules, zero-hop service mesh architecture, event-driven profile/membership synchronization, and the optional real-time messaging bridge to the Central Hub chat backbone including group conversations and admin-only (read-only) groups
+version: 2.3.0
 protocol_version: 2026-10-01
 target_role: Full-Stack Engineer / Autonomous AI Coding Agent (Cursor, Copilot, Antigravity, Claude)
 mode: executable-agent-directive
@@ -61,6 +61,14 @@ mode: executable-agent-directive
 > Registered app backends talk **DIRECTLY** to each other over HTTPS.
 > **Requests NEVER transit MCOM Central in the data path.**
 > MCOM Central is an offline identity provider (control plane) that issues short-lived RS256 service tokens and publishes a public JWKS at \`/.well-known/jwks.json\`.
+>
+> **⚠️ ONE DOCUMENTED EXCEPTION — REAL-TIME MESSAGING.**
+> User-to-user chat is the *single* exception to the law above, and it is deliberate.
+> A chat message is addressed to a **person**, not to a peer service, so both sides must
+> resolve to the same canonical Central \`userId\` for membership, blocking, receipts and
+> delivery to be enforceable. If your app needs chat, it calls Central's chat API and the
+> \`/chat\` socket directly — see **§ Real-Time Messaging (Central-Backed Chat Bridge)** below.
+> Every other integration in this skill stays zero-hop.
 
 ---
 
@@ -654,6 +662,374 @@ membership and the app-scoped packages.
 
 ---
 
+## 💬 REAL-TIME MESSAGING (CENTRAL-BACKED CHAT BRIDGE)
+
+### ❓ Question:
+*"Can my app give its users real-time chat with Central Hub users — businesses, agents, account managers, consultants — without building and running its own messaging backend?"*
+
+### 💡 The Authoritative Answer:
+**YES.** MCOM Central Hub runs the **single messaging backbone** for the entire ecosystem. Your app becomes a *scoped client* of Central chat: it mints a session, proxies a handful of REST calls, and opens a WebSocket straight to Central's \`/chat\` namespace.
+
+You **never** store a message in your own database.
+
+### ⚠️ Read this before you build it: chat is the ONE exception to the zero-hop law
+
+Everything above in this skill says app→app traffic never transits Central. **Chat is different, on purpose.**
+
+| Why it must differ |
+|:---|
+| A chat message is addressed to a **human**, not to a peer service. |
+| Sender and receiver must resolve to the **same canonical Central \`userId\`** — that is what makes membership, blocking, message requests, read receipts and read-state enforceable. |
+| Two independent message stores **always** diverge (ordering, edits, deletes, read state). |
+| Users can move between apps; the conversation must follow the **person**, not the app. |
+
+### 🧭 Who owns what
+
+| Concern | Owner |
+|:---|:---|
+| Conversation + message storage (Postgres) | **Central Hub** |
+| Membership, blocking, message requests, read receipts | **Central Hub** |
+| Real-time transport (Socket.IO) | **Central Hub** — namespace \`/chat\` |
+| Canonical identity | **Central Hub** — your app already holds the SSO'd \`mcomUserId\` |
+| Web Push / in-app notification delivery | **Central Hub** |
+| Group permissions (owner / admin / member) and the admin-only mode | **Central Hub** |
+| **Your app's responsibility** | Mint a session, proxy REST, connect the socket, render the UI |
+
+> **Never create a local \`messages\` table.** If you need a local copy, treat it as a read-only cache keyed on the Central \`conversationId\`.
+
+---
+
+### 📋 Prerequisites (all satisfied by registering in the Console)
+
+| Requirement | Where / Why |
+|:---|:---|
+| App registered and **active** | MCOM Console → *Register New Application* |
+| \`clientId\` + \`clientSecret\` | The **same** credentials you already use for service tokens. Nothing new to provision. |
+| The user has **completed SSO into your app** | Creates a live SSO session for that user + client. Without it, \`/chat/session\` returns \`403\`. |
+| Your **frontend origin** registered | Console → your app → *CORS Origins*. This list feeds **both** HTTP CORS and the WebSocket origin allowlist. |
+| Exact origin format | Scheme + host + port — e.g. \`https://app.example.com\`. Not \`app.example.com\`, not a wildcard, not a path. |
+
+> The origin allowlist is refreshed from the database **every 60 seconds**, so a newly registered origin works **without a redeploy**. (\`CHAT_ALLOWED_ORIGINS\` on the Central side is an escape hatch for pre-production.)
+
+---
+
+### Step 1 — Mint a scoped chat session (server-to-server, never in the browser)
+
+\`\`\`http
+POST {MCOM_SOLUTIONS_URL}/api/v1/chat/session
+Authorization: Basic base64(client_id:client_secret)
+Content-Type: application/json
+
+{ "subject_token": "<the user's Central Hub SSO access token>" }
+\`\`\`
+
+\`\`\`json
+{
+  "accessToken": "…",
+  "expiresIn": 900,
+  "socketToken": "…",
+  "socketExpiresIn": 90,
+  "userId": "usr_123"
+}
+\`\`\`
+
+| Field | TTL | Audience | Who may hold it |
+|:---|:---|:---|:---|
+| \`accessToken\` | 15 min | \`chat\` | **Your server only.** Used for the REST calls in Step 2. |
+| \`socketToken\` | 90 s | \`chat:ws\` | **The browser only.** Single-use — its \`jti\` is consumed atomically in Redis on handshake, so a replay is rejected. |
+
+\`subject_token\` is the **same SSO access token** your backend already stores after the SSO code exchange. Central verifies it, then confirms a live SSO session exists for that user **on your \`client_id\`** — which is why a registered app can never mint chat credentials for a user who never signed into it.
+
+\`\`\`typescript
+// src/mcom/centralChat.client.ts
+import axios from 'axios';
+
+const mcomUrl = process.env.MCOM_SOLUTIONS_URL || '${mcomBaseUrl}';
+const basic = Buffer.from(
+  \`\${process.env.MCOM_CLIENT_ID}:\${process.env.MCOM_CLIENT_SECRET}\`,
+).toString('base64');
+
+export interface ChatSession {
+  accessToken: string;
+  expiresIn: number;
+  socketToken: string;
+  socketExpiresIn: number;
+  userId: string;
+}
+
+/**
+ * Exchange the user's SSO token for scoped chat credentials.
+ * NEVER call this from the browser. Cache per user for ~14 minutes.
+ */
+export async function mintChatSession(userSsoAccessToken: string): Promise<ChatSession> {
+  const { data } = await axios.post(
+    \`\${mcomUrl}/api/v1/chat/session\`,
+    { subject_token: userSsoAccessToken },
+    {
+      headers: { Authorization: \`Basic \${basic}\`, 'Content-Type': 'application/json' },
+      timeout: 5000,
+    },
+  );
+  return data;
+}
+\`\`\`
+
+---
+
+### Step 2 — Proxy REST through your backend
+
+Your backend calls Central chat with \`accessToken\`. Your browser calls **your** backend — never Central directly for REST.
+
+| Method | Central path | Purpose |
+|:---|:---|:---|
+| GET | \`/api/v1/chat/conversations\` | List conversations + unread counts |
+| POST | \`/api/v1/chat/conversations/direct\` | Get or create the canonical 1-to-1 conversation (\`targetUserId\`) |
+| POST | \`/api/v1/chat/conversations/group\` | Create a group conversation |
+| GET | \`/api/v1/chat/conversations/:id\` | Conversation detail |
+| GET | \`/api/v1/chat/conversations/:id/messages\` | Cursor-paginated history (\`cursor\`, \`limit\` ≤ 100) |
+| POST | \`/api/v1/chat/conversations/:id/messages\` | Send — the HTTP fallback when the socket is down |
+| POST | \`/api/v1/chat/conversations/:id/read\` | Mark read |
+| GET | \`/api/v1/chat/users?q=\` | Directory search — find a Central user to talk to |
+| GET | \`/api/v1/chat/messages/:messageId/receipts\` | Group read-receipt breakdown ("Seen by 3 of 5") |
+| POST | \`/api/v1/chat/conversations/:id/participants\` | Add a group participant |
+| DELETE | \`/api/v1/chat/conversations/:id/participants/:userId\` | Remove a participant / leave the group |
+| PATCH | \`/api/v1/chat/conversations/:id\` | Group settings — title, photo and the admin-only (read-only) mode. **Admins only.** |
+| PATCH | \`/api/v1/chat/conversations/:id/participants/:userId\` | Promote a member to admin, or demote an admin. **Admins only.** Body: \`{ "role": "ADMIN" \| "MEMBER" }\` |
+| POST | \`/api/v1/chat/conversations/:id/transfer-ownership\` | Hand the group to another participant. **Owner only.** Body: \`{ "userId": "usr_123" }\` |
+| POST | \`/api/v1/chat/conversations/:id/mute\` | Mute / unmute notifications |
+| GET | \`/api/v1/chat/requests\` | Incoming / outgoing / rejected message requests |
+| POST | \`/api/v1/chat/requests\` | Send a message request |
+| POST | \`/api/v1/chat/requests/:id/respond\` | Accept (\`ACCEPT\`) or reject (\`REJECT\`) a request |
+| POST | \`/api/v1/chat/block\` · \`/api/v1/chat/unblock\` | Block / unblock a user |
+| GET | \`/api/v1/chat/blocked\` | List blocked users |
+| GET | \`/api/v1/chat/push/vapid-key\` | Central's Web Push VAPID public key |
+| POST / DELETE | \`/api/v1/chat/push/subscribe\` · \`/unsubscribe\` | Register / remove the browser push subscription |
+
+The \`accessToken\` is a normal Central bearer token — it passes the same validation as any other Central API call.
+
+---
+
+### Step 3 — Connect the browser to the socket
+
+\`\`\`typescript
+// src/lib/chat/connection.ts  (browser)
+import { io, type Socket } from 'socket.io-client';
+
+const CENTRAL_ORIGIN = 'https://api.mcomsolutions.com'; // NO /api/v1 suffix
+
+export async function connectChat(socketToken: string): Promise<Socket> {
+  return io(\`\${CENTRAL_ORIGIN}/chat\`, {
+    auth: { token: socketToken },   // handshake auth ONLY — never a query string
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 15000,
+    randomizationFactor: 0.5,
+  });
+}
+\`\`\`
+
+- The namespace is \`/chat\` — it is **not** under \`/api/v1\`.
+- Send the token in \`handshake.auth.token\` (or an \`Authorization: Bearer\` header). Central **rejects** query-string tokens.
+- The browser needs a **fresh** \`socketToken\` for every (re)connect — the previous one is already spent.
+- Keep the token **in memory only**. Never \`localStorage\`, never a cookie, never a log.
+- Use \`transports: ['websocket']\` — no sticky sessions are needed behind the load balancer.
+
+---
+
+### Step 4 — Reconnect without re-running client-credential checks
+
+Re-verifying the client secret on every reconnect wastes a bcrypt comparison. Central exposes a lighter path: with the still-valid chat \`accessToken\`, mint **only** a new socket token.
+
+\`\`\`http
+POST {MCOM_SOLUTIONS_URL}/api/v1/chat/socket-token
+Authorization: Bearer <chat accessToken>
+\`\`\`
+
+\`\`\`json
+{ "socketToken": "…", "expiresIn": 90 }
+\`\`\`
+
+---
+
+### 📡 Socket event reference
+
+**Client → Server**
+
+| Event | Payload | Notes |
+|:---|:---|:---|
+| \`join_conversation\` | \`{ conversationId }\` | Central verifies you are a participant, then joins the room. Cache the grant on the socket — it is re-used for typing. |
+| \`leave_conversation\` | \`{ conversationId }\` | |
+| \`send_message\` | \`{ conversationId, content, type?, idempotencyKey?, metadata? }\` | \`content\` ≤ 10 000 chars. Ack: \`{ success, message, clientTempId }\`. |
+| \`mark_read\` | \`{ conversationId, messageIds? }\` | Broadcasts a \`messages_read\` receipt to the room. |
+| \`typing_start\` / \`typing_stop\` | \`{ conversationId }\` | Requires \`join_conversation\` first. **No DB hit per keystroke.** |
+| \`viewing_conversation\` / \`stop_viewing_conversation\` | \`{ conversationId }\` | Tells Central the user is looking, so push notifications are suppressed. |
+| \`watch_presence\` / \`unwatch_presence\` | \`{ userIds: string[] }\` | Central accepts **only** users who share a conversation with you. Presence is never broadcast platform-wide. |
+
+**Server → Client**
+
+| Event | Payload | Notes |
+|:---|:---|:---|
+| \`connected\` | \`{ status, userId, serverTime }\` | Handshake ack. |
+| \`new_message\` | message + \`clientTempId\` | Delivered to the conversation room. |
+| \`inbox_update\` | \`{ conversationId, lastMessageText, lastMessageAt, lastMessageSenderId }\` | Sent to each participant's personal room — use it to refresh the inbox preview and unread badge. |
+| \`chat_notification\` | \`{ type, conversationId, messageId, senderId, senderName, content, createdAt }\` | In-app toast. \`type\` is \`NEW_MESSAGE\`, \`MESSAGE_REQUEST\` or \`REQUEST_ACCEPTED\`. |
+| \`messages_read\` | \`{ conversationId, readerUserId, readerName, readMessageIds, readAt }\` | Read receipt. |
+| \`typing_update\` | \`{ conversationId, typingUsers }\` | |
+| \`presence_update\` | \`{ userId, isOnline }\` | Only to users watching that person. |
+| \`conversation_updated\` | \`{ conversationId, isAdminOnly, title, avatarUrl }\` | Emitted when an admin changes the group settings. Use it to switch the composer to read-only **immediately**, without a refresh. |
+
+---
+
+### 🔁 Optimistic send + idempotency
+
+The socket can drop between the send and the acknowledgement. Make the send **idempotent** so a retry never duplicates a message.
+
+\`\`\`typescript
+const clientTempId = crypto.randomUUID();
+
+socket.emit(
+  'send_message',
+  { conversationId, content, idempotencyKey: clientTempId },
+  (ack) => {
+    if (ack?.success) {
+      // ack.message is the PERSISTED Central message — swap it in for the optimistic bubble
+    } else {
+      // ack.error — mark the bubble failed; retry with the SAME idempotencyKey
+    }
+  },
+);
+\`\`\`
+
+Reuse the same \`idempotencyKey\` for every retry of the same logical message. Central de-duplicates on it.
+
+---
+
+### 🧑‍⚖️ Group messaging: owners, admins and read-only groups
+
+Central Hub supports **group conversations** with a two-level permission model. Your app does not need to implement any of it — it is enforced server-side on every send path.
+
+| Role | Meaning |
+|:---|:---|
+| **Owner** | The participant who created the group (\`isOwner: true\`). Exactly one per group. |
+| **Admin** | \`role: "ADMIN"\` — may send in an admin-only group, add/remove members, rename the group and change its settings. |
+| **Member** | \`role: "MEMBER"\` — may read the group and receive its notifications. |
+
+#### Creating a group
+
+\`\`\`http
+POST /api/v1/chat/conversations/group
+Authorization: Bearer <chat accessToken>
+Content-Type: application/json
+
+{ "title": "Acme Weekly Sync", "participantIds": ["usr_2", "usr_3"] }
+\`\`\`
+
+The creator automatically becomes the **owner** and an **ADMIN**; everybody else is a **MEMBER**.
+
+#### The admin-only (read-only) mode
+
+An owner or admin can turn the group into a broadcast channel: **members can read everything and still receive notifications, but only admins may post.**
+
+\`\`\`http
+PATCH /api/v1/chat/conversations/:id
+Authorization: Bearer <chat accessToken>
+Content-Type: application/json
+
+{ "isAdminOnly": true }
+\`\`\`
+
+- The toggle is reversible — \`{ "isAdminOnly": false }\` re-opens the group to everyone.
+- It is enforced in **one** place (the message-send service), so it applies to the socket, to REST and to any partner-app proxy identically. A member's send is rejected with \`403\` and the message body *"This group is read-only for members. Only group admins can send messages"*.
+- The change is written to the transcript as a system message, so the group has an audit trail.
+- Connected clients are told immediately via the \`conversation_updated\` socket event. Render the composer as disabled with an explanatory note — do not let a member type into a box that will reject the message.
+
+#### Promoting, demoting and handing over the group
+
+\`\`\`http
+# Make a member an admin (any admin may do this)
+PATCH /api/v1/chat/conversations/:id/participants/usr_3
+{ "role": "ADMIN" }
+
+# Take the admin role away
+PATCH /api/v1/chat/conversations/:id/participants/usr_3
+{ "role": "MEMBER" }
+
+# Hand the group to somebody else (the OWNER only)
+POST /api/v1/chat/conversations/:id/transfer-ownership
+{ "userId": "usr_3" }
+\`\`\`
+
+Three rules protect the group from ever being orphaned:
+
+1. **The owner cannot be demoted.** Transfer ownership first.
+2. **The owner cannot be removed** from the group — even by another admin. Transfer ownership first.
+3. **The previous owner stays an admin** after a transfer, so the group always keeps at least one admin.
+
+#### Client-side rules
+
+- Read \`role\`, \`isOwner\` and \`isAdminOnly\` from the conversation payload and disable the composer for a member of an admin-only group.
+- **Never trust the client.** Central re-checks membership, the admin-only mode, blocking and message-request decisions on every send — your UI is a convenience, not the control.
+- Treat \`conversation_updated\` as the source of truth for the live mode; a \`GET /chat/conversations\` poll is only the fallback.
+
+---
+
+### 🔐 Messaging security rules (non-negotiable)
+
+1. **\`accessToken\` never leaves your server.** Only the single-use \`socketToken\` may reach the browser.
+2. **Never put a token in a URL.** Central rejects query-string tokens — URLs leak into access logs, browser history, referrers and proxy caches.
+3. **Never persist tokens** in \`localStorage\`/\`sessionStorage\`. Keep them in memory.
+4. **Never log tokens or full message bodies.** Log \`userId\` + \`conversationId\` only.
+5. **Never trust the browser for authorization.** Central re-checks conversation membership on join **and** on every send, and enforces blocking and message-request rules on **every** path (socket, REST, proxy).
+6. **Use \`wss://\` in production.** The origin allowlist is exact-match — never add wildcards.
+7. **Central is the source of truth.** Do not write messages to your own database.
+8. **Verify the HMAC** on any Central webhook you receive, and de-duplicate on \`data.eventId\`.
+
+---
+
+### ⏱️ Rate limits (enforced by Central, per user)
+
+| Action | Limit |
+|:---|:---|
+| \`send_message\` | 20 / 10 s |
+| \`typing_start\` / \`typing_stop\` | 4 / 2 s |
+| \`join_conversation\` | 30 / 60 s |
+| \`POST /api/v1/chat/session\` | 120 / min (per client) |
+| \`POST /api/v1/chat/socket-token\` | 60 / min |
+
+Exceeding a limit returns \`{ success: false, error: "…" }\` on the socket and \`429\` on REST. Back off exponentially.
+
+---
+
+### 🏗️ Operational requirements (confirm with your Central platform owner)
+
+- **Redis is mandatory in production.** Central refuses to start without the Redis Socket.IO adapter — otherwise cross-instance events are silently dropped.
+- **The reverse proxy must upgrade WebSockets** (\`Upgrade\` / \`Connection\` headers). The browser should see \`101 Switching Protocols\`.
+- **Socket transport only** — no sticky sessions required behind the load balancer.
+- **Offline delivery** is in-app notification + Web Push inside Central. There is **no \`chat.message.created\` webhook** to your app — poll the REST endpoints for history and badge counts when the user is offline.
+
+---
+
+### 🩺 Messaging troubleshooting
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| \`403 No active SSO session for this user on the calling application\` | The user has not SSO'd into **your** app, or that session expired | Complete the SSO flow for that user first. Sessions live for the SSO refresh-token TTL. |
+| \`401 Invalid or inactive client\` | Wrong \`clientId\`/\`clientSecret\`, or the app was deactivated | Console → *Rotate Client Secret*. |
+| \`401 Unauthorized: Socket token already used or expired\` | The \`socketToken\` was replayed, or is older than 90 s | Mint a fresh one for every connect attempt. |
+| Browser: \`Origin not allowed by chat CORS\` | The frontend origin is not in the app's *CORS Origins* | Add the exact origin (scheme + host + port) in Console, then allow up to 60 s for the refresh. |
+| Browser: \`401 Unauthorized: Missing auth token\` | Token not sent in \`handshake.auth.token\` | Send it in \`auth\`, never in the URL. |
+| Socket connects then immediately disconnects | The token was minted for a different audience/user | Use the \`socketToken\` returned by \`/chat/session\` for **that** user. |
+| Message sent, never received | Different conversation ids, or the recipient lives in another app | Both sides must use the **same Central** \`conversationId\` — fetch it from \`/chat/conversations\`, never invent one. |
+| \`403 This group is read-only for members\` | The group is in admin-only mode and the sender is a member | Expected. Only admins may post — promote the member or turn the mode off. |
+| \`403 Only group admins can perform this action\` | A member called a group-management endpoint | Expected. Promote the caller to admin first. |
+| \`403 The group owner cannot be demoted\` / \`cannot be removed\` | Trying to demote or remove the group owner | Transfer ownership first, then demote or remove. |
+| \`403 Only the group owner can transfer ownership\` | A non-owner admin tried to hand over the group | Only the owner can transfer ownership. |
+| Duplicate messages after a reconnect | A new \`idempotencyKey\` was generated for the same logical message | Reuse the original key across retries. |
+
+---
+
 ## 🛠️ TROUBLESHOOTING & POLICY MATRIX
 
 | HTTP Status | Cause | Diagnostic / Resolution |
@@ -663,6 +1039,7 @@ membership and the app-scoped packages.
 | \`400 Unknown or inactive target audience\` | Target is disabled or typo | Verify that the target app has \`serviceEnabled: true\` in MCOM Console. |
 | \`401 Invalid client credentials\` | Bad \`clientSecret\` | Verify \`MCOM_CLIENT_ID\` and \`MCOM_CLIENT_SECRET\` in the caller's \`.env\`. |
 | \`401 Unauthorized: Invalid or expired token\` | Receiver validation failure | Ensure the receiver's \`audience\` check matches its registered \`clientId\` and that the system clocks are synchronized. |
+| \`401\`/\`403\` on \`/api/v1/chat/session\` or on a chat socket handshake | Chat credentials or browser origin problem | See the **Messaging troubleshooting** table in *§ Real-Time Messaging* above — it covers SSO-session, single-use-token and CORS-origin failures. |
 
 ---
 
@@ -679,6 +1056,12 @@ MCOM_CLIENT_SECRET=cs_live_...
 # Ingress Whitelist (Optional override: peers permitted to call this app)
 # If omitted, refreshed automatically from Central Registry (/api/v1/ecosystem/services)
 MCOM_ALLOWED_CALLERS=mcom-rewards,mcom-mall
+
+# ─── Real-time messaging (only if this app surfaces Central chat) ────────────
+# Set to false to hide the chat UI without redeploying
+MCOM_CHAT_ENABLED=true
+# Central's Socket.IO namespace — note: NO /api/v1 suffix
+MCOM_CENTRAL_SOCKET_URL=wss://api.mcomsolutions.com/chat
 \`\`\`
 `;
 }
